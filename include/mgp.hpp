@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -4579,25 +4579,25 @@ inline void Result::SetErrorMessage(const char *error_msg) const {
 
 // Parameter:
 
-inline Parameter::Parameter(std::string_view name, Type type) : name(name), type_(type) {}
+inline Parameter::Parameter(std::string_view name, Type type) : name(name), type_(type), list_item_type_(Type::Any) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, bool default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, int64_t default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, double default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, std::string_view default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, const char *default_value)
-    : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, Value default_value)
-    : name(name), type_(type), optional(true), default_value(std::move(default_value)) {}
+    : name(name), type_(type), list_item_type_(Type::Any), optional(true), default_value(std::move(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
@@ -4619,7 +4619,7 @@ inline mgp_type *Parameter::GetMGPType() const {
 
 // Return:
 
-inline Return::Return(std::string_view name, Type type) : name(name), type_(type) {}
+inline Return::Return(std::string_view name, Type type) : name(name), type_(type), list_item_type_(Type::Any) {}
 
 inline Return::Return(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}

@@ -1,0 +1,58 @@
+name: Manual Vulnerability Scan
+concurrency:
+  group: manual-cve-scan-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        type: choice
+        description: "Image architecture (amd|arm)"
+        default: amd
+        options:
+          - amd
+          - arm
+      image_url:
+        type: string
+        description: "URL of docker image to scan"
+        required: true
+      image_type:
+        type: choice
+        options:
+          - mage
+          - memgraph
+        description: "Image type (mage|memgraph)"
+      run_trivy:
+        type: boolean
+        description: "Scan with Trivy"
+        default: true
+      run_grype:
+        type: boolean
+        description: "Scan with Grype"
+        default: true
+      run_cbt:
+        type: boolean
+        description: "Scan with CVE-bin-tool"
+        default: false
+      send_slack_message:
+        type: boolean
+        description: "Send a Slack message"
+        default: false
+
+run-name: Manual CVE Scan for ${{ inputs.arch }} ${{ inputs.image_type }}
+
+jobs:
+  manual-cve-scan:
+    name: Manual CVE Scan
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/reusable_cve_scan.yml
+    with:
+      arch: ${{ inputs.arch }}
+      image_url: ${{ inputs.image_url }}
+      image_type: ${{ inputs.image_type }}
+      run_trivy: ${{ github.event.inputs.run_trivy == 'true' }}
+      run_grype: ${{ github.event.inputs.run_grype == 'true' }}
+      run_cbt: ${{ github.event.inputs.run_cbt == 'true' }}
+      send_slack_message: ${{ github.event.inputs.send_slack_message == 'true' }}
+    secrets: inherit

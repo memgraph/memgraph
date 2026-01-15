@@ -1,0 +1,5 @@
+query: >
+    RETURN text.replace("MAGE is a Memgraph product", "MAGE", "GQLAlchemy") AS output;
+
+output:
+  - output: "GQLAlchemy is a Memgraph product"

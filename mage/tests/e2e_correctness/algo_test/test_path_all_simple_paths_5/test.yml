@@ -1,0 +1,6 @@
+memgraph_query: >
+  MATCH (n:Node {id: 1}) MATCH (m:Node {id: 3})
+  CALL algo.all_simple_paths(n, m, [], 10) YIELD path AS result RETURN result;
+neo4j_query: >
+  MATCH (n:Node {id: 1}) MATCH (m:Node {id: 3})
+  CALL apoc.algo.allSimplePaths(n, m, '', 10) YIELD path AS result RETURN result;

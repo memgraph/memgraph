@@ -1,0 +1,10 @@
+query: >
+    MATCH (n)
+    CALL uuid_generator.get() YIELD uuid
+    SET n.uuid = uuid
+    WITH n
+    WHERE n.uuid != ""
+    RETURN count(n) AS uuid_count;
+
+output:
+    - uuid_count: 3

@@ -1,0 +1,10 @@
+- query: >-
+        CALL node_classification.train(5) YIELD epoch RETURN epoch;
+  output:
+        - epoch: 5
+
+- query: >-
+        MATCH (n {id: 33})
+        CALL node_classification.predict(n) YIELD * RETURN status;
+  output:
+        - status: "Prediction complete."

@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT macaddr_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.macaddr_col) AS macaddr_col_type, toString(row.macaddr_col) AS macaddr_col
+
+output:
+  - macaddr_col_type: 'STRING'
+    macaddr_col: '08:00:2b:01:02:03'

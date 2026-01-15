@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ memgraph::query::Expression *GetExpression(memgraph::query::Query *query) {
 int main() {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
-  auto storage_acc = store->Access();
+  auto storage_acc = store->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor db_acc(storage_acc.get());
 
   memgraph::query::AstStorage ast_storage;

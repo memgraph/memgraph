@@ -1,0 +1,8 @@
+query: >
+  MATCH (source {id: 5}), (sink {id: 0})
+  CALL igraphalg.get_shortest_path(source, sink,NULL,False)
+  YIELD path
+  RETURN extract(node IN path | node.id) AS path;
+
+output:
+    - path: [5, 3, 1, 0]

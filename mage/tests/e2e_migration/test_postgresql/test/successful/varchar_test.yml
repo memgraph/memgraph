@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT varchar_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.varchar_col) AS varchar_col_type, row.varchar_col AS varchar_col
+
+output:
+  - varchar_col_type: 'STRING'
+    varchar_col: 'varchar_test'

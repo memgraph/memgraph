@@ -1,0 +1,19 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.31.0
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080 # NOTE: This is in conflict with running memgraph k8s operator `make run`.
+        protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        kubeletConfiguration:
+          extraArgs:
+            allow-privileged: "true"
+# NOTE: The above configuration only works under Linux.
+# To inspect the cluster run `kubectl get pods -n kube-system`.
+# If some of the pods is in the CrashLoopBackOff status, try runnig `kubectl
+# logs <pod-name> -n kube-system` to get the error message.

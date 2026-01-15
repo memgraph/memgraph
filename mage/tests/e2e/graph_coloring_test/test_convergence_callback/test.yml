@@ -1,0 +1,14 @@
+query: >
+    CALL graph_coloring.color_graph(
+        {max_iterations: 100,
+        no_of_colors: 1,
+        iteration_callbacks: ["ConvergenceCallback"],
+        convergence_callback_tolerance: 2,
+        convergence_callback_actions: ["SimpleTunneling"]
+        })
+        YIELD node, color
+    RETURN COUNT(node.id) AS id_count, COUNT(color) AS color_count;
+
+output:
+    - id_count: 5
+      color_count: 5

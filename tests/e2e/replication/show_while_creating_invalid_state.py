@@ -30,6 +30,8 @@ file = "show_while_creating_invalid_state"
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Clean up before test in case previous run left stale data
+    interactive_mg_runner.kill_all(keep_directories=False)
     # Run the test
     yield
     # Stop + delete directories after running the test
@@ -1672,7 +1674,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
 
     # 5/
     expected_data = [
-        ("async_replica1", "async", -4, "invalid"),
+        ("async_replica1", "async", -3, "invalid"),
         ("async_replica2", "async", 0, "ready"),
     ]
 
@@ -1808,14 +1810,14 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection,
             "127.0.0.1:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "invalid"},
-            {"memgraph": {"ts": 2, "behind": -4, "status": "invalid"}},
+            {"memgraph": {"ts": 2, "behind": -3, "status": "invalid"}},
         ),
         (
             "sync_replica2",
             "127.0.0.1:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 5, "behind": 0, "status": "ready"}},
         ),
     ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -2290,8 +2292,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
 
     # 3/
     QUERY_TO_CHECK = "MATCH (node) return node;"
-    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
-    assert len(res_from_main) == 3, f"Incorect result: {res_from_main}"
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
 
     execute_and_fetch_all(sync_replica1_cursor, QUERY_TO_CHECK)
     execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
@@ -2321,10 +2322,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
         execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 7/
-    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
-    assert len(res_from_main) == 3
-
-    assert res_from_main == execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
 
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")

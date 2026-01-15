@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.min([1.7,1]) AS min;
+
+output:
+  - min: 1

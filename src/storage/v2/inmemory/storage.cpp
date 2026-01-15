@@ -2550,7 +2550,7 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
 StorageInfo InMemoryStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access();  // TODO: override isolation level?
+    auto access = Access(StorageAccessType::READ);  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_properties.size();
@@ -3015,7 +3015,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
       // For analytical no other write txn can be in play
       return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
-    return Access(IsolationLevel::SNAPSHOT_ISOLATION);
+    return Access(StorageAccessType::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
   });
 
   utils::Timer timer;

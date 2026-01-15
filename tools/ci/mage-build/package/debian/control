@@ -1,0 +1,14 @@
+Source: memgraph-mage
+Section: database
+Priority: optional
+Maintainer: Matt James <matthew.james@memgraph.io>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.0
+
+Package: memgraph-mage
+Architecture: @ARCH@
+Replaces: memgraph
+Depends: ${misc:Depends}, memgraph, libcurl4, libpython3.12, openssl, python3, python3-pip, python3-setuptools, adduser, libgomp1, libaio1t64, libatomic1, libdw-dev
+Description: Extra query modules for Memgraph
+ Additional query modules for Memgraph, installed under
+ /usr/lib/memgraph/query_modules/.

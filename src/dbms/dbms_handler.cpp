@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -523,7 +523,7 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
     if (auto db_acc_opt = db_gk.access()) {
       auto &db_acc = *db_acc_opt;
       spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
-      auto storage_accessor = db_acc->Access();
+      auto storage_accessor = db_acc->Access(memgraph::storage::WRITE);
       auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
       db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker,
                                                db_acc->name());

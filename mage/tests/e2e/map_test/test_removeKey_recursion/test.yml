@@ -1,0 +1,9 @@
+query: >
+  RETURN map.remove_key({c: "b", d: {e: "ba", c: "h", a: {c: "z"}}}, "c", {recursive: true}) AS removed
+
+output:
+  - removed: {
+   "d": {
+      "e": "ba"
+   }
+}

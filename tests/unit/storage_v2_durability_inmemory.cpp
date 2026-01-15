@@ -171,7 +171,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_unindexed, memgraph::storage::LabelIndexStats{1, 2});
       ASSERT_TRUE(acc->GetIndexStats(label_unindexed));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -185,7 +185,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}},
                          memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}}));
@@ -199,7 +199,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+properties index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(
           label_indexed,
           std::array{memgraph::storage::PropertyPath{property_b}, memgraph::storage::PropertyPath{property_a},
@@ -219,7 +219,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create nested index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(
           label_indexed,
           std::array{memgraph::storage::PropertyPath{nested1_property, nested2_property, nested3_property}},
@@ -286,7 +286,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       base_vertex_gids_[i] = vertex.Gid();
       if (i < kNumBaseVertices / 2) {
@@ -357,7 +357,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Create edges.
     for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       auto vertex1 = acc->FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex1);
       auto vertex2 = acc->FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], memgraph::storage::View::OLD);
@@ -407,7 +407,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_unused, memgraph::storage::LabelIndexStats{123, 9.87});
       ASSERT_TRUE(acc->GetIndexStats(label_unused));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -420,7 +420,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}},
                          memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}}));
@@ -443,11 +443,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Storage accessor.
     std::unique_ptr<memgraph::storage::Storage::Accessor> acc;
-    if (single_transaction) acc = store->Access();
+    if (single_transaction) acc = store->Access(memgraph::storage::WRITE);
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumExtendedVertices; ++i) {
-      if (!single_transaction) acc = store->Access();
+      if (!single_transaction) acc = store->Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       extended_vertex_gids_[i] = vertex.Gid();
       if (i < kNumExtendedVertices / 2) {
@@ -462,7 +462,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Create edges.
     for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
-      if (!single_transaction) acc = store->Access();
+      if (!single_transaction) acc = store->Access(memgraph::storage::WRITE);
       auto vertex1 =
           acc->FindVertex(extended_vertex_gids_[(i / 5) % kNumExtendedVertices], memgraph::storage::View::NEW);
       ASSERT_TRUE(vertex1);
@@ -613,7 +613,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ASSERT_FALSE(store->enum_store_.ToEnum("enum2", "v1").has_value());
 
     // Create storage accessor.
-    auto acc = store->Access();
+    auto acc = store->Access(memgraph::storage::WRITE);
 
     // Verify indices info.
     {
@@ -1465,7 +1465,7 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -1508,7 +1508,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -1586,7 +1586,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -1606,7 +1606,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -1699,7 +1699,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -1767,7 +1767,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -1853,7 +1853,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -1872,7 +1872,7 @@ TEST_P(DurabilityTest, SnapshotBackup) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -1943,7 +1943,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2011,7 +2011,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, true, false);
     // Remove properties from edges.
     {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
         auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(in_edges.has_value());
@@ -2055,7 +2055,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2100,7 +2100,7 @@ TEST_P(DurabilityTest, WalBasic) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2125,7 +2125,7 @@ TEST_P(DurabilityTest, WalBackup) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -2230,7 +2230,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2257,7 +2257,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     gid_v1 = v1.Gid();
     auto v2 = acc->CreateVertex();
@@ -2296,7 +2296,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
 
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
@@ -2379,7 +2379,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2406,7 +2406,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
     auto indices = [&] {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto res = acc->ListAllIndices();
       (void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
       return res;
@@ -2422,7 +2422,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     auto constraints = [&] {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto res = acc->ListAllConstraints();
       (void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
       return res;
@@ -2438,7 +2438,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
       ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
       ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).has_value());
     }
@@ -2459,7 +2459,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_properties.size(), 0);
@@ -2476,7 +2476,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2506,8 +2506,8 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc1 = db.Access();
-    auto acc2 = db.Access();
+    auto acc1 = db.Access(memgraph::storage::WRITE);
+    auto acc2 = db.Access(memgraph::storage::WRITE);
 
     // Create vertex in transaction 2.
     {
@@ -2517,7 +2517,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
           vertex2.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(2)).has_value());
     }
 
-    auto acc3 = db.Access();
+    auto acc3 = db.Access(memgraph::storage::WRITE);
 
     // Create vertex in transaction 3.
     {
@@ -2604,7 +2604,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (auto [gid, id] : std::vector<std::pair<memgraph::storage::Gid, int64_t>>{{gid1, 1}, {gid2, 2}, {gid3, 3}}) {
       auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
@@ -2620,7 +2620,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2648,7 +2648,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
     CreateExtendedDataset(db.storage());
     auto label_indexed = db.storage()->NameToLabel("base_indexed");
     auto label_unindexed = db.storage()->NameToLabel("base_unindexed");
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
       auto has_indexed = vertex.HasLabel(label_indexed, memgraph::storage::View::OLD);
       ASSERT_TRUE(has_indexed.has_value());
@@ -2677,7 +2677,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2708,7 +2708,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       memgraph::dbms::Database db{config, repl_state};
       // Create one million vertices.
       for (uint64_t i = 0; i < 1000000; ++i) {
-        auto acc = db.Access();
+        auto acc = db.Access(memgraph::storage::WRITE);
         acc->CreateVertex();
         MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
                   "Couldn't commit transaction!");
@@ -2751,7 +2751,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto iterable = acc->Vertices(memgraph::storage::View::OLD);
       for (auto it = iterable.begin(); it != iterable.end(); ++it) {
         ++count;
@@ -2760,7 +2760,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     }
 
     {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       for (uint64_t i = 0; i < kExtraItems; ++i) {
         acc->CreateVertex();
       }
@@ -2783,7 +2783,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   memgraph::dbms::Database db{config, repl_state};
   {
     uint64_t current = 0;
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {
       ++current;
@@ -2793,7 +2793,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -2818,7 +2818,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -2851,13 +2851,13 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_TRUE(
@@ -2921,7 +2921,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -2954,13 +2954,13 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_TRUE(
@@ -3056,7 +3056,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3081,7 +3081,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
     ASSERT_TRUE(vertex1.AddLabel(acc->NameToLabel("nandare")).has_value());
@@ -3131,7 +3131,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     uint64_t count = 0;
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {
@@ -3142,7 +3142,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3191,7 +3191,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3266,7 +3266,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3351,7 +3351,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     vertex_gid = vertex.Gid();
     if (GetParam()) {
@@ -3378,7 +3378,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                 /* ignoring schema after recovery */ false,
                 /* verify_info = */ false);
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
     auto labels = vertex->Labels(memgraph::storage::View::OLD);
@@ -3396,7 +3396,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3421,7 +3421,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -3457,7 +3457,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     memgraph::utils::Timer timer;
     // Allow at least 6 snapshots to be created.
     while (timer.Elapsed().count() < 13.0) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       acc->CreateVertex();
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ++items_created;
@@ -3485,7 +3485,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
           memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       for (uint64_t j = 0; j < items_created; ++j) {
         auto vertex = acc->FindVertex(memgraph::storage::Gid::FromUint(j), memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
@@ -3530,7 +3530,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
@@ -3586,7 +3586,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3844,7 +3844,7 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3893,7 +3893,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3939,7 +3939,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
@@ -3979,7 +3979,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
 
   // Check if data has been loaded correctly.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
 
     for (auto i{0U}; i < kNumBaseEdges; ++i) {
       auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
@@ -3996,7 +3996,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
 
     auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges), memgraph::storage::View::OLD);
     ASSERT_TRUE(edge.has_value());
@@ -4391,7 +4391,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
 
   // Create some data to ensure snapshot has content
   {
-    auto acc = mem_storage->Access();
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
     (void)acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }

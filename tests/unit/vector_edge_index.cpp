@@ -71,7 +71,7 @@ class VectorEdgeIndexTest : public testing::Test {
 
 TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
   this->CreateEdgeIndex(2, 10);
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
   this->CreateEdge(acc.get(), "wrong_property", property_value, test_edge_type);
@@ -83,7 +83,7 @@ TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
 
 TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   this->CreateEdgeIndex(2, 10);
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
   ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -94,7 +94,7 @@ TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
 
 TEST_F(VectorEdgeIndexTest, InvalidDimensionTest) {
   this->CreateEdgeIndex(2, 10);
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   std::vector<PropertyValue> properties(3, PropertyValue(1.0));
   PropertyValue property_value(properties);
   EXPECT_THROW(this->CreateEdge(acc.get(), test_property, property_value, test_edge_type),
@@ -103,7 +103,7 @@ TEST_F(VectorEdgeIndexTest, InvalidDimensionTest) {
 
 TEST_F(VectorEdgeIndexTest, SearchWithMultipleEdges) {
   this->CreateEdgeIndex(2, 10);
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   PropertyValue properties1(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   [[maybe_unused]] auto [from_vertex1, to_vertex1, edge1] =
       this->CreateEdge(acc.get(), test_property, properties1, test_edge_type);
@@ -127,7 +127,7 @@ TEST_F(VectorEdgeIndexTest, ConcurrencyTest) {
   threads.reserve(index_size);
   for (int i = 0; i < index_size; i++) {
     threads.emplace_back(std::thread([this, i]() {
-      auto acc = this->storage->Access();
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
       PropertyValue properties(
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
       [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
@@ -138,7 +138,7 @@ TEST_F(VectorEdgeIndexTest, ConcurrencyTest) {
   for (auto &thread : threads) {
     thread.join();
   }
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, index_size);
 }
 
@@ -146,14 +146,14 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
   this->CreateEdgeIndex(2, 10);
   Gid edge_gid;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     PropertyValue initial_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, initial_value, test_edge_type);
     edge_gid = edge.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     PropertyValue updated_value(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
     MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), updated_value).has_value());
@@ -167,7 +167,7 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
 
 TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {
   this->CreateEdgeIndex(2, 10);
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
   auto maybe_deleted_edge = acc->DeleteEdge(&edge);
@@ -184,32 +184,32 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
   PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   PropertyValue null_value;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     edge_gid = edge.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-    acc = this->storage->Access();
+    acc = this->storage->Access(memgraph::storage::WRITE);
     edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), null_value).has_value());
     acc->Abort();
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), null_value).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(edge.SetProperty(acc->NameToProperty(test_property), properties).has_value());
     acc->Abort();
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     // add new edge to the index
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
@@ -218,7 +218,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     // add new edge to the index
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
@@ -228,7 +228,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     // delete the edge
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     EXPECT_EQ(acc->DeleteEdge(&edge).has_value(), true);
@@ -242,25 +242,25 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
   this->CreateEdgeIndex(2, 10);
   Gid edge_gid;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     edge_gid = edge.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     auto maybe_deleted_edge = acc->DeleteEdge(&edge);
     EXPECT_EQ(maybe_deleted_edge.has_value(), true);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
     mem_storage->indices_.vector_edge_index_.RemoveObsoleteEntries(std::stop_token());
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
@@ -273,13 +273,13 @@ TEST_F(VectorEdgeIndexTest, IndexResizeTest) {
   auto capacity = 1;
   PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   while (size <= capacity) {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     size++;
   }
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   const auto all_vector_indices = acc->ListAllVectorEdgeIndices();
   size = all_vector_indices[0].size;
   capacity = all_vector_indices[0].capacity;
@@ -289,7 +289,7 @@ TEST_F(VectorEdgeIndexTest, IndexResizeTest) {
 TEST_F(VectorEdgeIndexTest, DropIndexTest) {
   this->CreateEdgeIndex(2, 10);
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
@@ -301,7 +301,7 @@ TEST_F(VectorEdgeIndexTest, DropIndexTest) {
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
   }
 }
@@ -309,7 +309,7 @@ TEST_F(VectorEdgeIndexTest, DropIndexTest) {
 TEST_F(VectorEdgeIndexTest, ClearTest) {
   this->CreateEdgeIndex(2, 10);
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
@@ -318,14 +318,14 @@ TEST_F(VectorEdgeIndexTest, ClearTest) {
     mem_storage->indices_.DropGraphClearIndices();
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
   }
 }
 
 TEST_F(VectorEdgeIndexTest, CreateIndexWhenEdgesExistsAlreadyTest) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     static constexpr std::string_view test_edge_type_2 = "test_edge_type2";
     [[maybe_unused]] auto [from_vertex1, to_vertex1, edge1] =
@@ -336,7 +336,7 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWhenEdgesExistsAlreadyTest) {
   }
   this->CreateEdgeIndex(2, 10);
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1);
   }
 }

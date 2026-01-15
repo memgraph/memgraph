@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,9 +11,11 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 #include <mgclient.hpp>
@@ -29,6 +31,19 @@ void CreateEdge(mg::Client &client, int from_vertex, int to_vertex, int edge_id)
 int GetNumberOfAllVertices(mg::Client &client);
 void WaitForNumberOfAllVertices(mg::Client &client, int number_of_vertices);
 void CheckNumberOfAllVertices(mg::Client &client, int expected_number_of_vertices);
+
+template <typename Predicate>
+bool PollUntilTrue(const Predicate &predicate, int max_attempts = 5, int delay_ms = 100) {
+  for (int attempt = 0; attempt < max_attempts; ++attempt) {
+    if (predicate()) {
+      return true;
+    }
+    if (attempt < max_attempts - 1) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    }
+  }
+  return false;
+}
 std::optional<mg::Value> GetVertex(mg::Client &client, std::string_view label, int vertex_id);
 bool VertexExists(mg::Client &client, std::string_view label, int vertex_id);
 void CheckVertexMissing(mg::Client &client, std::string_view label, int vertex_id);

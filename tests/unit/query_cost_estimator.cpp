@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -78,7 +78,7 @@ class QueryCostEstimator : public ::testing::Test {
                       .has_value());
       ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    storage_dba.emplace(db->Access());
+    storage_dba.emplace(db->Access(memgraph::storage::WRITE));
     dba.emplace(storage_dba->get());
   }
 

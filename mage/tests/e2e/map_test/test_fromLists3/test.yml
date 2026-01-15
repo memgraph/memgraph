@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_lists(["name", "surname","list","date"],["Pero", "Peric",[1,2,4,5],{year: 2020,month: 10,day: 10}]) AS result;
+
+output:
+  - result: {"date": {"year": 2020,"month": 10,"day": 10},"list": [1,2,4,5],"name": "Pero","surname": "Peric"}

@@ -1,0 +1,4 @@
+query: >
+  RETURN math.round(1.789, 2, "DOWN") AS result;
+output:
+  - result: 1.78

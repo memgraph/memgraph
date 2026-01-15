@@ -1,0 +1,24 @@
+query: >
+  MATCH (p:Phoebe)
+  CALL neighbors.by_hop(p, ["FRIENDS"], 3) YIELD nodes
+  RETURN nodes
+
+output:
+   - nodes: [{
+    "labels": [
+       "Monica"
+    ],
+    "properties": {},
+ }]
+   - nodes: [{
+    "labels": [
+       "Ross"
+    ],
+    "properties": {},
+ }, {
+    "labels": [
+       "Rachel"
+    ],
+    "properties": {},
+ }]
+   - nodes: []

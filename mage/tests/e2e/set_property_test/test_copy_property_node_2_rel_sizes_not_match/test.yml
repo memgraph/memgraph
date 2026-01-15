@@ -1,0 +1,9 @@
+query: >
+    MATCH (n {id: 1})-[r]->(m {id: 2})
+    CALL set_property.copyPropertyNode2Rel(n, ['prop', 'prop2'], r, ['prop']) YIELD result
+    WITH result
+    MATCH (n {id: 1})-[r]->(m {id: 2})
+    RETURN result, n.prop AS p1, r.prop as p2;
+
+exception: >
+    CopyPropertyNode2Rel source properties and target properties are not of the same size!

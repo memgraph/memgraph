@@ -1,0 +1,19 @@
+query: >
+  MATCH (source {id: 5}), (sink {id: 0})
+  CALL igraphalg.mincut(source, sink, "weight",False)
+  YIELD node, partition_id
+  RETURN node.id as node_id, partition_id;
+
+output:
+    - node_id: 1
+      partition_id: 0
+    - node_id: 2
+      partition_id: 0
+    - node_id: 3
+      partition_id: 0
+    - node_id: 4
+      partition_id: 0
+    - node_id: 5
+      partition_id: 0
+    - node_id: 0
+      partition_id: 1

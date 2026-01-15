@@ -1,0 +1,6 @@
+- query: >
+        CALL node_classification.set_model_parameters({layer_type: "GATJK", learning_rate: 0.001, hidden_features_size: [16,16], batch_size: 100})
+        YIELD * RETURN node_id_property;
+
+  output:
+        - node_id_property: id

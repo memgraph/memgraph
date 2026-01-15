@@ -1,0 +1,20 @@
+- query: >-
+    CALL tgn.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  output:
+    - embeddings_count: 16
+- query: >-
+    CALL tgn.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  output:
+    - embeddings_count: 28
+- query: >-
+    CALL tgn.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  output:
+    - embeddings_count: 28
+- query: >-
+    CALL tgn.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  output:
+    - embeddings_count: 47

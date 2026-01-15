@@ -1,0 +1,4 @@
+query: >
+  MATCH (n) WHERE n:Node1 OR n:Node2 WITH collect(n) as nodes CALL refactor.rename_node_property("title", "description", nodes) YIELD nodes_changed RETURN nodes_changed;
+output:
+  - nodes_changed: 2

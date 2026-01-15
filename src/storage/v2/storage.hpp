@@ -727,11 +727,7 @@ class Storage {
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) = 0;
-  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
-    return Access(StorageAccessType::WRITE, override_isolation_level, std::nullopt);
-  }
   std::unique_ptr<Accessor> Access(StorageAccessType rw_type) { return Access(rw_type, std::nullopt, std::nullopt); }
-  std::unique_ptr<Accessor> Access() { return Access(StorageAccessType::WRITE, {}, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                  std::optional<std::chrono::milliseconds> timeout) = 0;

@@ -1,0 +1,25 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ${MYSQL_CONTAINER}
+    ports:
+      - "3306:3306"
+    networks:
+      - memgraph_test_network
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: memgraph
+      MYSQL_PASSWORD: memgraph_password
+    volumes:
+      - ./data:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+networks:
+  memgraph_test_network:
+    external: true

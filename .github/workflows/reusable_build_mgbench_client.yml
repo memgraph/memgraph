@@ -135,4 +135,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

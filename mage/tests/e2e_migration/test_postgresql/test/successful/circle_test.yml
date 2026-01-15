@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT circle_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.circle_col) AS circle_col_type, toString(row.circle_col) AS circle_col
+
+output:
+  - circle_col_type: 'STRING'
+    circle_col: '<(1,2),3>'

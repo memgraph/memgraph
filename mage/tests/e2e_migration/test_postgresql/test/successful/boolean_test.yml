@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT boolean_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.boolean_col) AS boolean_col_type, row.boolean_col AS boolean_col
+
+output:
+  - boolean_col_type: 'BOOLEAN'
+    boolean_col: true

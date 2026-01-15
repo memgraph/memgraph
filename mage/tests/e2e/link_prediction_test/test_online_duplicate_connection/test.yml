@@ -1,0 +1,7 @@
+# It should work normally when having two connection src->dest nodes
+- query: >-
+    CALL link_prediction.train()
+    YIELD *
+    RETURN 0 as check;
+  output:
+    - check: 0

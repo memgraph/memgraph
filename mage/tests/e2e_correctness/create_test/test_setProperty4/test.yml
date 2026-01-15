@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH (d:Dog), (h:Human)
+  CALL create.set_property([d,id(h)],"key",[1,2,3]) YIELD node RETURN node;
+neo4j_query: MATCH (n:Dog), (h:Human) CALL apoc.create.setProperty([n,h], "key", [1,2,3]) YIELD node RETURN node;

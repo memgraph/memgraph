@@ -1,0 +1,25 @@
+query: >
+  MATCH (p:Strategy {name: "Amber"})
+  CALL path.subgraph_nodes(p, {
+      relationshipFilter: ["FOLLOWS>", "KNOWS"],
+      labelFilter: ["+Strategy", "/Operations", ">Research", "-Support", "Analytics"]
+  })
+  YIELD nodes
+  RETURN nodes ORDER BY id(nodes) ASC
+
+output:
+      - nodes:
+          labels:
+            - Research
+          properties:
+            name: Matt
+      - nodes:
+          labels:
+            - Operations
+          properties:
+            name: Jill
+      - nodes:
+          labels:
+            - Operations
+          properties:
+            name: Steve

@@ -5507,6 +5507,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
   MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
+  auto *storage_acc = current_db.db_transactional_accessor_.get();
 
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
   std::vector<std::string> header;
@@ -5515,7 +5516,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
-      handler = [database, dba] {
+      handler = [database, dba, storage_acc] {
         auto *storage = database->storage();
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
@@ -5528,7 +5529,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view vector_label_property_index_mark{"label+property_vector"};
         const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
         auto info = dba->ListAllIndices();
-        auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_properties.size() + info.text_indices.size());
         for (const auto &item : info.label) {
@@ -5745,7 +5745,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         auto *storage = database->storage();
         auto vector_indices = dba->ListAllVectorIndices();
         auto vector_edge_indices = dba->ListAllVectorEdgeIndices();
-        auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(vector_indices.size());
 
@@ -8029,7 +8028,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     QueryAllocator execution_memory{};
 
     // create a new transaction for each trigger
-    auto tx_acc = db_acc->Access();
+    auto tx_acc = db_acc->Access(memgraph::storage::WRITE);
     DbAccessor db_accessor{tx_acc.get()};
 
     // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
@@ -8040,7 +8039,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       auto is_main = interpreter_context->repl_state.ReadLock()->IsMain();
       trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, /* transaction_status = */ nullptr, trigger_context,
-                      is_main, triggering_user);
+                      is_main, triggering_user, interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
@@ -8242,7 +8241,8 @@ void Interpreter::Commit() {
         auto is_main = interpreter_context_->repl_state.ReadLock()->IsMain();
         trigger.Execute(&*current_db_.execution_db_accessor_, *current_db_.db_acc_, execution_memory.resource(),
                         flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
-                        &transaction_status_, *trigger_context, is_main, user_or_role_);
+                        &transaction_status_, *trigger_context, is_main, user_or_role_,
+                        interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));

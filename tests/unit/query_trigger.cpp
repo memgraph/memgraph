@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -87,7 +87,7 @@ class TriggerContextTest : public ::testing::Test {
   }
 
   memgraph::storage::Storage::Accessor *StartTransaction() {
-    accessors.emplace_back(db->Access());
+    accessors.emplace_back(db->Access(memgraph::storage::WRITE));
     return accessors.back().get();
   }
 
@@ -920,7 +920,7 @@ class TriggerStoreTest : public ::testing::Test {
 
     config = disk_test_utils::GenerateOnDiskConfig(testSuite);
     storage = std::make_unique<StorageType>(config);
-    storage_accessor = storage->Access();
+    storage_accessor = storage->Access(memgraph::storage::WRITE);
     dba.emplace(storage_accessor.get());
   }
 

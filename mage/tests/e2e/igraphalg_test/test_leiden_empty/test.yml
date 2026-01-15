@@ -1,0 +1,6 @@
+query: >
+    CALL igraphalg.community_leiden("CPM",NULL,0.6)
+    YIELD *
+    RETURN *
+
+output: []
