@@ -10261,7 +10261,11 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
           // Optimized to avoid excessive TypedValue constructions if possible
           const TypedValue other_sum = other_value * TypedValue(other_count);
           const TypedValue main_sum = main_value * TypedValue(old_main_count);
-          main_value = (main_sum + other_sum) / TypedValue(main_count);
+          if (main_count != 0) {
+            main_value = (main_sum + other_sum) / TypedValue(main_count);
+          } else {
+            main_value = TypedValue();
+          }
           break;
         }
         case Aggregation::Op::MIN: {

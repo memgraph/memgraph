@@ -9,6 +9,9 @@ copy_parallel_e2e_python_files(conftest.py)
 copy_parallel_e2e_python_files(common.py)
 copy_parallel_e2e_python_files(test_exceptions.py)
 copy_parallel_e2e_python_files(test_fgac.py)
+copy_parallel_e2e_python_files(test_parallel_correctness.py)
+copy_parallel_e2e_python_files(test_hops_limit.py)
+copy_parallel_e2e_python_files(test_explain.py)
 
 # Copy configuration and runner files
 copy_e2e_files(parallel workloads.yaml)

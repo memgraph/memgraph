@@ -14,3 +14,15 @@ workloads:
   - name: "Parallel e2e tests fgac"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["parallel/test_fgac.py"]
+
+  - name: "Parallel e2e tests correctness"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_parallel_correctness.py"]
+
+  - name: "Parallel e2e tests hops limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_hops_limit.py"]
+
+  - name: "Parallel e2e tests explain"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_explain.py"]
