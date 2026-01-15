@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,8 +10,6 @@
 // licenses/APL.txt.
 
 #pragma once
-
-#include <span>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
@@ -30,8 +28,10 @@ struct Constraints {
   Constraints &operator=(Constraints &&) = delete;
   ~Constraints() = default;
 
-  void AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) const;
   void DropGraphClearConstraints() const;
+  /// Remove all POPULATING constraints (for abort handling).
+  /// Since schema transactions are exclusive, any POPULATING constraint belongs to the current transaction.
+  void AbortPopulating() const;
   bool HasTypeConstraints() const;
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;

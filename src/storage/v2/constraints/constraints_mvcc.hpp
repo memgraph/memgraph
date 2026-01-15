@@ -15,8 +15,11 @@
 
 namespace memgraph::storage {
 
-/// IndexStatus is an alias to SchemaStatus for backwards compatibility.
+/// ConstraintStatus is an alias to SchemaStatus for backwards compatibility.
 /// See SchemaStatus for documentation.
-using IndexStatus = SchemaStatus;
+///
+/// NOTE: Dropped constraints are erased from the container (copy-on-write),
+/// so no dropped_at tracking is needed.
+using ConstraintStatus = SchemaStatus;
 
 }  // namespace memgraph::storage

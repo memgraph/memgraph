@@ -56,6 +56,43 @@ bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid 
 
 }  // namespace
 
+// --- ActiveConstraints implementation ---
+
+bool DiskUniqueConstraints::ActiveConstraints::ConstraintRegistered(LabelId label,
+                                                                    std::set<PropertyId> const &properties) const {
+  return constraints_->ConstraintRegistered(label, properties);
+}
+
+std::vector<std::pair<LabelId, std::set<PropertyId>>> DiskUniqueConstraints::ActiveConstraints::ListConstraints(
+    [[maybe_unused]] uint64_t start_timestamp) const {
+  // Disk storage doesn't have MVCC for constraints, return all
+  return constraints_->ListConstraints();
+}
+
+void DiskUniqueConstraints::ActiveConstraints::UpdateBeforeCommit([[maybe_unused]] const Vertex *vertex,
+                                                                  [[maybe_unused]] const Transaction &tx) {
+  // Disk storage handles this differently - no-op for active constraints
+}
+
+auto DiskUniqueConstraints::ActiveConstraints::GetAbortProcessor() const -> AbortProcessor {
+  // Disk storage handles abort differently - return empty processor
+  return AbortProcessor{};
+}
+
+void DiskUniqueConstraints::ActiveConstraints::CollectForAbort([[maybe_unused]] AbortProcessor &processor,
+                                                               [[maybe_unused]] Vertex const *vertex) const {
+  // Disk storage handles abort differently - no-op for active constraints
+}
+
+void DiskUniqueConstraints::ActiveConstraints::AbortEntries([[maybe_unused]] AbortableInfo const &info,
+                                                            [[maybe_unused]] uint64_t exact_start_timestamp) {
+  // Disk storage handles this differently - no-op for active constraints
+}
+
+auto DiskUniqueConstraints::GetActiveConstraints() const -> std::unique_ptr<UniqueActiveConstraints> {
+  return std::make_unique<ActiveConstraints>(this);
+}
+
 DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
   kvstore_ = std::make_unique<RocksDBStorage>();
   utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
@@ -269,7 +306,7 @@ DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(Labe
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
 }
 
-bool DiskUniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
+bool DiskUniqueConstraints::ConstraintRegistered(LabelId label, const std::set<PropertyId> &properties) const {
   return constraints_.contains(std::make_pair(label, properties));
 }
 
