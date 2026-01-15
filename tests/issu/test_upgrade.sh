@@ -43,6 +43,14 @@ RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 TEST_ROUTING=${TEST_ROUTING:-false}
 DEBUG=${DEBUG:-false}
 
+# clear the minikube image cache
+if [[ "$(arch)" == "arm64" ]]; then
+  ARCH="arm64"
+else
+  ARCH="amd64"
+fi
+rm -rfv "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
+
 # --- Parse flags ---
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -271,13 +279,6 @@ minikube_has_image() {
   fi
 }
 
-# clear the minikube image cache
-if [[ "$(arch)" == "arm64" ]]; then
-  ARCH="arm64"
-else
-  ARCH="amd64"
-fi
-rm -rfv "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
 
 load_into_minikube_if_missing() {
   local image="$1"
