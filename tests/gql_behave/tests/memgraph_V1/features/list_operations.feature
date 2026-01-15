@@ -363,7 +363,9 @@ Feature: List operators
             MATCH (keanu:Person {name: 'Keanu Reeves'})
             RETURN [p = (keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(nodes(p))] AS nodes
             """
-        Then an error should be raised
+        Then the result should be:
+            | nodes        |
+            | [2, 2, 2, 2] |
 
      Scenario: Multiple list pattern comprehensions in With
         Given graph "graph_keanu"

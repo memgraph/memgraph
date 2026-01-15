@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,20 +84,23 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   for (auto &expr : body.named_expressions) {
     expr->Accept(*this);
   }
-  auto &scope = scopes_.back();
+  // Note: We use scope_idx instead of references because pattern comprehensions
+  // in expressions push/pop scopes, which can cause vector reallocation and
+  // invalidate references. Indices remain valid across reallocation.
+  auto const scope_idx = scopes_.size() - 1;
 
   SetEvaluationModeOnPropertyLookups(body);
 
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
-    for (const auto &sym_pair : scope.symbols) {
+    for (const auto &sym_pair : scopes_[scope_idx].symbols) {
       if (!sym_pair.second.user_declared()) {
         continue;
       }
       user_symbols.emplace_back(sym_pair.second);
     }
-    if (scope.in_return && user_symbols.empty()) {
+    if (scopes_[scope_idx].in_return && user_symbols.empty()) {
       throw SemanticException("There are no variables in scope to use for '*'.");
     }
   }
@@ -105,18 +108,18 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   // declares only those established through named expressions. New declarations
   // must not be visible inside named expressions themselves.
   bool removed_old_names = false;
-  if ((!where && body.order_by.empty()) || scope.has_aggregation) {
+  if ((!where && body.order_by.empty()) || scopes_[scope_idx].has_aggregation) {
     // WHERE and ORDER BY need to see both the old and new symbols, unless we
     // have an aggregation. Therefore, we can clear the symbols immediately if
     // there is neither ORDER BY nor WHERE, or we have an aggregation.
-    scope.symbols.clear();
+    scopes_[scope_idx].symbols.clear();
     removed_old_names = true;
   }
   // Create symbols for named expressions.
   std::unordered_set<std::string> new_names;
   for (const auto &user_sym : user_symbols) {
     new_names.insert(user_sym.name());
-    scope.symbols[user_sym.name()] = user_sym;
+    scopes_[scope_idx].symbols[user_sym.name()] = user_sym;
   }
   for (auto &named_expr : body.named_expressions) {
     const auto &name = named_expr->name_;
@@ -127,35 +130,36 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     // new symbol would have a more specific type.
     named_expr->MapTo(CreateSymbol(name, true, Symbol::Type::ANY, named_expr->token_position_));
   }
-  scope.in_order_by = true;
+  scopes_[scope_idx].in_order_by = true;
   for (const auto &order_pair : body.order_by) {
     order_pair.expression->Accept(*this);
   }
-  scope.in_order_by = false;
+  scopes_[scope_idx].in_order_by = false;
   if (body.skip) {
-    scope.in_skip = true;
+    scopes_[scope_idx].in_skip = true;
     body.skip->Accept(*this);
-    scope.in_skip = false;
+    scopes_[scope_idx].in_skip = false;
   }
   if (body.limit) {
-    scope.in_limit = true;
+    scopes_[scope_idx].in_limit = true;
     body.limit->Accept(*this);
-    scope.in_limit = false;
+    scopes_[scope_idx].in_limit = false;
   }
   if (where) where->Accept(*this);
   if (!removed_old_names) {
     // We have an ORDER BY or WHERE, but no aggregation, which means we didn't
     // clear the old symbols, so do it now. We cannot just call clear, because
     // we've added new symbols.
-    for (auto sym_it = scope.symbols.begin(); sym_it != scope.symbols.end();) {
+    auto &symbols = scopes_[scope_idx].symbols;
+    for (auto sym_it = symbols.begin(); sym_it != symbols.end();) {
       if (!new_names.contains(sym_it->first)) {
-        sym_it = scope.symbols.erase(sym_it);
+        sym_it = symbols.erase(sym_it);
       } else {
-        sym_it++;
+        ++sym_it;
       }
     }
   }
-  scopes_.back().has_aggregation = false;
+  scopes_[scope_idx].has_aggregation = false;
 }
 
 // CypherQuery
@@ -948,6 +952,17 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
+
+  // If there's a named path variable (e.g., [path = (a)-[]->(b) | ...]),
+  // create a PATH symbol for it before the children are visited.
+  // This is necessary because variable_ is visited before pattern_,
+  // so in_pattern is not yet true when Visit(Identifier) is called for variable_.
+  // Without this, Visit(Identifier) will throw UnboundVariableError.
+  if (pc.variable_) {
+    auto path_symbol = GetOrCreateSymbol(pc.variable_->name_, pc.variable_->user_declared_, Symbol::Type::PATH);
+    pc.variable_->MapTo(path_symbol);
+  }
+
   return true;
 }
 
