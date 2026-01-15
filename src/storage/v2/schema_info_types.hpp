@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -285,7 +285,5 @@ namespace memgraph::storage {
 struct SchemaInfoPostProcess {
   std::unordered_set<SchemaInfoEdge> edges;
   std::unordered_map<const Vertex *, VertexKey> vertex_cache;
-  std::unordered_map<const Edge *, std::unordered_map<PropertyId, ExtendedPropertyType>>
-      edge_cache;  // TODO Do we need this
 };
 }  // namespace memgraph::storage
