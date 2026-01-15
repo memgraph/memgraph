@@ -291,7 +291,7 @@ minikube_has_image() {
 minikube_image_load_safe() {
   local image="$1"
   local tar_file="$2"
-  local attempts=${2:-3}
+  local attempts=${3:-3}
   for attempt in $(seq 1 $attempts); do
     if minikube -p "$PROFILE" image load "$tar_file"; then
       return 0
