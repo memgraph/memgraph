@@ -277,7 +277,7 @@ if [[ "$(arch)" == "arm64" ]]; then
 else
   ARCH="amd64"
 fi
-rm -rf "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
+rm -rfv "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
 
 load_into_minikube_if_missing() {
   local image="$1"
