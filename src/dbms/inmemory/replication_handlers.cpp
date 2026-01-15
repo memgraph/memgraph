@@ -361,6 +361,10 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  // Abort prev txn if needed
+  // It could happen that the main instance died before sending finalize for the previous commit and then
+  // the new instance becomes main and sends prepare
+  DestroyReplAccessor();
   auto &repl_storage_state = storage->repl_storage_state_;
 
   if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {

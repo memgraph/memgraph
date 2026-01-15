@@ -317,12 +317,6 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
         return true;
       }
       locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
-      // Destroy repl accessor. It is safe to do this from another thread
-      // because old server has already been stopped.
-      // We destroy repl accessor only if replica's config changed because in that case
-      // here we have a guranteee that the old server is stopped and there can't be two threads
-      // reading the same unique ptr.
-      dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
 #else
