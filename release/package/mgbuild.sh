@@ -649,7 +649,7 @@ build_memgraph () {
       docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing -pr:h memgraph_template_profile -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
     fi
 
-    if [[ -n "$conan_remote" ]]; then
+    if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
       echo "Uploading Conan cache to $conan_remote"
       upload_conan_cache $conan_username $conan_password
     fi
@@ -713,7 +713,7 @@ build_memgraph () {
   fi
 
   # upload conan cache if remote is set
-  if [[ -n "$conan_remote" ]]; then
+  if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
     echo "Uploading Conan cache to $conan_remote"
     upload_conan_cache $conan_username $conan_password
   fi
@@ -1216,9 +1216,8 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
     ;;
     query_modules_unit)
-      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
-      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && PYTHONPATH=$MGBUILD_ROOT_DIR/mage/python:\$PYTHONPATH source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
+      docker exec -u mg $build_container bash -c "source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && export PYTHONPATH=$MGBUILD_ROOT_DIR/mage/python:\$PYTHONPATH && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
     ;;
     *)
       echo "Error: Unknown test '$1'"

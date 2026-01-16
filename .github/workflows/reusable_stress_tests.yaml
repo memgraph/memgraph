@@ -107,7 +107,7 @@ jobs:
       - name: Cleanup Docker
         if: always()
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   stress_test_native_ha:
     name: "Stress Tests Native HA"
@@ -183,7 +183,7 @@ jobs:
       - name: Cleanup Docker
         if: always()
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
@@ -204,7 +204,7 @@ jobs:
 
       - name: Determine Input Type
         run: |
-          read image_type image_value < <(python3 tools/issu_image_type.py "$INPUT_IMAGE")
+          read image_type image_value < <(python3 tools/ci/issu_image_type.py "$INPUT_IMAGE")
           echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
           echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV
 
@@ -245,4 +245,4 @@ jobs:
       - name: Clean up Docker
         if: always()
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

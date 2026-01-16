@@ -64,7 +64,7 @@ on:
         description: "Version to build"
         default: ''
 
-run-name: "Build and test MAGE for ${{ inputs.arch }}"
+run-name: "Build and test MAGE"
 
 env:
   OS: "${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
@@ -94,7 +94,7 @@ env:
 
 jobs:
   BuildAndPush:
-    name: "Build and Push MAGE for ${{ inputs.arch }} ${{ inputs.build_type }}${{ inputs.cuda && ' CUDA' || '' }}${{ inputs.malloc && ' Malloc' || '' }}"
+    name: "Build and Test MAGE"
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 30
     outputs:
@@ -602,6 +602,7 @@ jobs:
           echo "clean_tag=$clean_tag" >> $GITHUB_OUTPUT
 
   RunSmokeTests:
+    if: ${{ inputs.run_smoke_tests }}
     needs: [BuildAndPush, SetupSmokeTest]
     uses: ./.github/workflows/reusable_smoke_test_mage.yml
     with:
