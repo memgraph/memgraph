@@ -401,115 +401,116 @@ TEST_F(VectorIndexTest, CreateIndexWhenNodesExistsAlreadyTest) {
   }
 }
 
-// TODO: revisit
-// class VectorIndexRecoveryTest : public testing::Test {
-//  public:
-//   static constexpr std::uint16_t kDimension = 2;
-//   static constexpr std::size_t kNumNodes = 100;
+class VectorIndexRecoveryTest : public testing::Test {
+ public:
+  static constexpr std::uint16_t kDimension = 2;
+  static constexpr std::size_t kNumNodes = 100;
 
-//   void SetUp() override {
-//     auto acc = vertices_.access();
-//     for (std::size_t i = 0; i < kNumNodes; i++) {
-//       auto [vertex_iter, inserted] = acc.insert(Vertex{Gid::FromUint(i), nullptr});
-//       ASSERT_TRUE(inserted);
-//       vertex_iter->labels.push_back(LabelId::FromUint(1));
-//       PropertyValue property_value(
-//           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i +
-//           1))});
-//       vertex_iter->properties.SetProperty(PropertyId::FromUint(1), property_value);
-//     }
-//   }
+  void SetUp() override {
+    auto acc = vertices_.access();
+    for (std::size_t i = 0; i < kNumNodes; i++) {
+      auto [vertex_iter, inserted] = acc.insert(Vertex{Gid::FromUint(i), nullptr});
+      ASSERT_TRUE(inserted);
+      vertex_iter->labels.push_back(LabelId::FromUint(1));
+      PropertyValue property_value(
+          DoubleListTag{},
+          std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
+      vertex_iter->properties.SetProperty(PropertyId::FromUint(1), property_value);
+    }
+  }
 
-//   static VectorIndexSpec CreateSpec(const std::string &name = "test_index") {
-//     return VectorIndexSpec{.index_name = name,
-//                            .label_id = LabelId::FromUint(1),
-//                            .property = PropertyId::FromUint(1),
-//                            .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-//                            .dimension = kDimension,
-//                            .resize_coefficient = 2,
-//                            .capacity = kNumNodes,
-//                            .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
-//   }
+  static VectorIndexRecoveryInfo CreateRecoveryInfo(const std::string &name = "test_index",
+                                                    std::size_t capacity = kNumNodes) {
+    return VectorIndexRecoveryInfo{.spec = VectorIndexSpec{.index_name = name,
+                                                           .label_id = LabelId::FromUint(1),
+                                                           .property = PropertyId::FromUint(1),
+                                                           .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                                           .dimension = kDimension,
+                                                           .resize_coefficient = 2,
+                                                           .capacity = capacity,
+                                                           .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
+                                   .index_entries = {}};
+  }
 
-//   memgraph::utils::SkipList<Vertex> vertices_;
-//   VectorIndex vector_index_;
-// };
+  memgraph::utils::SkipList<Vertex> vertices_;
+  VectorIndex vector_index_;
+};
 
-// TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
-//   // Ensure single-threaded recovery
-//   FLAGS_storage_parallel_schema_recovery = false;
+TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
+  FLAGS_storage_parallel_schema_recovery = false;
 
-//   auto vertices_acc = vertices_.access();
-//   const auto spec = CreateSpec();
-//   auto name_id_mapper = std::make_unique<NameIdMapper>();
+  auto vertices_acc = vertices_.access();
+  const auto recovery_info = CreateRecoveryInfo();
+  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
-//   EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc, name_id_mapper));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
 
-//   // Verify all nodes are in the index
-//   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
-//   EXPECT_EQ(vector_index_info.size(), 1);
-//   EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+}
 
-//   // Search for each vertex and verify it's found
-//   for (auto &vertex : vertices_acc) {
-//     const auto vector = vector_index_.GetVectorFromVertex(&vertex, "test_index");
-//     EXPECT_EQ(vector.size(), kDimension);
-//     EXPECT_EQ(vector[0], static_cast<float>(vertex.gid.AsUint()));
-//     EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
-//   }
-// }
+TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
 
-// TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
-//   // Enable parallel recovery with multiple threads
-//   FLAGS_storage_parallel_schema_recovery = true;
-//   FLAGS_storage_recovery_thread_count =
-//       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
+  auto vertices_acc = vertices_.access();
+  const auto recovery_info = CreateRecoveryInfo();
+  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
-//   auto vertices_acc = vertices_.access();
-//   const auto spec = CreateSpec();
-//   EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
 
-//   // Verify all nodes are in the index
-//   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
-//   EXPECT_EQ(vector_index_info.size(), 1);
-//   EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+}
 
-//   // Verify all nodes are in the index
-//   for (auto &vertex : vertices_acc) {
-//     const auto vector = vector_index_.GetVectorFromVertex(&vertex, "test_index");
-//     EXPECT_EQ(vector.size(), kDimension);
-//     EXPECT_EQ(vector[0], static_cast<float>(vertex.gid.AsUint()));
-//     EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
-//   }
-// }
+TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
-// TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
-//   FLAGS_storage_parallel_schema_recovery = true;
-//   FLAGS_storage_recovery_thread_count =
-//       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
+  auto vertices_acc = vertices_.access();
+  const auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
+  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
-//   auto vertices_acc = vertices_.access();
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
 
-//   auto spec = VectorIndexSpec{.index_name = "resize_test_index",
-//                               .label_id = LabelId::FromUint(1),
-//                               .property = PropertyId::FromUint(1),
-//                               .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-//                               .dimension = kDimension,
-//                               .resize_coefficient = 2,
-//                               .capacity = 10,  // Small capacity to force resize
-//                               .scalar_kind = unum::usearch::scalar_kind_t::f32_k};
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+  EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
+}
 
-//   EXPECT_NO_THROW(vector_index_.RecoverIndex(spec, vertices_acc));
+TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
+  FLAGS_storage_parallel_schema_recovery = true;
+  FLAGS_storage_recovery_thread_count =
+      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
-//   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
-//   EXPECT_EQ(vector_index_info.size(), 1);
-//   EXPECT_EQ(vector_index_info[0].size, kNumNodes);
-//   EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
+  auto vertices_acc = vertices_.access();
+  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
-//   for (auto &vertex : vertices_acc) {
-//     const auto vector = vector_index_.GetVectorFromVertex(&vertex, "resize_test_index");
-//     EXPECT_EQ(vector.size(), kDimension);
-//     EXPECT_EQ(vector[0], static_cast<float>(vertex.gid.AsUint()));
-//     EXPECT_EQ(vector[1], static_cast<float>(vertex.gid.AsUint() + 1));
-//   }
-// }
+  // Create recovery info with pre-computed index entries (simulating snapshot recovery)
+  std::unordered_map<Gid, memgraph::utils::small_vector<float>> index_entries;
+  for (auto i = 0; i < kNumNodes; i++) {
+    index_entries.emplace(Gid::FromUint(i),
+                          memgraph::utils::small_vector<float>{static_cast<float>(i), static_cast<float>(i + 1)});
+  }
+
+  VectorIndexRecoveryInfo recovery_info{.spec = VectorIndexSpec{.index_name = "precomputed_index",
+                                                                .label_id = LabelId::FromUint(1),
+                                                                .property = PropertyId::FromUint(1),
+                                                                .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                                                .dimension = kDimension,
+                                                                .resize_coefficient = 2,
+                                                                .capacity = kNumNodes,
+                                                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
+                                        .index_entries = std::move(index_entries)};
+
+  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
+
+  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(vector_index_info.size(), 1);
+  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+}
