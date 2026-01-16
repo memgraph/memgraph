@@ -14,10 +14,6 @@ endif ()
 
 # TODO(gitbuda): Make LTO work on Mac because ldd (consider options and default).
 option(MGCXX_TEXT_SEARCH_ENABLE_LTO "Enable cross language linking time optimization" OFF)
-if (APPLE AND MGCXX_TEXT_SEARCH_ENABLE_LTO)
-  message(STATUS "LTO on Apple not possible -> disabling LTO...")
-  set(MGCXX_TEXT_SEARCH_ENABLE_LTO OFF)
-endif()
 if (MGCXX_TEXT_SEARCH_ENABLE_LTO)
   include(CheckIPOSupported)
   check_ipo_supported(RESULT supported OUTPUT error)

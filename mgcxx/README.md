@@ -1,4 +1,4 @@
-# mgcxx (experimental)
+# mgcxx
 
 **NOTE**: As of January 2026, MGCXX has become part of the Memgraph repository;
 the previously separate MGCXX repository can be found
