@@ -62,6 +62,10 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
                                         std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy));
   MOCK_CONST_METHOD1(GetRolenames, std::vector<std::string>(std::optional<std::string> db_name));
 
+  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
+    return std::make_shared<MockQueryUser>(username_);
+  }
+
 #ifdef MG_ENTERPRISE
   MOCK_CONST_METHOD3(CanImpersonate, bool(const std::string &target, memgraph::query::UserPolicy *policy,
                                           std::optional<std::string_view> db_name));
