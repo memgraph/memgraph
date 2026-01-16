@@ -1804,7 +1804,7 @@ enum class ExpectedPropertyStatus {
       }
     } break;
     case VECTOR:
-      type = ExtendedPropertyType{PropertyValue::Type::VectorIndexId};
+      type = ExtendedPropertyType{PropertyValue::Type::List};
       break;
   }
 
@@ -1945,7 +1945,7 @@ enum class ExpectedPropertyStatus {
       return PropertyId::FromUint(*property_id);
     }
     case VECTOR:
-      type = ExtendedPropertyType{PropertyValue::Type::VectorIndexId};
+      type = ExtendedPropertyType{PropertyValue::Type::List};
       break;
   }
 
