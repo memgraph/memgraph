@@ -264,25 +264,6 @@ else
   echo "Skipping jemalloc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-# mgcxx (text search)
-mgcxx_tag="v0.0.10"
-repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
-
-# usearch (shallow clone to reduce flakiness)
-usearch_ref="v2.21.4" # (2025-12-16)
-if [[ "$use_cache" == true ]]; then
-  # This is a bit of a hack to allow us to fetch submodules form the cache
-  git -c url.http://${local_cache_host}/git/.insteadOf=https://github.com/ \
-  clone --recurse-submodules "${primary_urls[usearch]}" usearch || \
-  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch
-else
-  git clone --recurse-submodules "${secondary_urls[usearch]}" usearch
-fi
-pushd usearch
-git checkout "$usearch_ref"
-git submodule update --init --recursive
-popd
-
 # nlohmann_json
 nlohmann_json_tag="v3.11.3"
 repo_clone_try_double "${primary_urls[nlohmann_json]}" "${secondary_urls[nlohmann_json]}" "nlohmann_json" "$nlohmann_json_tag"

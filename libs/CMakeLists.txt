@@ -347,11 +347,11 @@ mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft
 target_link_libraries(nuraft INTERFACE openssl::openssl)
 
 # Always build mgcxx locally (not from toolchain)
-set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+set(MGCXX_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/mgcxx/include
   CACHE PATH "Path to mgcxx include directory" FORCE)
-set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
   CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
-set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
   CACHE FILEPATH "Path to mgcxx text search library" FORCE)
 
 # Ensure the include directory exists
@@ -359,7 +359,7 @@ file(MAKE_DIRECTORY ${MGCXX_INCLUDE_DIR})
 
 # Add mgcxx as an external project with proper build configuration
 add_external_project(mgcxx
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/mgcxx
   CMAKE_ARGS -DENABLE_TESTS=OFF
   BUILD_BYPRODUCTS
     ${MGCXX_TEXT_SEARCH_LIBRARY}
