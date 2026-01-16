@@ -3342,14 +3342,21 @@ std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
 std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto lock = std::unique_lock{snapshot_lock_};
 
-  std::vector<SnapshotFileInfo> res;
   auto file_locker = file_retainer_.AddLocker();
   auto locker_acc = file_locker.Access();
   (void)locker_acc.AddPath(recovery_.snapshot_directory_);
   auto dir_cleanup = utils::OnScopeExit{[&] { (void)locker_acc.RemovePath(recovery_.snapshot_directory_); }};
 
-  // Add currently available snapshots
-  auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
+  std::vector<SnapshotFileInfo> res;
+
+  auto const maybe_snapshot_files =
+      durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
+  if (!maybe_snapshot_files.has_value()) {
+    return res;
+  }
+
+  auto const &snapshot_files = *maybe_snapshot_files;
+
   std::error_code ec;
   for (const auto &snapshot_file : snapshot_files) {
     auto const &snapshot_path = snapshot_file.path;
