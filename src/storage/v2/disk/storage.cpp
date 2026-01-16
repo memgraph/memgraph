@@ -921,6 +921,7 @@ StorageInfo DiskStorage::GetInfo() {
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
+    info.type_constraints = 0;  // Type constraints not supported on disk storage
   }
   info.storage_mode = storage_mode_;
   info.isolation_level = isolation_level_;
