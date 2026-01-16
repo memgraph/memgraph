@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,12 @@
 #include "flags/log_level.hpp"
 
 #include "utils/enum.hpp"
-#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 
 #include "gflags/gflags.h"
 #include "spdlog/common.h"
 #include "spdlog/sinks/daily_file_sink.h"
+#include "spdlog/sinks/dist_sink.h"
 
 #include <array>
 #include <iostream>
@@ -26,6 +26,19 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 using namespace std::string_view_literals;
+
+namespace {
+// 5 weeks * 7 days
+inline constexpr auto log_retention_count = 35;
+
+spdlog::level::level_enum ParseLogLevel() {
+  std::string ll;
+  gflags::GetCommandLineOption("log_level", &ll);
+  const auto log_level = memgraph::flags::LogLevelToEnum(ll);
+  MG_ASSERT(log_level, "Invalid log level");
+  return *log_level;
+}
+}  // namespace
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -64,67 +77,51 @@ std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::st
   return memgraph::utils::StringToEnum<spdlog::level::level_enum>(value, log_level_mappings);
 }
 
-spdlog::level::level_enum ParseLogLevel() {
-  std::string ll;
-  gflags::GetCommandLineOption("log_level", &ll);
-  const auto log_level = memgraph::flags::LogLevelToEnum(ll);
-  MG_ASSERT(log_level, "Invalid log level");
-  return *log_level;
-}
-
-// 5 weeks * 7 days
-inline constexpr auto log_retention_count = 35;
-void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
-  auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
-  logger->set_level(log_level);
-  logger->flush_on(spdlog::level::trace);
-  spdlog::set_default_logger(std::move(logger));
-}
-
+// We use dist_sink which is MT safe together with _st subsinks
+// This allows us MT safe
 void memgraph::flags::InitializeLogger() {
-  std::vector<spdlog::sink_ptr> sinks;
+  // stderr subsink
+  stderr_sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
+  stderr_sink->set_level(spdlog::level::off);
 
-  // Force the stderr logger to be at the front of the sinks vector
-  // Will be used to disable/enable it at run-time by settings its log level
-  sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
-  sinks.back()->set_level(spdlog::level::off);
+  std::vector<spdlog::sink_ptr> sub_sinks;
+  sub_sinks.emplace_back(stderr_sink);
 
   if (!FLAGS_log_file.empty()) {
     // get local time
     time_t current_time{0};
     struct tm *local_time{nullptr};
 
-    time(&current_time);
+    // Silent the error
+    (void)time(&current_time);
     local_time = localtime(&current_time);
 
-    sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+    sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
         FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
   }
-  CreateLoggerFromSink(sinks, ParseLogLevel());
+
+  auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
+
+  auto logger = std::make_shared<spdlog::logger>("memgraph_log", std::move(dist_sink));
+  logger->set_level(ParseLogLevel());
+  logger->flush_on(spdlog::level::trace);
+  spdlog::set_default_logger(std::move(logger));
 }
 
-// TODO: Make sure this is used in a safe way
+// This is thread-safe now because add_sink takes a lock from base_sink before adding subsink
+// Main thread can execute this while the other thread is logging
 void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
   auto default_logger = spdlog::default_logger();
-  auto sinks = default_logger->sinks();
-  sinks.push_back(new_sink);
-  CreateLoggerFromSink(sinks, default_logger->level());
+  auto dist_sink = std::dynamic_pointer_cast<spdlog::sinks::dist_sink_mt>(*(default_logger->sinks().begin()));
+  dist_sink->add_sink(std::move(new_sink));
 }
 
 // Thread-safe because the level enum is an atomic
-// NOTE: default_logger is not thread-safe and shouldn't be changed during application lifetime
-// Updates log-level
-void memgraph::flags::LogToStderr(spdlog::level::level_enum log_level) {
-  auto default_logger = spdlog::default_logger();
-  auto stderr = default_logger->sinks().front();
-  stderr->set_level(log_level);
-}
+void memgraph::flags::TurnOffStdErr() { stderr_sink->set_level(spdlog::level::off); }
 
-// Updated log-level
-void memgraph::flags::UpdateStderr(spdlog::level::level_enum log_level) {
-  auto default_logger = spdlog::default_logger();
-  auto stderr = default_logger->sinks().front();
-  if (stderr->level() != spdlog::level::off) {
-    stderr->set_level(log_level);
-  }
+// Thread-safe because the level enum is an atomic
+// Sets log-level to logger's level
+void memgraph::flags::TurnOnStdErr() {
+  // stderr level allows everything, will be filtered on logger's elvel
+  stderr_sink->set_level(spdlog::level::trace);
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,12 +12,11 @@
 
 #include <spdlog/sinks/sink.h>
 #include <optional>
-#include "gflags/gflags.h"
-
-// DECLARE_string(log_level); Moved to run_time_configurable
-// DECLARE_bool(also_log_to_stderr); Moved to run_time_configurable
 
 namespace memgraph::flags {
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+inline std::shared_ptr<spdlog::sinks::sink> stderr_sink;
 
 const std::string &GetAllowedLogLevels();
 constexpr const char *GetLogLevelHelpString() {
@@ -29,7 +28,8 @@ std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value);
 
 void InitializeLogger();
 void AddLoggerSink(spdlog::sink_ptr new_sink);
-void LogToStderr(spdlog::level::level_enum log_level);
-void UpdateStderr(spdlog::level::level_enum log_level);
-
+// Sets stderr log level to off
+void TurnOffStdErr();
+// Sets logging level to the global logging level
+void TurnOnStdErr();
 }  // namespace memgraph::flags

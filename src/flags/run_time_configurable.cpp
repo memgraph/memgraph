@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -355,7 +355,6 @@ void Initialize(utils::Settings &settings) {
       [](const std::string &val) {
         const auto ll_enum = ToLLEnum(val);
         spdlog::set_level(ll_enum);
-        UpdateStderr(ll_enum);  // Updates level if active
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         if (!memgraph::flags::ValidLogLevel(in)) {
@@ -370,13 +369,11 @@ void Initialize(utils::Settings &settings) {
    */
   register_flag(
       kLogToStderrGFlagsKey, kLogToStderrSettingKey, !kRestore,
-      [&settings](const std::string &val) {
+      [](const std::string &val) {
         if (val == "true") {
-          // No need to check if ll_val exists, we got here, so the log_level must exist already
-          const auto &ll_val = settings.GetValue(kLogLevelSettingKey);
-          LogToStderr(ToLLEnum(*ll_val));
+          TurnOnStdErr();
         } else {
-          LogToStderr(spdlog::level::off);
+          TurnOffStdErr();
         }
       },
       ValidBoolStr);
