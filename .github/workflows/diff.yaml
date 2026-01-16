@@ -177,10 +177,19 @@ jobs:
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
     secrets: inherit
 
+  TempFailJob:
+    name: "Temp Fail Job"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Temp Fail Job
+        run: |
+          echo "Temp Fail Job"
+          exit 1
+
   DiffResult:
     if: always()
     name: "Diff Result"
-    needs: [Community, Coverage, Debug, Jepsen, Release, Malloc, Mage]
+    needs: [Community, Coverage, Debug, Jepsen, Release, Malloc, Mage, TempFailJob]
     runs-on: ubuntu-latest
     steps:
       - name: Check Success/Skip Jobs
@@ -192,7 +201,7 @@ jobs:
           echo "Release: ${{ needs.Release.result }}"
           echo "Malloc: ${{ needs.Malloc.result }}"
           echo "Mage: ${{ needs.Mage.result }}"
-
+          echo "Temp Fail Job: ${{ needs.TempFailJob.result }}"
           community=${{ needs.Community.result == 'success' || needs.Community.result == 'skipped' }}
           coverage=${{ needs.Coverage.result == 'success' || needs.Coverage.result == 'skipped' }}
           debug=${{ needs.Debug.result == 'success' || needs.Debug.result == 'skipped' }}
@@ -200,6 +209,13 @@ jobs:
           release=${{ needs.Release.result == 'success' || needs.Release.result == 'skipped' }}
           malloc=${{ needs.Malloc.result == 'success' || needs.Malloc.result == 'skipped' }}
           mage=${{ needs.Mage.result == 'success' || needs.Mage.result == 'skipped' }}
+          temp_fail_job=${{ needs.TempFailJob.result == 'success' || needs.TempFailJob.result == 'skipped' }}
+
+          if [ $temp_fail_job == false ]; then
+            echo "Temp Fail Job failed"
+            exit 1
+          fi
+
 
           if [ $community == false ] || [ $coverage == false ] || [ $debug == false ] || [ $jepsen == false ] || [ $release == false ] || [ $malloc == false ] || [ $mage == false ]; then
             echo "Diff workflow failed"
