@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -197,7 +197,17 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       return;
     }
     case storage::PropertyValue::Type::VectorIndexId: {
-      throw std::runtime_error("VectorIndexId is not supported for TypedValue");
+      const auto &vec = value.ValueVectorIndexList();
+      if (vec.empty()) {
+        type_ = Type::Null;
+        return;
+      }
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(static_cast<double>(v));
+      }
+      return;
     }
   }
   LOG_FATAL("Unsupported type");
@@ -338,8 +348,19 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
       break;
     }
-    case storage::PropertyValue::Type::VectorIndexId:
-      throw std::runtime_error("VectorIndexId is not supported for TypedValue");
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = other.ValueVectorIndexList();
+      if (vec.empty()) {
+        type_ = Type::Null;
+        break;
+      }
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(static_cast<double>(v));
+      }
+      break;
+    }
   }
 
   other = storage::PropertyValue();
@@ -466,8 +487,19 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
       return;
     }
-    case storage::PropertyValue::Type::VectorIndexId:
-      throw std::runtime_error("VectorIndexId is not supported for TypedValue");
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = value.ValueVectorIndexList();
+      if (vec.empty()) {
+        type_ = Type::Null;
+        return;
+      }
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(static_cast<double>(v));
+      }
+      return;
+    }
   }
   LOG_FATAL("Unsupported type");
 }
@@ -596,8 +628,19 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
       break;
     }
-    case storage::PropertyValue::Type::VectorIndexId:
-      throw std::runtime_error("VectorIndexId is not supported for TypedValue");
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = other.ValueVectorIndexList();
+      if (vec.empty()) {
+        type_ = Type::Null;
+        break;
+      }
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(static_cast<double>(v));
+      }
+      break;
+    }
   }
 
   other = storage::ExternalPropertyValue();
