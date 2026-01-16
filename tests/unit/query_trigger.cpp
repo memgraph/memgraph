@@ -58,13 +58,12 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
 class MockQueryUser : public memgraph::query::QueryUserOrRole {
  public:
   MockQueryUser(std::optional<std::string> name) : memgraph::query::QueryUserOrRole(std::move(name), {}) {}
-  MOCK_CONST_METHOD3(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                        std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy));
+  MOCK_CONST_METHOD2(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                                        std::optional<std::string_view> db_name));
   MOCK_CONST_METHOD1(GetRolenames, std::vector<std::string>(std::optional<std::string> db_name));
 
 #ifdef MG_ENTERPRISE
-  MOCK_CONST_METHOD3(CanImpersonate, bool(const std::string &target, memgraph::query::UserPolicy *policy,
-                                          std::optional<std::string_view> db_name));
+  MOCK_CONST_METHOD2(CanImpersonate, bool(const std::string &target, std::optional<std::string_view> db_name));
   MOCK_CONST_METHOD0(GetDefaultDB, std::string());
 #endif
 };
@@ -1274,8 +1273,7 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   ::testing::InSequence s;
 
   // TODO Userless
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
-                                      &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(true));
   ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", {},
                                     memgraph::query::TriggerEventType::EDGE_UPDATE,
@@ -1284,8 +1282,7 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                     memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER));
 
   EXPECT_CALL(mock_userless,
-              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
-                           &memgraph::query::up_to_date_policy))
+              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(true));
   ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2", "CREATE (n:VERTEX) RETURN n", {},
                                     memgraph::query::TriggerEventType::EDGE_UPDATE,
@@ -1293,8 +1290,7 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                     memgraph::query::InterpreterConfig::Query{}, mock_userless_ptr,
                                     memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER));
 
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::MATCH), std::make_optional(memgraph::dbms::kDefaultDB),
-                                      &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::MATCH), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(false));
   ASSERT_THROW(
       store->AddTrigger("unprivileged_trigger", "MATCH (n:VERTEX) RETURN n", {},
@@ -1309,13 +1305,11 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   std::optional<std::string> nopt{};
   std::vector<std::string> novec{};
   EXPECT_CALL(mock_checker, GenQueryUser(owner, novec)).WillOnce(Return(mock_user_ptr));
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
-                                      &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(true));
   EXPECT_CALL(mock_checker, GenQueryUser(nopt, novec)).WillOnce(Return(mock_userless_ptr));
   EXPECT_CALL(mock_userless,
-              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
-                           &memgraph::query::up_to_date_policy))
+              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB)))
       .WillOnce(Return(false));
 
   ASSERT_NO_THROW(store->RestoreTriggers(&this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{},
