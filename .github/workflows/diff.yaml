@@ -179,6 +179,7 @@ jobs:
 
   MAGE-AMD:
     needs: DiffSetup
+    if: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
     name: "Diff MAGE Tests (AMD)"
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
@@ -186,11 +187,11 @@ jobs:
       push_to_github: false
       push_to_s3: false
       run_tests: true
-      diff_run: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
     secrets: inherit
 
   MAGE-ARM:
     needs: DiffSetup
+    if: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
     name: "Diff MAGE Tests (ARM)"
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
@@ -198,11 +199,11 @@ jobs:
       push_to_github: false
       push_to_s3: false
       run_tests: true
-      diff_run: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
     secrets: inherit
 
   MAGE-CUDA:
     needs: DiffSetup
+    if: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
     name: "Diff MAGE Tests (CUDA)"
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
@@ -210,5 +211,4 @@ jobs:
       push_to_github: false
       push_to_s3: false
       run_tests: true
-      diff_run: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
     secrets: inherit
