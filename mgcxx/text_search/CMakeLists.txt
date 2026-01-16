@@ -39,21 +39,27 @@ set(MGCXX_TEXT_SEARCH_RUST_LIB      "${CMAKE_CURRENT_BINARY_DIR}/${MGCXX_TEXT_SE
 set(MGCXX_TEXT_SEARCH_RUST_CPP      "${CMAKE_CURRENT_BINARY_DIR}/mgcxx_text_search.cpp")
 set(MGCXX_TEXT_SEARCH_RUST_HPP      "${CMAKE_CURRENT_BINARY_DIR}/mgcxx_text_search.hpp")
 set(MGCXX_TEXT_SEARCH_RUST_CXX      "${CMAKE_CURRENT_BINARY_DIR}/cxx.hpp")
+
+# Mark the Rust library file as generated so CMake knows it will be created during build
+# This is critical when using add_subdirectory instead of ExternalProject
+set_source_files_properties("${MGCXX_TEXT_SEARCH_RUST_LIB}" PROPERTIES GENERATED TRUE)
+
 add_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_RUST_CPP})
+# The custom command builds the C++ bridge files, Rust library, and copies the header
+# We list all outputs so CMake knows they will be generated
+set(TEXT_SEARCH_HPP_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/text_search.hpp")
 add_custom_command(
-  OUTPUT ${MGCXX_TEXT_SEARCH_RUST_CPP}
+  OUTPUT ${MGCXX_TEXT_SEARCH_RUST_CPP} ${MGCXX_TEXT_SEARCH_RUST_LIB} ${TEXT_SEARCH_HPP_OUTPUT}
   COMMAND CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR} RUSTFLAGS="${MGCXX_TEXT_SEARCH_RUST_FLAGS}" ${CARGO_CMD}
   COMMAND cp ${MGCXX_TEXT_SEARCH_BRIDGE_CC} ${MGCXX_TEXT_SEARCH_RUST_CPP}
   COMMAND cp ${MGCXX_TEXT_SEARCH_BRIDGE_H} ${MGCXX_TEXT_SEARCH_RUST_HPP}
   COMMAND cp ${MGCXX_TEXT_SEARCH_BRIDGE_CXX} ${MGCXX_TEXT_SEARCH_RUST_CXX}
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/text_search.hpp ${TEXT_SEARCH_HPP_OUTPUT}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${MGCXX_TEXT_SEARCH_BRIDGE_LIB_RS})
+  DEPENDS ${MGCXX_TEXT_SEARCH_BRIDGE_LIB_RS} ${CMAKE_CURRENT_SOURCE_DIR}/text_search.hpp
+  COMMENT "Building Rust library, C++ bridge files, and copying header")
 target_link_libraries(mgcxx_text_search ${MGCXX_TEXT_SEARCH_RUST_LIB})
 target_include_directories(mgcxx_text_search INTERFACE "${CMAKE_CURRENT_BINARY_DIR}")
-add_custom_command(TARGET mgcxx_text_search POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy
-  ${CMAKE_CURRENT_SOURCE_DIR}/text_search.hpp
-  ${CMAKE_CURRENT_BINARY_DIR}/text_search.hpp)
 set_target_properties(mgcxx_text_search PROPERTIES PUBLIC_HEADER
   "${CMAKE_CURRENT_BINARY_DIR}/text_search.hpp;${MGCXX_TEXT_SEARCH_RUST_HPP};${MGCXX_TEXT_SEARCH_RUST_CXX}")
 install(TARGETS mgcxx_text_search
