@@ -1,20 +1,8 @@
 # mgcxx (experimental)
 
-## Merging mgcxx and Mage into memgraph/memgraph repo (November 7th, 2025)
-
-Hi Memgraph Community!
-
-Quick heads up / announcement. We have decided to merge the [memgraph/mage](http://github.com/memgraph/mage) and [memgraph/mgcxx](http://github.com/memgraph/mgcxx) repositories into [memgraph/memgraph](http://github.com/memgraph/memgraph) at some point in the near future (within the next few months).
-
-Let me outline the reasoning. Despite Memgraph's usage growing in the last few years, we have encouraged the community to make external open source contributions, but the impact of these contributions has remained relatively insignificant. On the other hand, we see huge potential in the merger because it will allow us to have more efficient and faster release cycles. A better release cycle means more and improved capabilities from Memgraph.
-
-Regarding licensing, at the time of the merge, merged repositories will be archived under the existing license. In contrast, the merged code will be released under the existing Memgraph Community BSL license. Effectively integrating the merged code into the Memgraph Community. The merged code, as well as existing Memgraph Community code, will be available under the BSL license, offering the most important open source benefits: right to inspect, right to repair, and right to improve. The external contributions are always welcome. In fact, we'll also make the process of contributing easier.
-
-From a usage perspective, Memgraph packages and Docker images will remain unchanged. A separate Docker image will still be available, including all Mage modules. mgcxx is already statically linked (it’s included in all Memgraph packages). Over the long run, we plan to introduce a package manager for all Memgraph modules.
-
-I hope all the above makes sense. We'll keep you posted about the progress. To give feedback, please visit [the discussion](https://github.com/memgraph/memgraph/discussions/3413).
-
-Best, Marko ([gitbuda](http://github.com/gitbuda)), CTO @ Memgraph
+**NOTE**: As of January 2026, MGCXX has become part of the Memgraph repository;
+the previously separate MGCXX repository can be found
+[here](https://github.com/memgraph/mgcxx.git) and is now archived.
 
 --------
 
