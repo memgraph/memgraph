@@ -63,6 +63,10 @@ on:
         type: string
         description: "Version to build"
         default: ''
+      diff_run:
+        type: boolean
+        description: "For diff to control whether this needs to run or not"
+        default: true
 
 run-name: "Build and test MAGE for ${{ inputs.arch }}"
 
@@ -94,6 +98,7 @@ env:
 
 jobs:
   BuildAndPush:
+    if: ${{ inputs.diff_run == true }}
     name: "Build and Push MAGE for ${{ inputs.arch }} ${{ inputs.build_type }}${{ inputs.cuda && ' CUDA' || '' }}${{ inputs.malloc && ' Malloc' || '' }}"
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 30
