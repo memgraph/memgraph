@@ -79,10 +79,10 @@ std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::st
 // This allows us MT safe
 void memgraph::flags::InitializeLogger() {
   // stderr subsink
-  stderr_sink->set_level(spdlog::level::off);
+  stderr_sink()->set_level(spdlog::level::off);
 
   std::vector<spdlog::sink_ptr> sub_sinks;
-  sub_sinks.emplace_back(stderr_sink);
+  sub_sinks.emplace_back(stderr_sink());
 
   if (!FLAGS_log_file.empty()) {
     // get local time
@@ -114,11 +114,12 @@ void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
 }
 
 // Thread-safe because the level enum is an atomic
-void memgraph::flags::TurnOffStdErr() { stderr_sink->set_level(spdlog::level::off); }
+void memgraph::flags::TurnOffStdErr() { stderr_sink()->set_level(spdlog::level::off); }
 
 // Thread-safe because the level enum is an atomic
-// Sets log-level to logger's level
+// Sets log-level to trace
+// Filtering done on logger's level
 void memgraph::flags::TurnOnStdErr() {
   // stderr level allows everything, will be filtered on logger's elvel
-  stderr_sink->set_level(spdlog::level::trace);
+  stderr_sink()->set_level(spdlog::level::trace);
 }

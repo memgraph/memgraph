@@ -17,8 +17,10 @@
 
 namespace memgraph::flags {
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline std::shared_ptr<spdlog::sinks::sink> stderr_sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
+inline std::shared_ptr<spdlog::sinks::sink> &stderr_sink() {
+  static std::shared_ptr<spdlog::sinks::sink> sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
+  return sink;
+}
 
 const std::string &GetAllowedLogLevels();
 constexpr const char *GetLogLevelHelpString() {
