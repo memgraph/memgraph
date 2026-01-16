@@ -68,7 +68,7 @@ on:
         description: "For diff to control whether this needs to run or not"
         default: true
 
-run-name: "Build and test MAGE for ${{ inputs.arch }}"
+run-name: "Build and test MAGE"
 
 env:
   OS: "${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
@@ -99,7 +99,7 @@ env:
 jobs:
   BuildAndPush:
     if: ${{ inputs.diff_run == true }}
-    name: "Build and Push MAGE for ${{ inputs.arch }} ${{ inputs.build_type }}${{ inputs.cuda && ' CUDA' || '' }}${{ inputs.malloc && ' Malloc' || '' }}"
+    name: "Build and Test MAGE"
     runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 30
     outputs:
