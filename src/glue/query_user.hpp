@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,8 @@
 namespace memgraph::glue {
 
 struct QueryUserOrRole : public query::QueryUserOrRole {
+  std::shared_ptr<query::QueryUserOrRole> clone() const override;
+
   bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::optional<std::string_view> db_name,
                     query::UserPolicy *policy) const override;
 
