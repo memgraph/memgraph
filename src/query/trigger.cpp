@@ -163,7 +163,7 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
-      creator_{std::move(creator)},
+      creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
   // We check immediately if the query is valid by trying to create a plan.
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
@@ -251,7 +251,10 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && ctx.user_or_role &&
       *ctx.user_or_role && dba) {
-    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(ctx.user_or_role, dba);
+    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
+    DMG_ASSERT(fine_grained_checker, "Auth checker should not be null");
+    // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
+    // otherwise, we do assign the auth checker to check for label access control
     if (!fine_grained_checker->HasAllGlobalPrivilegesOnVertices() ||
         !fine_grained_checker->HasAllGlobalPrivilegesOnEdges()) {
       ctx.auth_checker = std::move(fine_grained_checker);
@@ -415,7 +418,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), std::string{db_name}, privilege_context);
+                    query_config, user, std::string{db_name}, privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -453,7 +456,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, query_config,
-                    std::move(creator), db_name, privilege_context);
+                    creator, db_name, privilege_context);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;

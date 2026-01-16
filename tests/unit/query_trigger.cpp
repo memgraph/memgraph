@@ -48,9 +48,9 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
   MOCK_CONST_METHOD0(GenEmptyUser, std::shared_ptr<memgraph::query::QueryUserOrRole>());
 
 #ifdef MG_ENTERPRISE
-  MOCK_CONST_METHOD2(GetFineGrainedAuthChecker, std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
-                                                    std::shared_ptr<memgraph::query::QueryUserOrRole> user,
-                                                    const memgraph::query::DbAccessor *db_accessor));
+  MOCK_CONST_METHOD2(GetFineGrainedAuthChecker,
+                     std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
+                         const memgraph::query::QueryUserOrRole &user, const memgraph::query::DbAccessor *db_accessor));
   MOCK_CONST_METHOD0(ClearCache, void());
 #endif
 };
@@ -61,6 +61,10 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
   MOCK_CONST_METHOD3(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                         std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy));
   MOCK_CONST_METHOD1(GetRolenames, std::vector<std::string>(std::optional<std::string> db_name));
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
+    return std::make_shared<MockQueryUser>(username_);
+  }
 
 #ifdef MG_ENTERPRISE
   MOCK_CONST_METHOD3(CanImpersonate, bool(const std::string &target, memgraph::query::UserPolicy *policy,

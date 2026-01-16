@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -115,26 +115,28 @@ std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenEmptyUser() const {
 
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
-    std::shared_ptr<query::QueryUserOrRole> user_or_role, const memgraph::query::DbAccessor *dba) const {
+    const query::QueryUserOrRole &user_or_role, const memgraph::query::DbAccessor *dba) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-  if (!user_or_role || !*user_or_role) {
+  if (!user_or_role) {
     throw query::QueryRuntimeException("No user specified for fine grained authorization!");
   }
 
   // Convert from query user to auth user or role
+  // NOTE: Make a copy of the user/role. At preparation time, the interpreter check if the user/role is authorized, and
+  // update (if needed), so no need to update after that.
   try {
-    auto glue_user = dynamic_cast<glue::QueryUserOrRole &>(*user_or_role);
+    auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
     if (glue_user.user_) {
-      return std::make_unique<glue::FineGrainedAuthChecker>(std::move(*glue_user.user_), dba);
+      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
     }
     if (glue_user.roles_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(
-          auth::RoleWUsername{*glue_user.username(), std::move(*glue_user.roles_)}, dba);
+          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba);
     }
     DMG_ASSERT(false, "Glue user has neither user not role");
-  } catch (std::bad_cast &e) {
+  } catch (std::bad_cast &) {
     DMG_ASSERT(false, "Using a non-glue user in glue...");
   }
 
