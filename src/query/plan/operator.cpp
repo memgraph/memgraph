@@ -496,23 +496,13 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       auto typed_value = value_expression->Accept(evaluator);
-      auto property_value = typed_value.ToPropertyValue(storage_acc->GetNameIdMapper());
-      if (auto vector_index_ids = storage_acc->GetVectorIndexIdsForVertex(new_node.impl_.vertex_, key);
-          !vector_index_ids.empty()) {
-        property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
-      }
-      properties.emplace(key, std::move(property_value));
+      properties.emplace(key, typed_value.ToPropertyValue(storage_acc->GetNameIdMapper()));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
       auto property_id = dba.NameToProperty(key);
-      auto property_value = value.ToPropertyValue(storage_acc->GetNameIdMapper());
-      if (auto vector_index_ids = storage_acc->GetVectorIndexIdsForVertex(new_node.impl_.vertex_, property_id);
-          !vector_index_ids.empty()) {
-        property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
-      }
-      properties.emplace(property_id, std::move(property_value));
+      properties.emplace(property_id, value.ToPropertyValue(storage_acc->GetNameIdMapper()));
     }
   }
   if (context.evaluation_context.scope.in_merge) {
@@ -4669,8 +4659,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
-                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
-                                       context.db_accessor->GetStorageAccessor(), lhs.ValueVertex().impl_.vertex_);
+                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -5003,8 +4992,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   };
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
-    auto updated_properties =
-        UpdatePropertiesChecked(record, new_properties, context->db_accessor->GetStorageAccessor());
+    auto updated_properties = UpdatePropertiesChecked(record, new_properties);
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
 
@@ -5015,9 +5003,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     }
   };
 
-  auto update_props_vertex = [&, record](PropertiesMap &new_properties, storage::Vertex *vertex) {
-    auto updated_properties =
-        UpdatePropertiesChecked(record, new_properties, context->db_accessor->GetStorageAccessor(), vertex);
+  auto update_props_vertex = [&, record](PropertiesMap &new_properties, storage::Vertex * /*vertex*/) {
+    auto updated_properties = UpdatePropertiesChecked(record, new_properties);
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
 

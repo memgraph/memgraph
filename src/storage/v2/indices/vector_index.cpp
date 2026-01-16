@@ -488,6 +488,8 @@ bool VectorIndex::IndexExists(std::string_view index_name) const {
   return pimpl->index_name_to_label_prop_.contains(index_name);
 }
 
+bool VectorIndex::Empty() const { return pimpl->index_.empty(); }
+
 utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property,
                                                                       NameIdMapper *name_id_mapper) {
   auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };

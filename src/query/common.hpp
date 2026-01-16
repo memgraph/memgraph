@@ -183,35 +183,6 @@ inline void ProcessError(const storage::Error error) {
   }
 }
 
-/// Handle vector property conversion for vector indices.
-///
-/// @param property_value The property value to potentially convert
-/// @param vector_index_ids The vector index IDs for this property
-/// @return A PropertyValue with vector index metadata if applicable
-inline storage::PropertyValue HandleVectorProperty(const storage::PropertyValue &property_value,
-                                                   utils::small_vector<uint64_t> &&vector_index_ids) {
-  if (property_value.IsNull()) {
-    return storage::PropertyValue(std::move(vector_index_ids), utils::small_vector<float>{});
-  }
-
-  utils::small_vector<float> vector;
-  if (property_value.IsAnyList()) {
-    const auto list_size = property_value.ListSize();
-    vector.reserve(list_size);
-    for (auto i = 0; i < list_size; i++) {
-      const auto value = GetNumericValueAt(property_value, i);
-      if (!value) {
-        throw QueryRuntimeException("Expected to evaluate vector index of Double or Int type");
-      }
-      auto float_value = std::visit([](const auto &val) { return static_cast<float>(val); }, *value);
-      vector.push_back(float_value);
-    }
-  } else {
-    throw QueryRuntimeException("Expected to evaluate vector index of List type");
-  }
-  return storage::PropertyValue(std::move(vector_index_ids), std::move(vector));
-}
-
 template <typename T>
 concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
                                            const storage::PropertyValue new_value) {
@@ -226,41 +197,6 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
                                        storage::NameIdMapper *name_id_mapper) {
   try {
     auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
-    if (!maybe_old_value) {
-      ProcessError(maybe_old_value.error());
-    }
-    return std::move(*maybe_old_value);
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-  }
-}
-
-/// Set a property `value` mapped with given `key` on a `record` with vector property support.
-///
-/// @param record The record to set the property on
-/// @param key The property key
-/// @param value The property value
-/// @param name_id_mapper The name ID mapper
-/// @param storage_accessor The storage accessor for vector index checks
-/// @param vertex The vertex for vector index checks (nullptr for edges)
-/// @throw QueryRuntimeException if value cannot be set as a property value
-template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
-                                       storage::NameIdMapper *name_id_mapper,
-                                       storage::Storage::Accessor *storage_accessor,
-                                       storage::Vertex *vertex = nullptr) {
-  try {
-    auto property_value = value.ToPropertyValue(name_id_mapper);
-
-    // Check if this property is in a vector index
-    if (vertex && storage_accessor) {
-      if (auto vector_index_ids = storage_accessor->GetVectorIndexIdsForVertex(vertex, key);
-          !vector_index_ids.empty()) {
-        property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
-      }
-    }
-
-    auto maybe_old_value = record->SetProperty(key, property_value);
     if (!maybe_old_value) {
       ProcessError(maybe_old_value.error());
     }
@@ -308,38 +244,6 @@ template <AccessorWithUpdateProperties T>
 auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties)
     -> std::remove_reference_t<decltype(record->UpdateProperties(properties).value())> {
   try {
-    auto maybe_values = record->UpdateProperties(properties);
-    if (!maybe_values) {
-      ProcessError(maybe_values.error());
-    }
-    return std::move(*maybe_values);
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("Cannot update properties.");
-  }
-}
-
-/// Set property `values` mapped with given `key` on a `record` with vector property support.
-///
-/// @param record The record to update properties on
-/// @param properties The properties map to update
-/// @param storage_accessor The storage accessor for vector index checks
-/// @param vertex The vertex for vector index checks (nullptr for edges)
-/// @throw QueryRuntimeException if value cannot be set as a property value
-template <AccessorWithUpdateProperties T>
-auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
-                             storage::Storage::Accessor *storage_accessor, storage::Vertex *vertex = nullptr)
-    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).value())> {
-  try {
-    // Check for vector properties and convert them if needed
-    if (vertex && storage_accessor) {
-      for (auto &[property_id, property_value] : properties) {
-        if (auto vector_index_ids = storage_accessor->GetVectorIndexIdsForVertex(vertex, property_id);
-            !vector_index_ids.empty()) {
-          property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
-        }
-      }
-    }
-
     auto maybe_values = record->UpdateProperties(properties);
     if (!maybe_values) {
       ProcessError(maybe_values.error());

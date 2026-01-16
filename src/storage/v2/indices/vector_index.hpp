@@ -238,6 +238,10 @@ class VectorIndex {
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name) const;
 
+  /// @brief Checks if any vector index exists.
+  /// @return true if no vector indices exist, false otherwise.
+  bool Empty() const;
+
   /// @brief Checks if the property is in the vector index.
   /// @param vertex The vertex to check.
   /// @param property The property to check.

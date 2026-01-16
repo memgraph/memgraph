@@ -26,6 +26,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -49,6 +50,15 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
   throw query::QueryException("IS TYPED {} violation on {}({})", TypeConstraintKindToString(*violation.constraint_kind),
                               storage->LabelToName(violation.label),
                               storage->PropertyToName(*violation.properties.begin()));
+}
+
+std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
+                                                             const PropertyValue &value) {
+  if (!value.IsAnyList() && !value.IsNull() && !value.IsVectorIndexId()) return std::nullopt;
+  auto vector_index_ids =
+      storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property, storage->name_id_mapper_.get());
+  if (vector_index_ids.empty()) return std::nullopt;
+  return ConvertToVectorIndexProperty(value, std::move(vector_index_ids));
 }
 }  // namespace
 
@@ -347,12 +357,19 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &new_value) const {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  std::optional<PropertyValue> converted;
+  if (!storage_->indices_.vector_index_.Empty()) {
+    converted = TryConvertToVectorIndexProperty(storage_, vertex_, property, value);
+  }
+  const auto &new_value = converted ? *converted : value;
+
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -420,12 +437,26 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   return std::move(old_value);
 }
 
-Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &props) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  std::optional<std::map<storage::PropertyId, storage::PropertyValue>> converted_properties;
+  if (!storage_->indices_.vector_index_.Empty()) {
+    auto transform = [&](const auto &pair) -> std::pair<storage::PropertyId, storage::PropertyValue> {
+      const auto &[property_id, property_value] = pair;
+      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, property_id, property_value)) {
+        return {property_id, std::move(*converted)};
+      }
+      return {property_id, property_value};
+    };
+    converted_properties = props | rv::transform(transform) | r::to<std::map>();
+  }
+  const auto &properties = converted_properties ? *converted_properties : props;
+
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -485,6 +516,15 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  if (!storage_->indices_.vector_index_.Empty()) {
+    r::for_each(properties, [&](auto &pair) {
+      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
+        pair.second = std::move(*converted);
+      }
+    });
+  }
+
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};

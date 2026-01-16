@@ -357,6 +357,59 @@ inline bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t in
   return ids.empty();  // Return true if should restore (no more IDs)
 }
 
+/// @brief Converts a list property value to a VectorIndexId property value.
+inline PropertyValue ConvertToVectorIndexProperty(const PropertyValue &value,
+                                                  utils::small_vector<uint64_t> &&vector_index_ids) {
+  if (value.IsNull()) {
+    return PropertyValue(std::move(vector_index_ids), utils::small_vector<float>{});
+  }
+
+  utils::small_vector<float> vector;
+  switch (value.type()) {
+    case PropertyValue::Type::IntList: {
+      const auto &int_list = value.ValueIntList();
+      vector.reserve(int_list.size());
+      for (const auto v : int_list) {
+        vector.push_back(static_cast<float>(v));
+      }
+      break;
+    }
+    case PropertyValue::Type::DoubleList: {
+      const auto &double_list = value.ValueDoubleList();
+      vector.reserve(double_list.size());
+      for (const auto v : double_list) {
+        vector.push_back(static_cast<float>(v));
+      }
+      break;
+    }
+    case PropertyValue::Type::NumericList: {
+      const auto &numeric_list = value.ValueNumericList();
+      vector.reserve(numeric_list.size());
+      for (const auto &v : numeric_list) {
+        vector.push_back(std::visit([](const auto &val) { return static_cast<float>(val); }, v));
+      }
+      break;
+    }
+    case PropertyValue::Type::List: {
+      const auto &list = value.ValueList();
+      vector.reserve(list.size());
+      for (const auto &elem : list) {
+        if (elem.IsInt()) {
+          vector.push_back(static_cast<float>(elem.ValueInt()));
+        } else if (elem.IsDouble()) {
+          vector.push_back(static_cast<float>(elem.ValueDouble()));
+        } else {
+          throw query::QueryRuntimeException("Expected vector index property to be a list of numeric values");
+        }
+      }
+      break;
+    }
+    default:
+      throw query::QueryRuntimeException("Expected vector index property to be a list");
+  }
+  return PropertyValue(std::move(vector_index_ids), std::move(vector));
+}
+
 /// @brief Retrieves a vector from a USearch index using the get method and returns it as a PropertyValue of type
 /// double.
 /// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
