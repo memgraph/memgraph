@@ -10073,21 +10073,25 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     uint64_t to_timestamp;
     std::filesystem::path path;
 
-    auto operator<=>(LoadWalInfo const &) const = default;
+    auto operator<=>(LoadWalInfo const &) const -> std::strong_ordering = default;
   };
 
   std::vector<LoadWalInfo> wal_files;
   std::error_code error_code;
 
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
+    // Skip directories
     if (!item.is_regular_file()) continue;
     try {
-      auto info = ReadWalInfo(item.path());
-      if (info.uuid != uuid) continue;
+      auto const info = ReadWalInfo(item.path());
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       // We want to find out what happened with the corrupted snapshot file, not delete it
-      spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will NOT be deleted.", item.path(), e.what());
+      spdlog::warn("Found a corrupted WAL file {} because of: {}.", item.path(), e.what());
+      if (FLAGS_storage_force_cleanup) {
+        spdlog::trace("Corrupted file will be deleted.");
+        file_retainer->DeleteFile(item.path());
+      }
     }
   }
 
@@ -10105,7 +10109,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     if (!old_snapshot_files.empty()) {
       return old_snapshot_files.front().first;  // the oldest because snapshot files are sorted
     }
-    MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
+    DMG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
     return *transaction->last_durable_ts_;
   });
 
@@ -10129,17 +10133,22 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
+    // Skip directories
     if (!item.is_regular_file()) continue;
+    // Skip current snapshot
     if (item.path() == current_snapshot_path) continue;
+
+    SnapshotInfo info;
     try {
-      auto info = ReadSnapshotInfo(item.path());
-      if (info.uuid != uuid) continue;
+      info = ReadSnapshotInfo(item.path());
       old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       // We want to find out what happened with the corrupted snapshot file, not delete it
-      spdlog::warn("Found a corrupt snapshot file {} because of: {}. Corrupted snapshot file will not be deleted.",
-                   item.path(),
-                   e.what());
+      spdlog::warn("Found a corrupt snapshot file {} because of: {}.", item.path(), e.what());
+      if (FLAGS_storage_force_cleanup || info.IsIncomplete()) {
+        spdlog::trace("Corrupted/incomplete file will be deleted.");
+        file_retainer->DeleteFile(item.path());
+      }
     }
   }
 
@@ -10169,6 +10178,12 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   }
 
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
+}
+
+auto SnapshotInfo::IsIncomplete() const -> bool {
+  return offset_edges == 0 || offset_vertices == 0 || offset_indices == 0 || offset_edge_indices == 0 ||
+         offset_constraints == 0 || offset_mapper == 0 || offset_enums == 0 || offset_epoch_history == 0 ||
+         offset_metadata == 0 || offset_edge_batches == 0 || offset_vertex_batches == 0 || offset_ttl == 0;
 }
 
 std::optional<std::filesystem::path> CreateSnapshot(
