@@ -42,7 +42,6 @@ env:
 
 jobs:
   amd_mage_tests:
-    name: "MAGE Tests (AMD)"
     if: ${{ inputs.run_amd }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
@@ -53,7 +52,6 @@ jobs:
     secrets: inherit
 
   arm_mage_tests:
-    name: "MAGE Tests (ARM)"
     if: ${{ inputs.run_arm }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
@@ -64,7 +62,6 @@ jobs:
     secrets: inherit
 
   cuda_mage_tests:
-    name: "MAGE Tests (CUDA)"
     if: ${{ inputs.run_cuda }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:

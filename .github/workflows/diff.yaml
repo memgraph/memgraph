@@ -166,49 +166,13 @@ jobs:
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
     secrets: inherit
 
-  # Mage:
-  #   needs: DiffSetup
-  #   uses: ./.github/workflows/diff_mage.yml
-  #   with:
-  #     ref: ${{ inputs.ref || github.ref }}
-  #     os: 'ubuntu-24.04'
-  #     run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
-  #     run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
-  #     run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
-  #   secrets: inherit
-
-  MAGE-AMD:
+  Mage:
     needs: DiffSetup
-    if: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
-    name: "Diff MAGE Tests (AMD)"
-    uses: ./.github/workflows/reusable_package_mage.yaml
+    uses: ./.github/workflows/diff_mage.yml
     with:
-      arch: amd
-      push_to_github: false
-      push_to_s3: false
-      run_tests: true
-    secrets: inherit
-
-  MAGE-ARM:
-    needs: DiffSetup
-    if: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
-    name: "Diff MAGE Tests (ARM)"
-    uses: ./.github/workflows/reusable_package_mage.yaml
-    with:
-      arch: arm
-      push_to_github: false
-      push_to_s3: false
-      run_tests: true
-    secrets: inherit
-
-  MAGE-CUDA:
-    needs: DiffSetup
-    if: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
-    name: "Diff MAGE Tests (CUDA)"
-    uses: ./.github/workflows/reusable_package_mage.yaml
-    with:
-      arch: cuda
-      push_to_github: false
-      push_to_s3: false
-      run_tests: true
+      ref: ${{ inputs.ref || github.ref }}
+      os: 'ubuntu-24.04'
+      run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
+      run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
+      run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
     secrets: inherit
