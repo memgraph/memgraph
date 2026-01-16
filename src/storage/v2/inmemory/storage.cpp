@@ -2619,6 +2619,7 @@ StorageInfo InMemoryStorage::GetInfo() {
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
+    info.type_constraints = con.type.size();
   }
   info.storage_mode = storage_mode_;
   info.isolation_level = isolation_level_;
