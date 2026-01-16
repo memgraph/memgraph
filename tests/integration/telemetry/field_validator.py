@@ -99,6 +99,7 @@ def _verify_database_fields(database_items: list[dict]) -> bool:
         ("vector_edge_indices", int),
         ("existence_constraints", int),
         ("unique_constraints", int),
+        ("type_constraints", int),
         ("storage_mode", str),
         ("isolation_level", str),
         ("durability", dict),

@@ -20,6 +20,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage.hpp"
 
 #include "disk_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -400,6 +401,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     auto res = constraint_acc->CreateUniqueConstraint(this->label2, {this->prop1});
     EXPECT_TRUE(res.has_value());
     EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
@@ -1569,4 +1571,567 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
     auto res2 = constraint_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
     ASSERT_NO_ERROR(res2);
   }
+}
+
+// MVCC visibility tests - verify constraints respect snapshot isolation
+// A transaction should only see constraints that were committed before its start_timestamp
+
+TYPED_TEST(ConstraintsTest, ExistenceConstraintMvccSnapshotIsolation) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "MVCC visibility test only applies to InMemoryStorage";
+  }
+
+  // Scenario: T1 starts READ -> T2 creates constraint -> T2 commits -> T1 should NOT see it -> T3 CAN see it
+
+  // T1 starts first (gets an earlier start_timestamp)
+  auto t1_acc = this->storage->Access(memgraph::storage::READ);
+
+  // T2 creates and commits the constraint
+  {
+    auto t2_acc = this->CreateConstraintAccessor();
+    auto res = t2_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1 should NOT see the constraint (its snapshot is from before T2 committed)
+  {
+    auto constraints = t1_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.existence.size(), 0) << "T1 (started before constraint commit) should not see the constraint";
+  }
+
+  // T3 starts after T2 committed - it SHOULD see the constraint
+  {
+    auto t3_acc = this->storage->Access(memgraph::storage::READ);
+    auto constraints = t3_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.existence.size(), 1) << "T3 (started after commit) should see the constraint";
+    EXPECT_THAT(constraints.existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
+    t3_acc->Abort();
+  }
+
+  t1_acc->Abort();
+}
+
+TYPED_TEST(ConstraintsTest, ExistenceConstraintMvccCreatorCommitsAfterReader) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "MVCC visibility test only applies to InMemoryStorage";
+  }
+
+  // Scenario: T1 creates constraint -> T2 starts READ -> T1 commits -> T2 should NOT see it -> T3 CAN see it
+
+  // T1 creates constraint (not yet committed)
+  auto t1_acc = this->CreateConstraintAccessor();
+  auto res = t1_acc->CreateExistenceConstraint(this->label1, this->prop1);
+  ASSERT_TRUE(res.has_value());
+
+  // T2 starts (gets snapshot before T1 commits)
+  auto t2_acc = this->storage->Access(memgraph::storage::READ);
+
+  // T1 commits
+  ASSERT_TRUE(t1_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+  // T2 should NOT see the constraint (its snapshot is from before T1 committed)
+  {
+    auto constraints = t2_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.existence.size(), 0) << "T2 (started before T1 committed) should not see the constraint";
+  }
+
+  // T3 starts after T1 committed - it SHOULD see the constraint
+  {
+    auto t3_acc = this->storage->Access(memgraph::storage::READ);
+    auto constraints = t3_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.existence.size(), 1) << "T3 (started after commit) should see the constraint";
+    t3_acc->Abort();
+  }
+
+  t2_acc->Abort();
+}
+
+TYPED_TEST(ConstraintsTest, UniqueConstraintMvccSnapshotIsolation) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "MVCC visibility test only applies to InMemoryStorage";
+  }
+
+  // T1 starts first
+  auto t1_acc = this->storage->Access(memgraph::storage::READ);
+
+  // T2 creates and commits unique constraint
+  {
+    auto t2_acc = this->CreateConstraintAccessor();
+    auto res = t2_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_TRUE(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1 should NOT see the constraint
+  {
+    auto constraints = t1_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.unique.size(), 0)
+        << "T1 (started before constraint commit) should not see the unique constraint";
+  }
+
+  // T3 starts after commit - SHOULD see the constraint
+  {
+    auto t3_acc = this->storage->Access(memgraph::storage::READ);
+    auto constraints = t3_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.unique.size(), 1) << "T3 (started after commit) should see the unique constraint";
+    t3_acc->Abort();
+  }
+
+  t1_acc->Abort();
+}
+
+TYPED_TEST(ConstraintsTest, TypeConstraintMvccSnapshotIsolation) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "MVCC visibility test only applies to InMemoryStorage";
+  }
+
+  // T1 starts first
+  auto t1_acc = this->storage->Access(memgraph::storage::READ);
+
+  // T2 creates and commits type constraint
+  {
+    auto t2_acc = this->CreateConstraintAccessor();
+    auto res = t2_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1 should NOT see the constraint
+  {
+    auto constraints = t1_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.type.size(), 0) << "T1 (started before constraint commit) should not see the type constraint";
+  }
+
+  // T3 starts after commit - SHOULD see the constraint
+  {
+    auto t3_acc = this->storage->Access(memgraph::storage::READ);
+    auto constraints = t3_acc->ListAllConstraints();
+    EXPECT_EQ(constraints.type.size(), 1) << "T3 (started after commit) should see the type constraint";
+    t3_acc->Abort();
+  }
+
+  t1_acc->Abort();
+}
+
+// Test that re-creating a dropped constraint works (ActiveConstraints pattern)
+TYPED_TEST(ConstraintsTest, UniqueConstraintCreateDropCreate) {
+  // Create initial constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    EXPECT_TRUE(res.has_value());
+    EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_THAT(acc->ListAllConstraints().unique,
+                UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Drop the constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+              UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint is gone
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().unique.size(), 0);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Re-create the same constraint - this should succeed (was failing before ActiveConstraints fix)
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    EXPECT_TRUE(res.has_value());
+    EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS)
+        << "Re-creating a dropped constraint should succeed";
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists again
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_THAT(acc->ListAllConstraints().unique,
+                UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// Test that re-creating a dropped existence constraint works (ActiveConstraints pattern)
+TYPED_TEST(ConstraintsTest, ExistenceConstraintCreateDropCreate) {
+  // Create initial existence constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    EXPECT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Drop the constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropExistenceConstraint(this->label1, this->prop1);
+    EXPECT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint is gone
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 0);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Re-create the same constraint - this should succeed (was failing before ActiveConstraints fix)
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    EXPECT_TRUE(res.has_value()) << "Re-creating a dropped existence constraint should succeed";
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists again
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// Test that re-creating a dropped type constraint works (ActiveConstraints pattern)
+TYPED_TEST(ConstraintsTest, TypeConstraintCreateDropCreate) {
+  // Skip for DiskStorage - type constraints not implemented
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for DiskStorage";
+  }
+
+  // Create initial type constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    EXPECT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().type.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Drop the constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    EXPECT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint is gone
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().type.size(), 0);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Re-create the same constraint - this should succeed (was failing before ActiveConstraints fix)
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    EXPECT_TRUE(res.has_value()) << "Re-creating a dropped type constraint should succeed";
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists again
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().type.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// Test that aborting a transaction after successful constraint registration (but before commit)
+// properly cleans up via AbortPopulating, allowing T2 to create the same constraint.
+TYPED_TEST(ConstraintsTest, ExistenceConstraintValidationFailsThenT2Creates) {
+  // Create a vertex without the required property - this will cause validation to fail
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    // Deliberately NOT setting prop1
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // T1: Try to create constraint - should fail validation
+  {
+    auto t1_acc = this->CreateConstraintAccessor();
+    auto res = t1_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    ASSERT_FALSE(res.has_value()) << "Constraint creation should fail due to existing vertex without property";
+    EXPECT_EQ(std::get<ConstraintViolation>(res.error()).type, ConstraintViolation::Type::EXISTENCE);
+    // T1 accessor goes out of scope and aborts (implicit abort on destructor)
+  }
+
+  // Fix the vertex by adding the missing property
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    for (auto vertex : acc->Vertices(View::OLD)) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(42)));
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // T2: Should be able to create the same constraint after T1's validation failure
+  {
+    auto t2_acc = this->CreateConstraintAccessor();
+    auto res = t2_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    EXPECT_TRUE(res.has_value()) << "T2 should be able to create constraint after T1's validation failure";
+    ASSERT_NO_ERROR(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// Test that aborting a transaction after successful constraint creation (before commit)
+// properly cleans up via AbortPopulating, allowing T2 to create the same constraint.
+// (InMemory only - DiskStorage uses UNIQUE access without MVCC abort cleanup)
+TYPED_TEST(ConstraintsTest, ExistenceConstraintAbortBeforeCommitAllowsT2Create) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Constraint MVCC abort cleanup only implemented for InMemoryStorage";
+  }
+
+  // T1: Create constraint successfully but abort before commit
+  {
+    auto t1_acc = this->CreateConstraintAccessor();
+    auto res = t1_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    EXPECT_TRUE(res.has_value()) << "Constraint creation should succeed (no violating vertices)";
+    // T1 accessor goes out of scope WITHOUT calling PrepareForCommitPhase
+    // This triggers Abort() which should call AbortPopulating()
+  }
+
+  // T2: Should be able to create the same constraint after T1's abort
+  {
+    auto t2_acc = this->CreateConstraintAccessor();
+    auto res = t2_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    EXPECT_TRUE(res.has_value()) << "T2 should be able to create constraint after T1's abort";
+    ASSERT_NO_ERROR(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// Same test for unique constraints
+// (InMemory only - DiskStorage uses UNIQUE access without MVCC abort cleanup)
+TYPED_TEST(ConstraintsTest, UniqueConstraintAbortBeforeCommitAllowsT2Create) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Constraint MVCC abort cleanup only implemented for InMemoryStorage";
+  }
+
+  // T1: Create constraint successfully but abort before commit
+  {
+    auto t1_acc = this->CreateConstraintAccessor();
+    auto res = t1_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    EXPECT_TRUE(res.has_value()) << "Constraint creation should succeed (no violating vertices)";
+    // T1 accessor goes out of scope WITHOUT calling PrepareForCommitPhase
+  }
+
+  // T2: Should be able to create the same constraint after T1's abort
+  {
+    auto t2_acc = this->CreateConstraintAccessor();
+    auto res = t2_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    EXPECT_TRUE(res.has_value()) << "T2 should be able to create constraint after T1's abort";
+    ASSERT_NO_ERROR(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().unique.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// Same test for type constraints (InMemory only)
+TYPED_TEST(ConstraintsTest, TypeConstraintAbortBeforeCommitAllowsT2Create) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for DiskStorage";
+  }
+
+  // T1: Create constraint successfully but abort before commit
+  {
+    auto t1_acc = this->CreateConstraintAccessor();
+    auto res = t1_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    EXPECT_TRUE(res.has_value()) << "Constraint creation should succeed (no violating vertices)";
+    // T1 accessor goes out of scope WITHOUT calling PrepareForCommitPhase
+  }
+
+  // T2: Should be able to create the same constraint after T1's abort
+  {
+    auto t2_acc = this->CreateConstraintAccessor();
+    auto res = t2_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    EXPECT_TRUE(res.has_value()) << "T2 should be able to create constraint after T1's abort";
+    ASSERT_NO_ERROR(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify constraint exists
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_EQ(acc->ListAllConstraints().type.size(), 1);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// Tests for constraint metrics
+TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
+  auto initial_count = memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints);
+
+  // Create first existence constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count + 1);
+
+  // Create second existence constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateExistenceConstraint(this->label1, this->prop2);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count + 2);
+
+  // Drop first constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropExistenceConstraint(this->label1, this->prop1);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count + 1);
+
+  // Drop second constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropExistenceConstraint(this->label1, this->prop2);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count);
+}
+
+TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
+  auto initial_count = memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints);
+
+  // Create first unique constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count + 1);
+
+  // Create second unique constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop2});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count + 2);
+
+  // Drop first constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count + 1);
+
+  // Drop second constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropUniqueConstraint(this->label1, {this->prop2});
+    ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count);
+}
+
+TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for DiskStorage";
+  }
+
+  auto initial_count = memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints);
+
+  // Create first type constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count + 1);
+
+  // Create second type constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop2, TypeConstraintKind::STRING);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count + 2);
+
+  // Drop first constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count + 1);
+
+  // Drop second constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropTypeConstraint(this->label1, this->prop2, TypeConstraintKind::STRING);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count);
 }

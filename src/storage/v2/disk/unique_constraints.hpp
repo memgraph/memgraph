@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
@@ -24,6 +25,25 @@ namespace memgraph::storage {
 
 class DiskUniqueConstraints : public UniqueConstraints {
  public:
+  /// ActiveConstraints implementation for disk unique constraints.
+  /// Disk storage doesn't have MVCC for constraints, so this is a simple wrapper.
+  class ActiveConstraints final : public UniqueActiveConstraints {
+   public:
+    explicit ActiveConstraints(const DiskUniqueConstraints *constraints) : constraints_{constraints} {}
+
+    bool ConstraintRegistered(LabelId label, std::set<PropertyId> const &properties) const override;
+    std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints(uint64_t start_timestamp) const override;
+    void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
+    auto GetAbortProcessor() const -> AbortProcessor override;
+    void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
+    void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
+
+   private:
+    const DiskUniqueConstraints *constraints_;
+  };
+
+  auto GetActiveConstraints() const -> std::unique_ptr<UniqueActiveConstraints> override;
+
   explicit DiskUniqueConstraints(const Config &config);
 
   CreationStatus CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
@@ -44,7 +64,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
-  [[nodiscard]] bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
+  [[nodiscard]] bool ConstraintRegistered(LabelId label, const std::set<PropertyId> &properties) const override;
 
   void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                            uint64_t transaction_start_timestamp) override;

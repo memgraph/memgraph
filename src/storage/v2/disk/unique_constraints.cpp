@@ -18,6 +18,7 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
@@ -56,6 +57,43 @@ bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid 
 
 }  // namespace
 
+// --- ActiveConstraints implementation ---
+
+bool DiskUniqueConstraints::ActiveConstraints::ConstraintRegistered(LabelId label,
+                                                                    std::set<PropertyId> const &properties) const {
+  return constraints_->ConstraintRegistered(label, properties);
+}
+
+std::vector<std::pair<LabelId, std::set<PropertyId>>> DiskUniqueConstraints::ActiveConstraints::ListConstraints(
+    [[maybe_unused]] uint64_t start_timestamp) const {
+  // Disk storage doesn't have MVCC for constraints, return all
+  return constraints_->ListConstraints();
+}
+
+void DiskUniqueConstraints::ActiveConstraints::UpdateBeforeCommit([[maybe_unused]] const Vertex *vertex,
+                                                                  [[maybe_unused]] const Transaction &tx) {
+  // Disk storage handles this differently - no-op for active constraints
+}
+
+auto DiskUniqueConstraints::ActiveConstraints::GetAbortProcessor() const -> AbortProcessor {
+  // Disk storage handles abort differently - return empty processor
+  return AbortProcessor{};
+}
+
+void DiskUniqueConstraints::ActiveConstraints::CollectForAbort([[maybe_unused]] AbortProcessor &processor,
+                                                               [[maybe_unused]] Vertex const *vertex) const {
+  // Disk storage handles abort differently - no-op for active constraints
+}
+
+void DiskUniqueConstraints::ActiveConstraints::AbortEntries([[maybe_unused]] AbortableInfo const &info,
+                                                            [[maybe_unused]] uint64_t exact_start_timestamp) {
+  // Disk storage handles this differently - no-op for active constraints
+}
+
+auto DiskUniqueConstraints::GetActiveConstraints() const -> std::unique_ptr<UniqueActiveConstraints> {
+  return std::make_unique<ActiveConstraints>(this);
+}
+
 DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
   kvstore_ = std::make_unique<RocksDBStorage>();
   utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
@@ -84,8 +122,10 @@ bool DiskUniqueConstraints::InsertConstraint(
   auto status = disk_transaction->Commit();
   if (!status.ok()) {
     spdlog::error("rocksdb: {}", status.getState());
+    return false;
   }
-  return status.ok();
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  return true;
 }
 
 std::expected<void, ConstraintViolation> DiskUniqueConstraints::Validate(
@@ -264,12 +304,13 @@ DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(Labe
     return drop_properties_check_result;
   }
   if (constraints_.erase({label, properties}) > 0) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
     return UniqueConstraints::DeletionStatus::SUCCESS;
   }
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
 }
 
-bool DiskUniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
+bool DiskUniqueConstraints::ConstraintRegistered(LabelId label, const std::set<PropertyId> &properties) const {
   return constraints_.contains(std::make_pair(label, properties));
 }
 
@@ -345,7 +386,10 @@ void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string>
     for (int i = 1; i < key_parts.size(); i++) {
       properties.insert(PropertyId::FromString(key_parts[i]));
     }
-    constraints_.emplace(label, properties);
+    auto [_, inserted] = constraints_.emplace(label, properties);
+    if (inserted) {
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+    }
   }
 }
 bool DiskUniqueConstraints::empty() const { return constraints_.empty(); }
