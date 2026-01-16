@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,18 +10,16 @@
 // licenses/APL.txt.
 
 #include <ranges>
-#include <usearch/index_dense.hpp>
 
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
+#include "usearch/index_dense.hpp"
 #include "utils/synchronized.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
@@ -89,7 +87,7 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
     }
     auto vector = PropertyToFloatVector(property, spec.dimension);
     const EdgeIndexEntry entry{&from_vertex, to_vertex, edge};
-    AddToVectorIndex(mg_index, spec, entry, vector.data(), thread_id);
+    AddToVectorIndex(mg_index, spec, entry, vector, thread_id);
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
     }
@@ -176,14 +174,18 @@ void VectorEdgeIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Acces
                                                   const VectorEdgeIndexSpec &spec,
                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
-  PopulateVectorIndexSingleThreaded(*mg_index, mutable_spec, vertices, snapshot_info, TryAddEdgesToIndex);
+  PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
+    TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info, thread_id);
+  });
 }
 
 void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
                                                      const VectorEdgeIndexSpec &spec,
                                                      std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
-  PopulateVectorIndexMultiThreaded(*mg_index, mutable_spec, vertices, snapshot_info, TryAddEdgesToIndex);
+  PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
+    TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info, std::optional{thread_id});
+  });
 }
 
 bool VectorEdgeIndex::DropIndex(std::string_view index_name) {
@@ -226,7 +228,7 @@ bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypeProp
   }
 
   auto vector = PropertyToFloatVector(property, spec.dimension);
-  AddToVectorIndex(*mg_index, spec, entry, vector.data());
+  AddToVectorIndex(*mg_index, spec, entry, vector);
   return true;
 }
 

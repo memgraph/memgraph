@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@
 #include "utils/concepts.hpp"
 #include "utils/endian.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/typeinfo.hpp"
 
 #include <boost/container/flat_map.hpp>
@@ -224,6 +225,24 @@ inline void Load(std::vector<T> *obj, Reader *reader) {
   }
 }
 
+template <typename T>
+inline void Save(const utils::small_vector<T> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T>
+inline void Load(utils::small_vector<T> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->resize(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    Load(&(*obj)[i], reader);
+  }
+}
 template <typename T>
 inline void Save(const std::unordered_set<T> &obj, Builder *builder) {
   uint64_t size = obj.size();

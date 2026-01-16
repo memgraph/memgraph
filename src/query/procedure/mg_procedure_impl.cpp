@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,6 +29,7 @@
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/common.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -823,6 +824,13 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
     case memgraph::storage::PropertyValue::Type::Point3d: {
       throw std::logic_error{
           "mgp_value for PropertyValue::Type::Point3d doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::VectorIndexId: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::VectorIndexId doesn't exist. Contact Memgraph team under "
+          "team@memgraph.com or "
           "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
       break;
     }

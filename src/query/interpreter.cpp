@@ -30,7 +30,6 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
-#include <usearch/index_plugins.hpp>
 #include <utility>
 #include <variant>
 #include <vector>

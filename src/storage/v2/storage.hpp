@@ -26,6 +26,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
@@ -552,6 +553,10 @@ class Storage {
     virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
     virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) = 0;
+
+    virtual utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) = 0;
+
+    virtual utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const = 0;
 
     virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
         VectorEdgeIndexSpec spec) = 0;

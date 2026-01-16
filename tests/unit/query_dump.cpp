@@ -17,7 +17,6 @@
 #include <map>
 #include <optional>
 #include <set>
-#include <usearch/index_plugins.hpp>
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"

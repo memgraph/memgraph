@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -317,6 +317,13 @@ struct small_vector {
       buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
     std::ranges::uninitialized_copy(first, last, begin(), end());
+  }
+
+  explicit small_vector(uint32_t count) : size_(count), capacity_(std::max(size_, kSmallCapacity)) {
+    if (!usingSmallBuffer(capacity_)) {
+      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+    }
+    std::uninitialized_default_construct_n(begin(), size_);
   }
 
   void push_back(const_reference value) {

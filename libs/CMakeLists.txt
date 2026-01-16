@@ -378,9 +378,13 @@ include_directories(BEFORE ${MGCXX_INCLUDE_DIR})
 target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
 target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
 
-# setup usearch
+# setup usearch with fp16lib and SimSIMD for optimized half-precision numerics
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/simsimd/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+target_compile_definitions(usearch INTERFACE
+  USEARCH_USE_FP16LIB=1
+  USEARCH_USE_SIMSIMD=1)

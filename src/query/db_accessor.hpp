@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -810,6 +810,11 @@ class DbAccessor final {
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(storage::VectorIndexSpec spec) {
     return accessor_->CreateVectorIndex(std::move(spec));
+  }
+
+  std::expected<utils::small_vector<uint64_t>, storage::StorageIndexDefinitionError> GetVectorIndexIdsForVertex(
+      storage::Vertex *vertex, storage::PropertyId property) {
+    return accessor_->GetVectorIndexIdsForVertex(vertex, property);
   }
 
   std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) {

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -492,17 +492,17 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
   std::map<storage::PropertyId, storage::PropertyValue> properties;
+  auto *storage_acc = context.db_accessor->GetStorageAccessor();
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       auto typed_value = value_expression->Accept(evaluator);
-      properties.emplace(key,
-                         typed_value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+      properties.emplace(key, typed_value.ToPropertyValue(storage_acc->GetNameIdMapper()));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      properties.emplace(dba.NameToProperty(key),
-                         value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+      auto property_id = dba.NameToProperty(key);
+      properties.emplace(property_id, value.ToPropertyValue(storage_acc->GetNameIdMapper()));
     }
   }
   if (context.evaluation_context.scope.in_merge) {
@@ -1184,6 +1184,7 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
       case storage::PropertyValue::Type::Enum:
       case storage::PropertyValueType::Point2d:
       case storage::PropertyValueType::Point3d:
+      case storage::PropertyValueType::VectorIndexId:
         // Prevent indexed lookup with something that would fail if we did
         // the original filter with `operator<`. Note, for some reason,
         // Cypher does not support comparing boolean values.
@@ -5002,6 +5003,18 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     }
   };
 
+  auto update_props_vertex = [&, record](PropertiesMap &new_properties, storage::Vertex * /*vertex*/) {
+    auto updated_properties = UpdatePropertiesChecked(record, new_properties);
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
+
+    if (should_register_change) {
+      for (const auto &[id, old_value, new_value] : updated_properties) {
+        register_set_property(std::move(old_value), id, std::move(new_value));
+      }
+    }
+  };
+
   switch (rhs.type()) {
     case TypedValue::Type::Edge: {
       PropertiesMap new_properties = get_props(rhs.ValueEdge());
@@ -5010,7 +5023,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     }
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
-      update_props(new_properties);
+      update_props_vertex(new_properties, rhs.ValueVertex().impl_.vertex_);
       break;
     }
     case TypedValue::Type::Map: {

@@ -2218,6 +2218,17 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
                                  kErrorMessage);
 }
 
+utils::small_vector<uint64_t> DiskStorage::DiskAccessor::GetVectorIndexIdsForVertex(Vertex *vertex,
+                                                                                    PropertyId property) {
+  return {};
+}
+
+utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(Vertex *vertex,
+                                                                               std::string_view index_name) const {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
     VectorEdgeIndexSpec /*spec*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",

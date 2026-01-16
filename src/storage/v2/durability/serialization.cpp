@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -235,6 +235,20 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
     }
     case ExternalPropertyValue::Type::Point3d: {
       WritePoint3d(value.ValuePoint3d());
+      break;
+    }
+    case ExternalPropertyValue::Type::VectorIndexId: {
+      const auto &vector_index_ids = value.ValueVectorIndexIds();
+      WriteMarker(Marker::TYPE_VECTOR_INDEX_ID);
+      WriteSize(this, vector_index_ids.size());
+      for (const auto &id : vector_index_ids) {
+        WriteString(id);
+      }
+      const auto &list = value.ValueVectorIndexList();
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteExternalPropertyValue(ExternalPropertyValue(item));
+      }
       break;
     }
   }
@@ -592,6 +606,35 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       if (!maybe_point_3d_value) return std::nullopt;
       return ExternalPropertyValue(*maybe_point_3d_value);
     }
+    case Marker::TYPE_VECTOR_INDEX_ID: {
+      auto inner_marker = ReadMarker();
+      if (!inner_marker || *inner_marker != Marker::TYPE_VECTOR_INDEX_ID) return std::nullopt;
+      auto size = ReadSize(this);
+      if (!size) return std::nullopt;
+      utils::small_vector<std::string> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (auto i = 0; i < *size; ++i) {
+        auto index_name = ReadString();
+        if (!index_name) return std::nullopt;
+        vector_index_ids.push_back(*index_name);
+      }
+      size = ReadSize(this);
+      if (!size) return std::nullopt;
+      utils::small_vector<float> list;
+      list.reserve(*size);
+      for (auto i = 0; i < *size; ++i) {
+        auto item = ReadExternalPropertyValue();
+        if (!item) return std::nullopt;
+        if (item->IsDouble()) {
+          list.push_back(static_cast<float>(item->ValueDouble()));
+        } else if (item->IsInt()) {
+          list.push_back(static_cast<float>(item->ValueInt()));
+        } else {
+          throw PropertyValueException("Expected to read vector index of Double or Int type");
+        }
+      }
+      return ExternalPropertyValue(std::move(vector_index_ids), std::move(list));
+    }
 
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::SECTION_VERTEX:
@@ -730,6 +773,21 @@ bool Decoder::SkipExternalPropertyValue() {
     }
     case Marker::TYPE_POINT_3D: {
       return !!ReadPoint3dValue();
+    }
+    case Marker::TYPE_VECTOR_INDEX_ID: {
+      auto inner_marker = ReadMarker();
+      if (!inner_marker || *inner_marker != Marker::TYPE_VECTOR_INDEX_ID) return false;
+      auto size = ReadSize(this);
+      if (!size) return false;
+      for (auto i = 0; i < *size; ++i) {
+        if (!SkipString()) return false;
+      }
+      size = ReadSize(this);
+      if (!size) return false;
+      for (auto i = 0; i < *size; ++i) {
+        if (!SkipExternalPropertyValue()) return false;
+      }
+      return true;
     }
 
     case Marker::TYPE_PROPERTY_VALUE:
