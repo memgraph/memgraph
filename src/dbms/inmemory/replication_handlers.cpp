@@ -359,6 +359,10 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  // Abort prev txn if needed
+  // It could happen that the main instance died before sending finalize for the previous commit and then
+  // the new instance becomes main and sends prepare
+  DestroyReplAccessor();
   auto &repl_storage_state = storage->repl_storage_state_;
 
   if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
@@ -473,12 +477,15 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
+void InMemoryReplicationHandlers::DestroyReplAccessor() {
   if (two_pc_cache_.commit_accessor_) {
     two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
     two_pc_cache_.commit_accessor_.reset();
   }
+}
 
+void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
+  DestroyReplAccessor();
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();

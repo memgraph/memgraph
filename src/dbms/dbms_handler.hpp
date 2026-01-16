@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,19 +51,18 @@
 namespace memgraph::dbms {
 
 struct Statistics {
-  uint64_t num_vertex;     //!< Sum of vertexes in every database
-  uint64_t num_edges;      //!< Sum of edges in every database
-  uint64_t triggers;       //!< Sum of triggers in every database
-  uint64_t streams;        //!< Sum of streams in every database
-  uint64_t users;          //!< Number of defined users
-  uint64_t roles;          //!< Number of defined roles
-  uint64_t num_databases;  //!< Number of isolated databases
-  uint64_t num_labels;     //!< Number of distinct labels
-  std::array<uint64_t, 7>
-      label_node_count_histogram;  //!< Log10 histogram: [0]=1-9, [1]=10-99, ..., [6]=1M+
-  uint64_t num_edge_types; //!< Number of distinct edge types
-  uint64_t indices;        //!< Sum of indices in every database
-  uint64_t constraints;    //!< Sum of constraints in every database
+  uint64_t num_vertex;                                 //!< Sum of vertexes in every database
+  uint64_t num_edges;                                  //!< Sum of edges in every database
+  uint64_t triggers;                                   //!< Sum of triggers in every database
+  uint64_t streams;                                    //!< Sum of streams in every database
+  uint64_t users;                                      //!< Number of defined users
+  uint64_t roles;                                      //!< Number of defined roles
+  uint64_t num_databases;                              //!< Number of isolated databases
+  uint64_t num_labels;                                 //!< Number of distinct labels
+  std::array<uint64_t, 7> label_node_count_histogram;  //!< Log10 histogram: [0]=1-9, [1]=10-99, ..., [6]=1M+
+  uint64_t num_edge_types;                             //!< Number of distinct edge types
+  uint64_t indices;                                    //!< Sum of indices in every database
+  uint64_t constraints;                                //!< Sum of constraints in every database
   std::array<uint64_t, 3>
       storage_modes{};  //!< Number of databases in each storage mode [IN_MEM_TX, IN_MEM_ANA, ON_DISK_TX]
   std::array<uint64_t, 3>
@@ -438,7 +437,7 @@ class DbmsHandler {
   }
 
   /**
-   * @brief todo
+   * @brief Iterates over all DBs
    *
    * @param f
    */
@@ -455,6 +454,25 @@ class DbmsHandler {
         f(*db_acc);
       }
     }
+  }
+
+  // Iterates over all DBs, applies the function on it but stops after
+  // the result of applying a function on some DB is false
+  auto AllOf(std::predicate<DatabaseAccess> auto f) -> bool {
+#ifdef MG_ENTERPRISE
+    auto rd = std::shared_lock{lock_};
+    for (auto &[_, db_gk] : db_handler_) {
+#else
+    {
+      auto &db_gk = db_gatekeeper_;
+#endif
+      auto db_acc = db_gk.access();
+      // Stop when the result of the function is false
+      if (db_acc && !f(*db_acc)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static void RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data);

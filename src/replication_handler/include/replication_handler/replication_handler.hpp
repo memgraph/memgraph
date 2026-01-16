@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -308,7 +308,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config,
                                   std::optional<utils::UUID> const &maybe_main_uuid = std::nullopt) {
     if (locked_repl_state->IsReplica()) {
-      if (!AllowIdempotency) {
+      if constexpr (!AllowIdempotency) {
         return false;
       }
       // We don't want to restart the server if we're already a REPLICA with correct config
