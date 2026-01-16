@@ -46,6 +46,7 @@ class TypeConstraints {
   /// This pattern matches indices and other constraints for consistency.
   struct IndividualConstraint {
     explicit IndividualConstraint(TypeConstraintKind t) : type(t) {}
+    ~IndividualConstraint();
 
     TypeConstraintKind type;
     ConstraintStatus status{};

@@ -20,6 +20,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage.hpp"
 
 #include "disk_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -2006,4 +2007,131 @@ TYPED_TEST(ConstraintsTest, TypeConstraintAbortBeforeCommitAllowsT2Create) {
     EXPECT_EQ(acc->ListAllConstraints().type.size(), 1);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
+}
+
+// Tests for constraint metrics
+TYPED_TEST(ConstraintsTest, ExistenceConstraintMetrics) {
+  auto initial_count = memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints);
+
+  // Create first existence constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateExistenceConstraint(this->label1, this->prop1);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count + 1);
+
+  // Create second existence constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateExistenceConstraint(this->label1, this->prop2);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count + 2);
+
+  // Drop first constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropExistenceConstraint(this->label1, this->prop1);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count + 1);
+
+  // Drop second constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropExistenceConstraint(this->label1, this->prop2);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveExistenceConstraints), initial_count);
+}
+
+TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
+  auto initial_count = memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints);
+
+  // Create first unique constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count + 1);
+
+  // Create second unique constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop2});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count + 2);
+
+  // Drop first constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count + 1);
+
+  // Drop second constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropUniqueConstraint(this->label1, {this->prop2});
+    ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveUniqueConstraints), initial_count);
+}
+
+TYPED_TEST(ConstraintsTest, TypeConstraintMetrics) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for DiskStorage";
+  }
+
+  auto initial_count = memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints);
+
+  // Create first type constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count + 1);
+
+  // Create second type constraint
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop2, TypeConstraintKind::STRING);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count + 2);
+
+  // Drop first constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count + 1);
+
+  // Drop second constraint
+  {
+    auto constraint_acc = this->DropConstraintAccessor();
+    auto res = constraint_acc->DropTypeConstraint(this->label1, this->prop2, TypeConstraintKind::STRING);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  EXPECT_EQ(memgraph::metrics::GetCounterValue(memgraph::metrics::ActiveTypeConstraints), initial_count);
 }

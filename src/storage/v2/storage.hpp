@@ -51,6 +51,10 @@ extern const Event ActiveTextIndices;
 extern const Event ActiveTextEdgeIndices;
 extern const Event ActiveVectorIndices;
 extern const Event ActiveVectorEdgeIndices;
+
+extern const Event ActiveExistenceConstraints;
+extern const Event ActiveUniqueConstraints;
+extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
