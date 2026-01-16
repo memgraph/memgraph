@@ -10073,10 +10073,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     uint64_t to_timestamp;
     std::filesystem::path path;
 
-    bool operator<(LoadWalInfo const &other) const {
-      return std::tie(seq_num, from_timestamp, to_timestamp, path) <
-             std::tie(other.seq_num, other.from_timestamp, other.to_timestamp, other.path);
-    }
+    auto operator<=>(LoadWalInfo const &) const = default;
   };
 
   std::vector<LoadWalInfo> wal_files;
@@ -10102,7 +10099,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                "https://memgr.ph/snapshots"));
   }
 
-  std::sort(wal_files.begin(), wal_files.end());
+  std::ranges::sort(wal_files);
 
   auto const old_durable_ts = std::invoke([transaction, &old_snapshot_files]() -> uint64_t {
     if (!old_snapshot_files.empty()) {
