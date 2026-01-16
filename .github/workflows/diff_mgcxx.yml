@@ -31,5 +31,6 @@ jobs:
       run: |
         cd mgcxx
         mkdir build && cd build
-        cmake .. && make -j$(nproc)
-        ctest
+        cmake ..
+        make -j$(nproc)
+        ctest --output-on-failure -j$(nproc)
