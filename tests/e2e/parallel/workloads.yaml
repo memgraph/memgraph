@@ -1,0 +1,28 @@
+# Workload configuration for parallel e2e tests
+#
+# These tests are designed to run in parallel using pytest-xdist.
+# Each test manages its own Memgraph instance via fixtures.
+#
+# Note: Unlike other e2e tests, parallel tests do NOT use the 'cluster' key
+# because each pytest worker manages its own instance dynamically.
+
+workloads:
+  - name: "Parallel e2e tests exceptions"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_exceptions.py"]
+
+  - name: "Parallel e2e tests fgac"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_fgac.py"]
+
+  - name: "Parallel e2e tests correctness"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_parallel_correctness.py"]
+
+  - name: "Parallel e2e tests hops limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_hops_limit.py"]
+
+  - name: "Parallel e2e tests explain"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_explain.py"]
