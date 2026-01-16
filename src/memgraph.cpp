@@ -161,6 +161,43 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
                                                             block_shutdown_signals),
             "Unable to register SIGINT handler!");
 }
+
+// Cleans all folders and files that aren't necessary anymore
+void CleanDataDir(std::filesystem::path const &data_directory) {
+  // Clean tmp folders from the data directory
+  // These tmp folders are used for storing snapshots and WALs received from main on replica and they should be deleted
+  // during the normal cluster functioning but if the node goes down, files will never be deleted, so we delete them
+  // immediately on the restart
+  auto const mg_db_tmp = data_directory / "tmp";
+  spdlog::trace("Deleting dir: {}", mg_db_tmp);
+  memgraph::utils::DeleteDir(mg_db_tmp);
+  // Optionally clean .old directories if flag set to false
+  if (!FLAGS_storage_enable_backup_dir) {
+    // Delete .old for snapshots of the default db
+    auto const mg_db_snp_old = data_directory / "snapshots" / ".old";
+    spdlog::trace("Deleting dir: {}", mg_db_snp_old);
+    memgraph::utils::DeleteDir(mg_db_snp_old);
+    // Delete .old for WAL files of the default db
+    auto const mg_db_wal_old = data_directory / "wal" / ".old";
+    spdlog::trace("Deleting dir: {}", mg_db_wal_old);
+    memgraph::utils::DeleteDir(mg_db_wal_old);
+  }
+
+  auto const dbs = data_directory / "databases";
+  std::error_code ec;
+  for (auto const &db : std::filesystem::directory_iterator(dbs, ec)) {
+    memgraph::utils::DeleteDir(db.path() / "tmp");
+    if (!FLAGS_storage_enable_backup_dir) {
+      auto const db_snp_old = db.path() / "snapshots" / ".old";
+      auto const db_wal_old = db.path() / "wal" / ".old";
+      spdlog::trace("Deleting snp: {}", db_snp_old);
+      spdlog::trace("Deleting wal: {}", db_wal_old);
+      memgraph::utils::DeleteDir(db_snp_old);
+      memgraph::utils::DeleteDir(db_wal_old);
+    }
+  }
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -287,6 +324,7 @@ int main(int argc, char **argv) {
   }
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
+  CleanDataDir(data_directory);
 
   memgraph::utils::EnsureDirOrDie(data_directory);
   // Verify that the user that started the process is the same user that is
@@ -303,18 +341,6 @@ int main(int argc, char **argv) {
             "storage directory, please stop it first before starting this "
             "process!",
             data_directory);
-
-  // Clean tmp folders from the data directory
-  // These tmp folders are used for storing snapshots and WALs received from main on replica and they should be deleted
-  // during the normal cluster functioning but if the node goes down, files will never be deleted, so we delete them
-  // immediately on the restart
-  auto const mg_db_tmp = data_directory / "tmp";
-  memgraph::utils::DeleteDir(mg_db_tmp);
-  auto const dbs = data_directory / "databases";
-  std::error_code ec;
-  for (auto const &db : std::filesystem::directory_iterator(dbs, ec)) {
-    memgraph::utils::DeleteDir(db.path() / "tmp");
-  }
 
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
