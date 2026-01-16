@@ -29,6 +29,7 @@ jobs:
 
     - name: Build and unit test
       run: |
+        cd mgcxx
         mkdir build && cd build
         cmake .. && make
         ctest
