@@ -178,6 +178,7 @@ jobs:
     secrets: inherit
 
   DiffResult:
+    if: always()
     name: "Diff Result"
     needs: [Community, Coverage, Debug, Jepsen, Release, Malloc, Mage]
     runs-on: ubuntu-latest
