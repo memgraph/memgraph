@@ -176,3 +176,34 @@ jobs:
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
     secrets: inherit
+
+  DiffResult:
+    name: "Diff Result"
+    needs: [Community, Coverage, Debug, Jepsen, Release, Malloc, Mage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Success/Skip Jobs
+        run: |
+          echo "Community: ${{ needs.Community.result }}"
+          echo "Coverage: ${{ needs.Coverage.result }}"
+          echo "Debug: ${{ needs.Debug.result }}"
+          echo "Jepsen: ${{ needs.Jepsen.result }}"
+          echo "Release: ${{ needs.Release.result }}"
+          echo "Malloc: ${{ needs.Malloc.result }}"
+          echo "Mage: ${{ needs.Mage.result }}"
+
+          community=${{ needs.Community.result == 'success' || needs.Community.result == 'skipped' }}
+          coverage=${{ needs.Coverage.result == 'success' || needs.Coverage.result == 'skipped' }}
+          debug=${{ needs.Debug.result == 'success' || needs.Debug.result == 'skipped' }}
+          jepsen=${{ needs.Jepsen.result == 'success' || needs.Jepsen.result == 'skipped' }}
+          release=${{ needs.Release.result == 'success' || needs.Release.result == 'skipped' }}
+          malloc=${{ needs.Malloc.result == 'success' || needs.Malloc.result == 'skipped' }}
+          mage=${{ needs.Mage.result == 'success' || needs.Mage.result == 'skipped' }}
+
+          if [ $community == false ] || [ $coverage == false ] || [ $debug == false ] || [ $jepsen == false ] || [ $release == false ] || [ $malloc == false ] || [ $mage == false ]; then
+            echo "Diff workflow failed"
+            exit 1
+          fi
+
+          echo "Diff workflow completed successfully"
+          exit 0
