@@ -10,13 +10,15 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <spdlog/sinks/sink.h>
+#include "spdlog/sinks/sink.h"
+#include "spdlog/sinks/stdout_color_sinks.h"
+
 #include <optional>
 
 namespace memgraph::flags {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline std::shared_ptr<spdlog::sinks::sink> stderr_sink;
+inline std::shared_ptr<spdlog::sinks::sink> stderr_sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
 
 const std::string &GetAllowedLogLevels();
 constexpr const char *GetLogLevelHelpString() {

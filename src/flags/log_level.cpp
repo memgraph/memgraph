@@ -23,8 +23,6 @@
 #include <string_view>
 #include <utility>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-
 using namespace std::string_view_literals;
 
 namespace {
@@ -81,7 +79,6 @@ std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::st
 // This allows us MT safe
 void memgraph::flags::InitializeLogger() {
   // stderr subsink
-  stderr_sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
   stderr_sink->set_level(spdlog::level::off);
 
   std::vector<spdlog::sink_ptr> sub_sinks;
