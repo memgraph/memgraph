@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,10 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
   return !policy->DoUpdate() || !locked_auth->AccessControlled();
+}
+
+std::shared_ptr<query::QueryUserOrRole> QueryUserOrRole::clone() const {
+  return std::make_shared<QueryUserOrRole>(*this);
 }
 
 std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string> db_name) const {

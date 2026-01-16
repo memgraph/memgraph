@@ -48,9 +48,9 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
   MOCK_CONST_METHOD0(GenEmptyUser, std::shared_ptr<memgraph::query::QueryUserOrRole>());
 
 #ifdef MG_ENTERPRISE
-  MOCK_CONST_METHOD2(GetFineGrainedAuthChecker, std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
-                                                    std::shared_ptr<memgraph::query::QueryUserOrRole> user,
-                                                    const memgraph::query::DbAccessor *db_accessor));
+  MOCK_CONST_METHOD2(GetFineGrainedAuthChecker,
+                     std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
+                         const memgraph::query::QueryUserOrRole &user, const memgraph::query::DbAccessor *db_accessor));
   MOCK_CONST_METHOD0(ClearCache, void());
 #endif
 };
