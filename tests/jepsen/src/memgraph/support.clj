@@ -13,6 +13,7 @@
 (def mglog  (str mgdir "/memgraph.log"))
 (def mgpid  (str mgdir "/memgraph.pid"))
 (def sync-after-n-txn (atom 100000))
+(def storage-enable-backup-dir (atom true))
 
 (defn get-rnd-snapshot-interval-sec
   "Gets the random snapshot interval sec between 5 and 300 secs."
@@ -33,6 +34,7 @@
    :--storage-snapshot-interval-sec (get-rnd-snapshot-interval-sec)
    :--data-recovery-on-startup
    :--replication-restore-state-on-startup
+   :--storage-enable-backup-dir @storage-enable-backup-dir
    :--storage-wal-file-flush-every-n-tx @sync-after-n-txn
    :--telemetry-enabled false
    :--storage-properties-on-edges))
@@ -98,8 +100,10 @@
     (setup! [_ test node] ; Each DB must support setup! method.
       (let [local-binary (:local-binary opts)
             nodes-config (:nodes-config opts)
-            flush-after-n-txn (:sync-after-n-txn opts)]
+            flush-after-n-txn (:sync-after-n-txn opts)
+            storage-enable-backup-dir-arg (:storage-enable-backup-dir opts)]
         (reset! sync-after-n-txn flush-after-n-txn)
+        (reset! storage-enable-backup-dir storage-enable-backup-dir-arg)
         (c/su
          (c/exec :apt-get :update)
          (debian/install ['python3 'python3-dev]))

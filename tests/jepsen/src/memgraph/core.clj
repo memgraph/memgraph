@@ -162,6 +162,10 @@
 
         nemesis-start-sleep (when (:nemesis-start-sleep opts)
                               (Integer/parseInt (:nemesis-start-sleep opts)))
+
+        storage-enable-backup-dir (when (:storage-enable-backup-dir opts)
+                                    (:storage-enable-backup-dir opts))
+
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
@@ -170,7 +174,8 @@
                           :organization organization
                           :num-tenants num-tenants
                           :recovery-time recovery-time
-                          :nemesis-start-sleep nemesis-start-sleep})]
+                          :nemesis-start-sleep nemesis-start-sleep
+                          :storage-enable-backup-dir storage-enable-backup-dir})]
 
     (memgraph-test test-opts)))
 
