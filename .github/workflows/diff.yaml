@@ -178,6 +178,7 @@ jobs:
   #   secrets: inherit
 
   MAGE-AMD:
+    needs: DiffSetup
     name: "Diff MAGE Tests (AMD)"
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
@@ -189,6 +190,7 @@ jobs:
     secrets: inherit
 
   MAGE-ARM:
+    needs: DiffSetup
     name: "Diff MAGE Tests (ARM)"
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
@@ -200,6 +202,7 @@ jobs:
     secrets: inherit
 
   MAGE-CUDA:
+    needs: DiffSetup
     name: "Diff MAGE Tests (CUDA)"
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:

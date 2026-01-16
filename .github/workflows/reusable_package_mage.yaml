@@ -97,6 +97,14 @@ env:
   CI_BRANCH: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}"
 
 jobs:
+  SkipJob:
+    if: ${{ inputs.diff_run == false }}
+    name: "Skip MAGE Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Job skipped
+        run: echo "This job was skipped because diff_run is false"
+
   BuildAndPush:
     if: ${{ inputs.diff_run == true }}
     name: "Build and Test MAGE"
