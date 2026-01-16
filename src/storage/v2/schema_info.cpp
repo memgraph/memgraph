@@ -123,7 +123,7 @@ inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uin
 
 // Check if vertex has uncommitted label deltas from other transactions
 // (deltas with ts >= kTransactionInitialId that aren't from this transaction)
-inline bool HasUncommittedLabelDeltas(const Vertex *v, uint64_t start_timestamp, uint64_t commit_timestamp) {
+inline bool HasUncommittedLabelDeltas(const Vertex *v, uint64_t commit_timestamp) {
   const Delta *delta = v->delta;
   while (delta != nullptr) {
     // Skip interleaved deltas as they don't affect labels
@@ -156,7 +156,7 @@ inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Ver
   const auto *labels = &v->labels;
   // If labels were changed by another transaction, or if there are uncommitted label deltas
   // (which GetState might not detect if they're after interleaved deltas), use committed state
-  if (state == ANOTHER_TX || HasUncommittedLabelDeltas(v, start_timestamp, commit_timestamp)) {
+  if (state == ANOTHER_TX || HasUncommittedLabelDeltas(v, commit_timestamp)) {
     labels = GetLabelsViewOld(v, start_timestamp, cache);
   }
   return std::pair{labels, state != THIS_TX};
@@ -334,14 +334,14 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
         for (const auto &[edge_type, other_vertex, edge_ref] : vertex->in_edges) {
           if (!has_uncommitted_interleaved(vertex) && !has_uncommitted_interleaved(other_vertex)) {
-            SchemaInfoEdge edge{edge_ref, edge_type, other_vertex, vertex};
+            SchemaInfoEdge edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = other_vertex, .to = vertex};
             post_process.edges.emplace(edge);
             edges_from_vertex_label_mods.insert(edge);
           }
         }
         for (const auto &[edge_type, other_vertex, edge_ref] : vertex->out_edges) {
           if (!has_uncommitted_interleaved(vertex) && !has_uncommitted_interleaved(other_vertex)) {
-            SchemaInfoEdge edge{edge_ref, edge_type, vertex, other_vertex};
+            SchemaInfoEdge edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = vertex, .to = other_vertex};
             post_process.edges.emplace(edge);
             edges_from_vertex_label_mods.insert(edge);
           }
@@ -368,8 +368,8 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     // Check if we need to process this edge: either states indicate changes, or there are uncommitted label deltas
     // (edges added to post_process due to uncommitted deltas need to be processed even if GetState returns NO_CHANGE)
-    const bool has_uncommitted_from = HasUncommittedLabelDeltas(from, start_ts, commit_ts);
-    const bool has_uncommitted_to = HasUncommittedLabelDeltas(to, start_ts, commit_ts);
+    const bool has_uncommitted_from = HasUncommittedLabelDeltas(from, commit_ts);
+    const bool has_uncommitted_to = HasUncommittedLabelDeltas(to, commit_ts);
 
     if (from_state != ANOTHER_TX && to_state != ANOTHER_TX && edge_state != ANOTHER_TX && !has_uncommitted_from &&
         !has_uncommitted_to) {
@@ -387,7 +387,7 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     // TODO Possible optimization: check if labels or props changed and skip some lookups/updates
 
     // Check if this edge was added due to vertex label modifications (not touched by this tx)
-    SchemaInfoEdge current_edge{edge_ref, edge_type, from, to};
+    SchemaInfoEdge const current_edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = from, .to = to};
     bool const edge_from_vertex_label_mod = edges_from_vertex_label_mods.contains(current_edge);
 
     // Revert local changes. Another commited transaction has also modified at
@@ -878,8 +878,8 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
                                edge_props.types);
 
     // Check if either vertex has uncommitted label deltas that need post-processing
-    const bool vertex_has_uncommitted = HasUncommittedLabelDeltas(vertex, start_ts_, commit_ts_);
-    const bool other_has_uncommitted = HasUncommittedLabelDeltas(other_vertex, start_ts_, commit_ts_);
+    const bool vertex_has_uncommitted = HasUncommittedLabelDeltas(vertex, commit_ts_);
+    const bool other_has_uncommitted = HasUncommittedLabelDeltas(other_vertex, commit_ts_);
 
     SchemaInfoEdge pp_item{edge_ref, edge_type, from_vertex, to_vertex};
     if (other_labels.second || edge_props.needs_pp || vertex_has_uncommitted || other_has_uncommitted) {
@@ -1002,10 +1002,10 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, E
   // In transactional mode, if vertices have interleaved deltas at the head OR uncommitted label deltas,
   // we need to use GetLabels to get the correct committed state (ignoring uncommitted/aborted changes
   // from other transactions). Otherwise, use the fast path with v->labels directly.
-  const bool needs_getlabels = post_process_ && (((from->delta != nullptr && IsDeltaInterleaved(*from->delta)) ||
-                                                  (to->delta != nullptr && IsDeltaInterleaved(*to->delta))) ||
-                                                 HasUncommittedLabelDeltas(from, start_ts_, commit_ts_) ||
-                                                 HasUncommittedLabelDeltas(to, start_ts_, commit_ts_));
+  const bool needs_getlabels =
+      post_process_ && (((from->delta != nullptr && IsDeltaInterleaved(*from->delta)) ||
+                         (to->delta != nullptr && IsDeltaInterleaved(*to->delta))) ||
+                        HasUncommittedLabelDeltas(from, commit_ts_) || HasUncommittedLabelDeltas(to, commit_ts_));
 
   if (needs_getlabels) {
     // Use GetLabels to get correct committed state (or this transaction's changes)
@@ -1028,7 +1028,8 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, E
       }
 
       if (edge_ref.has_value()) {
-        post_process_->edges.emplace(SchemaInfoEdge{*edge_ref, edge_type, from, to});
+        post_process_->edges.emplace(
+            SchemaInfoEdge{.edge_ref = *edge_ref, .edge_type = edge_type, .from = from, .to = to});
       }
     }
   } else {
