@@ -308,7 +308,6 @@ class VaryQueryPartMatching {
 /// @sa MakeLogicalPlan
 template <class TPlanningContext>
 class VariableStartPlanner {
- private:
   TPlanningContext *context_;
 
   // Generates different, equivalent query parts by taking different graph

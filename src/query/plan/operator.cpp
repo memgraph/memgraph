@@ -5175,16 +5175,15 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-        !context.auth_checker->Has(vertex, storage::View::OLD,
-                                   memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw QueryRuntimeException(
-          "Couldn't set label due to not having enough permission! This error means that the fine grained access "
-          "control "
-          "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
-          "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
-          "DATABASE; to verify you are pointing to correct database.");
-    }
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+      !context.auth_checker->Has(vertex, storage::View::OLD,
+                                 memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException(
+        "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
+        "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+        "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
+  }
 #endif
 
     for (auto label : labels) {
@@ -5509,17 +5508,15 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-        !context.auth_checker->Has(vertex, storage::View::OLD,
-                                   memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw QueryRuntimeException(
-          "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
-          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
-          "CURRENT; "
-          "to check if you have correct privileges to do operations involving labels. If you do try running SHOW "
-          "CURRENT "
-          "DATABASE; to verify you are pointing to correct database.");
-    }
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+      !context.auth_checker->Has(vertex, storage::View::OLD,
+                                 memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException(
+        "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
+        "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
+        "to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
+  }
 #endif
 
     for (auto label : labels) {

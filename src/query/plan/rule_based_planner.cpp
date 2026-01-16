@@ -870,7 +870,7 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
     // Preserve outer scope variables that were bound before this WITH
     std::ranges::copy_if(bound_symbols, std::inserter(new_bound_symbols, new_bound_symbols.end()),
                          [](const Symbol &symbol) {
-                           return symbol.type_ == Symbol::Type::VERTEX || symbol.type_ == Symbol::Type::EDGE;
+                           return symbol.type() == Symbol::Type::VERTEX || symbol.type() == Symbol::Type::EDGE;
                          });
 
     bound_symbols = std::move(new_bound_symbols);

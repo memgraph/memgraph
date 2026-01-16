@@ -105,7 +105,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
 void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
   ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
 
-  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](Symbol symbol, Expansion &expansion) {
+  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](const Symbol &symbol, Expansion &expansion) {
     ExpansionGroupId expansion_group_id_to_assign = next_expansion_group_id;
     if (matching.node_symbol_to_expansion_group_id.contains(symbol)) {
       expansion_group_id_to_assign = matching.node_symbol_to_expansion_group_id[symbol];

@@ -941,10 +941,10 @@ TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   EXPECT_EQ(symbol_table.max_position(), 7);
   // All symbols except `AS res` are anonymously generated.
   for (const auto &symbol : symbol_table.table()) {
-    if (symbol.second.name() == "res") {
-      EXPECT_TRUE(symbol.second.user_declared());
+    if (symbol.name() == "res") {
+      EXPECT_TRUE(symbol.user_declared());
     } else {
-      EXPECT_FALSE(symbol.second.user_declared());
+      EXPECT_FALSE(symbol.user_declared());
     }
   }
 }
@@ -1135,16 +1135,16 @@ TYPED_TEST(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
 TEST(TestSymbolTable, CreateAnonymousSymbols) {
   SymbolTable symbol_table;
   auto anon1 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon1.name_, "anon1");
+  ASSERT_EQ(anon1.name(), "anon1");
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TEST(TestSymbolTable, CreateAnonymousSymbolWithExistingUserSymbolCalledAnon) {
   SymbolTable symbol_table;
   symbol_table.CreateSymbol("anon1", false);
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TYPED_TEST(TestSymbolGenerator, PredefinedIdentifiers) {
@@ -1258,7 +1258,7 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
     ASSERT_EQ(collector.symbols_.size(), 1);
 
     auto symbol = *collector.symbols_.begin();
-    ASSERT_EQ(symbol.name_, "n");
+    ASSERT_EQ(symbol.name(), "n");
   }
 
   {
@@ -1280,7 +1280,7 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
     ASSERT_EQ(collector.symbols_.size(), 1);
 
     auto symbol = *collector.symbols_.begin();
-    ASSERT_EQ(symbol.name_, "n");
+    ASSERT_EQ(symbol.name(), "n");
   }
 }
 

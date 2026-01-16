@@ -946,7 +946,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         // TODO(buda): ScanAllByLabelProperties + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
+        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
         expression->MapTo(symbol);
         auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
         return std::make_unique<ScanAllByEdgeTypePropertyValue>(
@@ -1016,7 +1016,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         // TODO(buda): ScanAllByLabelProperties + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
+        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
         expression->MapTo(symbol);
         auto unwind_operator = std::make_shared<Unwind>(input, prop_filter.value_, symbol);
         return std::make_shared<ScanAllByEdgePropertyValue>(

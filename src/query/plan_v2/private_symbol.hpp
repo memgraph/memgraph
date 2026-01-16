@@ -11,8 +11,29 @@
 
 #pragma once
 
-#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <utility>
 
-namespace memgraph::planner::core {
-static constexpr size_t REBUILD_BATCH_SIZE = 100;
-}
+namespace memgraph::query::plan::v2 {
+
+enum struct symbol : std::uint8_t {
+  Once,
+  Bind,
+  Symbol,
+  Literal,
+  Identifier,
+  Output,
+  NamedOutput,
+  ParamLookup,
+};
+
+}  // namespace memgraph::query::plan::v2
+
+namespace std {
+using std::hash;
+template <>
+struct hash<memgraph::query::plan::v2::symbol> {
+  size_t operator()(memgraph::query::plan::v2::symbol const &value) const noexcept { return std::to_underlying(value); }
+};
+}  // namespace std

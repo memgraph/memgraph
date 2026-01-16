@@ -9,25 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "planner/core/extractor.hpp"
 
-#include <cstdint>
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
+#include <numeric>
+#include <queue>
+#include <vector>
 
-namespace memgraph::planner::core {
-
-template <typename Symbol>
-requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis>
-struct EClass;
-
-template <typename Symbol, typename Analysis>
-struct EGraph;
-
-template <typename Symbol>
-struct ProcessingContext;
-
-}  // namespace memgraph::planner::core
+namespace memgraph::planner::core {}  // namespace memgraph::planner::core
