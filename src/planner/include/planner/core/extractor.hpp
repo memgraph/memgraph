@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -183,7 +183,7 @@ auto TopologicalSort(EGraph<Symbol, Analysis> const &egraph,
 template <typename Symbol, typename Analysis, typename CostModel>
 struct Extractor {
   Extractor(EGraph<Symbol, Analysis> const &egraph, CostModel &&cost_model)
-      : egraph_(egraph), cost_model_(std::forward<CostModel>(cost_model)) {}
+      : egraph_(egraph), cost_model_(std::move(cost_model)) {}
 
   auto Extract(EClassId const root_id) -> std::vector<std::pair<EClassId, ENodeId>> {
     auto enode_selection = std::unordered_map<EClassId, Selection<typename CostModel::CostResult>>{};
