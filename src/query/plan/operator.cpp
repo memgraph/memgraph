@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -499,7 +499,7 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
       auto property_value = typed_value.ToPropertyValue(storage_acc->GetNameIdMapper());
       if (auto vector_index_ids = storage_acc->GetVectorIndexIdsForVertex(new_node.impl_.vertex_, key);
           !vector_index_ids.empty()) {
-        property_value = HandleVectorProperty(property_value, vector_index_ids);
+        property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
       }
       properties.emplace(key, std::move(property_value));
     }
@@ -510,7 +510,7 @@ VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame
       auto property_value = value.ToPropertyValue(storage_acc->GetNameIdMapper());
       if (auto vector_index_ids = storage_acc->GetVectorIndexIdsForVertex(new_node.impl_.vertex_, property_id);
           !vector_index_ids.empty()) {
-        property_value = HandleVectorProperty(property_value, vector_index_ids);
+        property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
       }
       properties.emplace(property_id, std::move(property_value));
     }

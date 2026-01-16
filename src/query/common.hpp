@@ -188,11 +188,10 @@ inline void ProcessError(const storage::Error error) {
 /// @param property_value The property value to potentially convert
 /// @param vector_index_ids The vector index IDs for this property
 /// @return A PropertyValue with vector index metadata if applicable
-template <typename VectorIndexIds>
-storage::PropertyValue HandleVectorProperty(const storage::PropertyValue &property_value,
-                                            VectorIndexIds &&vector_index_ids) {
+inline storage::PropertyValue HandleVectorProperty(const storage::PropertyValue &property_value,
+                                                   utils::small_vector<uint64_t> &&vector_index_ids) {
   if (property_value.IsNull()) {
-    return storage::PropertyValue(std::forward<VectorIndexIds>(vector_index_ids), utils::small_vector<float>{});
+    return storage::PropertyValue(std::move(vector_index_ids), utils::small_vector<float>{});
   }
 
   utils::small_vector<float> vector;
@@ -210,7 +209,7 @@ storage::PropertyValue HandleVectorProperty(const storage::PropertyValue &proper
   } else {
     throw QueryRuntimeException("Expected to evaluate vector index of List type");
   }
-  return storage::PropertyValue(std::forward<VectorIndexIds>(vector_index_ids), std::move(vector));
+  return storage::PropertyValue(std::move(vector_index_ids), std::move(vector));
 }
 
 template <typename T>
@@ -257,7 +256,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
     if (vertex && storage_accessor) {
       if (auto vector_index_ids = storage_accessor->GetVectorIndexIdsForVertex(vertex, key);
           !vector_index_ids.empty()) {
-        property_value = HandleVectorProperty(property_value, vector_index_ids);
+        property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
       }
     }
 
@@ -336,7 +335,7 @@ auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::P
       for (auto &[property_id, property_value] : properties) {
         if (auto vector_index_ids = storage_accessor->GetVectorIndexIdsForVertex(vertex, property_id);
             !vector_index_ids.empty()) {
-          property_value = HandleVectorProperty(property_value, vector_index_ids);
+          property_value = HandleVectorProperty(property_value, std::move(vector_index_ids));
         }
       }
     }
@@ -344,38 +343,6 @@ auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::P
     auto maybe_values = record->UpdateProperties(properties);
     if (!maybe_values) {
       ProcessError(maybe_values.error());
-    }
-    return std::move(*maybe_values);
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("Cannot update properties.");
-  }
-}
-
-/// Set property `values` mapped with given `key` on a `record` with vector property support.
-///
-/// @param record The record to update properties on
-/// @param properties The properties map to update
-/// @param storage_accessor The storage accessor for vector index checks
-/// @param vertex The vertex for vector index checks (nullptr for edges)
-/// @throw QueryRuntimeException if value cannot be set as a property value
-template <AccessorWithUpdateProperties T>
-auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
-                             storage::Storage::Accessor *storage_accessor, storage::Vertex *vertex = nullptr)
-    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).GetValue())> {
-  try {
-    // Check for vector properties and convert them if needed
-    if (vertex && storage_accessor) {
-      for (auto &[property_id, property_value] : properties) {
-        if (auto vector_index_ids = storage_accessor->GetVectorIndexIdsForVertex(vertex, property_id);
-            !vector_index_ids.empty()) {
-          property_value = HandleVectorProperty(property_value, vector_index_ids);
-        }
-      }
-    }
-
-    auto maybe_values = record->UpdateProperties(properties);
-    if (maybe_values.HasError()) {
-      ProcessError(maybe_values.GetError());
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {

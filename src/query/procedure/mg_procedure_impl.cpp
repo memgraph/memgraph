@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,6 +29,7 @@
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/common.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -2257,11 +2258,17 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, v->graph->impl);
 
-    const auto result = std::visit(
-        [prop_key, property_value, name_id_mapper = GetNameIdMapper(v->graph)](auto &impl) {
-          return impl.SetProperty(prop_key, ToPropertyValue(*property_value, name_id_mapper));
-        },
-        v->impl);
+    auto *storage_accessor = v->graph->getImpl()->GetStorageAccessor();
+    auto *vertex = v->getImpl().impl_.vertex_;
+    auto pv = ToPropertyValue(*property_value, GetNameIdMapper(v->graph));
+
+    // Check if this property is in a vector index
+    if (auto vector_index_ids = storage_accessor->GetVectorIndexIdsForVertex(vertex, prop_key);
+        !vector_index_ids.empty()) {
+      pv = memgraph::query::HandleVectorProperty(pv, std::move(vector_index_ids));
+    }
+
+    const auto result = std::visit([prop_key, &pv](auto &impl) { return impl.SetProperty(prop_key, pv); }, v->impl);
 
     if (!result) {
       switch (result.error()) {
@@ -2321,6 +2328,16 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
           }
         },
         properties->items);
+
+    // Check for vector properties and convert them if needed
+    auto *storage_accessor = v->graph->getImpl()->GetStorageAccessor();
+    auto *vertex = v->getImpl().impl_.vertex_;
+    for (auto &[property_id, property_value] : props) {
+      if (auto vector_index_ids = storage_accessor->GetVectorIndexIdsForVertex(vertex, property_id);
+          !vector_index_ids.empty()) {
+        property_value = memgraph::query::HandleVectorProperty(property_value, std::move(vector_index_ids));
+      }
+    }
 
     const auto result = v->getImpl().UpdateProperties(props);
 
