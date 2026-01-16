@@ -1703,27 +1703,15 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     std::this_thread::sleep_for(std::chrono::milliseconds(6000));
   }  // Periodic snapshot was made ~3 times, retention we only kept 1
 
-  ASSERT_EQ(GetSnapshotsList().size(), 1 + 1);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);  // Save only the latest snapshot
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
-  // Verify that exactly 1 snapshots and 1 unrelated snapshot exist.
+  // Verify that exactly 1 snapshot exists
   {
     auto snapshots = GetSnapshotsList();
-    ASSERT_EQ(snapshots.size(), 1 + 1);
-    std::string uuid;
-    for (size_t i = 0; i < snapshots.size(); ++i) {
-      const auto &path = snapshots[i];
-      // This shouldn't throw.
-      auto info = memgraph::storage::durability::ReadSnapshotInfo(path);
-      if (i == 0) uuid = info.uuid;
-      if (i < snapshots.size() - 1) {
-        ASSERT_EQ(info.uuid, uuid);
-      } else {
-        ASSERT_NE(info.uuid, uuid);
-      }
-    }
+    ASSERT_EQ(snapshots.size(), 1);
   }
 
   // Recover snapshot.

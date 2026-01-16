@@ -147,6 +147,8 @@ DEFINE_bool(storage_delta_on_identical_property_update, true,
 
 DEFINE_bool(storage_backup_dir_enabled, true,
             "Controls whether .old dir will be used to store latest snapshot and WAL files.");
+DEFINE_bool(storage_force_cleanup, false,
+            "Controls whether corrupted snapshot and WAL files will be deleted during the cleaning phase.");
 
 // RocksDB flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

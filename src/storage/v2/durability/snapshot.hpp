@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,22 +20,19 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/enum_store.hpp"
-#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
-#include "utils/join_vector.hpp"
-#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage::durability {
 
 /// Structure used to hold information about a snapshot.
 struct SnapshotInfo {
-  static constexpr uint64_t kInvalidOffset = 0u;
+  static constexpr uint64_t kInvalidOffset = 0U;
 
   uint64_t offset_edges;
   uint64_t offset_vertices;
@@ -57,6 +54,9 @@ struct SnapshotInfo {
   uint64_t edges_count;
   uint64_t vertices_count;
   uint64_t num_committed_txns;
+
+  // NOTE: Can be called only after loading the snapshot
+  auto IsIncomplete() const -> bool;
 };
 
 /// Structure used to hold information about the snapshot that has been
@@ -94,7 +94,7 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snaps
                             utils::FileRetainer *file_retainer);
 
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
-                                  OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
+                                  OldSnapshotFiles const &old_snapshot_files, const Transaction *transaction,
                                   utils::FileRetainer *file_retainer);
 
 std::optional<std::filesystem::path> CreateSnapshot(
