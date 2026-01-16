@@ -18,6 +18,7 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
@@ -264,6 +265,14 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 }
 
 }  // namespace
+
+// --- IndividualConstraint implementation ---
+
+InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
+  if (status.IsReady()) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  }
+}
 
 // --- ActiveConstraints implementation ---
 
@@ -518,6 +527,7 @@ void InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
     new_container->constraints_by_label_[label].insert({properties, it->second});
     container = std::move(new_container);
   });
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
 }
 
 InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstraint(

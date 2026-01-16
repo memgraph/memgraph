@@ -81,6 +81,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   struct IndividualConstraint {
     utils::SkipList<Entry> skiplist;
     ConstraintStatus status{};  // MVCC status tracking
+    ~IndividualConstraint();
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;

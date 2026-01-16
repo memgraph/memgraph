@@ -13,10 +13,19 @@
 #include <expected>
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
+
+// --- IndividualConstraint implementation ---
+
+ExistenceConstraints::IndividualConstraint::~IndividualConstraint() {
+  if (status.IsReady()) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveExistenceConstraints);
+  }
+}
 
 // --- ActiveConstraints implementation ---
 
@@ -82,6 +91,7 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
     return false;
   }
   constraint->status.Commit(commit_timestamp);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveExistenceConstraints);
   return true;
 }
 
@@ -205,6 +215,7 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
       if (inserted) {
         // Immediately commit with timestamp 0 so constraint is visible to all transactions
         it->second->status.Commit(kTimestampInitialId);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveExistenceConstraints);
       }
     }
     constraints = std::move(new_constraints);

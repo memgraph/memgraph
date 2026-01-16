@@ -18,6 +18,7 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
@@ -121,8 +122,10 @@ bool DiskUniqueConstraints::InsertConstraint(
   auto status = disk_transaction->Commit();
   if (!status.ok()) {
     spdlog::error("rocksdb: {}", status.getState());
+    return false;
   }
-  return status.ok();
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+  return true;
 }
 
 std::expected<void, ConstraintViolation> DiskUniqueConstraints::Validate(
@@ -301,6 +304,7 @@ DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(Labe
     return drop_properties_check_result;
   }
   if (constraints_.erase({label, properties}) > 0) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
     return UniqueConstraints::DeletionStatus::SUCCESS;
   }
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
@@ -382,7 +386,10 @@ void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string>
     for (int i = 1; i < key_parts.size(); i++) {
       properties.insert(PropertyId::FromString(key_parts[i]));
     }
-    constraints_.emplace(label, properties);
+    auto [_, inserted] = constraints_.emplace(label, properties);
+    if (inserted) {
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
+    }
   }
 }
 bool DiskUniqueConstraints::empty() const { return constraints_.empty(); }

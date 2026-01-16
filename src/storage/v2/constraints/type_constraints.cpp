@@ -17,6 +17,7 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -65,6 +66,14 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 }
 
 }  // namespace
+
+// --- IndividualConstraint implementation ---
+
+TypeConstraints::IndividualConstraint::~IndividualConstraint() {
+  if (status.IsReady()) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTypeConstraints);
+  }
+}
 
 // --- ActiveConstraints implementation ---
 
@@ -244,6 +253,7 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
 
   // Commit status in-place (shared_ptr allows modification without copy-on-write)
   constraint->status.Commit(commit_timestamp);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTypeConstraints);
 }
 
 bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {

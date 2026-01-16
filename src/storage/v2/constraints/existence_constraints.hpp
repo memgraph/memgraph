@@ -64,6 +64,7 @@ class ExistenceConstraints {
   /// This pattern matches indices and unique constraints for consistency.
   struct IndividualConstraint {
     ConstraintStatus status{};
+    ~IndividualConstraint();
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
