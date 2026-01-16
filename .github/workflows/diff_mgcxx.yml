@@ -31,5 +31,5 @@ jobs:
       run: |
         cd mgcxx
         mkdir build && cd build
-        cmake .. && make
+        cmake .. && make -j$(nproc)
         ctest
