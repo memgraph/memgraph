@@ -479,7 +479,7 @@ endif()
 # NOTE: The rest of the generated code should already under toolchain.
 add_custom_target(generated_code DEPENDS
   generate_opencypher_parser
-  mgcxx-proj
+  mgcxx_text_search
 )
 
 install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole

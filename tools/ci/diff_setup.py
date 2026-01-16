@@ -86,6 +86,7 @@ class DiffSetup:
             "release": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
             "malloc": {"build": value},
             "mage": {"amd": value, "arm": value, "cuda": False},
+            "mgcxx": {"unit": value},
         }
 
     def _check_diff_workflow(self) -> bool:

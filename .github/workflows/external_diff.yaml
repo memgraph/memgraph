@@ -39,6 +39,10 @@ on:
         type: string
         default: 'amd,arm,cuda'
         description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "Run the mgcxx tests."
 
 jobs:
   CallCreateStagingBranch:
@@ -60,6 +64,7 @@ jobs:
       release: ${{ inputs.release }}
       malloc_build: ${{ inputs.malloc_build }}
       mage: ${{ inputs.mage }}
+      mgcxx_unit: ${{ inputs.mgcxx_unit }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
 
