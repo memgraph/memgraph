@@ -33,6 +33,10 @@ on:
         type: string
         default: 'amd,arm,cuda'
         description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "Run the mgcxx tests."
   workflow_call:
     inputs:
       community_core:
@@ -62,7 +66,7 @@ on:
         type: string
         default: 'amd,arm,cuda'
         description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
-      run_mgcxx_test:
+      mgcxx_unit:
         type: boolean
         default: true
         description: "Run the mgcxx tests."
