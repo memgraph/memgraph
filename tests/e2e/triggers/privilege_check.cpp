@@ -229,8 +229,7 @@ TEST_P(PrivilegeCheckTest, ExplicitInvoker) {
     // BEFORE COMMIT: transaction should fail
     EXPECT_THROW({ CreateVertex(*invoker_without_set_client, kVertexId); }, mg::TransientException)
         << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
-    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_without_set_client) == 0; }))
-        << "Vertex count should be 0";
+    CheckNumberOfAllVertices(*invoker_without_set_client, 0);
   } else {
     // AFTER COMMIT: transaction succeeds but trigger fails, property not set
     CreateVertex(*invoker_without_set_client, kVertexId);
@@ -328,8 +327,7 @@ TEST_P(PrivilegeCheckTest, InvokerFineGrainedNoSet) {
     // BEFORE COMMIT: transaction should fail
     EXPECT_THROW({ CreateVertex(*invoker_fg_no_set_client, kVertexId); }, mg::TransientException)
         << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
-    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_fg_no_set_client) == 0; }))
-        << "Vertex count should be 0";
+    CheckNumberOfAllVertices(*invoker_fg_no_set_client, 0);
   } else {
     // AFTER COMMIT: transaction succeeds but trigger fails, property not set
     CreateVertex(*invoker_fg_no_set_client, kVertexId);
@@ -383,8 +381,7 @@ TEST_P(PrivilegeCheckTest, DefinerFineGrainedNoSet) {
     // BEFORE COMMIT: transaction should fail
     EXPECT_THROW({ CreateVertex(*invoker_client, kVertexId); }, mg::TransientException)
         << "BEFORE COMMIT trigger should fail transaction when definer lacks SET privilege";
-    EXPECT_TRUE(PollUntilTrue([&]() { return GetNumberOfAllVertices(*invoker_client) == 0; }))
-        << "Vertex count should be 0";
+    CheckNumberOfAllVertices(*invoker_client, 0);
   } else {
     // AFTER COMMIT: transaction succeeds but trigger fails, property not set
     CreateVertex(*invoker_client, kVertexId);
