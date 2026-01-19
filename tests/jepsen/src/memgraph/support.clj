@@ -54,6 +54,7 @@
    :--replication-restore-state-on-startup
    :--storage-properties-on-edges
    :--telemetry-enabled false
+   :--storage-enable-backup-dir @storage-enable-backup-dir
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)
    :--coordinator-hostname node
@@ -71,6 +72,7 @@
    :--data-recovery-on-startup
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
+   :--storage-enable-backup-dir @storage-enable-backup-dir
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges
