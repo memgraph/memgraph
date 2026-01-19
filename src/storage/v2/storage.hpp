@@ -51,6 +51,10 @@ extern const Event ActiveTextIndices;
 extern const Event ActiveTextEdgeIndices;
 extern const Event ActiveVectorIndices;
 extern const Event ActiveVectorEdgeIndices;
+
+extern const Event ActiveExistenceConstraints;
+extern const Event ActiveUniqueConstraints;
+extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -117,6 +121,7 @@ struct StorageInfo {
   uint64_t vector_edge_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
+  uint64_t type_constraints;
   StorageMode storage_mode;
   IsolationLevel isolation_level;
   bool durability_snapshot_enabled;
@@ -148,6 +153,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["vector_edge_indices"] = info.vector_edge_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
+  res["type_constraints"] = info.type_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
   res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
   res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
@@ -767,6 +773,12 @@ class Storage {
         indices_.edge_type_index_->GetActiveIndices(),     indices_.edge_type_property_index_->GetActiveIndices(),
         indices_.edge_property_index_->GetActiveIndices(),
     };
+  }
+
+  auto GetActiveConstraints() const -> ActiveConstraints {
+    return ActiveConstraints{constraints_.existence_constraints_->GetActiveConstraints(),
+                             constraints_.unique_constraints_->GetActiveConstraints(),
+                             constraints_.type_constraints_->GetActiveConstraints()};
   }
 
   /// Check if async indexer is idle (no pending work)
