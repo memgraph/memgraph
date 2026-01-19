@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
   ms::Gid v1_gid, v2_gid;
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -46,7 +46,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto tx1 = storage->Access();
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
   auto v1_1 = tx1->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_1.has_value());
   {
@@ -56,7 +56,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
     EXPECT_EQ(edges->edges.size(), 0);
   }
 
-  auto tx2 = storage->Access();
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
   auto v1_2 = tx2->FindVertex(v1_gid, ms::View::OLD);
   auto v2_2 = tx2->FindVertex(v2_gid, ms::View::OLD);
   ASSERT_TRUE(v1_2.has_value() && v2_2.has_value());
@@ -69,7 +69,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
     CompareEdges(edges.value(), std::array{tx2->NameToEdgeType("Edge2")});
   }
 
-  auto tx3 = storage->Access();
+  auto tx3 = storage->Access(memgraph::storage::WRITE);
   auto v1_3 = tx3->FindVertex(v1_gid, ms::View::OLD);
   auto v2_3 = tx3->FindVertex(v2_gid, ms::View::OLD);
   ASSERT_TRUE(v1_3.has_value() && v2_3.has_value());
@@ -83,7 +83,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
     CompareEdges(edges.value(), std::array{tx3->NameToEdgeType("Edge3")});
   }
 
-  auto tx4 = storage->Access();
+  auto tx4 = storage->Access(memgraph::storage::WRITE);
   auto v1_4 = tx4->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_4.has_value());
   {
@@ -119,7 +119,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
     EXPECT_EQ(edges->edges.size(), 0);
   }
 
-  auto tx5 = storage->Access();
+  auto tx5 = storage->Access(memgraph::storage::WRITE);
   auto v1_5 = tx5->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_5.has_value());
   {
@@ -158,7 +158,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
   {
     // A transaction started after both write transactions have committed
     // can see both edges.
-    auto tx6 = storage->Access();
+    auto tx6 = storage->Access(memgraph::storage::WRITE);
     auto v1_6 = tx6->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1_6.has_value());
     auto edges = v1_6->OutEdges(ms::View::OLD);
@@ -173,7 +173,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   ms::Gid v1_gid, v2_gid;
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -181,7 +181,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto tx0 = storage->Access();
+  auto tx0 = storage->Access(memgraph::storage::WRITE);
   auto v1_0 = tx0->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_0.has_value());
 
@@ -193,7 +193,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -208,7 +208,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     EXPECT_EQ(edges->edges.size(), 0);
   }
 
-  auto tx1 = storage->Access();
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
   auto v1_1 = tx1->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_1.has_value());
   {
@@ -218,7 +218,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     CompareEdges(edges.value(), std::array{tx1->NameToEdgeType("Edge1")});
   }
 
-  auto tx2 = storage->Access();
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
   auto v1_2 = tx2->FindVertex(v1_gid, ms::View::OLD);
   auto v2_2 = tx2->FindVertex(v2_gid, ms::View::OLD);
   ASSERT_TRUE(v1_2.has_value() && v2_2.has_value());
@@ -245,7 +245,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     CompareEdges(edges.value(), std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a")});
   }
 
-  auto tx3 = storage->Access();
+  auto tx3 = storage->Access(memgraph::storage::WRITE);
   auto v1_3 = tx3->FindVertex(v1_gid, ms::View::OLD);
   auto v2_3 = tx3->FindVertex(v2_gid, ms::View::OLD);
   ASSERT_TRUE(v1_3.has_value() && v2_3.has_value());
@@ -318,7 +318,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
                                            tx3->NameToEdgeType("Edge3b")});
   }
 
-  auto tx4 = storage->Access();
+  auto tx4 = storage->Access(memgraph::storage::WRITE);
   auto v1_4 = tx4->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_4.has_value());
   {
@@ -364,7 +364,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     CompareEdges(edges.value(), std::array{tx4->NameToEdgeType("Edge1")});
   }
 
-  auto tx5 = storage->Access();
+  auto tx5 = storage->Access(memgraph::storage::WRITE);
   auto v1_5 = tx5->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_5.has_value());
   {
@@ -413,7 +413,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   {
     // A transaction started after both write transactions have committed
     // can see all the edges.
-    auto tx6 = storage->Access();
+    auto tx6 = storage->Access(memgraph::storage::WRITE);
     auto v1_6 = tx6->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1_6.has_value());
     auto edges = v1_6->OutEdges(ms::View::OLD);
@@ -430,7 +430,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
   ms::Gid v1_gid, v2_gid;
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -438,7 +438,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto tx0 = storage->Access();
+  auto tx0 = storage->Access(memgraph::storage::WRITE);
   auto v1_0 = tx0->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_0.has_value());
 
@@ -450,7 +450,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -465,7 +465,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
     EXPECT_EQ(edges->edges.size(), 0);
   }
 
-  auto tx1 = storage->Access();
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
   auto v1_1 = tx1->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_1.has_value());
   {
@@ -475,12 +475,12 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
     CompareEdges(edges.value(), std::array{tx1->NameToEdgeType("Edge1")});
   }
 
-  auto tx2 = storage->Access();
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
   auto v1_2 = tx2->FindVertex(v1_gid, ms::View::OLD);
   auto v2_2 = tx2->FindVertex(v2_gid, ms::View::OLD);
   ASSERT_TRUE(v1_2.has_value() && v2_2.has_value());
 
-  auto tx3 = storage->Access();
+  auto tx3 = storage->Access(memgraph::storage::WRITE);
   auto v1_3 = tx3->FindVertex(v1_gid, ms::View::OLD);
   auto v2_3 = tx3->FindVertex(v2_gid, ms::View::OLD);
   ASSERT_TRUE(v1_3.has_value() && v2_3.has_value());
@@ -490,7 +490,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
   ASSERT_TRUE(tx2->CreateEdge(&*v1_2, &*v2_2, tx2->NameToEdgeType("Edge2b")).has_value());
   ASSERT_TRUE(tx3->CreateEdge(&*v1_3, &*v2_3, tx3->NameToEdgeType("Edge3b")).has_value());
 
-  auto tx4 = storage->Access();
+  auto tx4 = storage->Access(memgraph::storage::WRITE);
   auto v1_4 = tx4->FindVertex(v1_gid, ms::View::OLD);
   ASSERT_TRUE(v1_4.has_value());
   {
@@ -566,7 +566,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
   {
     // New transaction only sees Edge1, as every other edge creation was
     // aborted
-    auto tx6 = storage->Access();
+    auto tx6 = storage->Access(memgraph::storage::WRITE);
     auto v1_6 = tx6->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1_6.has_value());
     auto edges = v1_6->OutEdges(ms::View::OLD);
@@ -581,7 +581,7 @@ TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
   ms::Gid v1_gid, v2_gid;
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -596,7 +596,7 @@ TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
 
     auto create_edges_then_abort = [&](int writer_id) {
       for (int iteration = 0; iteration < kNumIterations; ++iteration) {
-        auto acc = storage->Access();
+        auto acc = storage->Access(memgraph::storage::WRITE);
         auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
         auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
         ASSERT_TRUE(v1.has_value());
@@ -626,7 +626,7 @@ TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
 
     std::jthread reader([&]() {
       while (!test_finished.load(std::memory_order_acquire)) {
-        auto acc = storage->Access();
+        auto acc = storage->Access(memgraph::storage::WRITE);
         auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
         ASSERT_TRUE(v1.has_value());
         auto edges = v1->OutEdges(ms::View::OLD);
@@ -640,7 +640,7 @@ TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
 
   // New transactions should still see no edges
   {
-    auto tx_final = storage->Access();
+    auto tx_final = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx_final->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
     auto edges = v1->OutEdges(ms::View::OLD);

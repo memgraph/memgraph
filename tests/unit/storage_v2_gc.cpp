@@ -218,7 +218,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -227,9 +227,9 @@ TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected
   }
 
   {
-    auto acc0 = storage->Access();  // older accessor is just used to stop GC.
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);  // older accessor is just used to stop GC.
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
 
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
@@ -274,7 +274,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) 
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -283,9 +283,9 @@ TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) 
   }
 
   {
-    auto acc0 = storage->Access();
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
 
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
@@ -333,7 +333,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithMultipleAbortsAreGarbageCollected) {
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -342,9 +342,9 @@ TEST(StorageV2Gc, InterleavedDeltasWithMultipleAbortsAreGarbageCollected) {
   }
 
   {
-    auto acc0 = storage->Access();
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
 
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
@@ -398,7 +398,7 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -407,10 +407,10 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
   }
 
   {
-    auto acc0 = storage->Access();
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
-    auto acc3 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
+    auto acc3 = storage->Access(memgraph::storage::WRITE);
 
     // Create three edges to form downstream delta chain: TX1 -> TX2 -> TX3
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
@@ -458,7 +458,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -467,10 +467,10 @@ TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
   }
 
   {
-    auto acc0 = storage->Access();
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
-    auto acc3 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
+    auto acc3 = storage->Access(memgraph::storage::WRITE);
 
     // Create interleaved deltas with mixed commit/abort pattern
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
@@ -517,7 +517,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -526,10 +526,10 @@ TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
   }
 
   {
-    auto acc0 = storage->Access();
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
-    auto acc3 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
+    auto acc3 = storage->Access(memgraph::storage::WRITE);
 
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
@@ -576,7 +576,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -585,9 +585,9 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
   }
 
   {
-    auto acc0 = storage->Access();  // older accessor is just used to stop GC.
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);  // older accessor is just used to stop GC.
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
 
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
@@ -636,7 +636,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -645,9 +645,9 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
   }
 
   {
-    auto acc0 = storage->Access();  // older accessor is just used to stop GC.
-    auto acc1 = storage->Access();
-    auto acc2 = storage->Access();
+    auto acc0 = storage->Access(memgraph::storage::WRITE);  // older accessor is just used to stop GC.
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
 
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
@@ -697,7 +697,7 @@ TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
   memgraph::storage::Gid v1_gid, v2_gid;
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -705,8 +705,8 @@ TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto tx1 = storage->Access();
-  auto tx2 = storage->Access();
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
 
   {
     auto v1 = tx1->FindVertex(v1_gid, memgraph::storage::View::OLD).value();
@@ -727,7 +727,7 @@ TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
   std::this_thread::sleep_for(std::chrono::milliseconds(400));
 
   {
-    auto reader = storage->Access();
+    auto reader = storage->Access(memgraph::storage::WRITE);
     auto v1 = reader->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2 = reader->FindVertex(v2_gid, memgraph::storage::View::OLD);
 
@@ -751,18 +751,18 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
           .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}}));
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     vertex_gid = vertex.Gid();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // blocker transaction prevents rapid GC
-  auto blocker = storage->Access();
+  auto blocker = storage->Access(memgraph::storage::WRITE);
 
   std::unique_ptr<memgraph::storage::Storage::Accessor> accessor_a;
   {
-    accessor_a = storage->Access();
+    accessor_a = storage->Access(memgraph::storage::WRITE);
     auto v = accessor_a->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v.has_value());
     ASSERT_TRUE(v->AddLabel(accessor_a->NameToLabel("LabelA")).has_value());
@@ -770,7 +770,7 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
   }
 
   {
-    auto accessor_b = storage->Access();
+    auto accessor_b = storage->Access(memgraph::storage::WRITE);
     auto v = accessor_b->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v.has_value());
     ASSERT_TRUE(v->AddLabel(accessor_b->NameToLabel("LabelB")).has_value());
@@ -784,13 +784,13 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
   blocker.reset();
 
   {
-    auto gc_trigger = storage->Access();
+    auto gc_trigger = storage->Access(memgraph::storage::WRITE);
     gc_trigger->CreateVertex();
     ASSERT_TRUE(gc_trigger->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
-    auto reader = storage->Access();
+    auto reader = storage->Access(memgraph::storage::WRITE);
     auto v = reader->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v.has_value());
 
@@ -808,7 +808,7 @@ TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -817,7 +817,7 @@ TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -832,7 +832,7 @@ TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -856,7 +856,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -865,7 +865,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
@@ -873,7 +873,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
 
     auto const *delta_v1_t1_head = v1_t1->vertex_->delta;
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
@@ -891,7 +891,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -910,7 +910,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -919,14 +919,14 @@ TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
@@ -945,7 +945,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -964,7 +964,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -973,20 +973,20 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).has_value());
 
-    auto tx3 = storage->Access();
+    auto tx3 = storage->Access(memgraph::storage::WRITE);
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
@@ -1006,7 +1006,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -1025,7 +1025,7 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -1034,7 +1034,7 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
@@ -1043,14 +1043,14 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
   }
 
   {
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2A")).has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2B")).has_value());
 
-    auto tx3 = storage->Access();
+    auto tx3 = storage->Access(memgraph::storage::WRITE);
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
@@ -1069,7 +1069,7 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -1088,7 +1088,7 @@ TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -1097,14 +1097,14 @@ TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
@@ -1123,7 +1123,7 @@ TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -1142,7 +1142,7 @@ TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -1151,20 +1151,20 @@ TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
-    auto tx3 = storage->Access();
+    auto tx3 = storage->Access(memgraph::storage::WRITE);
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
@@ -1181,7 +1181,7 @@ TEST(StorageV2Gc, AbortsWithMultipleTransactionsPrepending) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -1200,7 +1200,7 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -1209,20 +1209,20 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
   }
 
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1_t0 = tx0->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t0 = tx0->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t0.has_value() && v2_t0.has_value());
     ASSERT_TRUE(tx0->CreateEdge(&*v1_t0, &*v2_t0, tx0->NameToEdgeType("EDGE0")).has_value());
 
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1A")).has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1B")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
@@ -1239,7 +1239,7 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -1256,7 +1256,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -1265,13 +1265,13 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
@@ -1293,7 +1293,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
     EXPECT_FALSE(v1->vertex_->has_uncommitted_interleaved_deltas);
@@ -1306,7 +1306,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -1315,19 +1315,19 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
     ASSERT_TRUE(tx2->CreateEdge(&*v1_t2, &*v2_t2, tx2->NameToEdgeType("EDGE2")).has_value());
 
-    auto tx3 = storage->Access();
+    auto tx3 = storage->Access(memgraph::storage::WRITE);
     auto v1_t3 = tx3->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t3 = tx3->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
@@ -1350,7 +1350,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
     auto const guard = std::shared_lock{v1->vertex_->lock};
@@ -1364,7 +1364,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto tx0 = storage->Access();
+    auto tx0 = storage->Access(memgraph::storage::WRITE);
     auto v1 = tx0->CreateVertex();
     auto v2 = tx0->CreateVertex();
     v1_gid = v1.Gid();
@@ -1373,13 +1373,13 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
   }
 
   {
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_t1 = tx1->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t1 = tx1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
     ASSERT_TRUE(tx1->CreateEdge(&*v1_t1, &*v2_t1, tx1->NameToEdgeType("EDGE1")).has_value());
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_t2 = tx2->FindVertex(v1_gid, ms::View::OLD);
     auto v2_t2 = tx2->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
@@ -1395,7 +1395,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
     EXPECT_EQ(v1->vertex_->delta, nullptr);
