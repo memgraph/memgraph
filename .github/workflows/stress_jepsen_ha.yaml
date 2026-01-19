@@ -40,6 +40,10 @@ on:
         description: "If enabled, .old dir will be used."
         type: boolean
         default: true
+      storage-force-cleanup:
+        description: "If enabled, unreadable durable files will be deleted."
+        type: boolean
+        default: false
 
 
   schedule:
@@ -85,6 +89,7 @@ jobs:
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
       storage-backup-dir-enabled: true
+      storage-force-cleanup: false
     secrets: inherit
 
   run-manual-jepsen-tests:
@@ -98,6 +103,7 @@ jobs:
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      storage-force-cleanup: ${{ inputs.storage-force-cleanup }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -111,4 +117,5 @@ jobs:
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
       storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      storage-force-cleanup: ${{ inputs.storage-force-cleanup }}
     secrets: inherit
