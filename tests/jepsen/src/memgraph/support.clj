@@ -27,16 +27,15 @@
     :pidfile mgpid
     :chdir   mgdir}
    (:local-binary test)
-   :--log-level "TRACE"
    :--also-log-to-stderr
    :--data-recovery-on-startup
    :--storage-wal-enabled
-   :--storage-snapshot-interval-sec (get-rnd-snapshot-interval-sec)
-   :--data-recovery-on-startup
    :--replication-restore-state-on-startup
-   :--storage-enable-backup-dir @storage-enable-backup-dir
-   :--storage-wal-file-flush-every-n-tx @sync-after-n-txn
-   :--telemetry-enabled false
+   "--log-level=TRACE"
+   (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
+   (str "--storage-enable-backup-dir=" @storage-enable-backup-dir)
+   (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
+   "--telemetry-enabled=false"
    :--storage-properties-on-edges))
 
 (defn start-coordinator-node!
@@ -46,15 +45,15 @@
     :pidfile mgpid
     :chdir   mgdir}
    (:local-binary test)
-   :--log-level "TRACE"
    :--also-log-to-stderr
    :--data-recovery-on-startup
    :--storage-wal-enabled
-   :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup
    :--storage-properties-on-edges
-   :--telemetry-enabled false
-   :--storage-enable-backup-dir @storage-enable-backup-dir
+   "--storage-snapshot-interval-sec=300"
+   "--telemetry-enabled=false"
+   "--log-level=TRACE"
+   (str "--storage-enable-backup-dir=" @storage-enable-backup-dir)
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)
    :--coordinator-hostname node
@@ -67,16 +66,15 @@
     :pidfile mgpid
     :chdir   mgdir}
    (:local-binary test)
-   :--log-level "TRACE"
    :--also-log-to-stderr
-   :--data-recovery-on-startup
    :--storage-wal-enabled
-   :--storage-snapshot-interval-sec 300
-   :--storage-enable-backup-dir @storage-enable-backup-dir
+   "--storage-snapshot-interval-sec=300"
+   "--log-level=TRACE"
+   (str "--storage-enable-backup-dir=" @storage-enable-backup-dir)
+   "--telemetry-enabled=false"
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges
-   :--telemetry-enabled false
    :--management-port (get node-config :management-port)))
 
 (defn start-memgraph-node!
