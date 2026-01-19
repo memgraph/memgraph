@@ -2577,8 +2577,6 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto t4 = std::jthread(read_schema);
 }
 
-// Deterministic test for the interleaved delta edge label bug
-// Reproduces the issue where edges created with uncommitted labels aren't updated
 TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
@@ -2611,58 +2609,20 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
   ASSERT_TRUE(v1_b.has_value() && v2_b.has_value());
   ASSERT_TRUE(tx_b->CreateEdge(&*v1_b, &*v2_b, e1).has_value());
 
-  // Transaction A commits (L1 becomes committed) @TODO these have been interchanged.
-  ASSERT_TRUE(tx_a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx_a.reset();
-
   // Transaction B commits (edge created WITH L1, but L1 is still uncommitted from tx_a)
   ASSERT_TRUE(tx_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   tx_b.reset();
 
-  // Check schema: edge should have L1 (updated), node should have L1
-  // The bug: edge might not have been updated when L1 was added, so it still shows no labels
+  // Transaction A commits (L1 becomes committed)
+  ASSERT_TRUE(tx_a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_a.reset();
+
   const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-
-  // Extract edge labels and node labels
-  bool edge_has_l1 = false;
-  bool node_has_l1 = false;
-
-  if (json.contains("edges") && json["edges"].is_array() && json["edges"].size() > 0) {
-    const auto &edge = json["edges"][0];
-    if (edge.contains("start_node_labels") && edge["start_node_labels"].is_array()) {
-      for (const auto &label : edge["start_node_labels"]) {
-        if (label == "L1") {
-          edge_has_l1 = true;
-          break;
-        }
-      }
-    }
-  }
-
-  if (json.contains("nodes") && json["nodes"].is_array()) {
-    for (const auto &node : json["nodes"]) {
-      if (node.contains("labels") && node["labels"].is_array()) {
-        for (const auto &label : node["labels"]) {
-          if (label == "L1") {
-            node_has_l1 = true;
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  // Both should have L1 - they must match
-  ASSERT_EQ(edge_has_l1, node_has_l1) << "BUG: Edge and node label tracking mismatch! Edge has L1: " << edge_has_l1
-                                      << ", Node has L1: " << node_has_l1 << ". Full schema: " << json.dump(2);
-
-  // Also verify they both have L1 (the expected correct state after L1 is added)
-  ASSERT_TRUE(edge_has_l1) << "Edge should have L1 after label is added. Actual: " << json.dump(2);
-  ASSERT_TRUE(node_has_l1) << "Node should have L1. Actual: " << json.dump(2);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":[],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be [L1]:[] after tx_a commits. Actual: " << json.dump(2);
 }
 
-// Test the abort case: edge created with uncommitted label, then label transaction aborts
-// Note: Skip in analytical mode as abort doesn't work (no deltas to undo)
 TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelAbort) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
 
@@ -2709,16 +2669,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelAbort) {
   tx_a->Abort();
   tx_a.reset();
 
-  // Check schema: edge should NOT have L1, node should NOT have L1
   const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
   const auto expected = nlohmann::json::parse(
       R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
   ASSERT_TRUE(ConfrontJSON(json, expected)) << "Schema mismatch. Actual: " << json.dump(2);
 }
 
-// Test Case 1: T_ce commits first, then T_l1 commits
-// Edge created with uncommitted L1, then L1 commits - should work
-TYPED_TEST(SchemaInfoTestWEdgeProp, Case1_EdgeCommitsFirst_LabelCommitsAfter) {
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCommitsFirst_LabelCommitsAfter) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
 
@@ -2758,16 +2715,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case1_EdgeCommitsFirst_LabelCommitsAfter) {
   ASSERT_TRUE(tx_l1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   tx_l1.reset();
 
-  // Check schema: edge should have L1, node should have L1
   const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
   const auto expected = nlohmann::json::parse(
       R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Case 1 failed. Actual: " << json.dump(2);
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
 }
 
-// Test Case 2: T_l1 commits first, then T_ce commits
-// Label commits first, then edge created with committed L1 - should work
-TYPED_TEST(SchemaInfoTestWEdgeProp, Case2_LabelCommitsFirst_EdgeCommitsAfter) {
+TYPED_TEST(SchemaInfoTestWEdgeProp, LabelCommitsFirst_EdgeCommitsAfter) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
 
@@ -2807,17 +2761,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case2_LabelCommitsFirst_EdgeCommitsAfter) {
   ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   tx_ce.reset();
 
-  // Check schema: edge should have L1, node should have L1
   const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
   const auto expected = nlohmann::json::parse(
       R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Case 2 failed. Actual: " << json.dump(2);
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
 }
 
-// Test Case 3: T_ce commits first, then T_l1 aborts
-// Edge created with uncommitted L1, then L1 aborts - should fail (this is the bug)
-// Note: Skip in analytical mode as abort doesn't work (no deltas to undo)
-TYPED_TEST(SchemaInfoTestWEdgeProp, Case3_EdgeCommitsFirst_LabelAbortsAfter) {
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCommitsFirst_LabelAbortsAfter) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
 
   // Skip in analytical mode - abort doesn't work without deltas
@@ -2863,19 +2813,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case3_EdgeCommitsFirst_LabelAbortsAfter) {
   tx_l1->Abort();
   tx_l1.reset();
 
-  // Check schema: edge should NOT have L1, node should NOT have L1
-  // This should fail with current code (the bug)
   const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
   const auto expected = nlohmann::json::parse(
       R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected))
-      << "Case 3 failed (expected to fail - this is the bug). Actual: " << json.dump(2);
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
 }
 
-// Test Case 4: T_l1 aborts first, then T_ce commits
-// Label aborts first, then edge created without L1 - should work
-// Note: Skip in analytical mode as abort doesn't work (no deltas to undo)
-TYPED_TEST(SchemaInfoTestWEdgeProp, Case4_LabelAbortsFirst_EdgeCommitsAfter) {
+TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAbortsFirst_EdgeCommitsAfter) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
 
   // Skip in analytical mode - abort doesn't work without deltas
@@ -2921,11 +2865,10 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case4_LabelAbortsFirst_EdgeCommitsAfter) {
   ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   tx_ce.reset();
 
-  // Check schema: edge should NOT have L1, node should NOT have L1
   const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
   const auto expected = nlohmann::json::parse(
       R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Case 4 failed. Actual: " << json.dump(2);
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
