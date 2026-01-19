@@ -62,8 +62,16 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
                                         std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy));
   MOCK_CONST_METHOD1(GetRolenames, std::vector<std::string>(std::optional<std::string> db_name));
 
+  void InitializeSelfPtr(const std::shared_ptr<memgraph::query::QueryUserOrRole> &wrapper_ptr) {
+    self_ptr_ = std::shared_ptr<MockQueryUser>(wrapper_ptr, this);
+  }
+
   std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
-    return std::make_shared<MockQueryUser>(username_);
+    // tests are single-threaded (the trigger never gets executed) so sharing the same object is safe
+    if (auto locked = self_ptr_.lock()) {
+      return locked;
+    }
+    MG_ASSERT(false, "self_ptr_ not initialized");
   }
 
 #ifdef MG_ENTERPRISE
@@ -71,6 +79,9 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
                                           std::optional<std::string_view> db_name));
   MOCK_CONST_METHOD0(GetDefaultDB, std::string());
 #endif
+
+ private:
+  mutable std::weak_ptr<MockQueryUser> self_ptr_;
 };
 }  // namespace
 
@@ -1271,9 +1282,11 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   MockQueryUser mock_user(owner);
   std::shared_ptr<memgraph::query::QueryUserOrRole> mock_user_ptr(
       &mock_user, [](memgraph::query::QueryUserOrRole *) { /* do nothing */ });
+  mock_user.InitializeSelfPtr(mock_user_ptr);
   MockQueryUser mock_userless(std::nullopt);
   std::shared_ptr<memgraph::query::QueryUserOrRole> mock_userless_ptr(
       &mock_userless, [](memgraph::query::QueryUserOrRole *) { /* do nothing */ });
+  mock_userless.InitializeSelfPtr(mock_userless_ptr);
 
   ::testing::InSequence s;
 
