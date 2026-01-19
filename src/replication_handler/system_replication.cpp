@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -133,7 +133,9 @@ bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaDat
 #else
 bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data) {
 #endif
-  // Register storage handlers
+
+  // Register storage handlers and destroy previous cached repl accessor
+  dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
 #ifdef MG_ENTERPRISE
   // Register system handlers

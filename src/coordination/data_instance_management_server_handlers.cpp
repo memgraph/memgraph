@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -216,23 +216,15 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
   replication_coordination_glue::SwapMainUUIDReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  auto locked_repl_state = replication_handler.GetReplState();
-
-  if (!locked_repl_state->IsReplica()) {
-    spdlog::error("Setting uuid must be performed on replica.");
-    replication_coordination_glue::SwapMainUUIDRes const rpc_res{false};
-    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
-    return;
+  auto const res = replication_handler.SwapReplUUID(req.uuid);
+  replication_coordination_glue::SwapMainUUIDRes const rpc_res{res};
+  if (res) {
+    spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
+  } else {
+    spdlog::warn("Failed to update replica data UUID to main uuid: {}", std::string(req.uuid));
   }
 
-  auto &repl_data = std::get<replication::RoleReplicaData>(locked_repl_state->ReplicationData());
-  spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
-  locked_repl_state->TryPersistRoleReplica(repl_data.config, req.uuid);
-  repl_data.uuid_ = req.uuid;
-
-  replication_coordination_glue::SwapMainUUIDRes const rpc_res{true};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
-  spdlog::info("UUID successfully set to {}.", std::string(req.uuid));
 }
 
 void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(

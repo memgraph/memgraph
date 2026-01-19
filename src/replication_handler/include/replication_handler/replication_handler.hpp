@@ -135,6 +135,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // as MAIN, become REPLICA, can be called only on MAIN
   bool TrySetReplicationRoleReplica(const ReplicationServerConfig &config) override;
 
+  bool SwapReplUUID(utils::UUID const &new_uuid);
+
   // as MAIN, define and connect to REPLICAs
   auto TryRegisterReplica(const ReplicationClientConfig &config)
       -> std::expected<void, query::RegisterReplicaError> override;
@@ -304,17 +306,19 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     return {};
   }
 
-  template <bool AllowIdempotency>
+  template <bool AllowIdempotency, bool RestartAlways = false>
   bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config,
                                   std::optional<utils::UUID> const &maybe_main_uuid = std::nullopt) {
     if (locked_repl_state->IsReplica()) {
       if constexpr (!AllowIdempotency) {
         return false;
       }
-      // We don't want to restart the server if we're already a REPLICA with correct config
+      // We don't want to restart the server if we're already a REPLICA with correct config and if policy is false
       auto &replica_data = std::get<RoleReplicaData>(locked_repl_state->ReplicationData());
-      if (replica_data.config == config) {
-        return true;
+      if constexpr (!RestartAlways) {
+        if (replica_data.config == config) {
+          return true;
+        }
       }
       locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
 #ifdef MG_ENTERPRISE
