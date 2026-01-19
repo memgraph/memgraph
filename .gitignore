@@ -126,3 +126,9 @@ mage/python/mage/link_prediction/cora_results.txt
 mage/python/mage/link_prediction/random_features_services_results.txt
 mage/python/mage/link_prediction/issue.py
 mage/python/mage/link_prediction/issue2.py
+
+mgcxx/include/
+mgcxx/lib/
+mgcxx/src/
+mgcxx/text_search/target/
+mgcxx/tmp/
