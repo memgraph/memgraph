@@ -13,7 +13,12 @@
 (def mglog  (str mgdir "/memgraph.log"))
 (def mgpid  (str mgdir "/memgraph.pid"))
 (def sync-after-n-txn (atom 100000))
+<<<<<<< HEAD
 (def storage-backup-dir-enabled (atom true))
+=======
+(def storage-enable-backup-dir (atom true))
+(def storage-force-cleanup (atom false))
+>>>>>>> 3ee162dc0 (testing: Add --storage-force-cleanup flag to Jepsen tests)
 
 (defn get-rnd-snapshot-interval-sec
   "Gets the random snapshot interval sec between 5 and 300 secs."
@@ -35,6 +40,7 @@
    (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
    (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
    (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
+   (str "--storage-force-cleanup=" @storage-force-cleanup)
    "--telemetry-enabled=false"
    :--storage-properties-on-edges))
 
@@ -54,6 +60,7 @@
    "--telemetry-enabled=false"
    "--log-level=TRACE"
    (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
+   (str "--storage-force-cleanup=" @storage-force-cleanup)
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)
    :--coordinator-hostname node
@@ -70,7 +77,12 @@
    :--storage-wal-enabled
    "--storage-snapshot-interval-sec=300"
    "--log-level=TRACE"
+<<<<<<< HEAD
    (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
+=======
+   (str "--storage-enable-backup-dir=" @storage-enable-backup-dir)
+   (str "--storage-force-cleanup=" @storage-force-cleanup)
+>>>>>>> 3ee162dc0 (testing: Add --storage-force-cleanup flag to Jepsen tests)
    "--telemetry-enabled=false"
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
@@ -101,9 +113,17 @@
       (let [local-binary (:local-binary opts)
             nodes-config (:nodes-config opts)
             flush-after-n-txn (:sync-after-n-txn opts)
+<<<<<<< HEAD
             storage-backup-dir-enabled-arg (:storage-backup-dir-enabled opts)]
         (reset! sync-after-n-txn flush-after-n-txn)
         (reset! storage-backup-dir-enabled storage-backup-dir-enabled-arg)
+=======
+            storage-enable-backup-dir-arg (:storage-enable-backup-dir opts)
+            storage-force-cleanup-arg (:storage-force-cleanup opts)]
+        (reset! sync-after-n-txn flush-after-n-txn)
+        (reset! storage-enable-backup-dir storage-enable-backup-dir-arg)
+        (reset! storage-force-cleanup storage-force-cleanup-arg)
+>>>>>>> 3ee162dc0 (testing: Add --storage-force-cleanup flag to Jepsen tests)
         (c/su
          (c/exec :apt-get :update)
          (debian/install ['python3 'python3-dev]))

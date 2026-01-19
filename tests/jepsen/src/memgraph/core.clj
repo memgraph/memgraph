@@ -165,6 +165,9 @@
 
         storage-backup-dir-enabled (:storage-backup-dir-enabled opts)
 
+        storage-force-cleanup (when (:storage-force-cleanup opts)
+                                (:storage-force-cleanup opts))
+
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
@@ -174,7 +177,9 @@
                           :num-tenants num-tenants
                           :recovery-time recovery-time
                           :nemesis-start-sleep nemesis-start-sleep
-                          :storage-backup-dir-enabled storage-backup-dir-enabled})]
+                          :storage-backup-dir-enabled storage-backup-dir-enabled
+                          :storage-force-cleanup storage-force-cleanup
+                          })]
 
     (memgraph-test test-opts)))
 
@@ -195,7 +200,12 @@
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
     :parse-fn #(-> % load-configuration)]
    ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default nil]
+<<<<<<< HEAD
    ["-sebd" "--storage-backup-dir-enabled BOOL" "If enabled, .old dir will be used." :default true]
+=======
+   ["-sebd" "--storage-enable-backup-dir BOOL" "If enabled, .old dir will be used." :default true]
+   ["-sfc" "--storage-force-cleanup BOOL"  "If enabled, unreadable durable files will be deleted." :default false]
+>>>>>>> 3ee162dc0 (testing: Add --storage-force-cleanup flag to Jepsen tests)
    ["-rt" "--recovery-time SECONDS" "Recovery time before calling final generator." :default nil]
    ["-nss" "--nemesis-start-sleep SECONDS" "The number of seconds nemesis will sleep before starting its disruptions." :default nil]])
 
