@@ -779,7 +779,7 @@ fn drop_index(context: ffi::Context) -> Result<(), std::io::Error> {
         index_reader,
     } = *context.tantivyContext;
 
-    // Drop resources in the correct order to release file handles:
+    // Drop Tantivy resources to release file handles
     drop(index_reader);
     drop(index_writer);
     drop(index);
