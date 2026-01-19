@@ -5419,7 +5419,7 @@ TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateInterleavedOperations) {
   memgraph::storage::Gid gid_v1, gid_v2;
 
   {
-    auto acc = store->Access();
+    auto acc = store->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     gid_v1 = v1.Gid();
@@ -5427,8 +5427,8 @@ TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateInterleavedOperations) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc1 = store->Access();
-  auto acc2 = store->Access();
+  auto acc1 = store->Access(memgraph::storage::WRITE);
+  auto acc2 = store->Access(memgraph::storage::WRITE);
 
   auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
   auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
@@ -5459,7 +5459,7 @@ TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializ
   memgraph::storage::Gid gid_v1, gid_v2;
 
   {
-    auto acc = store->Access();
+    auto acc = store->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     gid_v1 = v1.Gid();
@@ -5467,7 +5467,7 @@ TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializ
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc1 = store->Access();
+  auto acc1 = store->Access(memgraph::storage::WRITE);
   auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
   auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
   ASSERT_TRUE(v1_tx1 && v2_tx1);
@@ -5475,7 +5475,7 @@ TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializ
   auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et);
   ASSERT_TRUE(edge1.has_value());
 
-  auto acc2 = store->Access();
+  auto acc2 = store->Access(memgraph::storage::WRITE);
   auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
   auto label = acc2->NameToLabel("Label");
   auto label_result = v1_tx2->AddLabel(label);
@@ -5489,7 +5489,7 @@ TEST_P(StorageEdgeTest, OnlyInterleavedOperationsCanBePerformedWhenHeadOperation
   memgraph::storage::Gid gid_v1, gid_v2, gid_v3;
 
   {
-    auto acc = store->Access();
+    auto acc = store->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto v3 = acc->CreateVertex();
@@ -5499,7 +5499,7 @@ TEST_P(StorageEdgeTest, OnlyInterleavedOperationsCanBePerformedWhenHeadOperation
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc1 = store->Access();
+  auto acc1 = store->Access(memgraph::storage::WRITE);
   auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
   auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
   ASSERT_TRUE(v1_tx1 && v2_tx1);
@@ -5508,7 +5508,7 @@ TEST_P(StorageEdgeTest, OnlyInterleavedOperationsCanBePerformedWhenHeadOperation
   auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et1);
   ASSERT_TRUE(edge1.has_value());
 
-  auto acc2 = store->Access();
+  auto acc2 = store->Access(memgraph::storage::WRITE);
   auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
   auto v3_tx2 = acc2->FindVertex(gid_v3, memgraph::storage::View::NEW);
   ASSERT_TRUE(v1_tx2 && v3_tx2);

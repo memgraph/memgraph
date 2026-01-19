@@ -2590,7 +2590,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -2599,13 +2599,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
   }
 
   // Transaction A: Add label L1 to v1 (uncommitted)
-  auto tx_a = in_memory->Access();
+  auto tx_a = in_memory->Access(memgraph::storage::WRITE);
   auto v1_a = tx_a->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_a.has_value());
   ASSERT_TRUE(v1_a->AddLabel(l1).has_value());
 
   // Transaction B: Create edge from v1 to v2
-  auto tx_b = in_memory->Access();
+  auto tx_b = in_memory->Access(memgraph::storage::WRITE);
   auto v1_b = tx_b->FindVertex(v1_gid, View::NEW);
   auto v2_b = tx_b->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_b.has_value() && v2_b.has_value());
@@ -2680,7 +2680,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelAbort) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -2689,13 +2689,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelAbort) {
   }
 
   // Transaction A: Add label L1 to v1 (uncommitted)
-  auto tx_a = in_memory->Access();
+  auto tx_a = in_memory->Access(memgraph::storage::WRITE);
   auto v1_a = tx_a->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_a.has_value());
   ASSERT_TRUE(v1_a->AddLabel(l1).has_value());
 
   // Transaction B: Create edge from v1 to v2 (sees L1 in v1->labels)
-  auto tx_b = in_memory->Access();
+  auto tx_b = in_memory->Access(memgraph::storage::WRITE);
   auto v1_b = tx_b->FindVertex(v1_gid, View::NEW);
   auto v2_b = tx_b->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_b.has_value() && v2_b.has_value());
@@ -2729,7 +2729,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case1_EdgeCommitsFirst_LabelCommitsAfter) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -2738,13 +2738,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case1_EdgeCommitsFirst_LabelCommitsAfter) {
   }
 
   // Transaction T_l1: Add label L1 to v1 (uncommitted)
-  auto tx_l1 = in_memory->Access();
+  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_l1.has_value());
   ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
 
   // Transaction T_ce: Create edge from v1 to v2 (sees L1 in v1->labels)
-  auto tx_ce = in_memory->Access();
+  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
   auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
   auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
@@ -2778,7 +2778,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case2_LabelCommitsFirst_EdgeCommitsAfter) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -2787,7 +2787,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case2_LabelCommitsFirst_EdgeCommitsAfter) {
   }
 
   // Transaction T_l1: Add label L1 to v1
-  auto tx_l1 = in_memory->Access();
+  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_l1.has_value());
   ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
@@ -2797,7 +2797,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case2_LabelCommitsFirst_EdgeCommitsAfter) {
   tx_l1.reset();
 
   // Transaction T_ce: Create edge from v1 to v2 (sees committed L1)
-  auto tx_ce = in_memory->Access();
+  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
   auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
   auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
@@ -2834,7 +2834,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case3_EdgeCommitsFirst_LabelAbortsAfter) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -2843,13 +2843,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case3_EdgeCommitsFirst_LabelAbortsAfter) {
   }
 
   // Transaction T_l1: Add label L1 to v1 (uncommitted)
-  auto tx_l1 = in_memory->Access();
+  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_l1.has_value());
   ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
 
   // Transaction T_ce: Create edge from v1 to v2 (sees L1 in v1->labels)
-  auto tx_ce = in_memory->Access();
+  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
   auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
   auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
@@ -2892,7 +2892,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case4_LabelAbortsFirst_EdgeCommitsAfter) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -2901,7 +2901,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case4_LabelAbortsFirst_EdgeCommitsAfter) {
   }
 
   // Transaction T_l1: Add label L1 to v1
-  auto tx_l1 = in_memory->Access();
+  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_l1.has_value());
   ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
@@ -2911,7 +2911,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, Case4_LabelAbortsFirst_EdgeCommitsAfter) {
   tx_l1.reset();
 
   // Transaction T_ce: Create edge from v1 to v2 (v1 has no labels since L1 aborted)
-  auto tx_ce = in_memory->Access();
+  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
   auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
   auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
@@ -3328,7 +3328,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, InterleavedLabelChangesOnBothEndpoints) {
 
   // Setup: Create two vertices and an edge
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e1);
@@ -3339,13 +3339,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, InterleavedLabelChangesOnBothEndpoints) {
   }
 
   // T1: Add L1 to v1 (uncommitted)
-  auto tx1 = in_memory->Access();
+  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_tx1.has_value());
   ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
 
   // T2: Add L2 to v2 (while T1 uncommitted)
-  auto tx2 = in_memory->Access();
+  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
   auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v2_tx2.has_value());
   ASSERT_TRUE(v2_tx2->AddLabel(l2).has_value());
@@ -3378,7 +3378,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeExistsThenLabelAdded) {  // @TODO Rename
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -3387,13 +3387,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeExistsThenLabelAdded) {  // @TODO Rename
   }
 
   // T2: Add L1 to v1 (while T1 uncommitted)
-  auto tx2 = in_memory->Access();
+  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_tx2.has_value());
   ASSERT_TRUE(v1_tx2->AddLabel(l1).has_value());
 
   // T1: Create edge (uncommitted)
-  auto tx1 = in_memory->Access();
+  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
   auto v2_tx1 = tx1->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_tx1.has_value() && v2_tx1.has_value());
@@ -3428,7 +3428,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, BothEndpointsModifiedSameTransaction) {
 
   // Setup: Create two vertices and an edge
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e1);
@@ -3440,7 +3440,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, BothEndpointsModifiedSameTransaction) {
 
   // Add labels to both v1 and v2 in same transaction
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx->FindVertex(v1_gid, View::NEW);
     auto v2 = tx->FindVertex(v2_gid, View::NEW);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -3477,7 +3477,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
 
   // Setup: Create two vertices and an edge
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e1);
@@ -3489,7 +3489,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
 
   // T1: Add label L1 to v1
   {
-    auto tx1 = in_memory->Access();
+    auto tx1 = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx1->FindVertex(v1_gid, View::NEW);
     ASSERT_TRUE(v1.has_value());
     ASSERT_TRUE(v1->AddLabel(l1).has_value());
@@ -3506,7 +3506,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
 
   // T2: Delete edge and recreate it
   {
-    auto tx2 = in_memory->Access();
+    auto tx2 = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx2->FindVertex(v1_gid, View::NEW);
     auto v2 = tx2->FindVertex(v2_gid, View::NEW);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -3547,7 +3547,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAddedThenRemoved) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -3556,13 +3556,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAddedThenRemoved) {
   }
 
   // T1: Add L1 to v1 (uncommitted)
-  auto tx1 = in_memory->Access();
+  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_tx1.has_value());
   ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
 
   // T2: Create edge (while T1 uncommitted)
-  auto tx2 = in_memory->Access();
+  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
   auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
@@ -3587,7 +3587,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAddedThenRemoved) {
 
   // T3: Remove L1 (committed normally for simplicity)
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx->FindVertex(v1_gid, View::NEW);
     ASSERT_TRUE(v1.has_value());
     ASSERT_TRUE(v1->RemoveLabel(l1).has_value());
@@ -3604,7 +3604,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAddedThenRemoved) {
 
   // T4: Add L1 again (committed normally)
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx->FindVertex(v1_gid, View::NEW);
     ASSERT_TRUE(v1.has_value());
     ASSERT_TRUE(v1->AddLabel(l1).has_value());
@@ -3634,7 +3634,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, MultipleLabelsSameVertex) {
 
   // Setup: Create two vertices
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -3643,13 +3643,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, MultipleLabelsSameVertex) {
   }
 
   // T1: Add L1 to v1 (uncommitted)
-  auto tx1 = in_memory->Access();
+  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_tx1.has_value());
   ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
 
   // T2: Create edge (while T1 uncommitted)
-  auto tx2 = in_memory->Access();
+  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
   auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
@@ -3666,7 +3666,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, MultipleLabelsSameVertex) {
 
   // Add L2 to same vertex (interleaved with another operation)
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx->FindVertex(v1_gid, View::NEW);
     ASSERT_TRUE(v1.has_value());
     ASSERT_TRUE(v1->AddLabel(l2).has_value());
@@ -3683,7 +3683,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, MultipleLabelsSameVertex) {
 
   // Remove L1 (L2 remains)
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx->FindVertex(v1_gid, View::NEW);
     ASSERT_TRUE(v1.has_value());
     ASSERT_TRUE(v1->RemoveLabel(l1).has_value());
@@ -3712,7 +3712,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AlternatingLabelChanges) {
 
   // Setup: Create two vertices with L1 on v1
   {
-    auto acc = in_memory->Access();
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     ASSERT_TRUE(v1.AddLabel(l1).has_value());
@@ -3722,13 +3722,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AlternatingLabelChanges) {
   }
 
   // T1: Remove L1 from v1 (uncommitted)
-  auto tx1 = in_memory->Access();
+  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
   ASSERT_TRUE(v1_tx1.has_value());
   ASSERT_TRUE(v1_tx1->RemoveLabel(l1).has_value());
 
   // T2: Create edge (while T1 uncommitted)
-  auto tx2 = in_memory->Access();
+  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
   auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
   auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
   ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
@@ -3745,7 +3745,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AlternatingLabelChanges) {
 
   // Add L2 to v2
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v2 = tx->FindVertex(v2_gid, View::NEW);
     ASSERT_TRUE(v2.has_value());
     ASSERT_TRUE(v2->AddLabel(l2).has_value());
@@ -3762,7 +3762,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AlternatingLabelChanges) {
 
   // Add L1 back to v1
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v1 = tx->FindVertex(v1_gid, View::NEW);
     ASSERT_TRUE(v1.has_value());
     ASSERT_TRUE(v1->AddLabel(l1).has_value());
@@ -3779,7 +3779,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AlternatingLabelChanges) {
 
   // Remove L2 from v2
   {
-    auto tx = in_memory->Access();
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
     auto v2 = tx->FindVertex(v2_gid, View::NEW);
     ASSERT_TRUE(v2.has_value());
     ASSERT_TRUE(v2->RemoveLabel(l2).has_value());

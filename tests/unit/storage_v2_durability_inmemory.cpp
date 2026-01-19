@@ -4475,7 +4475,7 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
     std::unique_ptr<memgraph::storage::Storage> storage(std::make_unique<memgraph::storage::InMemoryStorage>(config));
 
     {
-      auto acc = storage->Access();
+      auto acc = storage->Access(memgraph::storage::WRITE);
       auto v1 = acc->CreateVertex();
       auto v2 = acc->CreateVertex();
       auto v3 = acc->CreateVertex();
@@ -4485,7 +4485,7 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
-    auto tx1 = storage->Access();
+    auto tx1 = storage->Access(memgraph::storage::WRITE);
     auto v1_tx1 = tx1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_tx1 = tx1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_tx1.has_value());
@@ -4495,7 +4495,7 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
     ASSERT_TRUE(edge1.has_value());
     edge_type_1 = tx1->NameToEdgeType("Edge1");
 
-    auto tx2 = storage->Access();
+    auto tx2 = storage->Access(memgraph::storage::WRITE);
     auto v1_tx2 = tx2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v3_tx2 = tx2->FindVertex(v3_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_tx2.has_value());
@@ -4517,7 +4517,7 @@ TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
     std::unique_ptr<memgraph::storage::Storage> storage(
         std::make_unique<memgraph::storage::InMemoryStorage>(recovery_config));
 
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1.has_value());
