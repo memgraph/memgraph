@@ -121,34 +121,6 @@ inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uin
   return &it->second;
 }
 
-// Check if vertex has uncommitted label deltas from other transactions
-// (deltas with ts >= kTransactionInitialId that aren't from this transaction)
-inline bool HasUncommittedLabelDeltas(const Vertex *v, uint64_t commit_timestamp) {
-  const Delta *delta = v->delta;
-  while (delta != nullptr) {
-    // Skip interleaved deltas as they don't affect labels
-    if (IsDeltaInterleaved(*delta)) {
-      delta = delta->next.load(std::memory_order_acquire);
-      continue;
-    }
-
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
-    // Check if this is an uncommitted delta from another transaction
-    if (ts >= kTransactionInitialId && ts != commit_timestamp) {
-      // Check if this delta affects labels
-      using enum Delta::Action;
-      if (delta->action == ADD_LABEL || delta->action == REMOVE_LABEL) {
-        return true;
-      }
-    }
-    // Stop when we've gone back far enough (committed deltas)
-    if (ts < kTransactionInitialId) break;
-
-    delta = delta->next.load(std::memory_order_acquire);
-  }
-  return false;
-}
-
 // Keep v locked as we could return a reference to labels
 inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
                                                                        uint64_t commit_timestamp, auto &cache) {
@@ -156,7 +128,7 @@ inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Ver
   const auto *labels = &v->labels;
   // If labels were changed by another transaction, or if there are uncommitted label deltas
   // (which GetState might not detect if they're after interleaved deltas), use committed state
-  if (state == ANOTHER_TX || HasUncommittedLabelDeltas(v, commit_timestamp)) {
+  if (state == ANOTHER_TX) {
     labels = GetLabelsViewOld(v, start_timestamp, cache);
   }
   return std::pair{labels, state != THIS_TX};
@@ -366,13 +338,8 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
       edge_state = GetState(edge_ref.ptr->delta, start_ts, commit_ts);
     }
 
-    // Check if we need to process this edge: either states indicate changes, or there are uncommitted label deltas
-    // (edges added to post_process due to uncommitted deltas need to be processed even if GetState returns NO_CHANGE)
-    const bool has_uncommitted_from = HasUncommittedLabelDeltas(from, commit_ts);
-    const bool has_uncommitted_to = HasUncommittedLabelDeltas(to, commit_ts);
-
-    if (from_state != ANOTHER_TX && to_state != ANOTHER_TX && edge_state != ANOTHER_TX && !has_uncommitted_from &&
-        !has_uncommitted_to) {
+    // Check if we need to process this edge
+    if (from_state != ANOTHER_TX && to_state != ANOTHER_TX && edge_state != ANOTHER_TX) {
       continue;  // All is as it should be
     }
 
@@ -799,9 +766,9 @@ void SchemaTracking<TContainer>::RecoverVertex(Vertex *vertex) {
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to,
                                              bool prop_on_edges) {
-  CreateEdge(from, to, edge_type);
+  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
+  ++tracking_info.n;
   if (prop_on_edges) {
-    auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
     for (const auto &[key, val] : edge.ptr->properties.ExtendedPropertyTypes()) {
       auto &prop_post_info = tracking_info.properties[key];
       ++prop_post_info.n;
@@ -877,12 +844,8 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
                                (edge_dir == InEdge) ? old_labels : *other_labels.first,
                                edge_props.types);
 
-    // Check if either vertex has uncommitted label deltas that need post-processing
-    const bool vertex_has_uncommitted = HasUncommittedLabelDeltas(vertex, commit_ts_);
-    const bool other_has_uncommitted = HasUncommittedLabelDeltas(other_vertex, commit_ts_);
-
     SchemaInfoEdge pp_item{edge_ref, edge_type, from_vertex, to_vertex};
-    if (other_labels.second || edge_props.needs_pp || vertex_has_uncommitted || other_has_uncommitted) {
+    if (other_labels.second || edge_props.needs_pp) {
       post_process_->edges.emplace(pp_item);
     } else {
       post_process_->edges.erase(pp_item);
@@ -999,13 +962,11 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, E
   DMG_ASSERT(from->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
 
-  // In transactional mode, if vertices have interleaved deltas at the head OR uncommitted label deltas,
+  // In transactional mode, if vertices have interleaved deltas at the head,
   // we need to use GetLabels to get the correct committed state (ignoring uncommitted/aborted changes
   // from other transactions). Otherwise, use the fast path with v->labels directly.
-  const bool needs_getlabels =
-      post_process_ && (((from->delta != nullptr && IsDeltaInterleaved(*from->delta)) ||
-                         (to->delta != nullptr && IsDeltaInterleaved(*to->delta))) ||
-                        HasUncommittedLabelDeltas(from, commit_ts_) || HasUncommittedLabelDeltas(to, commit_ts_));
+  const bool needs_getlabels = post_process_ && ((from->delta != nullptr && IsDeltaInterleaved(*from->delta)) ||
+                                                 (to->delta != nullptr && IsDeltaInterleaved(*to->delta)));
 
   if (needs_getlabels) {
     // Use GetLabels to get correct committed state (or this transaction's changes)
