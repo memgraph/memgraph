@@ -2349,6 +2349,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto l2 = in_memory->NameToLabel("L2");
   auto p1 = in_memory->NameToProperty("p1");
   auto e1 = in_memory->NameToEdgeType("E1");
+  auto e2 = in_memory->NameToEdgeType("E2");
 
   // Empty
   {
@@ -2357,11 +2358,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
     ASSERT_TRUE(json["edges"].empty());
   }
 
-  // setup CREATE ()-[:E]->();
-  // Running 2 write threads 1 read thread
+  // setup CREATE ()-[:E1]->();
+  // Running 5 threads: 4 write threads, 1 read thread
   // t1 modify from and/or to labels
-  // t2 modify edge property
-  // t3 read schema
+  // t2 modify E1 edge properties
+  // t3 modify E1 edge properties and create/remove E1 edges
+  // t4 create/remove E2 edges
+  // t5 read schema
 
   Gid from_gid;
   Gid to_gid;
@@ -2478,95 +2481,176 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
     }
   };
 
+  auto create_remove_e2_edges = [&]() {
+    uint8_t i = 0;
+    std::optional<Gid> e2_edge_gid;
+    while (running) {
+      ++i;
+      if (i % 5 == 0 && in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        auto acc = in_memory->Access(memgraph::storage::WRITE);
+        bool can_commit = true;
+
+        if (e2_edge_gid) {
+          // Try to delete E2 edge
+          auto edge = acc->FindEdge(*e2_edge_gid, View::NEW);
+          if (edge) {
+            can_commit = acc->DeleteEdge(&*edge).has_value();
+            if (can_commit) {
+              e2_edge_gid.reset();
+            }
+          }
+        } else {
+          // Try to create E2 edge
+          auto v1 = acc->FindVertex(from_gid, View::NEW);
+          auto v2 = acc->FindVertex(to_gid, View::NEW);
+          if (v1 && v2) {
+            auto edge = acc->CreateEdge(&*v1, &*v2, e2);
+            if (edge) {
+              e2_edge_gid = edge->Gid();
+            } else {
+              can_commit = false;
+            }
+          }
+        }
+        if (can_commit) ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
   auto read_schema = [&]() {
     auto stop = memgraph::utils::OnScopeExit{[&]() { running = false; }};
     uint16_t i = 0;
     while (i++ < 15'000) {
       const auto json = in_memory->schema_info_.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-      // Possible schemas:
-      static const auto no_labels_no_prop = nlohmann::json::parse(
+
+      // Define all possible schema combinations
+      // No edges
+      static const auto no_edges_no_labels =
+          nlohmann::json::parse(R"({"edges":[],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto no_edges_from_label = nlohmann::json::parse(
+          R"({"edges":[],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto no_edges_to_label = nlohmann::json::parse(
+          R"({"edges":[],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto no_edges_both_labels = nlohmann::json::parse(
+          R"({"edges":[],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      // E1 only (no props)
+      static const auto e1_no_labels_no_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto from_label_no_prop = nlohmann::json::parse(
+      static const auto e1_from_label_no_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto to_label_no_prop = nlohmann::json::parse(
+      static const auto e1_to_label_no_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_labels_no_prop = nlohmann::json::parse(
+      static const auto e1_both_labels_no_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto no_labels_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" :
-          "p1", "types" : [ {"count" : 1, "type" : "String"}
-          ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto no_labels_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" :
-          "p1", "types" : [ {"count" : 1, "type" : "Integer"}
-          ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto no_labels_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" :
-          "p1", "types" : [ {"count" : 1, "type" : "Boolean"}
-          ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto from_label_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" :
-          "p1", "types" : [ {"count" : 1, "type" : "String"}
-          ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto from_label_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" :
-          "p1", "types" : [ {"count" : 1, "type" : "Integer"}
-          ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto from_label_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" :
-          "p1", "types" : [ {"count" : 1, "type" : "Boolean"}
-          ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto to_label_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0,
-          "key" : "p1", "types" : [ {"count" : 1, "type" : "String"}
-          ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto to_label_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0,
-          "key" : "p1", "types" : [ {"count" : 1, "type" : "Integer"}
-          ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto to_label_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0,
-          "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"}
-          ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_labels_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0,
-          "key" : "p1", "types" : [ {"count" : 1, "type" : "String"}
-          ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_labels_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0,
-          "key" : "p1", "types" : [ {"count" : 1, "type" : "Integer"}
-          ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_labels_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0,
-          "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"}
-          ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
 
-      static const std::array<nlohmann::json, 16> possible_schemas = {no_labels_no_prop,
-                                                                      from_label_no_prop,
-                                                                      to_label_no_prop,
-                                                                      both_labels_no_prop,
-                                                                      no_labels_w_prop,
-                                                                      from_label_w_prop,
-                                                                      to_label_w_prop,
-                                                                      both_labels_w_prop,
-                                                                      no_labels_w_prop2,
-                                                                      from_label_w_prop2,
-                                                                      to_label_w_prop2,
-                                                                      both_labels_w_prop2,
-                                                                      no_labels_w_prop3,
-                                                                      from_label_w_prop3,
-                                                                      to_label_w_prop3,
-                                                                      both_labels_w_prop3};
+      // E1 with String property
+      static const auto e1_no_labels_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto e1_from_label_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto e1_to_label_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto e1_both_labels_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
 
-      auto itr = std::find_if(possible_schemas.begin(), possible_schemas.end(), [&json](auto &in) {
-        // Support no edges as well
-        if (json["edges"].empty()) {
-          return ConfrontJSON(json["nodes"], in["nodes"]);
-        }
-        return ConfrontJSON(json, in);
-      });
+      // E1 with Integer property
+      static const auto e1_no_labels_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto e1_from_label_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto e1_to_label_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto e1_both_labels_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
 
-      ASSERT_NE(itr, possible_schemas.end()) << json;
+      // E1 with Boolean property
+      static const auto e1_no_labels_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto e1_from_label_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto e1_to_label_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto e1_both_labels_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      // E2 only
+      static const auto e2_no_labels = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto e2_from_label = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto e2_to_label = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto e2_both_labels = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      // Both E1 and E2 (E1 no props)
+      static const auto both_no_labels_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto both_from_label_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto both_to_label_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_both_labels_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      // Both E1 and E2 (E1 with String property)
+      static const auto both_no_labels_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto both_from_label_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto both_to_label_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_both_labels_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      // Both E1 and E2 (E1 with Integer property)
+      static const auto both_no_labels_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto both_from_label_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto both_to_label_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_both_labels_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      // Both E1 and E2 (E1 with Boolean property)
+      static const auto both_no_labels_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto both_from_label_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto both_to_label_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_both_labels_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      static const std::array<nlohmann::json, 40> possible_schemas = {
+          // No edges (4)
+          no_edges_no_labels, no_edges_from_label, no_edges_to_label, no_edges_both_labels,
+          // E1 only no props (4)
+          e1_no_labels_no_prop, e1_from_label_no_prop, e1_to_label_no_prop, e1_both_labels_no_prop,
+          // E1 with String (4)
+          e1_no_labels_w_prop, e1_from_label_w_prop, e1_to_label_w_prop, e1_both_labels_w_prop,
+          // E1 with Integer (4)
+          e1_no_labels_w_prop2, e1_from_label_w_prop2, e1_to_label_w_prop2, e1_both_labels_w_prop2,
+          // E1 with Boolean (4)
+          e1_no_labels_w_prop3, e1_from_label_w_prop3, e1_to_label_w_prop3, e1_both_labels_w_prop3,
+          // E2 only (4)
+          e2_no_labels, e2_from_label, e2_to_label, e2_both_labels,
+          // Both E1+E2 no props (4)
+          both_no_labels_no_prop, both_from_label_no_prop, both_to_label_no_prop, both_both_labels_no_prop,
+          // Both E1+E2 with String (4)
+          both_no_labels_w_prop, both_from_label_w_prop, both_to_label_w_prop, both_both_labels_w_prop,
+          // Both E1+E2 with Integer (4)
+          both_no_labels_w_prop2, both_from_label_w_prop2, both_to_label_w_prop2, both_both_labels_w_prop2,
+          // Both E1+E2 with Boolean (4)
+          both_no_labels_w_prop3, both_from_label_w_prop3, both_to_label_w_prop3, both_both_labels_w_prop3};
+
+      auto itr = std::find_if(possible_schemas.begin(), possible_schemas.end(),
+                              [&json](auto &in) { return ConfrontJSON(json, in); });
+
+      ASSERT_NE(itr, possible_schemas.end()) << "Unexpected schema: " << json.dump(2);
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   };
@@ -2574,7 +2658,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto t1 = std::jthread(modify_labels);
   auto t2 = std::jthread(modify_edge);
   auto t3 = std::jthread(modify_edge2);
-  auto t4 = std::jthread(read_schema);
+  auto t4 = std::jthread(create_remove_e2_edges);
+  auto t5 = std::jthread(read_schema);
 }
 
 TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
