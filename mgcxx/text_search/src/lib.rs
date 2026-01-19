@@ -771,18 +771,22 @@ fn get_num_docs(context: &mut ffi::Context) -> Result<u64, std::io::Error> {
 /// This will remove the entire directory and all its contents.
 /// NOTE: This function takes ownership of the context.
 fn drop_index(context: ffi::Context) -> Result<(), std::io::Error> {
-    let index_writer = context.tantivyContext.index_writer;
+    let TantivyContext {
+        index_path,
+        schema: _,
+        index,
+        index_writer,
+        index_reader,
+    } = *context.tantivyContext;
 
-    // Wait for all merging threads to finish before dropping the index.
-    if let Err(e) = index_writer.wait_merging_threads() {
-        return Err(Error::new(
-            ErrorKind::Other,
-            format!("Failed to wait for merging threads: {}", e),
-        ));
-    }
-    let index_path = &context.tantivyContext.index_path;
+    // Drop resources in the correct order to release file handles:
+    drop(index_reader);
+    drop(index_writer);
+    drop(index);
+
+    // Now safe to remove the directory
     if index_path.exists() {
-        match std::fs::remove_dir_all(index_path) {
+        match std::fs::remove_dir_all(&index_path) {
             Ok(_) => {
                 debug!("Text search index at {:?} removed", index_path);
             }
