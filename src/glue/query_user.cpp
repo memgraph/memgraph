@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,10 +17,10 @@
 namespace memgraph::glue {
 
 bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
-                                   std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
+                                   std::optional<std::string_view> db_name) const {
   auto locked_auth = auth_->Lock();
   // Check policy and update if behind (and policy permits it)
-  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
+  if (!locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
     if (roles_) {
       // For backward compatibility, update the first role
@@ -39,7 +39,8 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
-  return !policy->DoUpdate() || !locked_auth->AccessControlled();
+  // if the session was created before any users and not using auth module allow access
+  return !locked_auth->UsingAuthModule();
 }
 
 std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string> db_name) const {
@@ -62,11 +63,10 @@ std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string
 }
 
 #ifdef MG_ENTERPRISE
-bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy,
-                                     std::optional<std::string_view> db_name) const {
+bool QueryUserOrRole::CanImpersonate(const std::string &target, std::optional<std::string_view> db_name) const {
   auto locked_auth = auth_->Lock();
   // Check policy and update if behind (and policy permits it)
-  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
+  if (!locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
     if (roles_) {
       // For backward compatibility, update the first role
