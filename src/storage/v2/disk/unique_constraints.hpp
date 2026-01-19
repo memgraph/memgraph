@@ -25,24 +25,33 @@ namespace memgraph::storage {
 
 class DiskUniqueConstraints : public UniqueConstraints {
  public:
+  using DeletionEntries = std::map<uint64_t, std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>>>;
+
   /// ActiveConstraints implementation for disk unique constraints.
   /// Disk storage doesn't have MVCC for constraints, so this is a simple wrapper.
-  class ActiveConstraints final : public UniqueActiveConstraints {
+  class ActiveConstraints final : public UniqueConstraints::ActiveConstraints {
    public:
     explicit ActiveConstraints(const DiskUniqueConstraints *constraints) : constraints_{constraints} {}
 
-    bool ConstraintRegistered(LabelId label, std::set<PropertyId> const &properties) const override;
-    std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints(uint64_t start_timestamp) const override;
+    auto ListConstraints(uint64_t start_timestamp) const
+        -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
     void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
     void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
-    void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
+    void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
+    bool empty() const override;
 
-   private:
+    void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
+                             uint64_t transaction_start_timestamp) override;
+
+    void UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
+                          uint64_t transaction_start_timestamp) override;
+
     const DiskUniqueConstraints *constraints_;
+    DeletionEntries entries_for_deletion;
   };
 
-  auto GetActiveConstraints() const -> std::unique_ptr<UniqueActiveConstraints> override;
+  auto GetActiveConstraints() const -> std::unique_ptr<UniqueConstraints::ActiveConstraints> override;
 
   explicit DiskUniqueConstraints(const Config &config);
 
@@ -57,33 +66,21 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 
-  [[nodiscard]] bool DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
+  [[nodiscard]] bool DeleteVerticesWithRemovedConstraintLabel(DeletionEntries &deletion_entries,
+                                                              uint64_t transaction_start_timestamp,
                                                               uint64_t transaction_commit_timestamp);
 
   [[nodiscard]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
-  [[nodiscard]] bool ConstraintRegistered(LabelId label, const std::set<PropertyId> &properties) const override;
-
-  void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
-                           uint64_t transaction_start_timestamp) override;
-
-  void UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
-                        uint64_t transaction_start_timestamp) override;
-
-  std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
-
   void Clear() override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadUniqueConstraints(const std::vector<std::string> &keys);
-  bool empty() const override;
 
  private:
-  utils::Synchronized<std::map<uint64_t, std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>>>>
-      entries_for_deletion;
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 
@@ -95,5 +92,4 @@ class DiskUniqueConstraints : public UniqueConstraints {
                       const std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
                       const std::set<PropertyId> &constraint_properties, Gid gid) const;
 };
-
 }  // namespace memgraph::storage

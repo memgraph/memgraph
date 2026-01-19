@@ -445,11 +445,9 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
     }
   }
 
-  if (constraints->HasTypeConstraints()) {
-    if (auto validation_result = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
-        !validation_result.has_value()) {
-      throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
-    }
+  if (auto validation_result = constraints->type_constraints_->ValidateAllVertices(vertices->access(), snapshot_info);
+      !validation_result.has_value()) {
+    throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
   }
 
   for (const auto &[label, property, type] : constraints_metadata.type) {

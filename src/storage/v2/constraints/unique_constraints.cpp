@@ -9,14 +9,25 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#include "storage/v2/population_status.hpp"
+#include "storage/v2/constraints/unique_constraints.hpp"
 
 namespace memgraph::storage {
 
-/// IndexStatus is an alias to SchemaStatus for backwards compatibility.
-/// See SchemaStatus for documentation.
-using IndexStatus = PopulationStatus;
+void UniqueConstraints::AbortProcessor::Collect(Vertex const *vertex) {
+  for (const auto &label : vertex->labels) {
+    auto it = abortable_info_.find(label);
+    if (it == abortable_info_.end()) {
+      continue;
+    }
+
+    for (auto &[props, collection] : it->second) {
+      auto values = vertex->properties.ExtractPropertyValues(props);
+      if (!values) {
+        continue;
+      }
+      collection.emplace_back(std::move(*values), vertex);
+    }
+  }
+}
 
 }  // namespace memgraph::storage

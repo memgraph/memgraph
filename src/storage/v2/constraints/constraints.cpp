@@ -35,17 +35,10 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
 }
 
 void Constraints::DropGraphClearConstraints() const {
+  // DROP GRAPH can only happen for IN_MEMORY so it safe to assume this cast
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
   existence_constraints_->DropGraphClearConstraints();
   type_constraints_->DropGraphClearConstraints();
 }
-
-void Constraints::AbortPopulating() const {
-  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->AbortPopulating();
-  existence_constraints_->AbortPopulating();
-  type_constraints_->AbortPopulating();
-}
-
-bool Constraints::HasTypeConstraints() const { return !type_constraints_->empty(); }
 
 }  // namespace memgraph::storage

@@ -11,15 +11,10 @@
 
 #pragma once
 
-#include "storage/v2/schema_status.hpp"
+#include "storage/v2/population_status.hpp"
 
 namespace memgraph::storage {
 
-/// ConstraintStatus is an alias to SchemaStatus for backwards compatibility.
-/// See SchemaStatus for documentation.
-///
-/// NOTE: Dropped constraints are erased from the container (copy-on-write),
-/// so no dropped_at tracking is needed.
-using ConstraintStatus = SchemaStatus;
+using ConstraintStatus = PopulationStatus;
 
 }  // namespace memgraph::storage

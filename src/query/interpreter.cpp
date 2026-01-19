@@ -6039,6 +6039,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           break;
         }
         case Constraint::Type::TYPE: {
+          if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+            throw QueryRuntimeException("Type constraints are not supported in analytical storage mode.");
+          }
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
           MG_ASSERT(maybe_constraint_type);
           auto const constraint_type = *maybe_constraint_type;
