@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "flags/experimental.hpp"
 #include "replication/replication_server.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
@@ -32,6 +33,8 @@
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
+
+#include "storage/v2/durability/paths.hpp"
 
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
@@ -281,13 +284,8 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
 
   replication_coordination_glue::SwapMainUUIDReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-
-  // Before updating UUID we need to shutdown the server so there is no thread currently reading UUID
-  spdlog::trace("Starting UUID update");
-  replica_state->GetReplicaRole().server->Shutdown();
-  replica_state->SetReplicationRoleReplica(role_replica_data.config, req.uuid);
-
   spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
+  replica_state->TryPersistRoleReplica(role_replica_data.config, req.uuid);
   role_replica_data.uuid_ = req.uuid;
 
   rpc::SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{true}, request_version, res_builder);
@@ -717,7 +715,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
 
   uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
-  for (auto i = 0U; i < wal_file_number; ++i) {
+  for (auto i = 0; i < wal_file_number; ++i) {
     const auto [success, current_batch_counter, num_txns_committed] =
         LoadWal(active_files[i], storage, res_builder, local_batch_counter);
 
