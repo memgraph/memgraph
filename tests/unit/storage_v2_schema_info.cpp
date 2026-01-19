@@ -2662,6 +2662,54 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto t5 = std::jthread(read_schema);
 }
 
+TYPED_TEST(SchemaInfoTestWEdgeProp, LabelChangeWithExistingEdgeThenNewEdgeCommits) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+  auto e2 = in_memory->NameToEdgeType("E2");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices and E1 edge
+  {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, e1).has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Add label L1 to v1 (uncommitted)
+  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
+  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
+
+  // T2: Create E2 edge from v1 to v2
+  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
+  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
+  ASSERT_TRUE(tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e2).has_value());
+
+  // T2 commits first (E2 created, adds interleaved delta to v1)
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx2.reset();
+
+  // T1 commits (L1 added to v1)
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":[],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
+}
+
 TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
