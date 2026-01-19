@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <optional>
 
 #include "storage/v2/access_type.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -38,6 +39,41 @@ static constexpr auto kMetricKind = "l2sq";
 static constexpr auto kResizeCoefficient = 2;
 static constexpr auto kScalarKind = unum::usearch::scalar_kind_t::f32_k;
 
+// Stub implementations for ActiveConstraints interfaces (test-only)
+namespace {
+struct StubExistenceActiveConstraints final : memgraph::storage::ExistenceActiveConstraints {
+  bool ConstraintRegistered(memgraph::storage::LabelId, memgraph::storage::PropertyId) const override { return false; }
+  std::vector<std::pair<memgraph::storage::LabelId, memgraph::storage::PropertyId>> ListConstraints(
+      uint64_t) const override {
+    return {};
+  }
+};
+
+struct StubUniqueActiveConstraints final : memgraph::storage::UniqueActiveConstraints {
+  bool ConstraintRegistered(memgraph::storage::LabelId,
+                            std::set<memgraph::storage::PropertyId> const &) const override {
+    return false;
+  }
+  std::vector<std::pair<memgraph::storage::LabelId, std::set<memgraph::storage::PropertyId>>> ListConstraints(
+      uint64_t) const override {
+    return {};
+  }
+  void UpdateBeforeCommit(const memgraph::storage::Vertex *, const memgraph::storage::Transaction &) override {}
+  auto GetAbortProcessor() const -> AbortProcessor override { return AbortProcessor{}; }
+  void CollectForAbort(AbortProcessor &, memgraph::storage::Vertex const *) const override {}
+  void AbortEntries(AbortableInfo const &, uint64_t) override {}
+};
+
+struct StubTypeActiveConstraints final : memgraph::storage::TypeActiveConstraints {
+  bool ConstraintRegistered(memgraph::storage::LabelId, memgraph::storage::PropertyId) const override { return false; }
+  std::vector<
+      std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, memgraph::storage::TypeConstraintKind>>
+  ListConstraints(uint64_t) const override {
+    return {};
+  }
+};
+}  // namespace
+
 // This class mimics the internals of the storage to generate the deltas.
 class DeltaGenerator final {
  public:
@@ -56,6 +92,11 @@ class DeltaGenerator final {
                            std::make_unique<memgraph::storage::InMemoryEdgeTypeIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>(),
+                       },
+                       memgraph::storage::ActiveConstraints{
+                           std::make_unique<StubExistenceActiveConstraints>(),
+                           std::make_unique<StubUniqueActiveConstraints>(),
+                           std::make_unique<StubTypeActiveConstraints>(),
                        }) {}
 
    public:

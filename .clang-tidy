@@ -65,7 +65,8 @@ Checks: '*,
          -misc-no-recursion,
          -concurrency-mt-unsafe,
          -bugprone-easily-swappable-parameters,
-         -bugprone-unchecked-optional-access'
+         -bugprone-unchecked-optional-access,
+         -bugprone-nondeterministic-pointer-iteration-order'
 WarningsAsErrors: ''
 HeaderFilterRegex: '(^|/)(src|mage/cpp)/'
 ExcludeHeaderFilterRegex: '.*/_deps/.*'
