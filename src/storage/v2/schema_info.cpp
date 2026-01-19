@@ -273,7 +273,7 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
   for (auto *vertex : post_process.vertices_with_label_modifications) {
     auto v_lock = std::shared_lock{vertex->lock};
 
-    // Check if vertex has interleaved delta at head and downstream uncommitted delta from us
+    // Check if vertex has interleaved delta at head and downstream uncommitted delta from us @TODO tidy this
     const Delta *delta = vertex->delta;
     if (delta && IsDeltaInterleaved(*delta)) {
       // Skip interleaved deltas to find first non-interleaved delta
@@ -304,18 +304,51 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
           return ts >= kTransactionInitialId && ts != commit_ts;
         };
 
+        // Helper to check if an edge appears in the diff with any label combination
+        // Returns true if this transaction touched the edge (created, deleted, or moved due to label change)
+        auto edge_touched_by_this_tx = [&diff, &post_process, start_ts, commit_ts](
+                                           EdgeTypeId edge_type, Vertex const *from, Vertex const *to) {
+          auto const from_state = GetState(from->delta, start_ts, commit_ts);
+          auto const to_state = GetState(to->delta, start_ts, commit_ts);
+          std::unordered_map<const Vertex *, VertexKey> empty_cache;
+          auto from_l_diff = GetLabelsDiff(from, from_state, start_ts, post_process.vertex_cache, empty_cache);
+          auto to_l_diff = GetLabelsDiff(to, to_state, start_ts, post_process.vertex_cache, empty_cache);
+
+          // Check all possible label combinations (pre/pre, pre/post, post/pre, post/post)
+          std::array<EdgeKeyRef, 4> const keys = {
+              EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.pre},
+              EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.post},
+              EdgeKeyRef{edge_type, *from_l_diff.post, *to_l_diff.pre},
+              EdgeKeyRef{edge_type, *from_l_diff.post, *to_l_diff.post},
+          };
+
+          for (auto const &key : keys) {
+            auto it = diff.edge_state_.find(key);
+            if (it != diff.edge_state_.cend() && it->second.n != 0) {
+              return true;  // Edge appears in diff with this label combination
+            }
+          }
+          return false;
+        };
+
         for (const auto &[edge_type, other_vertex, edge_ref] : vertex->in_edges) {
           if (!has_uncommitted_interleaved(vertex) && !has_uncommitted_interleaved(other_vertex)) {
             SchemaInfoEdge edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = other_vertex, .to = vertex};
             post_process.edges.emplace(edge);
-            edges_from_vertex_label_mods.insert(edge);
+            // Only add to edges_from_vertex_label_mods if this transaction didn't touch the edge
+            if (!edge_touched_by_this_tx(edge_type, other_vertex, vertex)) {
+              edges_from_vertex_label_mods.insert(edge);
+            }
           }
         }
         for (const auto &[edge_type, other_vertex, edge_ref] : vertex->out_edges) {
           if (!has_uncommitted_interleaved(vertex) && !has_uncommitted_interleaved(other_vertex)) {
             SchemaInfoEdge edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = vertex, .to = other_vertex};
             post_process.edges.emplace(edge);
-            edges_from_vertex_label_mods.insert(edge);
+            // Only add to edges_from_vertex_label_mods if this transaction didn't touch the edge
+            if (!edge_touched_by_this_tx(edge_type, vertex, other_vertex)) {
+              edges_from_vertex_label_mods.insert(edge);
+            }
           }
         }
       }
