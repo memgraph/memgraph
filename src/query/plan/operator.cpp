@@ -9196,6 +9196,7 @@ class ScanParallelCursor : public Cursor {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
     size_t index = 0;
+    uint64_t current_batch = 0;
 
     // Use the actual return type from get_chunks_ (can be VerticesChunkedIterable or EdgesChunkedIterable)
     using ChunksType = std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>;
@@ -9221,13 +9222,24 @@ class ScanParallelCursor : public Cursor {
           return false;
         }
         index_ = 0;
+        ++batch_version_;  // New input batch - caches need to be cleared
         chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
       }
 
+      current_batch = batch_version_;
       frame = *frame_;  // Copy the filled frame
       chunks = chunks_;
       index = index_++;
     }
+
+    // Clear caches if this branch hasn't seen this batch yet.
+    // This is critical for correctness: when UNWIND produces a new value, each branch
+    // must re-evaluate expressions like "IN [0, multiplier]" with the new value.
+    // Each branch's FrameChangeCollector tracks the last batch it saw.
+    if (context.frame_change_collector) {
+      context.frame_change_collector->ClearCachesIfBatchChanged(current_batch);
+    }
+
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     ParallelStateOnFrame::PushToFrame(frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks,
                                       index);
@@ -9254,6 +9266,9 @@ class ScanParallelCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   TChunksFun get_chunks_;
   bool all_pulled_{false};
+  // Tracks input batch version. Incremented when new input is pulled from upstream (e.g., UNWIND).
+  // Used to signal branch collectors to clear their caches when input changes.
+  uint64_t batch_version_{0};
 };
 
 UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
@@ -9906,11 +9921,16 @@ class ParallelBranchCursor : public Cursor {
         if (context.frame_change_collector != nullptr) {
           auto &collector =
               branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+          // Copy the cache structure (keys and invalidators) from the main collector so that
+          // cache invalidation works correctly when frame values change in this branch.
+          collector.CopyStructureFrom(*context.frame_change_collector);
           context.frame_change_collector = &collector;
         }
         if (context.trigger_context_collector != nullptr) {
-          // Create a copy of the main trigger context collector for this branch
-          auto &collector = branch_trigger_collectors[metadata_i].emplace(*context.trigger_context_collector);
+          // Create an empty collector with same config for this branch (don't copy existing data)
+          // Main branch retains its own data, this branch will only receive new changes.
+          auto &collector = branch_trigger_collectors[metadata_i].emplace(
+              context.trigger_context_collector->CreateEmptyWithSameConfig());
           context.trigger_context_collector = &collector;
         }
 

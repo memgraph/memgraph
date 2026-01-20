@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -606,5 +606,17 @@ void TriggerContextCollector::MergeFrom(const TriggerContextCollector &other) {
       label_changes_.emplace(key, label_state);
     }
   }
+}
+
+TriggerContextCollector TriggerContextCollector::CreateEmptyWithSameConfig() const {
+  TriggerContextCollector empty_collector{{}};  // Create with empty event types
+  // Copy the configuration flags but not the data
+  empty_collector.vertex_registry_.should_register_created_objects = vertex_registry_.should_register_created_objects;
+  empty_collector.vertex_registry_.should_register_deleted_objects = vertex_registry_.should_register_deleted_objects;
+  empty_collector.vertex_registry_.should_register_updated_objects = vertex_registry_.should_register_updated_objects;
+  empty_collector.edge_registry_.should_register_created_objects = edge_registry_.should_register_created_objects;
+  empty_collector.edge_registry_.should_register_deleted_objects = edge_registry_.should_register_deleted_objects;
+  empty_collector.edge_registry_.should_register_updated_objects = edge_registry_.should_register_updated_objects;
+  return empty_collector;
 }
 }  // namespace memgraph::query

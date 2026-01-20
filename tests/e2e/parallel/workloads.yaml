@@ -26,3 +26,15 @@ workloads:
   - name: "Parallel e2e tests explain"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["parallel/test_explain.py"]
+
+  - name: "Parallel e2e tests termination"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_termination.py"]
+
+  - name: "Parallel e2e tests frame change collector"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_frame_change_collector.py"]
+
+  - name: "Parallel e2e tests trigger context collector"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_trigger_context_collector.py"]

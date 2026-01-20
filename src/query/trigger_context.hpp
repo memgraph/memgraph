@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -326,6 +326,10 @@ class TriggerContextCollector {
   // Merge another TriggerContextCollector into this one.
   // Used when unifying contexts from parallel execution branches.
   void MergeFrom(const TriggerContextCollector &other);
+
+  // Create an empty collector with the same configuration flags (what to track)
+  // but no collected data. Used for parallel execution branches.
+  [[nodiscard]] TriggerContextCollector CreateEmptyWithSameConfig() const;
 
  private:
   template <detail::ObjectAccessor TAccessor>

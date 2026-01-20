@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -741,8 +741,6 @@ class SkipList final : detail::SkipListNode_base {
       ++(*this);
       return old;
     }
-
-    bool operator==(const ChunkedIterator &other) const { return node_ == other.node_; }
     // More complex because the end node can be removed from the skiplist, we check the order and stop if past end node
     bool operator!=(const ChunkedIterator &other) const {
       if (!node_) return false;       // end of skiplist (stop)
@@ -750,6 +748,7 @@ class SkipList final : detail::SkipListNode_base {
       return node_ != other.node_ &&
              (node_->obj < other.node_->obj);  // run until we hit the other node OR our node is greater than the other
     }
+    bool operator==(const ChunkedIterator &other) const { return !(*this != other); }
 
    private:
     TNode *node_{nullptr};
