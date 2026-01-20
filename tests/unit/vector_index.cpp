@@ -282,8 +282,7 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
   this->CreateIndex(2, 10);
   Gid vertex_gid;
   {
-    auto acc = this->storage->Access();
-
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
     vertex_gid = vertex.Gid();
@@ -292,7 +291,7 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
 
   // Delete the vertex
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
     EXPECT_EQ(maybe_deleted_vertex.has_value(), true);
@@ -301,13 +300,13 @@ TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
 
   // Expect the index to have 1 entry, as gc hasn't run yet
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::READ);
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
   }
 
   // Expect the index to have 0 entries, as the vertex was deleted
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::READ);
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
     mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);

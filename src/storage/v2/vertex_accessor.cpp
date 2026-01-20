@@ -43,8 +43,8 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
                               storage->PropertyToName(*violation.properties.begin()));
 }
 
-std::optional<PropertyValue> ConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
-                                                          const PropertyValue &value) {
+std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
+                                                             const PropertyValue &value) {
   if ((!value.IsAnyList() && !value.IsNull()) || value.IsVectorIndexId()) return std::nullopt;
   auto vector_index_ids =
       storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property, storage->name_id_mapper_.get());
@@ -356,7 +356,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   std::optional<PropertyValue> converted;
   if (!storage_->indices_.vector_index_.Empty()) {
-    converted = ConvertToVectorIndexProperty(storage_, vertex_, property, value);
+    converted = TryConvertToVectorIndexProperty(storage_, vertex_, property, value);
   }
   const auto &new_value = converted ? *converted : value;
 
@@ -516,7 +516,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   if (!storage_->indices_.vector_index_.Empty()) {
     r::for_each(properties, [&](auto &pair) {
-      if (auto converted = ConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
+      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
         pair.second = std::move(*converted);
       }
     });
