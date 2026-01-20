@@ -13,12 +13,8 @@
 (def mglog  (str mgdir "/memgraph.log"))
 (def mgpid  (str mgdir "/memgraph.pid"))
 (def sync-after-n-txn (atom 100000))
-<<<<<<< HEAD
 (def storage-backup-dir-enabled (atom true))
-=======
-(def storage-enable-backup-dir (atom true))
 (def storage-force-cleanup (atom false))
->>>>>>> 3ee162dc0 (testing: Add --storage-force-cleanup flag to Jepsen tests)
 
 (defn get-rnd-snapshot-interval-sec
   "Gets the random snapshot interval sec between 5 and 300 secs."
