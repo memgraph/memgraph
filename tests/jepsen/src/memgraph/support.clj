@@ -13,7 +13,7 @@
 (def mglog  (str mgdir "/memgraph.log"))
 (def mgpid  (str mgdir "/memgraph.pid"))
 (def sync-after-n-txn (atom 100000))
-(def storage-enable-backup-dir (atom true))
+(def storage-backup-dir-enabled (atom true))
 
 (defn get-rnd-snapshot-interval-sec
   "Gets the random snapshot interval sec between 5 and 300 secs."
@@ -33,7 +33,7 @@
    :--replication-restore-state-on-startup
    "--log-level=TRACE"
    (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
-   (str "--storage-enable-backup-dir=" @storage-enable-backup-dir)
+   (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
    (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
    "--telemetry-enabled=false"
    :--storage-properties-on-edges))
@@ -53,7 +53,7 @@
    "--storage-snapshot-interval-sec=300"
    "--telemetry-enabled=false"
    "--log-level=TRACE"
-   (str "--storage-enable-backup-dir=" @storage-enable-backup-dir)
+   (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)
    :--coordinator-hostname node
@@ -70,7 +70,7 @@
    :--storage-wal-enabled
    "--storage-snapshot-interval-sec=300"
    "--log-level=TRACE"
-   (str "--storage-enable-backup-dir=" @storage-enable-backup-dir)
+   (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
    "--telemetry-enabled=false"
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
@@ -101,9 +101,9 @@
       (let [local-binary (:local-binary opts)
             nodes-config (:nodes-config opts)
             flush-after-n-txn (:sync-after-n-txn opts)
-            storage-enable-backup-dir-arg (:storage-enable-backup-dir opts)]
+            storage-backup-dir-enabled-arg (:storage-backup-dir-enabled opts)]
         (reset! sync-after-n-txn flush-after-n-txn)
-        (reset! storage-enable-backup-dir storage-enable-backup-dir-arg)
+        (reset! storage-backup-dir-enabled storage-backup-dir-enabled-arg)
         (c/su
          (c/exec :apt-get :update)
          (debian/install ['python3 'python3-dev]))

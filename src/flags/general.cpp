@@ -145,7 +145,7 @@ DEFINE_bool(storage_enable_edges_metadata, false,
 DEFINE_bool(storage_delta_on_identical_property_update, true,
             "Controls whether updating a property with the same value should create a delta object.");
 
-DEFINE_bool(storage_enable_backup_dir, true,
+DEFINE_bool(storage_backup_dir_enabled, true,
             "Controls whether .old dir will be used to store latest snapshot and WAL files.");
 
 // RocksDB flags

@@ -128,7 +128,7 @@ def get_instances_description_no_setup_snapshot_recovery(test_name: str, snapsho
     }
 
 
-def get_instances_description_no_setup_wal_files_recovery(test_name: str, storage_enable_backup_dir):
+def get_instances_description_no_setup_wal_files_recovery(test_name: str, storage_backup_dir_enabled):
     return {
         "instance_1": {
             "args": [
@@ -144,7 +144,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str, storag
                 "false",
                 "--storage-wal-file-size-kib",
                 "1",
-                f"--storage-enable-backup-dir={storage_enable_backup_dir}",
+                f"--storage-backup-dir-enabled={storage_backup_dir_enabled}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_1",
@@ -164,7 +164,7 @@ def get_instances_description_no_setup_wal_files_recovery(test_name: str, storag
                 "false",
                 "--storage-wal-file-size-kib",
                 "1",
-                f"--storage-enable-backup-dir={storage_enable_backup_dir}",
+                f"--storage-backup-dir-enabled={storage_backup_dir_enabled}",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_2",
@@ -366,7 +366,7 @@ def test_branching_point_snapshot_recovery(test_name):
 @pytest.mark.parametrize("enable_backup_dir", ["true", "false"])
 def test_branching_point_wal_files_recovery(test_name, enable_backup_dir):
     instances_description = get_instances_description_no_setup_wal_files_recovery(
-        test_name=test_name, storage_enable_backup_dir=enable_backup_dir
+        test_name=test_name, storage_backup_dir_enabled=enable_backup_dir
     )
     interactive_mg_runner.start_all(instances_description, keep_directories=False)
 

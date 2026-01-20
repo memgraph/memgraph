@@ -151,7 +151,7 @@ void ProcessOldDurableFiles(bool const reset_needed, std::filesystem::path const
   if (reset_needed) {
     auto const old_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
 
-    if (FLAGS_storage_enable_backup_dir) {
+    if (FLAGS_storage_backup_dir_enabled) {
       auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_dir);
       if (!maybe_backup_dirs) {
         spdlog::error("Couldn't create backup directories. Old durable files won't be moved to .old directory.");
@@ -638,7 +638,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   auto snapshots_to_process = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
 
-  if (FLAGS_storage_enable_backup_dir) {
+  if (FLAGS_storage_backup_dir_enabled) {
     // Read durability files
 
     auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);

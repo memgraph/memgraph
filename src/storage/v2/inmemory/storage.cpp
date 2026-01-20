@@ -3202,7 +3202,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     // Destroying current wal file
     wal_file_.reset();
 
-    auto const use_old_dir = FLAGS_storage_enable_backup_dir;
+    auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
     constexpr std::string_view old_dir = ".old";
 
     // Move all previous snapshots and WAL files to .old dir

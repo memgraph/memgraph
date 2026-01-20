@@ -193,7 +193,7 @@ startup_config_dict = {
         "true",
         "Controls whether updating a property with the same value should create a delta object.",
     ),
-    "storage_enable_backup_dir": (
+    "storage_backup_dir_enabled": (
         "true",
         "true",
         "Controls whether .old dir will be used to store latest snapshot and WAL files.",

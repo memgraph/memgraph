@@ -163,7 +163,7 @@
         nemesis-start-sleep (when (:nemesis-start-sleep opts)
                               (Integer/parseInt (:nemesis-start-sleep opts)))
 
-        storage-enable-backup-dir (:storage-enable-backup-dir opts)
+        storage-backup-dir-enabled (:storage-backup-dir-enabled opts)
 
         test-opts (merge opts
                          {:workload workload
@@ -174,7 +174,7 @@
                           :num-tenants num-tenants
                           :recovery-time recovery-time
                           :nemesis-start-sleep nemesis-start-sleep
-                          :storage-enable-backup-dir storage-enable-backup-dir})]
+                          :storage-backup-dir-enabled storage-backup-dir-enabled})]
 
     (memgraph-test test-opts)))
 
@@ -195,7 +195,7 @@
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
     :parse-fn #(-> % load-configuration)]
    ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default nil]
-   ["-sebd" "--storage-enable-backup-dir BOOL" "If enabled, .old dir will be used." :default true]
+   ["-sebd" "--storage-backup-dir-enabled BOOL" "If enabled, .old dir will be used." :default true]
    ["-rt" "--recovery-time SECONDS" "Recovery time before calling final generator." :default nil]
    ["-nss" "--nemesis-start-sleep SECONDS" "The number of seconds nemesis will sleep before starting its disruptions." :default nil]])
 

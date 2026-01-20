@@ -172,7 +172,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
   spdlog::trace("Deleting dir: {}", mg_db_tmp);
   memgraph::utils::DeleteDir(mg_db_tmp);
   // Optionally clean .old directories if flag set to false
-  if (!FLAGS_storage_enable_backup_dir) {
+  if (!FLAGS_storage_backup_dir_enabled) {
     // Delete .old for snapshots of the default db
     auto const mg_db_snp_old = data_directory / "snapshots" / ".old";
     spdlog::trace("Deleting dir: {}", mg_db_snp_old);
@@ -187,7 +187,7 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
   std::error_code ec;
   for (auto const &db : std::filesystem::directory_iterator(dbs, ec)) {
     memgraph::utils::DeleteDir(db.path() / "tmp");
-    if (!FLAGS_storage_enable_backup_dir) {
+    if (!FLAGS_storage_backup_dir_enabled) {
       auto const db_snp_old = db.path() / "snapshots" / ".old";
       auto const db_wal_old = db.path() / "wal" / ".old";
       spdlog::trace("Deleting snp: {}", db_snp_old);
