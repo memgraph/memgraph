@@ -112,14 +112,23 @@ def with_new_edge_index_step(context, index_arg):
     context.add_cleanup(cleanup_global_edge_index, index_arg, context, context.test_parameters.get_parameters())
 
 
+def print_actual_query(context):
+    """Print the actual query if it differs from the original (e.g., with USING PARALLEL EXECUTION)."""
+    actual_query = getattr(context, "last_executed_query", None)
+    if actual_query and actual_query != context.text:
+        print(f'      Actual query executed:\n      """\n      {actual_query}\n      """')
+
+
 @when("executing query")
 def executing_query_step(context):
     context.results = database.query(context.text, context, context.test_parameters.get_parameters())
+    print_actual_query(context)
 
 
 @when("executing control query")
 def executing_query_step(context):
     context.results = database.query(context.text, context, context.test_parameters.get_parameters())
+    print_actual_query(context)
 
 
 def parse_props(props_key_value):
@@ -367,9 +376,28 @@ def expected_result_step(context):
     check_exception(context)
 
 
+def should_ignore_row_order(context):
+    """
+    Check if row order should be ignored for validation.
+    Returns True if parallel execution is enabled and the query doesn't have ORDER BY.
+    """
+    parallel_execution = getattr(context.config, "parallel_execution", False)
+    if not parallel_execution:
+        return False
+
+    # Check if the last executed query has ORDER BY
+    last_query = getattr(context, "last_executed_query", "")
+    return "ORDER BY" not in last_query.upper()
+
+
 @then("the result should be, in order")
 def expected_result_step(context):
-    validate_in_order(context, False)
+    # For parallel execution without ORDER BY, result order is non-deterministic
+    if should_ignore_row_order(context):
+        context.log.info("Parallel execution without ORDER BY: ignoring row order")
+        validate(context, False)
+    else:
+        validate_in_order(context, False)
     check_exception(context)
 
 

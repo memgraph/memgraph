@@ -43,6 +43,9 @@ def query(q, context, params={}):
             else:
                 q = "USING PARALLEL EXECUTION " + q
 
+    # Store the actual query being executed (for logging and validation purposes)
+    context.last_executed_query = q
+
     session = context.driver.session()
     try:
         # executing query
