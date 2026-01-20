@@ -38,3 +38,11 @@ workloads:
   - name: "Parallel e2e tests trigger context collector"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["parallel/test_trigger_context_collector.py"]
+
+  - name: "Parallel e2e tests profile"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_profile.py"]
+
+  - name: "Parallel e2e tests memory"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["parallel/test_memory.py"]

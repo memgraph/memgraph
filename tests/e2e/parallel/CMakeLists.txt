@@ -15,6 +15,8 @@ copy_parallel_e2e_python_files(test_explain.py)
 copy_parallel_e2e_python_files(test_termination.py)
 copy_parallel_e2e_python_files(test_frame_change_collector.py)
 copy_parallel_e2e_python_files(test_trigger_context_collector.py)
+copy_parallel_e2e_python_files(test_profile.py)
+copy_parallel_e2e_python_files(test_memory.py)
 
 # Copy configuration and runner files
 copy_e2e_files(parallel workloads.yaml)
