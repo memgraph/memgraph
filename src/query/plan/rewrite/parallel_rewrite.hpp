@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,9 +33,14 @@ namespace impl {
 template <class TDbAccessor>
 class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  ParallelRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads,
-                   std::shared_ptr<LogicalOperator> root)
-      : root_(root), symbol_table(symbolTable), ast_storage(astStorage), db(db), num_threads_(num_threads) {}
+  ParallelRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads)
+      : symbol_table(symbolTable), ast_storage(astStorage), db(db), num_threads_(num_threads) {}
+
+  std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> root) {
+    root_ = std::move(root);
+    root_->Accept(*this);
+    return std::move(root_);
+  }
 
   ~ParallelRewriter() override = default;
 
@@ -183,8 +188,13 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     // Use the generic parallel rewrite logic
-    auto create_parallel = [this](std::shared_ptr<LogicalOperator> op) {
-      return std::make_shared<AggregateParallel>(op, num_threads_);
+    auto create_parallel = [this](auto op) {
+      using OpType = std::decay_t<decltype(op)>;
+      if constexpr (std::is_same_v<OpType, std::unique_ptr<LogicalOperator>>) {
+        return std::make_unique<AggregateParallel>(std::shared_ptr<LogicalOperator>(std::move(op)), num_threads_);
+      } else {
+        return std::make_shared<AggregateParallel>(std::move(op), num_threads_);
+      }
     };
     return TryParallelizeOperator(op, required_symbols, "aggregate", create_parallel);
   }
@@ -213,8 +223,13 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     // Use the generic parallel rewrite logic
-    auto create_parallel = [this](std::shared_ptr<LogicalOperator> op) {
-      return std::make_shared<OrderByParallel>(op, num_threads_);
+    auto create_parallel = [this](auto op) {
+      using OpType = std::decay_t<decltype(op)>;
+      if constexpr (std::is_same_v<OpType, std::unique_ptr<LogicalOperator>>) {
+        return std::make_unique<OrderByParallel>(std::shared_ptr<LogicalOperator>(std::move(op)), num_threads_);
+      } else {
+        return std::make_shared<OrderByParallel>(std::move(op), num_threads_);
+      }
     };
     return TryParallelizeOperator(op, required_symbols, "orderby", create_parallel);
   }
@@ -224,9 +239,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  std::shared_ptr<LogicalOperator> root_;
-
  private:
+  std::unique_ptr<LogicalOperator> root_;
   SymbolTable *symbol_table;
   AstStorage *ast_storage;
   TDbAccessor *db;
@@ -367,7 +381,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (!root_) {
         throw std::runtime_error("Single input operator expected");
       }
-      root_ = create_parallel_op(root_);
+      root_ = create_parallel_op(std::move(root_));
       return;
     }
     // Not the first operator, means we need to find the parent, pass in its current input and set the input to the
@@ -970,13 +984,8 @@ std::unique_ptr<LogicalOperator> RewriteParallelExecution(
       // Default value
       return FLAGS_bolt_num_workers;
     };
-    // We need to switch from unique to shared pointer to allow the rewriter to modify the tree
-    std::shared_ptr<LogicalOperator> root_op_shared = std::move(root_op);
-    auto rewriter =
-        impl::ParallelRewriter<TDbAccessor>{symbol_table, ast_storage, db, get_num_threads(), root_op_shared};
-    root_op_shared->Accept(rewriter);
-    // Clone the root operator tree to convert from shared_ptr to unique_ptr
-    return rewriter.root_->Clone(ast_storage);
+    impl::ParallelRewriter<TDbAccessor> rewriter{symbol_table, ast_storage, db, get_num_threads()};
+    return rewriter.Rewrite(std::move(root_op));
   }
   return root_op;
 }

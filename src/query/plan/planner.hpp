@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -78,6 +78,7 @@ class PostProcessor final {
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); }
 #ifdef MG_ENTERPRISE
            |
+           // Keep at the end
            [&](auto p) {
              return RewriteParallelExecution(std::move(p), symbol_table, ast, db, context->query->pre_query_directives_,
                                              parameters_);
