@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -92,6 +92,10 @@
   M(ActiveTextEdgeIndices, Index, "Number of active text edge indices in the system.")                                 \
   M(ActiveVectorIndices, Index, "Number of active vector indices in the system.")                                      \
   M(ActiveVectorEdgeIndices, Index, "Number of active vector edge indices in the system.")                             \
+                                                                                                                       \
+  M(ActiveExistenceConstraints, Constraint, "Number of active existence constraints in the system.")                   \
+  M(ActiveUniqueConstraints, Constraint, "Number of active unique constraints in the system.")                         \
+  M(ActiveTypeConstraints, Constraint, "Number of active type constraints in the system.")                             \
                                                                                                                        \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                              \
   M(MessagesConsumed, Stream, "Number of consumed streamed messages.")                                                 \

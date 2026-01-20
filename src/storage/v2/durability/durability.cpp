@@ -382,17 +382,20 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
   for (const auto &[label, property] : constraints_metadata.existence) {
-    if (constraints->existence_constraints_->ConstraintExists(label, property)) {
+    // Register creates the constraint entry in the map
+    if (!constraints->existence_constraints_->RegisterConstraint(label, property)) {
       throw RecoveryFailure("The existence constraint already exists!");
     }
 
     if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
                                                                                     parallel_exec_info, snapshot_info);
         !validation_result.has_value()) [[unlikely]] {
+      constraints->existence_constraints_->DropConstraint(label, property);
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 
-    constraints->existence_constraints_->PublishConstraint(label, property);
+    // Use kTimestampInitialId to make constraint visible to all transactions during recovery
+    constraints->existence_constraints_->PublishConstraint(label, property, kTimestampInitialId);
     spdlog::info("Existence constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                  name_id_mapper->IdToName(property.AsUint()));
   }
@@ -411,6 +414,9 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
                                                         snapshot_info);
     if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
+
+    // Use kTimestampInitialId to make constraint visible to all transactions during recovery
+    mem_unique_constraints->PublishConstraint(label, properties, kTimestampInitialId);
 
     std::vector<std::string> property_names;
     property_names.reserve(properties.size());
@@ -445,7 +451,8 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   }
 
   for (const auto &[label, property, type] : constraints_metadata.type) {
-    constraints->type_constraints_->PublishConstraint(label, property, type);
+    // Use kTimestampInitialId to make constraint visible to all transactions during recovery
+    constraints->type_constraints_->PublishConstraint(label, property, type, kTimestampInitialId);
   }
 
   spdlog::info("Type constraints are recreated from metadata.");

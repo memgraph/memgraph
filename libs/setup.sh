@@ -154,7 +154,6 @@ declare -A primary_urls=(
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
-  ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
   ["nlohmann_json"]="http://$local_cache_host/git/json.git"
 )
@@ -174,7 +173,6 @@ declare -A secondary_urls=(
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
-  ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
   ["nlohmann_json"]="https://github.com/nlohmann/json.git"
 )
@@ -263,10 +261,6 @@ if [[ -z "${MG_TOOLCHAIN_VERSION}" ]]; then
 else
   echo "Skipping jemalloc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
-
-# mgcxx (text search)
-mgcxx_tag="v0.0.10"
-repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
 # usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.21.4" # (2025-12-16)

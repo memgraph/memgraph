@@ -1193,7 +1193,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
           build-memgraph \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \

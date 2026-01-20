@@ -572,7 +572,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     }
     if (storage->constraints_.HasTypeConstraints()) {
       if (auto validation_result =
-              TypeConstraints::Validate(*vertex, storage->constraints_.type_constraints_->ReadLock());
+              TypeConstraints::Validate(*vertex, storage->constraints_.type_constraints_->GetSnapshot());
           !validation_result.has_value()) {
         HandleTypeConstraintViolation(storage, validation_result.error());
       }

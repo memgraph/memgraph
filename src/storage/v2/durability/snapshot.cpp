@@ -43,6 +43,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -10038,7 +10039,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write existence constraints.
     {
-      auto existence = storage->constraints_.existence_constraints_->ListConstraints();
+      auto existence = storage->constraints_.existence_constraints_->ListConstraints(transaction->start_timestamp);
       snapshot.WriteUint(existence.size());
       for (const auto &item : existence) {
         write_mapping(item.first);
@@ -10051,7 +10052,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write unique constraints.
     {
-      auto unique = storage->constraints_.unique_constraints_->ListConstraints();
+      auto *mem_unique = static_cast<InMemoryUniqueConstraints *>(storage->constraints_.unique_constraints_.get());
+      auto unique = mem_unique->ListConstraints(transaction->start_timestamp);
       snapshot.WriteUint(unique.size());
       for (const auto &item : unique) {
         write_mapping(item.first);
@@ -10066,7 +10068,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     }
     // Write type constraints
     {
-      auto type_constraints = storage->constraints_.type_constraints_->ListConstraints();
+      auto type_constraints = storage->constraints_.type_constraints_->ListConstraints(transaction->start_timestamp);
       snapshot.WriteUint(type_constraints.size());
       for (const auto &[label, property, type] : type_constraints) {
         write_mapping(label);

@@ -110,5 +110,7 @@ jobs:
           ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/ci/docker_cleanup.sh

@@ -17,6 +17,9 @@ from common import memgraph
 
 def test_all_show_metrics_info_values_are_present(memgraph):
     expected_metrics = [
+        {"name": "ActiveExistenceConstraints", "type": "Constraint", "metric type": "Counter"},
+        {"name": "ActiveTypeConstraints", "type": "Constraint", "metric type": "Counter"},
+        {"name": "ActiveUniqueConstraints", "type": "Constraint", "metric type": "Counter"},
         {"name": "AverageDegree", "type": "General", "metric type": "Gauge"},
         {"name": "EdgeCount", "type": "General", "metric type": "Gauge"},
         {"name": "VertexCount", "type": "General", "metric type": "Gauge"},
@@ -231,6 +234,65 @@ def test_all_show_metrics_info_values_are_present(memgraph):
 
     for expected, actual in zip(expected_metrics, actual_metrics):
         assert expected == actual
+
+
+def get_metric_value(memgraph, metric_name):
+    """Helper function to get the value of a specific metric."""
+    results = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
+    for r in results:
+        if r["name"] == metric_name:
+            return r["value"]
+    return None
+
+
+def test_constraint_metrics_are_updated(memgraph):
+    """Test that constraint metrics are correctly incremented and decremented."""
+    # Get initial values
+    initial_existence = get_metric_value(memgraph, "ActiveExistenceConstraints")
+    initial_unique = get_metric_value(memgraph, "ActiveUniqueConstraints")
+    initial_type = get_metric_value(memgraph, "ActiveTypeConstraints")
+
+    assert initial_existence == 0
+    assert initial_unique == 0
+    assert initial_type == 0
+
+    # Create existence constraint
+    memgraph.execute("CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    assert get_metric_value(memgraph, "ActiveExistenceConstraints") == 1
+
+    # Create unique constraint
+    memgraph.execute("CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+    assert get_metric_value(memgraph, "ActiveUniqueConstraints") == 1
+
+    # Create type constraint
+    memgraph.execute("CREATE CONSTRAINT ON (n:Person) ASSERT n.age IS TYPED INTEGER;")
+    assert get_metric_value(memgraph, "ActiveTypeConstraints") == 1
+
+    # Create additional constraints to verify counting
+    memgraph.execute("CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
+    assert get_metric_value(memgraph, "ActiveExistenceConstraints") == 2
+
+    memgraph.execute("CREATE CONSTRAINT ON (n:Person) ASSERT n.email IS UNIQUE;")
+    assert get_metric_value(memgraph, "ActiveUniqueConstraints") == 2
+
+    # Drop constraints and verify metrics decrement
+    memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    assert get_metric_value(memgraph, "ActiveExistenceConstraints") == 1
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+    assert get_metric_value(memgraph, "ActiveUniqueConstraints") == 1
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT n.age IS TYPED INTEGER;")
+    assert get_metric_value(memgraph, "ActiveTypeConstraints") == 0
+
+    # Clean up remaining constraints
+    memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.email);")
+    memgraph.execute("DROP CONSTRAINT ON (n:Person) ASSERT n.email IS UNIQUE;")
+
+    # Verify all back to zero
+    assert get_metric_value(memgraph, "ActiveExistenceConstraints") == 0
+    assert get_metric_value(memgraph, "ActiveUniqueConstraints") == 0
+    assert get_metric_value(memgraph, "ActiveTypeConstraints") == 0
 
 
 if __name__ == "__main__":

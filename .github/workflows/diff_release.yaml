@@ -592,6 +592,14 @@ jobs:
           --arch $ARCH \
           init-tests
 
+      - name: Run query modules unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            test-memgraph query_modules_unit
+
       - name: Run query modules e2e tests
         run: |
           ./release/package/mgbuild.sh \

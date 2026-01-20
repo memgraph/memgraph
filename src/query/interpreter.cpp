@@ -2613,12 +2613,12 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
   ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
-  ctx_.user_or_role = user_or_role;
+  ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, dba);
-
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
+    DMG_ASSERT(auth_checker, "Auth checker should not be null");
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
     if (!auth_checker->HasAllGlobalPrivilegesOnVertices() || !auth_checker->HasAllGlobalPrivilegesOnEdges()) {
@@ -6732,7 +6732,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       const bool has_user_or_role = user_or_role != nullptr && *user_or_role;
       if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context &&
           interpreter_context->auth_checker && has_user_or_role && db_acc) {
-        auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
+        auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, &*db_acc);
+        DMG_ASSERT(auth_checker, "Auth checker should not be null");
+        // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
+        if (auth_checker->HasAllGlobalPrivilegesOnVertices() && auth_checker->HasAllGlobalPrivilegesOnEdges()) {
+          auth_checker = nullptr;
+        }
       }
 
       const auto node_predicate = [&auth_checker](auto label_id) {
@@ -8330,13 +8335,15 @@ void Interpreter::Commit() {
   // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
-    db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
-                 trigger_context = std::move(*trigger_context), triggering_user = user_or_role_,
-                 user_transaction = std::move(current_db_.db_transactional_accessor_)]() {
-      RunTriggersAfterCommit(db_acc, interpreter_context, trigger_context, triggering_user);
-      user_transaction->FinalizeTransaction();
-      SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
-    });
+    db->AddTask(
+        [db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
+         trigger_context = std::move(*trigger_context),
+         triggering_user = user_or_role_ ? user_or_role_->clone() : nullptr /* deep copy (otherwise not thread safe) */,
+         user_transaction = std::move(current_db_.db_transactional_accessor_)]() {
+          RunTriggersAfterCommit(db_acc, interpreter_context, trigger_context, triggering_user);
+          user_transaction->FinalizeTransaction();
+          SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
+        });
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");

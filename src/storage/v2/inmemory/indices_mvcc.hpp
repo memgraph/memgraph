@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,22 +11,12 @@
 
 #pragma once
 
-#include "storage/v2/transaction_constants.hpp"
-
-#include <atomic>
+#include "storage/v2/schema_status.hpp"
 
 namespace memgraph::storage {
 
-struct IndexStatus {
-  bool IsPopulating() const { return commit_timestamp.load(std::memory_order_acquire) == kTransactionInitialId; }
-  bool IsReady() const { return !IsPopulating(); }
-  bool IsVisible(uint64_t timestamp) const { return commit_timestamp.load(std::memory_order_acquire) <= timestamp; }
-
-  void Commit(uint64_t timestamp) { commit_timestamp.store(timestamp, std::memory_order_release); }
-
- private:
-  // kTransactionInitialId means popuating
-  std::atomic<uint64_t> commit_timestamp{kTransactionInitialId};
-};
+/// IndexStatus is an alias to SchemaStatus for backwards compatibility.
+/// See SchemaStatus for documentation.
+using IndexStatus = SchemaStatus;
 
 }  // namespace memgraph::storage

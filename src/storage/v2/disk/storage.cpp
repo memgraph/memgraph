@@ -921,6 +921,7 @@ StorageInfo DiskStorage::GetInfo() {
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
+    info.type_constraints = 0;  // Type constraints not supported on disk storage
   }
   info.storage_mode = storage_mode_;
   info.isolation_level = isolation_level_;
@@ -2240,15 +2241,18 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
   MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
-  if (existence_constraints->ConstraintExists(label, property)) {
+  if (existence_constraints->ConstraintRegistered(label, property)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto check = on_disk->CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property);
       !check.has_value()) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{check.error()}};
   }
-  // no need to register due to unique access
-  existence_constraints->PublishConstraint(label, property);
+  // Register then immediately publish with kTimestampInitialId for immediate visibility
+  // Disk storage uses UNIQUE access so no MVCC needed
+  // We already verified !ConstraintRegistered above, so RegisterConstraint will succeed
+  [[maybe_unused]] const bool registered = existence_constraints->RegisterConstraint(label, property);
+  existence_constraints->PublishConstraint(label, property, kTimestampInitialId);
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
@@ -2355,12 +2359,14 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
   std::optional<ActiveIndices> active_indices;
+  std::optional<ActiveConstraints> active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
     active_indices = GetActiveIndices();
+    active_constraints = GetActiveConstraints();
   }
 
   return {transaction_id,
@@ -2370,7 +2376,8 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           edge_import_mode_active,
           !constraints_.empty(),
           empty_point_index_.CreatePointIndexContext(),
-          *std::move(active_indices)};
+          *std::move(active_indices),
+          *std::move(active_constraints)};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

@@ -1210,45 +1210,93 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
-  auto constraint_acc = this->CreateConstraintAccessor();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  // Create the constraint in one transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::CreateExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(mgp::CreateExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint exists in a new transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto constraints = mgp::ListAllExistenceConstraints(&raw_graph);
-  ASSERT_EQ(constraints.Size(), 1);
-  ASSERT_EQ(constraints[0].ValueString(), "User:email");
+    auto constraints = mgp::ListAllExistenceConstraints(&raw_graph);
+    ASSERT_EQ(constraints.Size(), 1);
+    ASSERT_EQ(constraints[0].ValueString(), "User:email");
+  }
+  // Drop the constraint
+  {
+    auto drop_acc = this->DropConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(drop_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::DropExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(mgp::DropExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint is gone
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto updated_constraints = mgp::ListAllExistenceConstraints(&raw_graph);
-  ASSERT_EQ(updated_constraints.Size(), 0);
+    auto updated_constraints = mgp::ListAllExistenceConstraints(&raw_graph);
+    ASSERT_EQ(updated_constraints.Size(), 0);
 
-  ASSERT_FALSE(mgp::DropExistenceConstraint(&raw_graph, "User", "nonexistent"));
+    ASSERT_FALSE(mgp::DropExistenceConstraint(&raw_graph, "User", "nonexistent"));
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestUniqueConstraint) {
-  auto constraint_acc = this->CreateConstraintAccessor();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  // Create the constraint in one transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  // Prepare the properties list: ["username"]
-  mgp_list list_props({mgp_value("username", this->memory.impl)}, this->memory.impl);
-  ASSERT_TRUE(mgp::CreateUniqueConstraint(&raw_graph, "Account", &list_props));
-  auto constraints = mgp::ListAllUniqueConstraints(&raw_graph);
-  ASSERT_EQ(constraints.Size(), 1);
-  ASSERT_EQ(constraints[0].ValueList().Size(), 2);
-  ASSERT_EQ(constraints[0].ValueList()[0].ValueString(), "Account");
-  ASSERT_EQ(constraints[0].ValueList()[1].ValueString(), "username");
+    // Prepare the properties list: ["username"]
+    mgp_list list_props({mgp_value("username", this->memory.impl)}, this->memory.impl);
+    ASSERT_TRUE(mgp::CreateUniqueConstraint(&raw_graph, "Account", &list_props));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint exists in a new transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::DropUniqueConstraint(&raw_graph, "Account", &list_props));
+    auto constraints = mgp::ListAllUniqueConstraints(&raw_graph);
+    ASSERT_EQ(constraints.Size(), 1);
+    ASSERT_EQ(constraints[0].ValueList().Size(), 2);
+    ASSERT_EQ(constraints[0].ValueList()[0].ValueString(), "Account");
+    ASSERT_EQ(constraints[0].ValueList()[1].ValueString(), "username");
+  }
+  // Drop the constraint
+  {
+    auto drop_acc = this->DropConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(drop_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto updated_constraints = mgp::ListAllUniqueConstraints(&raw_graph);
-  ASSERT_EQ(updated_constraints.Size(), 0);
+    mgp_list list_props({mgp_value("username", this->memory.impl)}, this->memory.impl);
+    ASSERT_TRUE(mgp::DropUniqueConstraint(&raw_graph, "Account", &list_props));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint is gone
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  mgp_list fake_props({mgp_value("nonexistent", this->memory.impl)}, this->memory.impl);
-  ASSERT_FALSE(mgp::DropUniqueConstraint(&raw_graph, "Account", &fake_props));
+    auto updated_constraints = mgp::ListAllUniqueConstraints(&raw_graph);
+    ASSERT_EQ(updated_constraints.Size(), 0);
+
+    mgp_list fake_props({mgp_value("nonexistent", this->memory.impl)}, this->memory.impl);
+    ASSERT_FALSE(mgp::DropUniqueConstraint(&raw_graph, "Account", &fake_props));
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
