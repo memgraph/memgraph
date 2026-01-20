@@ -246,8 +246,8 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       }
       const auto &list = value.ValueVectorIndexList();
       WriteSize(this, list.size());
-      for (const auto &item : list) {
-        WriteExternalPropertyValue(ExternalPropertyValue(item));
+      for (auto item : list) {
+        WriteDouble(item);
       }
       break;
     }
@@ -616,22 +616,16 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       for (auto i = 0; i < *size; ++i) {
         auto index_name = ReadString();
         if (!index_name) return std::nullopt;
-        vector_index_ids.push_back(*index_name);
+        vector_index_ids.emplace_back(std::move(*index_name));
       }
       size = ReadSize(this);
       if (!size) return std::nullopt;
       utils::small_vector<float> list;
       list.reserve(*size);
       for (auto i = 0; i < *size; ++i) {
-        auto item = ReadExternalPropertyValue();
+        auto item = ReadDouble();
         if (!item) return std::nullopt;
-        if (item->IsDouble()) {
-          list.push_back(static_cast<float>(item->ValueDouble()));
-        } else if (item->IsInt()) {
-          list.push_back(static_cast<float>(item->ValueInt()));
-        } else {
-          throw PropertyValueException("Expected to read vector index of Double or Int type");
-        }
+        list.push_back(static_cast<float>(*item));
       }
       return ExternalPropertyValue(std::move(vector_index_ids), std::move(list));
     }
@@ -785,7 +779,7 @@ bool Decoder::SkipExternalPropertyValue() {
       size = ReadSize(this);
       if (!size) return false;
       for (auto i = 0; i < *size; ++i) {
-        if (!SkipExternalPropertyValue()) return false;
+        if (!ReadDouble()) return false;
       }
       return true;
     }

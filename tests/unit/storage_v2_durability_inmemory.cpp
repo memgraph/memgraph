@@ -34,7 +34,6 @@
 #include "flags/general.hpp"
 #include "license/license.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
@@ -242,8 +241,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(unique_acc->CreateVectorIndex(vector_index_spec).has_value());
       ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-
-    // Create vector property value with VectorIndexId type for vertices (after index exists so we have the ID)
     const auto vector_index_id = store->name_id_mapper_->NameToId(vector_index_name);
     const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
         memgraph::utils::small_vector<uint64_t>{vector_index_id}, memgraph::utils::small_vector<float>{1.0F, 1.0F});
@@ -887,7 +884,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
         const auto has_property_vector = i < 5;
         if (has_property_vector) {
-          // Vector properties are stored in the vector index, use GetProperty which handles VectorIndexId
           auto property_result = vertex->GetProperty(property_vector, memgraph::storage::View::OLD);
           ASSERT_TRUE(property_result.has_value());
           ASSERT_EQ(*property_result, vertex_vector_property_value);

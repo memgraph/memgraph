@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/indices.hpp"
-#include "flags/experimental.hpp"
 #include "storage/v2/disk/edge_property_index.hpp"
 #include "storage/v2/disk/edge_type_index.hpp"
 #include "storage/v2/disk/edge_type_property_index.hpp"
@@ -22,7 +21,6 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 
@@ -32,6 +30,7 @@ void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+  vector_index_.RemoveObsoleteEntries(token);
 }
 
 void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
@@ -41,7 +40,6 @@ void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, 
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
-  vector_index_.RemoveObsoleteEntries(token);
   vector_edge_index_.RemoveObsoleteEntries(token);
 }
 

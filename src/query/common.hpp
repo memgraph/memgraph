@@ -25,11 +25,8 @@
 #include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
-#include "utils/small_vector.hpp"
-
 namespace memgraph::query {
 
 namespace {

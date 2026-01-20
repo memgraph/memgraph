@@ -1160,7 +1160,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       for (auto i = 0; i < *size; ++i) {
         auto id = reader->ReadUint(Size::INT64);
         if (!id) return false;
-        vector_index_ids.emplace_back(*id);
+        vector_index_ids.push_back(*id);
       }
       value = PropertyValue(std::move(vector_index_ids), utils::small_vector<float>{});
       return true;
@@ -1264,7 +1264,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       for (uint64_t i = 0; i < *size; ++i) {
         auto id = reader->ReadUint(Size::INT64);
         if (!id) return std::nullopt;
-        vector_index_ids.emplace_back(*id);
+        vector_index_ids.push_back(*id);
       }
       return std::optional<PropertyValue>{std::in_place, std::move(vector_index_ids), utils::small_vector<float>{}};
     }
@@ -1610,9 +1610,9 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       const auto &vector_index_ids = value.ValueVectorIndexIds();
       auto count = reader->ReadUint(payload_size);
       if (!count || *count != vector_index_ids.size()) return false;
-      for (uint64_t i = 0; i < *count; ++i) {
-        auto id = reader->ReadUint(Size::INT64);
-        if (!id || *id != vector_index_ids[i]) return false;
+      for (auto id : vector_index_ids) {
+        auto read_id = reader->ReadUint(Size::INT64);
+        if (!read_id || *read_id != id) return false;
       }
       return true;
     }

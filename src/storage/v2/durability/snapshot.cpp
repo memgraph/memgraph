@@ -41,7 +41,6 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/mvcc.hpp"
@@ -8959,19 +8958,19 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
         std::unordered_map<Gid, utils::small_vector<float>> index_entries;
         index_entries.reserve(*entry_count);
-
+        utils::small_vector<float> vector;
+        vector.reserve(*dimension);
         for (uint64_t j = 0; j < *entry_count; ++j) {
           auto gid = snapshot.ReadUint();
           if (!gid) throw RecoveryFailure("Couldn't read vector index entry gid!");
 
-          utils::small_vector<float> vector;
-          vector.reserve(*dimension);
           for (uint64_t k = 0; k < *dimension; ++k) {
             auto value = snapshot.ReadDouble();
             if (!value) throw RecoveryFailure("Couldn't read vector index entry value!");
             vector.push_back(static_cast<float>(*value));
           }
-          index_entries.emplace(Gid::FromUint(*gid), std::move(vector));
+          index_entries.emplace(Gid::FromUint(*gid), vector);
+          vector.clear();
         }
 
         indices_constraints.indices.vector_indices.emplace_back(

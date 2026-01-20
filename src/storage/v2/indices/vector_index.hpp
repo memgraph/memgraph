@@ -11,9 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
-#include <unordered_map>
-
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -188,14 +185,11 @@ class VectorIndex {
 
   void AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection);
 
-  /// @brief Updates the vector index when a property is modified on a vertex.
-  /// @param value The new value of the property.
+  /// @brief Updates all vector indices referenced by a VectorIndexId property.
+  /// @param value The VectorIndexId property value containing index references.
   /// @param vertex The vertex on which the property was modified.
-  /// @param index_name Optional name of the index to update. If not provided and value is VectorIndexId, updates all
-  /// indices.
   /// @param name_id_mapper Mapper for name/ID conversions.
-  void UpdateIndex(const PropertyValue &value, Vertex *vertex, std::optional<std::string_view> index_name,
-                   NameIdMapper *name_id_mapper);
+  void UpdateOnPropertyChange(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
 
   /// @brief Retrieves the vector of a vertex as a list of float values.
   /// @param vertex The vertex to retrieve the vector from.
@@ -252,12 +246,12 @@ class VectorIndex {
   /// @brief Gets all properties that have vector indices for the given label.
   /// @param label The label to get the properties for.
   /// @return A map of property ids to index names.
-  std::unordered_map<PropertyId, std::string> GetProperties(LabelId label) const;
+  std::unordered_map<PropertyId, std::string> GetIndicesByLabel(LabelId label) const;
 
   /// @brief Gets all labels that have vector indices for the given property.
   /// @param property The property to get the labels for.
   /// @return A map of label ids to index names.
-  std::unordered_map<LabelId, std::string> GetLabels(PropertyId property) const;
+  std::unordered_map<LabelId, std::string> GetIndicesByProperty(PropertyId property) const;
 
   /// @brief Serializes a vector index to a durability encoder.
   /// @param encoder The durability encoder to serialize to.
@@ -281,14 +275,6 @@ class VectorIndex {
   /// @brief Cleans up index structures after a failed index creation.
   /// @param spec The specification of the failed index.
   void CleanupFailedIndex(const VectorIndexSpec &spec);
-
-  /// @brief Adds a vertex to an existing index.
-  /// @param vertex The vertex to be added.
-  /// @param label_prop The label and property key for the index.
-  /// @param value The value of the property (optional, if null will be fetched from vertex).
-  /// @return true if the vertex was added, false if property is null.
-  /// @throws query::VectorSearchException on validation errors.
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
 
   /// @brief Populates the index with vertices on a single thread.
   /// @param vertices Accessor to the vertices to scan.

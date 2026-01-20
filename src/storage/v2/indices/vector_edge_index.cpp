@@ -174,9 +174,8 @@ void VectorEdgeIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Acces
                                                   const VectorEdgeIndexSpec &spec,
                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
-  PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
-    TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info, thread_id);
-  });
+  PopulateVectorIndexSingleThreaded(
+      vertices, [&](Vertex &vertex) { TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info); });
 }
 
 void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
@@ -184,7 +183,7 @@ void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Ac
                                                      std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
   PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
-    TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info, std::optional{thread_id});
+    TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info, thread_id);
   });
 }
 

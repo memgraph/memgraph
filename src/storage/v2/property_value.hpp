@@ -670,16 +670,6 @@ class PropertyValueImpl {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index ID!");
     }
-
-    return vector_index_id_v.vector_index_ids_;
-  }
-
-  // TODO: move this to proper place
-  auto ValueVectorIndexIds() -> vector_index_id_t & {
-    if (type_ != Type::VectorIndexId) [[unlikely]] {
-      throw PropertyValueException("The value isn't a vector index ID!");
-    }
-
     return vector_index_id_v.vector_index_ids_;
   }
 
@@ -687,16 +677,6 @@ class PropertyValueImpl {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index list!");
     }
-
-    return vector_index_id_v.vector_;
-  }
-
-  // TODO: move this to proper place
-  auto ValueVectorIndexList() -> utils::small_vector<float> & {
-    if (type_ != Type::VectorIndexId) [[unlikely]] {
-      throw PropertyValueException("The value isn't a vector index list!");
-    }
-
     return vector_index_id_v.vector_;
   }
 
@@ -772,6 +752,19 @@ class PropertyValueImpl {
       throw PropertyValueException("The value isn't a numeric list!");
     }
     return numeric_list_v.val_;
+  }
+  auto ValueVectorIndexIds() -> vector_index_id_t & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index ID!");
+    }
+    return vector_index_id_v.vector_index_ids_;
+  }
+
+  auto ValueVectorIndexList() -> utils::small_vector<float> & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index list!");
+    }
+    return vector_index_id_v.vector_;
   }
 
  private:
@@ -1555,7 +1548,7 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
       utils::small_vector<float> vector;
       const auto &internal_vector = value.ValueVectorIndexList();
       vector.reserve(internal_vector.size());
-      for (const auto &elem : internal_vector) {
+      for (auto elem : internal_vector) {
         vector.push_back(elem);
       }
       return PropertyValue(std::move(vector_index_ids), std::move(vector));
@@ -1761,11 +1754,8 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
             std::variant<int, double>>{}(value.ValueNumericList());
       }
       case VectorIndexId: {
-        size_t hash = 6543457;
-        for (const auto &elem : value.ValueVectorIndexList()) {
-          hash ^= std::hash<float>{}(elem);
-        }
-        return hash;
+        return memgraph::utils::FnvCollection<memgraph::utils::small_vector<float>, float>{}(
+            value.ValueVectorIndexList());
       }
     }
   }

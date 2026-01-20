@@ -10,13 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertex_accessor.hpp"
-
-#include <algorithm>
-#include <cstdint>
-#include <memory>
-#include <tuple>
-#include <utility>
-
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -26,7 +19,6 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -42,7 +34,6 @@
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace r = ranges;
 namespace memgraph::storage {
 
 namespace {
@@ -52,12 +43,11 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
                               storage->PropertyToName(*violation.properties.begin()));
 }
 
-std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
-                                                             const PropertyValue &value) {
+std::optional<PropertyValue> ConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
+                                                          const PropertyValue &value) {
   if ((!value.IsAnyList() && !value.IsNull()) || value.IsVectorIndexId()) return std::nullopt;
   auto vector_index_ids =
       storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property, storage->name_id_mapper_.get());
-  if (vector_index_ids.empty()) return std::nullopt;
   return ConvertToVectorIndexProperty(value, std::move(vector_index_ids));
 }
 }  // namespace
@@ -366,7 +356,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   std::optional<PropertyValue> converted;
   if (!storage_->indices_.vector_index_.Empty()) {
-    converted = TryConvertToVectorIndexProperty(storage_, vertex_, property, value);
+    converted = ConvertToVectorIndexProperty(storage_, vertex_, property, value);
   }
   const auto &new_value = converted ? *converted : value;
 
@@ -383,22 +373,29 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     if (new_value.IsVectorIndexId()) {
-      auto old_value_vector = storage_->indices_.vector_index_.GetVectorProperty(
-          vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds()[0]));
-      if (skip_duplicate_write && old_value_vector == new_value.ValueVectorIndexList()) return true;
       old_value = vertex->properties.GetProperty(property);
       if (old_value.IsVectorIndexId()) {
+        // vector is stored in the index
+        auto old_value_vector = storage_->indices_.vector_index_.GetVectorProperty(
+            vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds()[0]));
+        if (skip_duplicate_write && old_value_vector == new_value.ValueVectorIndexList()) return true;
         old_value.ValueVectorIndexList() = std::move(old_value_vector);
       }
-      storage_->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage_->name_id_mapper_.get());
+      storage_->indices_.vector_index_.UpdateOnPropertyChange(new_value, vertex_, storage_->name_id_mapper_.get());
     } else {
       old_value = vertex->properties.GetProperty(property);
+      // We could skip setting the value if the previous one is the same to the new
+      // one. This would save some memory as a delta would not be created as well as
+      // avoid copying the value. The reason we are not doing that is because the
+      // current code always follows the logical pattern of "create a delta" and
+      // "modify in-place". Additionally, the created delta will make other
+      // transactions get a SERIALIZATION_ERROR.
       if (skip_duplicate_write && old_value == new_value) {
         return true;
       }
     }
-    vertex->properties.SetProperty(property, new_value);
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+    vertex->properties.SetProperty(property, new_value);
     if (schema_acc) {
       std::visit(
           utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value},
@@ -474,7 +471,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     for (const auto &[property, new_value] : properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       // TODO: defer until once all properties have been set, to make fewer entries ?
-      storage->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage->name_id_mapper_.get());
+      storage->indices_.vector_index_.UpdateOnPropertyChange(new_value, vertex, storage->name_id_mapper_.get());
       storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
       if (transaction->constraint_verification_info) {
@@ -519,7 +516,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   if (!storage_->indices_.vector_index_.Empty()) {
     r::for_each(properties, [&](auto &pair) {
-      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
+      if (auto converted = ConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
         pair.second = std::move(*converted);
       }
     });
@@ -550,7 +547,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         if (old_value.IsVectorIndexId()) {
           old_value.ValueVectorIndexList() = std::move(old_value_vector);
         }
-        storage->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage->name_id_mapper_.get());
+        storage->indices_.vector_index_.UpdateOnPropertyChange(new_value, vertex, storage->name_id_mapper_.get());
       } else {
         if (skip_duplicate_update && old_value == new_value) continue;
       }
@@ -608,7 +605,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-          storage->indices_.vector_index_.UpdateIndex(new_value, vertex, std::nullopt, storage->name_id_mapper_.get());
+          storage->indices_.vector_index_.UpdateOnPropertyChange(new_value, vertex, storage->name_id_mapper_.get());
           storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {
@@ -649,7 +646,6 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  // Vector index works in read uncommitted mode so we don't need to check for it
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) [[unlikely]] {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION

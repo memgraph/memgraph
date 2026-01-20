@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -135,6 +135,7 @@ struct PropertyInfo {
           case PropertyValueType::IntList:
           case PropertyValueType::DoubleList:
           case PropertyValueType::NumericList:
+          case PropertyValueType::VectorIndexId:
             ss << "List";
             break;
           case PropertyValueType::Map:
@@ -154,9 +155,6 @@ struct PropertyInfo {
             break;
           case PropertyValueType::Point3d:
             ss << "Point3D";
-            break;
-          case PropertyValueType::VectorIndexId:
-            ss << "VectorIndexId";
             break;
         }
       }

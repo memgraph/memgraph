@@ -29,7 +29,6 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -41,7 +40,6 @@
 #include "utils/tag.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
 
 static constexpr std::string_view kInvalidWalErrorMessage =
     "Invalid WAL data! Your durability WAL files somehow got corrupted. Please contact the Memgraph team for support.";
@@ -1417,10 +1415,6 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(data.index_name, name_id_mapper,
                                                indices_constraints->indices.vector_indices, vertex_acc);
-        indices_constraints->indices.vector_indices.erase(
-            r::remove_if(indices_constraints->indices.vector_indices,
-                         [&](const auto &recovery_info) { return recovery_info.spec.index_name == data.index_name; }),
-            indices_constraints->indices.vector_indices.end());
         indices_constraints->indices.vector_edge_indices.erase(
             r::remove_if(indices_constraints->indices.vector_edge_indices,
                          [&](const auto &recovery_info) { return recovery_info.index_name == data.index_name; }),

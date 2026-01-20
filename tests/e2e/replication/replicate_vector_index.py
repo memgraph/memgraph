@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2026 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -332,80 +332,80 @@ def test_vector_index_replication_label_changes(connection, test_name):
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-# def test_vector_index_replication_two_indices(connection, test_name):
-#     # Goal: That two vector indices on different labels/properties are correctly replicated.
-#     # 0/ Setup replication
-#     # 1/ Create two vector indices on MAIN on different properties
-#     # 2/ Add nodes to both indices on MAIN
-#     # 3/ Validate both indices are replicated correctly
-#     # 4/ Validate property access on REPLICA
+def test_vector_index_replication_two_indices(connection, test_name):
+    # Goal: That two vector indices on different labels/properties are correctly replicated.
+    # 0/ Setup replication
+    # 1/ Create two vector indices on MAIN on different properties
+    # 2/ Add nodes to both indices on MAIN
+    # 3/ Validate both indices are replicated correctly
+    # 4/ Validate property access on REPLICA
 
-#     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = create_instances_description(test_name)
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = create_instances_description(test_name)
 
-#     # 0/
-#     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-#     cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
-#     # 1/
-#     execute_and_fetch_all(
-#         cursor,
-#         'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};',
-#     )
-#     execute_and_fetch_all(
-#         cursor,
-#         'CREATE VECTOR INDEX test_index2 ON :L2(prop2) WITH CONFIG {"dimension": 2, "capacity": 10};',
-#     )
-#     wait_for_replication_change(cursor, 4)
+    # 1/
+    execute_and_fetch_all(
+        cursor,
+        'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};',
+    )
+    execute_and_fetch_all(
+        cursor,
+        'CREATE VECTOR INDEX test_index2 ON :L2(prop2) WITH CONFIG {"dimension": 2, "capacity": 10};',
+    )
+    wait_for_replication_change(cursor, 4)
 
-#     # 2/
-#     execute_and_fetch_all(
-#         cursor,
-#         """CREATE (:L1 {prop1: [1.0, 2.0]})
-#            CREATE (:L1 {prop1: [3.0, 4.0]})
-#            CREATE (:L2 {prop2: [5.0, 6.0]})
-#            CREATE (:L2 {prop2: [7.0, 8.0]});""",
-#     )
-#     wait_for_replication_change(cursor, 8)
+    # 2/
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]})
+           CREATE (:L2 {prop2: [5.0, 6.0]})
+           CREATE (:L2 {prop2: [7.0, 8.0]});""",
+    )
+    wait_for_replication_change(cursor, 8)
 
-#     # 3/
-#     replica_1_cursor = get_replica_cursor(connection, "replica_1")
-#     replica_2_cursor = get_replica_cursor(connection, "replica_2")
+    # 3/
+    replica_1_cursor = get_replica_cursor(connection, "replica_1")
+    replica_2_cursor = get_replica_cursor(connection, "replica_2")
 
-#     index_info_1 = get_show_index_info(replica_1_cursor)
-#     index_info_1 = sorted(index_info_1, key=lambda x: x[2])
-#     assert len(index_info_1) == 2
-#     assert index_info_1[0][6] == 2
-#     assert index_info_1[1][6] == 2
+    index_info_1 = get_show_index_info(replica_1_cursor)
+    index_info_1 = sorted(index_info_1, key=lambda x: x[2])
+    assert len(index_info_1) == 2
+    assert index_info_1[0][6] == 2
+    assert index_info_1[1][6] == 2
 
-#     index_info_2 = get_show_index_info(replica_2_cursor)
-#     index_info_2 = sorted(index_info_2, key=lambda x: x[2])
-#     assert len(index_info_2) == 2
-#     assert index_info_2[0][6] == 2
-#     assert index_info_2[1][6] == 2
+    index_info_2 = get_show_index_info(replica_2_cursor)
+    index_info_2 = sorted(index_info_2, key=lambda x: x[2])
+    assert len(index_info_2) == 2
+    assert index_info_2[0][6] == 2
+    assert index_info_2[1][6] == 2
 
-#     # 4/
-#     # Check that properties are not visible on nodes when stored in index
-#     node_l1 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-#     assert "prop1" not in node_l1[0][0].properties, "Property should not be visible on node when stored in index"
+    # 4/
+    # Check that properties are not visible on nodes when stored in index
+    node_l1 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" not in node_l1[0][0].properties, "Property should not be visible on node when stored in index"
 
-#     node_l2 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
-#     assert "prop2" not in node_l2[0][0].properties, "Property should not be visible on node when stored in index"
+    node_l2 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
+    assert "prop2" not in node_l2[0][0].properties, "Property should not be visible on node when stored in index"
 
-#     # Check property access from indices
-#     prop1 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
-#     assert prop1[0][0] in [[1.0, 2.0], [3.0, 4.0]]
+    # Check property access from indices
+    prop1 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
+    assert prop1[0][0] in [[1.0, 2.0], [3.0, 4.0]]
 
-#     prop2 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L2) RETURN n.prop2 LIMIT 1;")
-#     assert prop2[0][0] in [[5.0, 6.0], [7.0, 8.0]]
+    prop2 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L2) RETURN n.prop2 LIMIT 1;")
+    assert prop2[0][0] in [[5.0, 6.0], [7.0, 8.0]]
 
-#     # Verify same on replica_2
-#     prop1_2 = execute_and_fetch_all(replica_2_cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
-#     assert prop1_2[0][0] in [[1.0, 2.0], [3.0, 4.0]]
+    # Verify same on replica_2
+    prop1_2 = execute_and_fetch_all(replica_2_cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
+    assert prop1_2[0][0] in [[1.0, 2.0], [3.0, 4.0]]
 
-#     prop2_2 = execute_and_fetch_all(replica_2_cursor, "MATCH (n:L2) RETURN n.prop2 LIMIT 1;")
-#     assert prop2_2[0][0] in [[5.0, 6.0], [7.0, 8.0]]
+    prop2_2 = execute_and_fetch_all(replica_2_cursor, "MATCH (n:L2) RETURN n.prop2 LIMIT 1;")
+    assert prop2_2[0][0] in [[5.0, 6.0], [7.0, 8.0]]
 
-#     interactive_mg_runner.kill_all(keep_directories=False)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 if __name__ == "__main__":

@@ -11,10 +11,6 @@
 
 #pragma once
 
-#include <string_view>
-#include <vector>
-
-#include <fmt/core.h>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
@@ -41,7 +37,8 @@
 
 namespace memgraph::storage {
 
-namespace rv = ranges::views;
+namespace r = ranges;
+namespace rv = r::views;
 
 /// @enum VectorIndexType
 /// @brief Represents the type of vector index.
@@ -280,21 +277,12 @@ inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
       if (!numeric_value) {
         throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
       }
-      const auto float_value =
-          std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
+      const auto float_value = std::visit([](auto val) -> float { return static_cast<float>(val); }, *numeric_value);
       vector.push_back(float_value);
     }
     return vector;
   }
   throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-}
-
-/// @brief Converts a vector of floats to a vector of doubles (for PropertyValue storage).
-/// @param vector The vector of floats to convert.
-/// @return A vector of double values.
-inline std::vector<double> FloatVectorToDoubleVector(const utils::small_vector<float> &vector) {
-  return vector | rv::transform([](float value) { return static_cast<double>(value); }) |
-         ranges::to<std::vector<double>>();
 }
 
 /// @brief Converts a property value to a float vector for vector index operations.
@@ -320,7 +308,7 @@ inline std::vector<double> FloatVectorToDoubleVector(const utils::small_vector<f
     if (!numeric_value) {
       throw query::VectorSearchException("Vector index property must be a list of numeric values.");
     }
-    vector.push_back(std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value));
+    vector.push_back(std::visit([](auto val) -> float { return static_cast<float>(val); }, *numeric_value));
   }
   return vector;
 }
@@ -340,15 +328,14 @@ inline void ValidateVectorDimension(const utils::small_vector<float> &vector, st
 /// @param property_id The property ID to restore.
 /// @param vector The vector of float values to restore.
 inline void RestoreVectorOnVertex(Vertex *vertex, PropertyId property_id, const utils::small_vector<float> &vector) {
-  auto double_vector = FloatVectorToDoubleVector(vector);
-  vertex->properties.SetProperty(property_id, PropertyValue(std::move(double_vector)));
+  vertex->properties.SetProperty(property_id, PropertyValue(std::vector<double>(vector.begin(), vector.end())));
 }
 
 /// @brief Removes an index ID from a property's vector index ID list.
 /// @param property_value The property value to modify (must be a VectorIndexId).
 /// @param index_id The index ID to remove.
 /// @return true if the property should be restored (no more index IDs), false otherwise.
-inline bool RemoveIndexIdFromProperty(PropertyValue &property_value, uint64_t index_id) {
+inline bool UnregisterFromIndex(PropertyValue &property_value, uint64_t index_id) {
   if (!property_value.IsVectorIndexId()) {
     return true;  // Not a vector index ID, should restore
   }
@@ -386,7 +373,7 @@ inline PropertyValue ConvertToVectorIndexProperty(const PropertyValue &value,
       const auto &numeric_list = value.ValueNumericList();
       vector.reserve(numeric_list.size());
       for (const auto &v : numeric_list) {
-        vector.push_back(std::visit([](const auto &val) { return static_cast<float>(val); }, v));
+        vector.push_back(std::visit([](auto val) { return static_cast<float>(val); }, v));
       }
       break;
     }
@@ -419,9 +406,8 @@ inline PropertyValue ConvertToVectorIndexProperty(const PropertyValue &value,
 /// @return A PropertyValue containing the vector as a list of double values.
 /// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
 template <typename IndexType, typename KeyType>
-PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
-                                       KeyType key) {
-  auto locked_index = index->ReadLock();
+PropertyValue GetVectorAsPropertyValue(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
+  auto locked_index = index.ReadLock();
   const auto dimension = locked_index->dimensions();
   std::vector<double> vector(dimension);
   const auto retrieved_count = locked_index->get(key, vector.data());
@@ -439,13 +425,10 @@ PropertyValue GetVectorAsPropertyValue(const std::shared_ptr<utils::Synchronized
 /// @return A list of float values representing the vector.
 /// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
 template <typename IndexType, typename KeyType>
-utils::small_vector<float> GetVector(const std::shared_ptr<utils::Synchronized<IndexType, std::shared_mutex>> &index,
-                                     KeyType key) {
-  auto locked_index = index->ReadLock();
-  const auto dimension = locked_index->dimensions();
-  utils::small_vector<float> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, &*vector.begin(), 1);
-  if (retrieved_count == 0) {
+utils::small_vector<float> GetVector(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
+  auto locked_index = index.ReadLock();
+  utils::small_vector<float> vector(locked_index->dimensions());
+  if (!locked_index->get(key, &*vector.begin())) {
     return {};
   }
   return vector;
@@ -455,48 +438,6 @@ utils::small_vector<float> GetVector(const std::shared_ptr<utils::Synchronized<I
 inline std::size_t GetVectorIndexThreadCount() {
   return std::max(static_cast<std::size_t>(FLAGS_bolt_num_workers),
                   static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
-}
-
-/// @brief Updates a single vector index with a vector (common logic for vertex and edge indices).
-/// @tparam IndexItemType Type of the index item (must have mg_index and spec members).
-/// @tparam KeyType Type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
-/// @param index_item The index item containing the synchronized index and spec.
-/// @param key The key to add/update in the index.
-/// @param vector The vector data to add.
-/// @throws query::VectorSearchException if dimension mismatch or resize fails.
-template <typename IndexItemType, typename KeyType>
-void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const utils::small_vector<float> &vector) {
-  auto &[mg_index, spec] = index_item;
-  bool is_index_full = false;
-  {
-    auto locked_index = mg_index->MutableSharedLock();
-    if (locked_index->contains(key)) {
-      locked_index->remove(key);
-    }
-    is_index_full = locked_index->size() == locked_index->capacity();
-  }
-
-  if (is_index_full) {
-    spdlog::warn("Vector index is full, resizing...");
-    auto exclusively_locked_index = mg_index->Lock();
-    const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
-    const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
-    if (!exclusively_locked_index->try_reserve(new_limits)) {
-      throw query::VectorSearchException("Failed to resize vector index.");
-    }
-    spec.capacity = exclusively_locked_index->capacity();  // capacity might be larger than the requested capacity
-  }
-
-  if (vector.empty()) {
-    return;
-  }
-
-  if (spec.dimension != vector.size()) {
-    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
-  }
-
-  auto locked_index = mg_index->MutableSharedLock();
-  locked_index->add(key, &*vector.begin());
 }
 
 /// @brief Adds an entry to the vector index with automatic resize if the index is full.
@@ -513,7 +454,7 @@ void UpdateSingleVectorIndex(IndexItemType &index_item, KeyType key, const utils
 template <typename Index, typename Key, typename Spec>
 void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
-  const auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
+  auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
     auto locked_index = mg_index.MutableSharedLock();
     auto result = locked_index->add(key, &*vector.begin(), thread_id_for_adding);
@@ -543,12 +484,12 @@ void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, S
 /// @tparam Args Additional argument types to forward to the process function.
 /// @param vertices The vertices accessor to iterate over.
 /// @param process The function to call for each vertex.
-/// @param args Arguments to forward to the process function (before thread_id).
+/// @param args Arguments to forward to the process function.
 template <typename ProcessFunc, typename... Args>
 void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
                                        Args &&...args) {
   for (auto &vertex : vertices) {
-    process(vertex, std::forward<Args>(args)..., std::nullopt);
+    process(vertex, std::forward<Args>(args)...);
   }
 }
 
@@ -560,14 +501,14 @@ void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertic
 /// @param args Arguments to forward to the process function (before thread_id).
 template <typename ProcessFunc, typename... Args>
 void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
-                                      Args... args) {
+                                      Args &...args) {
   auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
   const auto actual_chunk_count = vertices_chunks.size();
   std::vector<std::jthread> threads;
   threads.reserve(actual_chunk_count);
 
   for (std::size_t i = 0; i < actual_chunk_count; ++i) {
-    threads.emplace_back([&vertices_chunks, &process, args..., i]() {
+    threads.emplace_back([&vertices_chunks, &process, &args..., i]() {
       auto &chunk = vertices_chunks[i];
       for (auto &vertex : chunk) {
         process(vertex, args..., i);

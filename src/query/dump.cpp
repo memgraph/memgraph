@@ -29,10 +29,10 @@
 #include "query/trigger_context.hpp"
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
+#include "range/v3/all.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -40,9 +40,6 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
-
-#include "range/v3/all.hpp"
-#include "vertex_accessor.hpp"
 
 namespace r = ranges;
 namespace rv = ranges::views;
@@ -253,6 +250,8 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
+    // Convert PropertyValue to ExternalPropertyValue to map keys from PropertyId to strings, preserving property order
+    // compatibility with previous database dumps.
     DumpPropertyValue(&os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()),
                       dba);
   });
