@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1480,6 +1480,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(wal_directory);
 
+  spdlog::trace("Opening WAL file: {}", path_);
+
   // Initialize the WAL file.
   wal_.Initialize(path_, kWalMagic, kVersion);
 
@@ -1520,6 +1522,7 @@ WalFile::WalFile(std::filesystem::path current_wal_path, SalientConfig::Items it
       count_(count),
       seq_num_(seq_num),
       file_retainer_(file_retainer) {
+  spdlog::trace("Opening WAL file: {}", path_);
   wal_.OpenExisting(path_);
 }
 
@@ -1529,6 +1532,7 @@ void WalFile::FinalizeWal() {
     wal_.Close();
     // Rename file.
     std::filesystem::path new_path(RemakeWalName(path_, from_timestamp_, to_timestamp_));
+    spdlog::trace("Finalizing WAL file {} to {}", path_, new_path);
     file_retainer_->RenameFile(path_, new_path);
     path_ = std::move(new_path);
   }
