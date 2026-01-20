@@ -322,13 +322,10 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
               EdgeKeyRef{edge_type, *from_l_diff.post, *to_l_diff.post},
           };
 
-          for (auto const &key : keys) {
+          return std::ranges::any_of(keys, [&diff](auto const &key) {
             auto it = diff.edge_state_.find(key);
-            if (it != diff.edge_state_.cend() && it->second.n != 0) {
-              return true;  // Edge appears in diff with this label combination
-            }
-          }
-          return false;
+            return it != diff.edge_state_.cend() && it->second.n != 0;
+          });
         };
 
         for (const auto &[edge_type, other_vertex, edge_ref] : vertex->in_edges) {
