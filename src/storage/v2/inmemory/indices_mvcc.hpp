@@ -11,12 +11,12 @@
 
 #pragma once
 
-#include "storage/v2/schema_status.hpp"
+#include "storage/v2/population_status.hpp"
 
 namespace memgraph::storage {
 
 /// IndexStatus is an alias to SchemaStatus for backwards compatibility.
 /// See SchemaStatus for documentation.
-using IndexStatus = SchemaStatus;
+using IndexStatus = PopulationStatus;
 
 }  // namespace memgraph::storage

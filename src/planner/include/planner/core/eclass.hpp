@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,7 @@
 
 #pragma once
 
-#include "planner/core/eids.hpp"
-#include "planner/core/enode.hpp"
+import memgraph.planner.core.eids;
 
 #include <boost/unordered/unordered_flat_set.hpp>
 
@@ -34,6 +33,8 @@ struct EClassBase {
 
   auto nodes() const -> boost::unordered_flat_set<ENodeId> const & { return nodes_; }
 
+  auto representative() const -> ENodeId { return *nodes_.begin(); }
+
   // TODO: does this need to be a set? do we use O(1) contains/lookup?
   //       maybe needed for ematching later, leave for now
   auto parents() const -> boost::unordered_flat_set<ENodeId> const & { return parents_; }
@@ -42,7 +43,7 @@ struct EClassBase {
 
  private:
   boost::unordered_flat_set<ENodeId> nodes_;
-  boost::unordered_flat_set<EClassId> parents_;
+  boost::unordered_flat_set<ENodeId> parents_;
 };
 }  // namespace detail
 
@@ -60,6 +61,7 @@ struct EClass : private detail::EClassBase {
   using EClassBase::add_parent;
   using EClassBase::nodes;
   using EClassBase::parents;
+  using EClassBase::representative;
   using EClassBase::size;
 
   /**

@@ -9,10 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
 #include <cstddef>
 
-namespace memgraph::planner::core {
-static constexpr size_t REBUILD_BATCH_SIZE = 100;
-}
+export module memgraph.planner.core.constants;
+
+export namespace memgraph::planner::core {
+constexpr size_t REBUILD_BATCH_SIZE = 100;
+}  // namespace memgraph::planner::core

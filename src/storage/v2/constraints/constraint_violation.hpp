@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,11 +43,8 @@ struct ConstraintViolation {
   // `properties` set will always have exactly one element in the case of
   // existence constraint violation.
   std::set<PropertyId> properties;
-};
 
-inline bool operator==(const ConstraintViolation &lhs, const ConstraintViolation &rhs) {
-  return lhs.type == rhs.type && lhs.label == rhs.label && lhs.properties == rhs.properties &&
-         lhs.constraint_kind == rhs.constraint_kind;
-}
+  friend bool operator==(const ConstraintViolation &, const ConstraintViolation &) = default;
+};
 
 }  // namespace memgraph::storage

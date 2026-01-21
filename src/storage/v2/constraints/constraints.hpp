@@ -29,18 +29,10 @@ struct Constraints {
   ~Constraints() = default;
 
   void DropGraphClearConstraints() const;
-  /// Remove all POPULATING constraints (for abort handling).
-  /// Since schema transactions are exclusive, any POPULATING constraint belongs to the current transaction.
-  void AbortPopulating() const;
-  bool HasTypeConstraints() const;
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
   std::unique_ptr<UniqueConstraints> unique_constraints_;
   std::unique_ptr<TypeConstraints> type_constraints_;
-
-  bool empty() const {
-    return existence_constraints_->empty() && unique_constraints_->empty() && type_constraints_->empty();
-  }
 };
 
 }  // namespace memgraph::storage

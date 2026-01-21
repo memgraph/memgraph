@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,6 +59,8 @@ bool DirExists(const std::filesystem::path &dir);
 
 /// Deletes everything from the given directory including the directory.
 bool DeleteDir(const std::filesystem::path &dir) noexcept;
+
+auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::filesystem::path>;
 
 /// Deletes just the specified file. Symlinks are not followed.
 bool DeleteFile(const std::filesystem::path &file) noexcept;

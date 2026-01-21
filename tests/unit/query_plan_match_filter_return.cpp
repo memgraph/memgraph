@@ -1221,7 +1221,7 @@ TYPED_TEST(QueryPlanExpandVariable, NamedPath) {
                                                         memgraph::storage::View::OLD);
   auto find_symbol = [this](const std::string &name) {
     for (const auto &sym : this->symbol_table.table())
-      if (sym.second.name() == name) return sym.second;
+      if (sym.name() == name) return sym;
     throw std::runtime_error("Symbol not found");
   };
 
@@ -1254,7 +1254,7 @@ TYPED_TEST(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
                                                         memgraph::storage::View::OLD);
   auto find_symbol = [this](const std::string &name) {
     for (const auto &sym : this->symbol_table.table())
-      if (sym.second.name() == name) return sym.second;
+      if (sym.name() == name) return sym;
     throw std::runtime_error("Symbol not found");
   };
 

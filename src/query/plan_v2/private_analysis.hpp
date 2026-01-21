@@ -10,12 +10,6 @@
 // licenses/APL.txt.
 
 #pragma once
-
-#include <cstdint>
-
-namespace memgraph::planner::core {
-
-using EClassId = uint32_t;
-using ENodeId = uint32_t;
-
-}  // namespace memgraph::planner::core
+namespace memgraph::query::plan::v2 {
+struct analysis {};
+}  // namespace memgraph::query::plan::v2

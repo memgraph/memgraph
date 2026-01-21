@@ -1573,6 +1573,91 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
   }
 }
 
+// Test that setting a property to NULL (removing it) is allowed even when a type constraint exists.
+// Type constraints only enforce the type when the property has a value, not its existence.
+TYPED_TEST(ConstraintsTest, TypeConstraintsSetPropertyToNull) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  // Create a type constraint requiring INTEGER
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Create a vertex with the label and set the property to an integer (valid)
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(42)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Now try to set the property to NULL (remove it) - this should be allowed
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(vertex.has_value());
+    // Setting to NULL should NOT throw - type constraints don't require property existence
+    ASSERT_NO_ERROR(vertex->SetProperty(this->prop1, PropertyValue()));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify the property is actually removed
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    auto vertex = acc->FindVertex(vertex_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    auto prop_value = vertex->GetProperty(this->prop1, memgraph::storage::View::OLD);
+    ASSERT_NO_ERROR(prop_value);
+    EXPECT_TRUE(prop_value->IsNull()) << "Property should be NULL (removed)";
+    acc->Abort();
+  }
+}
+
+// Test that UpdateProperties handles NULL values correctly with type constraints
+TYPED_TEST(ConstraintsTest, TypeConstraintsUpdatePropertiesToNull) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  // Create a type constraint requiring INTEGER
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Create a vertex with the label and set the property to an integer (valid)
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(42)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Now try to use UpdateProperties to set the property to NULL
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(vertex.has_value());
+    auto properties = std::map<PropertyId, PropertyValue>{{this->prop1, PropertyValue()}};
+    // UpdateProperties with NULL should NOT throw
+    ASSERT_NO_ERROR(vertex->UpdateProperties(properties));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
 // MVCC visibility tests - verify constraints respect snapshot isolation
 // A transaction should only see constraints that were committed before its start_timestamp
 
@@ -1869,8 +1954,8 @@ TYPED_TEST(ConstraintsTest, TypeConstraintCreateDropCreate) {
   }
 }
 
-// Test that aborting a transaction after successful constraint registration (but before commit)
-// properly cleans up via AbortPopulating, allowing T2 to create the same constraint.
+// Test that a constraint validation failure (transaction aborted/rolled back)
+// properly cleans up via MVCC status, allowing T2 to create the same constraint.
 TYPED_TEST(ConstraintsTest, ExistenceConstraintValidationFailsThenT2Creates) {
   // Create a vertex without the required property - this will cause validation to fail
   {
@@ -1911,100 +1996,6 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintValidationFailsThenT2Creates) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllConstraints().existence.size(), 1);
-    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-}
-
-// Test that aborting a transaction after successful constraint creation (before commit)
-// properly cleans up via AbortPopulating, allowing T2 to create the same constraint.
-// (InMemory only - DiskStorage uses UNIQUE access without MVCC abort cleanup)
-TYPED_TEST(ConstraintsTest, ExistenceConstraintAbortBeforeCommitAllowsT2Create) {
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Constraint MVCC abort cleanup only implemented for InMemoryStorage";
-  }
-
-  // T1: Create constraint successfully but abort before commit
-  {
-    auto t1_acc = this->CreateConstraintAccessor();
-    auto res = t1_acc->CreateExistenceConstraint(this->label1, this->prop1);
-    EXPECT_TRUE(res.has_value()) << "Constraint creation should succeed (no violating vertices)";
-    // T1 accessor goes out of scope WITHOUT calling PrepareForCommitPhase
-    // This triggers Abort() which should call AbortPopulating()
-  }
-
-  // T2: Should be able to create the same constraint after T1's abort
-  {
-    auto t2_acc = this->CreateConstraintAccessor();
-    auto res = t2_acc->CreateExistenceConstraint(this->label1, this->prop1);
-    EXPECT_TRUE(res.has_value()) << "T2 should be able to create constraint after T1's abort";
-    ASSERT_NO_ERROR(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-
-  // Verify constraint exists
-  {
-    auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_EQ(acc->ListAllConstraints().existence.size(), 1);
-    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-}
-
-// Same test for unique constraints
-// (InMemory only - DiskStorage uses UNIQUE access without MVCC abort cleanup)
-TYPED_TEST(ConstraintsTest, UniqueConstraintAbortBeforeCommitAllowsT2Create) {
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Constraint MVCC abort cleanup only implemented for InMemoryStorage";
-  }
-
-  // T1: Create constraint successfully but abort before commit
-  {
-    auto t1_acc = this->CreateConstraintAccessor();
-    auto res = t1_acc->CreateUniqueConstraint(this->label1, {this->prop1});
-    EXPECT_TRUE(res.has_value()) << "Constraint creation should succeed (no violating vertices)";
-    // T1 accessor goes out of scope WITHOUT calling PrepareForCommitPhase
-  }
-
-  // T2: Should be able to create the same constraint after T1's abort
-  {
-    auto t2_acc = this->CreateConstraintAccessor();
-    auto res = t2_acc->CreateUniqueConstraint(this->label1, {this->prop1});
-    EXPECT_TRUE(res.has_value()) << "T2 should be able to create constraint after T1's abort";
-    ASSERT_NO_ERROR(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-
-  // Verify constraint exists
-  {
-    auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_EQ(acc->ListAllConstraints().unique.size(), 1);
-    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-}
-
-// Same test for type constraints (InMemory only)
-TYPED_TEST(ConstraintsTest, TypeConstraintAbortBeforeCommitAllowsT2Create) {
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Type constraints not implemented for DiskStorage";
-  }
-
-  // T1: Create constraint successfully but abort before commit
-  {
-    auto t1_acc = this->CreateConstraintAccessor();
-    auto res = t1_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
-    EXPECT_TRUE(res.has_value()) << "Constraint creation should succeed (no violating vertices)";
-    // T1 accessor goes out of scope WITHOUT calling PrepareForCommitPhase
-  }
-
-  // T2: Should be able to create the same constraint after T1's abort
-  {
-    auto t2_acc = this->CreateConstraintAccessor();
-    auto res = t2_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
-    EXPECT_TRUE(res.has_value()) << "T2 should be able to create constraint after T1's abort";
-    ASSERT_NO_ERROR(t2_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-
-  // Verify constraint exists
-  {
-    auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_EQ(acc->ListAllConstraints().type.size(), 1);
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }

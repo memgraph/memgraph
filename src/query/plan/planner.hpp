@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -115,6 +115,7 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
 /// the estimated cost of that plan as a `double`.
 template <class TPlanningContext, class TPlanPostProcess>
 auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner) {
+  // AST (query::CypherQuery) -> plan::QueryParts
   auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query, false);
   auto &vertex_counts = *context->db;
   double total_cost = std::numeric_limits<double>::max();

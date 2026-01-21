@@ -19,6 +19,17 @@
 
 namespace memgraph::storage {
 
+namespace {
+[[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
+                                                                                  const LabelId &label,
+                                                                                  const PropertyId &property) {
+  if (!vertex.deleted && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
+  }
+  return {};
+}
+}  // namespace
+
 // --- IndividualConstraint implementation ---
 
 ExistenceConstraints::IndividualConstraint::~IndividualConstraint() {
@@ -29,15 +40,11 @@ ExistenceConstraints::IndividualConstraint::~IndividualConstraint() {
 
 // --- ActiveConstraints implementation ---
 
-bool ExistenceConstraints::ActiveConstraints::ConstraintRegistered(LabelId label, PropertyId property) const {
-  return snapshot_->contains({label, property});
-}
-
 std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstraints::ListConstraints(
     uint64_t start_timestamp) const {
   namespace r = std::ranges;
   namespace rv = std::views;
-  auto result = *snapshot_ | rv::filter([start_timestamp](const auto &c) {
+  auto result = *container_ | rv::filter([start_timestamp](const auto &c) {
     return c.second->status.IsVisible(start_timestamp);
   }) | rv::transform([](const auto &c) {
     return std::pair{c.first.label, c.first.property};
@@ -46,21 +53,23 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstrai
   return result;
 }
 
-auto ExistenceConstraints::GetActiveConstraints() const -> std::unique_ptr<ExistenceActiveConstraints> {
-  return std::make_unique<ActiveConstraints>(GetSnapshot());
+bool ExistenceConstraints::ActiveConstraints::empty() const { return container_->empty(); }
+
+auto ExistenceConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints> {
+  return std::make_unique<ActiveConstraints>(constraints_.WithReadLock(std::identity{}));
 }
 
 // --- ExistenceConstraints methods ---
 
-bool ExistenceConstraints::ConstraintRegistered(LabelId label, PropertyId property) const {
-  auto constraints = GetSnapshot();
+bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
+  auto constraints = constraints_.WithReadLock(std::identity{});
   return constraints->contains({label, property});
 }
 
 auto ExistenceConstraints::GetIndividualConstraint(LabelId label, PropertyId property) const
     -> IndividualConstraintPtr {
   return constraints_.WithReadLock([&](ContainerPtr const &constraints) -> IndividualConstraintPtr {
-    auto it = constraints->find({label, property});
+    const auto it = constraints->find({label, property});
     if (it == constraints->end()) [[unlikely]] {
       return {};
     }
@@ -84,7 +93,6 @@ bool ExistenceConstraints::RegisterConstraint(LabelId label, PropertyId property
 }
 
 bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const {
-  // Get the individual constraint and modify status in place (no copy-on-write needed)
   auto constraint = GetIndividualConstraint(label, property);
   if (!constraint) [[unlikely]] {
     DMG_ASSERT(false, "Existence constraint not found during publish");
@@ -95,80 +103,23 @@ bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property,
   return true;
 }
 
-std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints(uint64_t start_timestamp) const {
-  namespace r = std::ranges;
-  namespace rv = std::views;
-  auto constraints = GetSnapshot();
-  auto result = *constraints | rv::filter([start_timestamp](const auto &c) {
-    return c.second->status.IsVisible(start_timestamp);
-  }) | rv::transform([](const auto &c) {
-    return std::pair{c.first.label, c.first.property};
-  }) | r::to<std::vector<std::pair<LabelId, PropertyId>>>();
-  std::ranges::sort(result);
-  return result;
-}
-
-std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const {
-  namespace r = std::ranges;
-  namespace rv = std::views;
-  auto constraints = GetSnapshot();
-  // List all ready (committed) constraints - with copy-on-write, dropped constraints are erased
-  auto result = *constraints | rv::filter([](const auto &c) { return c.second->status.IsReady(); }) |
-                rv::transform([](const auto &c) {
-                  return std::pair{c.first.label, c.first.property};
-                }) |
-                r::to<std::vector<std::pair<LabelId, PropertyId>>>();
-  std::ranges::sort(result);
-  return result;
-}
-
 bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
   return constraints_.WithLock([&](ContainerPtr &constraints) -> bool {
-    auto it = constraints->find({label, property});
-    if (it == constraints->end()) {
+    auto new_constraints = std::make_shared<Container>(*constraints);
+    if (const auto count = new_constraints->erase({label, property}); count == 0) {
       return false;
     }
-
-    // Copy-on-write: create new container without this constraint
-    auto new_constraints = std::make_shared<Container>(*constraints);
-    new_constraints->erase({label, property});
     constraints = std::move(new_constraints);
     return true;
   });
 }
 
-void ExistenceConstraints::AbortPopulating() {
-  constraints_.WithLock([](ContainerPtr &constraints) {
-    // Check if any populating constraints exist
-    bool has_populating = false;
-    for (const auto &[_, constraint] : *constraints) {
-      if (constraint->status.IsPopulating()) {
-        has_populating = true;
-        break;
-      }
-    }
-    if (!has_populating) return;
-
-    // Copy-on-write: create new container without populating constraints
-    auto new_constraints = std::make_shared<Container>();
-    for (const auto &[key, constraint] : *constraints) {
-      if (!constraint->status.IsPopulating()) {
-        new_constraints->emplace(key, constraint);
-      }
-    }
-    constraints = std::move(new_constraints);
-  });
-}
-
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::Validate(
-    std::unordered_set<Vertex const *> vertices_to_update) const {
-  auto constraints = GetSnapshot();
+    const std::unordered_set<Vertex const *> &vertices_to_check) const {
+  auto constraints = constraints_.WithReadLock(std::identity{});
   auto validate = [&](const Vertex &vertex) -> std::expected<void, ConstraintViolation> {
     for (const auto &[key, constraint] : *constraints) {
-      // Only validate against ready (committed) constraints - with copy-on-write, dropped constraints are erased
-      if (!constraint->status.IsReady()) {
-        continue;
-      }
+      DMG_ASSERT(constraint->status.IsReady(), "For a WRITE query, all constraints MUST already be ready");
       if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property);
           !validation_result.has_value()) [[unlikely]] {
         return std::unexpected{validation_result.error()};
@@ -177,7 +128,7 @@ void ExistenceConstraints::AbortPopulating() {
     return {};
   };
 
-  for (auto const *vertex : vertices_to_update) {
+  for (auto const *vertex : vertices_to_check) {
     // No need to take any locks here because we modified this vertex and no
     // one else can touch it until we commit.
     if (auto validation_result = validate(*vertex); !validation_result.has_value()) {
@@ -189,7 +140,7 @@ void ExistenceConstraints::AbortPopulating() {
 
 [[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::PerVertexValidate(
     Vertex const &vertex) const {
-  auto constraints = GetSnapshot();
+  auto constraints = constraints_.WithReadLock(std::identity{});
   for (const auto &[key, constraint] : *constraints) {
     // Only validate against ready (committed) constraints - with copy-on-write, dropped constraints are erased
     if (!constraint->status.IsReady()) {
@@ -220,15 +171,6 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
     }
     constraints = std::move(new_constraints);
   });
-}
-
-[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(
-    const Vertex &vertex, const LabelId &label, const PropertyId &property) {
-  if (!vertex.deleted && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
-    return std::unexpected{
-        ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}}};
-  }
-  return {};
 }
 
 std::variant<ExistenceConstraints::MultipleThreadsConstraintValidation,

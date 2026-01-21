@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@ namespace memgraph::flags {
 // old experiments can be reused once code cleanup has happened
 enum class Experiments : uint8_t {
   NONE = 0,
-  TEXT_SEARCH = 1 << 0,
+  PLANNER_V2 = 1 << 0,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);

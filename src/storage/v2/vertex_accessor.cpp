@@ -36,11 +36,13 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
 namespace memgraph::storage {
 
 namespace {
 void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
-  throw query::QueryException("IS TYPED {} violation on {}({})", TypeConstraintKindToString(*violation.constraint_kind),
+  throw query::QueryException("IS TYPED {} violation on {}({})",
+                              TypeConstraintKindToString(*violation.constraint_kind),
                               storage->LabelToName(violation.label),
                               storage->PropertyToName(*violation.properties.begin()));
 }
@@ -162,8 +164,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   storage_->UpdateLabelCount(label, 1);
 
-  if (storage_->constraints_.HasTypeConstraints()) {
-    if (auto validation_result = storage_->constraints_.type_constraints_->Validate(*vertex_, label);
+  if (!transaction_->active_constraints_.type_->empty()) {
+    if (auto validation_result = transaction_->active_constraints_.type_->Validate(*vertex_, label);
         !validation_result.has_value()) {
       HandleTypeConstraintViolation(storage_, validation_result.error());
     }
@@ -176,7 +178,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   transaction_->async_index_helper_.Track(label);
 
   /// TODO: some by pointers, some by reference => not good, make it better
-  storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
+  transaction_->active_constraints_.unique_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
@@ -239,7 +241,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   storage_->UpdateLabelCount(label, -1);
 
   /// TODO: some by pointers, some by reference => not good, make it better
-  storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
+  transaction_->active_constraints_.unique_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
   storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
@@ -373,8 +375,14 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
-                                  skip_duplicate_write, &schema_acc]() {
+  auto const set_property_impl = [this,
+                                  transaction = transaction_,
+                                  vertex = vertex_,
+                                  &new_value,
+                                  &property,
+                                  &old_value,
+                                  skip_duplicate_write,
+                                  &schema_acc]() {
     if (new_value.IsVectorIndexId()) {
       old_value = vertex->properties.GetProperty(property);
       if (old_value.IsVectorIndexId()) {
@@ -400,7 +408,9 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     vertex->properties.SetProperty(property, new_value);
     if (schema_acc) {
       std::visit(
-          utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value},
+          utils::Overloaded{[vertex,
+                             property,
+                             new_type = ExtendedPropertyType{new_value},
                              old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
                               acc.SetProperty(vertex, property, new_type, old_type);
                             },
@@ -408,8 +418,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
           *schema_acc);
     }
 
-    if (storage_->constraints_.HasTypeConstraints()) {
-      if (auto validation_result = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value);
+    if (!transaction_->active_constraints_.type_->empty()) {
+      if (auto validation_result = transaction_->active_constraints_.type_->Validate(*vertex_, property, new_value);
           !validation_result.has_value()) {
         HandleTypeConstraintViolation(storage_, validation_result.error());
       }
@@ -464,45 +474,47 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
   bool result{false};
-  utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
-                            &schema_acc]() {
-    if (!vertex->properties.InitProperties(properties)) {
-      result = false;
-      return;
-    }
-    for (const auto &[property, new_value] : properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-      // TODO: defer until once all properties have been set, to make fewer entries ?
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
-      transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
-      if (transaction->constraint_verification_info) {
-        if (!new_value.IsNull()) {
-          transaction->constraint_verification_info->AddedProperty(vertex);
-        } else {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
+  utils::AtomicMemoryBlock(
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
+        if (!vertex->properties.InitProperties(properties)) {
+          result = false;
+          return;
         }
-      }
-      if (schema_acc) {
-        std::visit(utils::Overloaded{[vertex = vertex, property = property, new_type = ExtendedPropertyType{new_value}](
-                                         SchemaInfo::VertexModifyingAccessor &acc) {
-                                       acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
-                                     },
-                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                   *schema_acc);
-      }
-    }
-    // TODO If not performant enough there is also InitProperty()
-    if (storage->constraints_.HasTypeConstraints()) {
-      for (auto const &[property_id, property_value] : properties) {
-        if (auto validation_result =
-                storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value);
-            !validation_result.has_value()) {
-          HandleTypeConstraintViolation(storage, validation_result.error());
+        for (const auto &[property, new_value] : properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+          // TODO: defer until once all properties have been set, to make fewer entries ?
+          storage->indices_.UpdateOnSetProperty(
+              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+          transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
+          if (transaction->constraint_verification_info) {
+            if (!new_value.IsNull()) {
+              transaction->constraint_verification_info->AddedProperty(vertex);
+            } else {
+              transaction->constraint_verification_info->RemovedProperty(vertex);
+            }
+          }
+          if (schema_acc) {
+            std::visit(
+                utils::Overloaded{[vertex = vertex, property = property, new_type = ExtendedPropertyType{new_value}](
+                                      SchemaInfo::VertexModifyingAccessor &acc) {
+                                    acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
+                                  },
+                                  [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                *schema_acc);
+          }
         }
-      }
-    }
-    result = true;
-  });
+        // TODO If not performant enough there is also InitProperty()
+        if (!transaction->active_constraints_.type_->empty()) {
+          for (auto const &[property_id, property_value] : properties) {
+            if (auto validation_result =
+                    transaction->active_constraints_.type_->Validate(*vertex, property_id, property_value);
+                !validation_result.has_value()) {
+              HandleTypeConstraintViolation(storage, validation_result.error());
+            }
+          }
+        }
+        result = true;
+      });
 
   return result;
 }
@@ -534,8 +546,13 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
-  utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
-                            &id_old_new_change, skip_duplicate_update, &schema_acc]() {
+  utils::AtomicMemoryBlock([storage = storage_,
+                            transaction = transaction_,
+                            vertex = vertex_,
+                            &properties,
+                            &id_old_new_change,
+                            skip_duplicate_update,
+                            &schema_acc]() {
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
     if (!id_old_new_change) {
       return;
@@ -562,19 +579,19 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         }
       }
       if (schema_acc) {
-        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                       acc.SetProperty(vertex, id, ExtendedPropertyType{new_value},
-                                                       ExtendedPropertyType{old_value});
-                                     },
-                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+        std::visit(utils::Overloaded{
+                       [&](SchemaInfo::VertexModifyingAccessor &acc) {
+                         acc.SetProperty(vertex, id, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+                       },
+                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                    *schema_acc);
       }
-    }
-    if (storage->constraints_.HasTypeConstraints()) {
-      if (auto validation_result =
-              TypeConstraints::Validate(*vertex, storage->constraints_.type_constraints_->GetSnapshot());
-          !validation_result.has_value()) {
-        HandleTypeConstraintViolation(storage, validation_result.error());
+      // Validate type constraint using already-extracted value (avoids re-reading property store)
+      if (!transaction->active_constraints_.type_->empty()) {
+        if (auto validation_result = transaction->active_constraints_.type_->Validate(*vertex, id, new_value);
+            !validation_result.has_value()) {
+          HandleTypeConstraintViolation(storage, validation_result.error());
+        }
       }
     }
   });
@@ -596,31 +613,32 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
-                            &schema_acc]() {
-    properties.emplace(vertex->properties.Properties());
-    if (!properties) {
-      return;
-    }
-    auto new_value = PropertyValue();
-    for (const auto &[property, old_value] : *properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
-      transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
-      if (schema_acc) {
-        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                       acc.SetProperty(vertex, property, ExtendedPropertyType{},
-                                                       ExtendedPropertyType{old_value});
-                                     },
-                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                   *schema_acc);
-      }
-    }
-    if (transaction->constraint_verification_info) {
-      transaction->constraint_verification_info->RemovedProperty(vertex);
-    }
-    vertex->properties.ClearProperties();
-  });
+  utils::AtomicMemoryBlock(
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
+        properties.emplace(vertex->properties.Properties());
+        if (!properties) {
+          return;
+        }
+        auto new_value = PropertyValue();
+        for (const auto &[property, old_value] : *properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          storage->indices_.UpdateOnSetProperty(
+              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+          transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (schema_acc) {
+            std::visit(utils::Overloaded{
+                           [&](SchemaInfo::VertexModifyingAccessor &acc) {
+                             acc.SetProperty(vertex, property, ExtendedPropertyType{}, ExtendedPropertyType{old_value});
+                           },
+                           [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
+        }
+        if (transaction->constraint_verification_info) {
+          transaction->constraint_verification_info->RemovedProperty(vertex);
+        }
+        vertex->properties.ClearProperties();
+      });
 
   return std::move(properties).value_or(ReturnType{});
 }
@@ -908,7 +926,9 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     }
 
     auto const n_processed = ApplyDeltasForRead(
-        transaction_, delta, view,
+        transaction_,
+        delta,
+        view,
         [&exists, &deleted, &in_edges, &edge_types, &destination_vertex](const Delta &delta) {
           // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{

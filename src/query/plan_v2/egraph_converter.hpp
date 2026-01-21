@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,16 +11,15 @@
 
 #pragma once
 
-#include <concepts>
-#include <functional>
+#include "frontend/ast/ast_storage.hpp"
+#include "query/plan_v2/egraph.hpp"
 
-namespace memgraph::planner::core {
-/// Concept: Symbol must be hashable, trivially copyable, and equality comparable
-template <typename T>
-concept ENodeSymbol = requires(T a, T b) {
-  { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
-  { a == b } -> std::convertible_to<bool>;
+namespace memgraph::query::plan {
+class LogicalOperator;
 }
-&&std::is_trivially_copyable_v<T>;
 
-}  // namespace memgraph::planner::core
+namespace memgraph::query::plan::v2 {
+
+auto ConvertToLogicalOperator(egraph const &e, eclass root)
+    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage>;
+}  // namespace memgraph::query::plan::v2

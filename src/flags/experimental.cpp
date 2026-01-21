@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,8 +49,12 @@ auto const canonicalize_string = [](auto &&rng) {
 
 namespace memgraph::flags {
 
-auto const mapping = std::map<std::string_view, Experiments>{};
-auto const reverse_mapping = std::map<Experiments, std::string_view>{};
+auto const mapping = std::map{
+    std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
+};
+auto const reverse_mapping = std::map{
+    std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
+};
 auto const config_mapping = std::map<std::string_view, Experiments>{};
 
 auto ExperimentsInstance() -> Experiments & {
