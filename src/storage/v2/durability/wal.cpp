@@ -40,6 +40,7 @@
 #include "utils/tag.hpp"
 
 namespace r = ranges;
+namespace rv = r::views;
 
 static constexpr std::string_view kInvalidWalErrorMessage =
     "Invalid WAL data! Your durability WAL files somehow got corrupted. Please contact the Memgraph team for support.";
@@ -1045,8 +1046,8 @@ std::optional<RecoveryInfo> LoadWal(
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        VectorIndexRecovery::UpdateOnPropertyChange(property_id, property_value, &*vertex,
-                                                    indices_constraints->indices.vector_indices);
+        VectorIndexRecovery::UpdateOnSetProperty(property_id, property_value, &*vertex,
+                                                 indices_constraints->indices.vector_indices);
         vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {

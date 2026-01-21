@@ -365,7 +365,7 @@ def test_vector_index_replication_two_indices(connection, test_name):
            CREATE (:L2 {prop2: [5.0, 6.0]})
            CREATE (:L2 {prop2: [7.0, 8.0]});""",
     )
-    wait_for_replication_change(cursor, 8)
+    wait_for_replication_change(cursor, 6)
 
     # 3/
     replica_1_cursor = get_replica_cursor(connection, "replica_1")
@@ -374,14 +374,14 @@ def test_vector_index_replication_two_indices(connection, test_name):
     index_info_1 = get_show_index_info(replica_1_cursor)
     index_info_1 = sorted(index_info_1, key=lambda x: x[2])
     assert len(index_info_1) == 2
-    assert index_info_1[0][6] == 2
-    assert index_info_1[1][6] == 2
+    assert index_info_1[0][3] == 2
+    assert index_info_1[1][3] == 2
 
     index_info_2 = get_show_index_info(replica_2_cursor)
     index_info_2 = sorted(index_info_2, key=lambda x: x[2])
     assert len(index_info_2) == 2
-    assert index_info_2[0][6] == 2
-    assert index_info_2[1][6] == 2
+    assert index_info_2[0][3] == 2
+    assert index_info_2[1][3] == 2
 
     # 4/
     # Check that properties are not visible on nodes when stored in index

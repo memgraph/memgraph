@@ -102,8 +102,8 @@ struct VectorIndexRecovery {
   /// @param value The new property value.
   /// @param vertex The vertex with the changed property.
   /// @param recovery_info_vec The vector of recovery info to update.
-  static void UpdateOnPropertyChange(PropertyId property, PropertyValue &value, Vertex *vertex,
-                                     std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
+  static void UpdateOnSetProperty(PropertyId property, PropertyValue &value, Vertex *vertex,
+                                  std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
 
  private:
   /// @brief Finds all recovery info entries matching a given label.
@@ -189,7 +189,7 @@ class VectorIndex {
   /// @param value The VectorIndexId property value containing index references.
   /// @param vertex The vertex on which the property was modified.
   /// @param name_id_mapper Mapper for name/ID conversions.
-  void UpdateOnPropertyChange(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
+  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
 
   /// @brief Retrieves the vector of a vertex as a list of float values.
   /// @param vertex The vertex to retrieve the vector from.

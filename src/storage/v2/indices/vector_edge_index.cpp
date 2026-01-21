@@ -20,6 +20,7 @@
 #include "utils/synchronized.hpp"
 
 namespace r = ranges;
+namespace rv = r::views;
 namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
@@ -85,9 +86,9 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
     if (property.IsNull()) {
       continue;
     }
-    auto vector = PropertyToFloatVector(property, spec.dimension);
+    auto vector = ListToVector(property);
     const EdgeIndexEntry entry{&from_vertex, to_vertex, edge};
-    AddToVectorIndex(mg_index, spec, entry, vector, thread_id);
+    UpdateVectorIndex(mg_index, spec, entry, vector, thread_id);
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
     }
@@ -208,27 +209,10 @@ bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypeProp
                                         const PropertyValue *value) {
   auto &[mg_index, spec] = pimpl->edge_index_.at(edge_type_prop);
 
-  // Try to remove entry (if it exists)
-  {
-    auto locked_index = mg_index->MutableSharedLock();
-    if (locked_index->contains(entry)) {
-      auto result = locked_index->remove(entry);
-      if (result.error) {
-        throw query::VectorSearchException(
-            fmt::format("Failed to remove existing edge from vector index: {}", result.error.release()));
-      }
-    }
-  }
-
   const auto &property = value != nullptr ? *value : entry.edge->properties.GetProperty(edge_type_prop.property());
-  if (property.IsNull()) {
-    // Property is null means edge should not be in the index
-    return false;
-  }
-
-  auto vector = PropertyToFloatVector(property, spec.dimension);
-  AddToVectorIndex(*mg_index, spec, entry, vector);
-  return true;
+  auto vector = property.IsNull() ? utils::small_vector<float>{} : ListToVector(property);
+  storage::UpdateVectorIndex(*mg_index, spec, entry, vector);
+  return !vector.empty();
 }
 
 void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,

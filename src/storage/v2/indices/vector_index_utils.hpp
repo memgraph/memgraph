@@ -15,9 +15,6 @@
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
-#include "range/v3/range/conversion.hpp"
-#include "range/v3/view/transform.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -36,9 +33,6 @@
 #endif
 
 namespace memgraph::storage {
-
-namespace r = ranges;
-namespace rv = r::views;
 
 /// @enum VectorIndexType
 /// @brief Represents the type of vector index.
@@ -273,54 +267,16 @@ inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
     utils::small_vector<float> vector;
     vector.reserve(list_size);
     for (auto i = 0; i < list_size; i++) {
-      const auto numeric_value = GetNumericValueAt(value, i);
+      auto numeric_value = GetNumericValueAt(value, i);
       if (!numeric_value) {
         throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
       }
-      const auto float_value = std::visit([](auto val) -> float { return static_cast<float>(val); }, *numeric_value);
+      auto float_value = std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value);
       vector.push_back(float_value);
     }
     return vector;
   }
   throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-}
-
-/// @brief Converts a property value to a float vector for vector index operations.
-/// @param property The property value to convert (must be a list of numeric values).
-/// @param expected_dimension The expected dimension of the vector.
-/// @return A vector of floats representing the property value.
-/// @throws query::VectorSearchException if the property is not a valid vector.
-[[nodiscard]] inline utils::small_vector<float> PropertyToFloatVector(const PropertyValue &property,
-                                                                      std::uint16_t expected_dimension) {
-  if (!property.IsAnyList()) {
-    throw query::VectorSearchException("Vector index property must be a list.");
-  }
-
-  const auto vector_size = GetListSize(property);
-  if (expected_dimension != vector_size) {
-    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
-  }
-
-  utils::small_vector<float> vector;
-  vector.reserve(vector_size);
-  for (size_t i = 0; i < vector_size; ++i) {
-    const auto numeric_value = GetNumericValueAt(property, i);
-    if (!numeric_value) {
-      throw query::VectorSearchException("Vector index property must be a list of numeric values.");
-    }
-    vector.push_back(std::visit([](auto val) -> float { return static_cast<float>(val); }, *numeric_value));
-  }
-  return vector;
-}
-
-/// @brief Validates that a vector has the expected dimension.
-/// @param vector The vector to validate.
-/// @param expected_dimension The expected dimension.
-/// @throws query::VectorSearchException if dimensions don't match.
-inline void ValidateVectorDimension(const utils::small_vector<float> &vector, std::uint16_t expected_dimension) {
-  if (vector.size() != expected_dimension) {
-    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
-  }
 }
 
 /// @brief Restores a vector property on a vertex by setting it as a PropertyValue with double values.
@@ -440,20 +396,36 @@ inline std::size_t GetVectorIndexThreadCount() {
                   static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
 }
 
-/// @brief Adds an entry to the vector index with automatic resize if the index is full.
-/// No need to throw if the error occurred because it will be raised on result destruction.
+/// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
+/// If vector is empty, only removes the entry (if it exists) and returns.
+/// Automatically resizes the index if full during add.
 /// @tparam Index The usearch index type (e.g., index_dense_gt<Key, ...>).
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (will be updated if resize occurs).
-/// @param key The key to add to the index.
-/// @param vector The float vector data.
+/// @param key The key to add/update in the index.
+/// @param vector The float vector data. If empty, entry is only removed.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
-/// @throws query::VectorSearchException if add fails for reasons other than capacity.
+/// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
 template <typename Index, typename Key, typename Spec>
-void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                      const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
+void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
+                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
+  if (!vector.empty() && vector.size() != spec.dimension) {
+    throw query::VectorSearchException(
+        "Vector index property must have the same number of dimensions as specified in the index.");
+  }
+
+  // Remove existing entry if present
+  {
+    auto locked_index = mg_index.MutableSharedLock();
+    if (locked_index->contains(key)) {
+      locked_index->remove(key);
+    }
+  }
+  // If vector is empty, we only needed removal
+  if (vector.empty()) return;
+
   auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
     auto locked_index = mg_index.MutableSharedLock();

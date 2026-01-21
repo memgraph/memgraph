@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -88,7 +88,8 @@ struct Indices {
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
+                           NameIdMapper *name_id_mapper);
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc
