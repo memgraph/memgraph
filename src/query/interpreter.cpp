@@ -239,7 +239,7 @@ struct QueryLogWrapper {
   std::string_view db_name;
 };
 
-#if FMT_VERSION > 90'000
+#if FMT_VERSION > 90 000
 template <>
 class fmt::formatter<QueryLogWrapper> : public fmt::ostream_formatter {};
 #endif
