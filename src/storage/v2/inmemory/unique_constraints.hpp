@@ -92,11 +92,13 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
 
-    void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
-                             const uint64_t transaction_start_timestamp) override {}
+    // Unique constraints are validated at commit time via UpdateBeforeCommit(),
+    // so label changes don't require incremental updates during the transaction.
+    void UpdateOnRemoveLabel(LabelId /*removed_label*/, const Vertex & /*vertex_before_update*/,
+                             const uint64_t /*transaction_start_timestamp*/) override {}
 
-    void UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
-                          uint64_t transaction_start_timestamp) override {}
+    void UpdateOnAddLabel(LabelId /*added_label*/, const Vertex & /*vertex_before_update*/,
+                          uint64_t /*transaction_start_timestamp*/) override {}
 
    private:
     ContainerPtr container_;

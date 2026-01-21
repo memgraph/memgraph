@@ -37,13 +37,11 @@ struct PopulationStatus {
   static constexpr uint64_t kPopulating = kTransactionInitialId;
 
   PopulationStatus() = default;
-  // Allow copy construction (copies current value)
-  PopulationStatus(const PopulationStatus &other)
-      : commit_timestamp_{other.commit_timestamp_.load(std::memory_order_acquire)} {}
-  PopulationStatus &operator=(const PopulationStatus &other) {
-    commit_timestamp_.store(other.commit_timestamp_.load(std::memory_order_acquire), std::memory_order_release);
-    return *this;
-  }
+  ~PopulationStatus() = default;
+  PopulationStatus(const PopulationStatus &) = delete;
+  PopulationStatus &operator=(const PopulationStatus &) = delete;
+  PopulationStatus(PopulationStatus &&) = delete;
+  PopulationStatus &operator=(PopulationStatus &&) = delete;
 
   bool IsPopulating() const { return commit_timestamp_.load(std::memory_order_acquire) == kPopulating; }
   bool IsReady() const { return !IsPopulating(); }

@@ -69,6 +69,7 @@ inline std::string_view TypeConstraintKindToString(TypeConstraintKind type) {
     case TypeConstraintKind::POINT:
       return "POINT"sv;
   }
+  __builtin_unreachable();
 }
 
 inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKind type) {
@@ -97,6 +98,7 @@ inline PropertyStoreType TypeConstraintsKindToPropertyStoreType(TypeConstraintKi
     case TypeConstraintKind::POINT:
       return PropertyStoreType::POINT;
   }
+  __builtin_unreachable();
 }
 
 inline bool TemporalMatch(TemporalType type, TypeConstraintKind expected_type) {
@@ -110,6 +112,7 @@ inline bool TemporalMatch(TemporalType type, TypeConstraintKind expected_type) {
     case TemporalType::Duration:
       return expected_type == TypeConstraintKind::DURATION;
   }
+  __builtin_unreachable();
 }
 
 /// Convert a PropertyValue to its corresponding TypeConstraintKind.
@@ -154,6 +157,7 @@ inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue 
     case PropertyValueType::Null:
       MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
   }
+  __builtin_unreachable();
 }
 
 /// Check if a PropertyValue matches a TypeConstraintKind.
