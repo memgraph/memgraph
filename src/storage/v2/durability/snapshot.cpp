@@ -9438,9 +9438,10 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
 }
 
 auto SnapshotInfo::IsIncomplete() const -> bool {
-  return offset_edges == 0 || offset_vertices == 0 || offset_indices == 0 || offset_edge_indices == 0 ||
-         offset_constraints == 0 || offset_mapper == 0 || offset_enums == 0 || offset_epoch_history == 0 ||
-         offset_metadata == 0 || offset_edge_batches == 0 || offset_vertex_batches == 0 || offset_ttl == 0;
+  return std::ranges::any_of(std::array{offset_edges, offset_vertices, offset_indices, offset_edge_indices,
+                                        offset_constraints, offset_mapper, offset_enums, offset_epoch_history,
+                                        offset_metadata, offset_edge_batches, offset_vertex_batches, offset_ttl},
+                             [](auto v) { return v == 0; });
 }
 
 std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
