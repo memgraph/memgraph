@@ -462,6 +462,12 @@ struct small_vector {
 
   [[nodiscard]] auto back() const -> const_reference { return begin()[size_ - 1]; }
 
+  auto data() -> pointer { return (usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_; }
+
+  [[nodiscard]] auto data() const -> const_pointer {
+    return (usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_;
+  }
+
   [[nodiscard]] auto empty() const -> bool { return size_ == 0; }
 
   void clear() {

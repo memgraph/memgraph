@@ -266,7 +266,7 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *
     auto old_property_value = vertex->properties.GetProperty(property_id);
 
     // Get vector from existing property
-    auto vector_property = std::invoke([&]() {
+    auto vector_property = [&]() {
       if (old_property_value.IsVectorIndexId()) {
         return GetVectorProperty(vertex, name_id_mapper->IdToName(old_property_value.ValueVectorIndexIds()[0]));
       }
@@ -274,7 +274,7 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *
         return ListToVector(old_property_value);
       }
       throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-    });
+    }();
     auto &index_item = pimpl->index_.at({label, property_id});
     UpdateVectorIndex(index_item.mg_index, index_item.spec, vertex, vector_property);
 
@@ -491,13 +491,10 @@ std::unordered_map<PropertyId, std::string> VectorIndex::GetIndicesByLabel(Label
 }
 
 std::unordered_map<LabelId, std::string> VectorIndex::GetIndicesByProperty(PropertyId property) const {
-  std::unordered_map<LabelId, std::string> result;
-  for (const auto &[label, properties_map] : pimpl->label_to_index_) {
-    if (properties_map.contains(property)) {
-      result[label] = properties_map.at(property);
-    }
-  }
-  return result;
+  auto has_property = [&](const auto &entry) { return entry.second.contains(property); };
+  auto to_label_name = [&](const auto &entry) { return std::pair{entry.first, entry.second.at(property)}; };
+  return pimpl->label_to_index_ | rv::filter(has_property) | rv::transform(to_label_name) |
+         r::to<std::unordered_map<LabelId, std::string>>();
 }
 
 void VectorIndex::AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
@@ -570,14 +567,10 @@ void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, con
 
 std::vector<VectorIndexRecoveryInfo *> VectorIndexRecovery::FindMatchingIndices(
     LabelId label, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  std::vector<VectorIndexRecoveryInfo *> indices;
-  indices.reserve(recovery_info_vec.size());
-  for (auto &recovery_info : recovery_info_vec) {
-    if (recovery_info.spec.label_id == label) {
-      indices.push_back(&recovery_info);
-    }
-  }
-  return indices;
+  auto has_label = [&](auto &ri) { return ri.spec.label_id == label; };
+  auto to_ptr = [](auto &ri) { return &ri; };
+  return recovery_info_vec | rv::filter(has_label) | rv::transform(to_ptr) |
+         r::to<std::vector<VectorIndexRecoveryInfo *>>();
 }
 
 utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
@@ -585,25 +578,25 @@ utils::small_vector<float> VectorIndexRecovery::ExtractVectorForRecovery(
     NameIdMapper *name_id_mapper) {
   // If property is a vector index id, vector is stored in recovery info (index doesn't exist yet).
   // Otherwise, it's a list stored in the property store.
-  if (value.IsVectorIndexId()) {
-    const auto &ids = value.ValueVectorIndexIds();
-    if (ids.empty()) {
-      throw query::VectorSearchException("Vector index ID list is empty.");
-    }
-    // Find the vector in recovery info
-    for (const auto &recovery_info : recovery_info_vec) {
-      if (recovery_info.spec.index_name == name_id_mapper->IdToName(ids[0])) {
-        if (auto it = recovery_info.index_entries.find(vertex->gid); it != recovery_info.index_entries.end()) {
-          return it->second;
-        }
-        throw query::VectorSearchException(
-            fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids[0])));
-      }
-    }
-    throw query::VectorSearchException(
-        fmt::format("Vector index {} not found in recovery info.", name_id_mapper->IdToName(ids[0])));
+  if (!value.IsVectorIndexId()) {
+    return ListToVector(value);
   }
-  return ListToVector(value);
+
+  const auto &ids = value.ValueVectorIndexIds();
+  if (ids.empty()) {
+    throw query::VectorSearchException("Vector index ID list is empty.");
+  }
+
+  const auto &index_name = name_id_mapper->IdToName(ids[0]);
+  for (const auto &recovery_info : recovery_info_vec) {
+    if (recovery_info.spec.index_name == index_name) {
+      if (auto it = recovery_info.index_entries.find(vertex->gid); it != recovery_info.index_entries.end()) {
+        return it->second;
+      }
+      break;
+    }
+  }
+  throw query::VectorSearchException(fmt::format("Vector index {} not found in recovery info.", index_name));
 }
 
 void VectorIndexRecovery::UpdateOnIndexDrop(std::string_view index_name, NameIdMapper *name_id_mapper,
@@ -694,23 +687,28 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue &value, Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  // If property is in the recovery info, it has to be either a vector index id, a list or null.
   auto type = value.type();
-  for (auto &recovery_info : recovery_info_vec) {
-    if (type == PropertyValue::Type::VectorIndexId) {
-      recovery_info.index_entries[vertex->gid] = value.ValueVectorIndexList();
-    } else {
-      // This can happen if WALs were created before new vector index id type was introduced.
-      if (recovery_info.spec.property == property && r::contains(vertex->labels, recovery_info.spec.label_id)) {
-        if (type == PropertyValue::Type::List) {
-          recovery_info.index_entries[vertex->gid] = ListToVector(value);
-        } else if (type == PropertyValue::Type::Null) {
-          recovery_info.index_entries[vertex->gid] = {};
-        } else {
-          throw query::VectorSearchException("Property value must be a vector index id, a list of floats, or null.");
-        }
-      }
+  const auto vector = [&]() -> utils::small_vector<float> {
+    switch (type) {
+      case PropertyValue::Type::VectorIndexId:
+        return value.ValueVectorIndexList();
+      case PropertyValue::Type::List:
+        return ListToVector(value);
+      case PropertyValue::Type::Null:
+        return {};
+      default:
+        throw query::VectorSearchException("Property value must be a vector index id, a list of floats, or null.");
     }
+  }();
+
+  // If saved as VectorIndexId, it's surely a match.
+  auto matches = [&](const VectorIndexRecoveryInfo &ri) {
+    return type == PropertyValue::Type::VectorIndexId ||
+           (ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id));
+  };
+
+  for (auto &ri : recovery_info_vec | rv::filter(matches)) {
+    ri.index_entries[vertex->gid] = vector;
   }
 }
 

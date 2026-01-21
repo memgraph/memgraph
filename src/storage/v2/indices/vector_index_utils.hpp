@@ -384,7 +384,7 @@ template <typename IndexType, typename KeyType>
 utils::small_vector<float> GetVector(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
   auto locked_index = index.ReadLock();
   utils::small_vector<float> vector(locked_index->dimensions());
-  if (!locked_index->get(key, &*vector.begin())) {
+  if (!locked_index->get(key, vector.data())) {
     return {};
   }
   return vector;
@@ -429,7 +429,7 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
   auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
     auto locked_index = mg_index.MutableSharedLock();
-    auto result = locked_index->add(key, &*vector.begin(), thread_id_for_adding);
+    auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
     if (!result.error) return;
     if (locked_index->size() >= locked_index->capacity()) {
       // Error is due to capacity, release the error because we will resize the index.
@@ -447,7 +447,7 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
       }
       spec.capacity = exclusively_locked_index->capacity();
     }
-    auto result = exclusively_locked_index->add(key, &*vector.begin(), thread_id_for_adding);
+    auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
   }
 }
 
