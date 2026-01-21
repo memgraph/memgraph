@@ -17,6 +17,8 @@
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
+#include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -27,6 +29,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -39,41 +42,6 @@ static constexpr auto kMetricKind = "l2sq";
 static constexpr auto kResizeCoefficient = 2;
 static constexpr auto kScalarKind = unum::usearch::scalar_kind_t::f32_k;
 
-// Stub implementations for ActiveConstraints interfaces (test-only)
-namespace {
-struct StubExistenceActiveConstraints final : memgraph::storage::ExistenceActiveConstraints {
-  bool ConstraintRegistered(memgraph::storage::LabelId, memgraph::storage::PropertyId) const override { return false; }
-  std::vector<std::pair<memgraph::storage::LabelId, memgraph::storage::PropertyId>> ListConstraints(
-      uint64_t) const override {
-    return {};
-  }
-};
-
-struct StubUniqueActiveConstraints final : memgraph::storage::UniqueActiveConstraints {
-  bool ConstraintRegistered(memgraph::storage::LabelId,
-                            std::set<memgraph::storage::PropertyId> const &) const override {
-    return false;
-  }
-  std::vector<std::pair<memgraph::storage::LabelId, std::set<memgraph::storage::PropertyId>>> ListConstraints(
-      uint64_t) const override {
-    return {};
-  }
-  void UpdateBeforeCommit(const memgraph::storage::Vertex *, const memgraph::storage::Transaction &) override {}
-  auto GetAbortProcessor() const -> AbortProcessor override { return AbortProcessor{}; }
-  void CollectForAbort(AbortProcessor &, memgraph::storage::Vertex const *) const override {}
-  void AbortEntries(AbortableInfo const &, uint64_t) override {}
-};
-
-struct StubTypeActiveConstraints final : memgraph::storage::TypeActiveConstraints {
-  bool ConstraintRegistered(memgraph::storage::LabelId, memgraph::storage::PropertyId) const override { return false; }
-  std::vector<
-      std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, memgraph::storage::TypeConstraintKind>>
-  ListConstraints(uint64_t) const override {
-    return {};
-  }
-};
-}  // namespace
-
 // This class mimics the internals of the storage to generate the deltas.
 class DeltaGenerator final {
  public:
@@ -84,8 +52,7 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, false, false,
-                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
+                       gen->storage_mode_, false, memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
                        memgraph::storage::ActiveIndices{
                            std::make_unique<memgraph::storage::InMemoryLabelIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>(),
@@ -94,9 +61,9 @@ class DeltaGenerator final {
                            std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>(),
                        },
                        memgraph::storage::ActiveConstraints{
-                           std::make_unique<StubExistenceActiveConstraints>(),
-                           std::make_unique<StubUniqueActiveConstraints>(),
-                           std::make_unique<StubTypeActiveConstraints>(),
+                           std::make_unique<memgraph::storage::ExistenceConstraints::ActiveConstraints>(),
+                           std::make_unique<memgraph::storage::InMemoryUniqueConstraints::ActiveConstraints>(),
+                           std::make_unique<memgraph::storage::TypeConstraints::ActiveConstraints>(),
                        }) {}
 
    public:

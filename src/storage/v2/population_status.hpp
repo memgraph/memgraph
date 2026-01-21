@@ -32,18 +32,16 @@ namespace memgraph::storage {
 /// - kTransactionInitialId (1<<63): POPULATING state sentinel
 ///
 /// Recovery uses kTimestampInitialId (0) to make objects immediately visible.
-struct SchemaStatus {
+struct PopulationStatus {
   // kTransactionInitialId used as sentinel - commit timestamps are always below this value
   static constexpr uint64_t kPopulating = kTransactionInitialId;
 
-  SchemaStatus() = default;
-  // Allow copy construction (copies current value)
-  SchemaStatus(const SchemaStatus &other)
-      : commit_timestamp_{other.commit_timestamp_.load(std::memory_order_acquire)} {}
-  SchemaStatus &operator=(const SchemaStatus &other) {
-    commit_timestamp_.store(other.commit_timestamp_.load(std::memory_order_acquire), std::memory_order_release);
-    return *this;
-  }
+  PopulationStatus() = default;
+  ~PopulationStatus() = default;
+  PopulationStatus(const PopulationStatus &) = delete;
+  PopulationStatus &operator=(const PopulationStatus &) = delete;
+  PopulationStatus(PopulationStatus &&) = delete;
+  PopulationStatus &operator=(PopulationStatus &&) = delete;
 
   bool IsPopulating() const { return commit_timestamp_.load(std::memory_order_acquire) == kPopulating; }
   bool IsReady() const { return !IsPopulating(); }

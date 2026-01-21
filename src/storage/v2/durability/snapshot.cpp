@@ -10004,7 +10004,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write existence constraints.
     {
-      auto existence = storage->constraints_.existence_constraints_->ListConstraints(transaction->start_timestamp);
+      auto existence = transaction->active_constraints_.existence_->ListConstraints(transaction->start_timestamp);
       snapshot.WriteUint(existence.size());
       for (const auto &item : existence) {
         write_mapping(item.first);
@@ -10017,8 +10017,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write unique constraints.
     {
-      auto *mem_unique = static_cast<InMemoryUniqueConstraints *>(storage->constraints_.unique_constraints_.get());
-      auto unique = mem_unique->ListConstraints(transaction->start_timestamp);
+      auto unique = transaction->active_constraints_.unique_->ListConstraints(transaction->start_timestamp);
       snapshot.WriteUint(unique.size());
       for (const auto &item : unique) {
         write_mapping(item.first);
@@ -10033,7 +10032,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     }
     // Write type constraints
     {
-      auto type_constraints = storage->constraints_.type_constraints_->ListConstraints(transaction->start_timestamp);
+      auto type_constraints = transaction->active_constraints_.type_->ListConstraints(transaction->start_timestamp);
       snapshot.WriteUint(type_constraints.size());
       for (const auto &[label, property, type] : type_constraints) {
         write_mapping(label);

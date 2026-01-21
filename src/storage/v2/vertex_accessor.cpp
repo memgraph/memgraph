@@ -161,8 +161,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   storage_->UpdateLabelCount(label, 1);
 
-  if (storage_->constraints_.HasTypeConstraints()) {
-    if (auto validation_result = storage_->constraints_.type_constraints_->Validate(*vertex_, label);
+  if (!transaction_->active_constraints_.type_->empty()) {
+    if (auto validation_result = transaction_->active_constraints_.type_->Validate(*vertex_, label);
         !validation_result.has_value()) {
       HandleTypeConstraintViolation(storage_, validation_result.error());
     }
@@ -175,7 +175,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   transaction_->async_index_helper_.Track(label);
 
   /// TODO: some by pointers, some by reference => not good, make it better
-  storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
+  transaction_->active_constraints_.unique_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
   transaction_->UpdateOnChangeLabel(label, vertex_);
@@ -238,7 +238,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   storage_->UpdateLabelCount(label, -1);
 
   /// TODO: some by pointers, some by reference => not good, make it better
-  storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
+  transaction_->active_constraints_.unique_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
   storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
@@ -390,8 +390,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
           *schema_acc);
     }
 
-    if (storage_->constraints_.HasTypeConstraints()) {
-      if (auto validation_result = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value);
+    if (!transaction_->active_constraints_.type_->empty()) {
+      if (auto validation_result = transaction_->active_constraints_.type_->Validate(*vertex_, property, new_value);
           !validation_result.has_value()) {
         HandleTypeConstraintViolation(storage_, validation_result.error());
       }
@@ -460,10 +460,10 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       }
     }
     // TODO If not performant enough there is also InitProperty()
-    if (storage->constraints_.HasTypeConstraints()) {
+    if (!transaction->active_constraints_.type_->empty()) {
       for (auto const &[property_id, property_value] : properties) {
         if (auto validation_result =
-                storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value);
+                transaction->active_constraints_.type_->Validate(*vertex, property_id, property_value);
             !validation_result.has_value()) {
           HandleTypeConstraintViolation(storage, validation_result.error());
         }
@@ -520,12 +520,12 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
                                      [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                    *schema_acc);
       }
-    }
-    if (storage->constraints_.HasTypeConstraints()) {
-      if (auto validation_result =
-              TypeConstraints::Validate(*vertex, storage->constraints_.type_constraints_->GetSnapshot());
-          !validation_result.has_value()) {
-        HandleTypeConstraintViolation(storage, validation_result.error());
+      // Validate type constraint using already-extracted value (avoids re-reading property store)
+      if (!transaction->active_constraints_.type_->empty()) {
+        if (auto validation_result = transaction->active_constraints_.type_->Validate(*vertex, id, new_value);
+            !validation_result.has_value()) {
+          HandleTypeConstraintViolation(storage, validation_result.error());
+        }
       }
     }
   });

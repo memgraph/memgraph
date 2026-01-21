@@ -97,8 +97,8 @@ struct AsyncIndexHelper {
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx, ActiveIndices active_indices, ActiveConstraints active_constraints,
+              StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
+              ActiveIndices active_indices, ActiveConstraints active_constraints,
               AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
@@ -108,8 +108,8 @@ struct Transaction {
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
-        constraint_verification_info{(has_constraints) ? std::optional<ConstraintVerificationInfo>{std::in_place}
-                                                       : std::nullopt},
+        constraint_verification_info{
+            (!active_constraints.empty()) ? std::optional<ConstraintVerificationInfo>{std::in_place} : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipList<Vertex>>{std::in_place}
                       : std::nullopt},

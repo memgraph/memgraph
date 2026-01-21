@@ -1307,12 +1307,16 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
+  auto *active_unique_constraints =
+      static_cast<DiskUniqueConstraints::ActiveConstraints *>(transaction->active_constraints_.unique_.get());
+
   auto *label_active_indices = static_cast<DiskLabelIndex::ActiveIndices *>(transaction->active_indices_.label_.get());
   auto *label_properties_active_indices =
       static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_.label_properties_.get());
 
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
-  if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction->start_timestamp, commit_ts) ||
+  if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(
+          active_unique_constraints->entries_for_deletion, transaction->start_timestamp, commit_ts) ||
       !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts,
                                                                 label_active_indices->entries_for_deletion_) ||
       !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(
@@ -2230,7 +2234,7 @@ std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::Disk
   MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
-  if (existence_constraints->ConstraintRegistered(label, property)) {
+  if (existence_constraints->ConstraintExists(label, property)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto check = on_disk->CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property);
@@ -2363,7 +2367,6 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           isolation_level,
           storage_mode,
           edge_import_mode_active,
-          !constraints_.empty(),
           empty_point_index_.CreatePointIndexContext(),
           *std::move(active_indices),
           *std::move(active_constraints)};
@@ -2445,10 +2448,9 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
           {/* vector indices */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  return {disk_storage->constraints_.existence_constraints_->ListConstraints(),
-          disk_storage->constraints_.unique_constraints_->ListConstraints(),
-          disk_storage->constraints_.type_constraints_->ListConstraints()};
+  return {.existence = transaction_.active_constraints_.existence_->ListConstraints(transaction_.start_timestamp),
+          .unique = transaction_.active_constraints_.unique_->ListConstraints(transaction_.start_timestamp),
+          .type = transaction_.active_constraints_.type_->ListConstraints(transaction_.start_timestamp)};
 }
 
 void DiskStorage::DiskAccessor::DropAllIndexes() {

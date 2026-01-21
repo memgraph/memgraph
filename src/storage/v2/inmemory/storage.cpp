@@ -57,6 +57,7 @@
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
@@ -710,7 +711,7 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
-  auto const has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
+  auto const has_any_existence_constraints = !transaction_.active_constraints_.existence_->empty();
   if (has_any_existence_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
     auto validation_result = storage_->constraints_.existence_constraints_->Validate(
@@ -723,10 +724,7 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Exis
 }
 
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
-  auto *mem_unique_constraints =
-      static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-
-  auto const has_any_unique_constraints = !storage_->constraints_.unique_constraints_->empty();
+  auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
   if (has_any_unique_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
     // Before committing and validating vertices against unique constraints,
@@ -744,6 +742,10 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
     // aborted txn could delete one of vertices being deleted.
     auto acc = mem_storage->vertices_.access();
 
+    // TODO: UpdateBeforeCommit + Validate could be done in one pass, also use the AbortProcessor
+    //       pattern to gather, so we only require a single skip_list acccess
+    auto *mem_unique_constraints =
+        static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
     auto validation_result = mem_unique_constraints->Validate(vertices_to_update, transaction_, *commit_timestamp_);
     if (!validation_result.has_value()) {
       return std::unexpected{validation_result.error()};
@@ -1097,7 +1099,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   if (!transaction_.deltas.empty()) {
     auto index_abort_processor = storage_->indices_.GetAbortProcessor(transaction_.active_indices_);
 
-    auto const has_any_unique_constraints = !storage_->constraints_.unique_constraints_->empty();
+    auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
     if (has_any_unique_constraints && transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
       // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
@@ -1107,7 +1109,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (auto const *vertex : vertices_to_check) {
         transaction_.active_constraints_.unique_->CollectForAbort(abort_processor, vertex);
       }
-      transaction_.active_constraints_.unique_->AbortEntries(abort_processor.cleanup_collection_,
+      transaction_.active_constraints_.unique_->AbortEntries(std::move(abort_processor.abortable_info_),
                                                              transaction_.start_timestamp);
     }
 
@@ -1466,10 +1468,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
     }
   }
-
-  // Clean up any POPULATING constraints from this transaction.
-  // Schema transactions (READ_ONLY/UNIQUE) can create constraints that need cleanup on abort.
-  storage_->constraints_.AbortPopulating();
 
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
@@ -1838,11 +1836,16 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   if (!existence_constraints->RegisterConstraint(label, property)) {
     return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
-                                                                                  property, std::nullopt, std::nullopt);
-      !validation_result.has_value()) {
+  try {
+    if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(
+            in_memory->vertices_.access(), label, property, std::nullopt, std::nullopt);
+        !validation_result.has_value()) {
+      existence_constraints->DropConstraint(label, property);
+      return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
+    }
+  } catch (const utils::OutOfMemoryException &) {
     existence_constraints->DropConstraint(label, property);
-    return std::unexpected{StorageExistenceConstraintDefinitionError{validation_result.error()}};
+    throw;
   }
   // Defer publication to commit time for MVCC correctness
   auto publisher = [existence_constraints, label, property](uint64_t commit_ts) {
@@ -1917,11 +1920,16 @@ std::expected<void, StorageExistenceConstraintDefinitionError> InMemoryStorage::
   if (!type_constraints->RegisterConstraint(label, property, kind)) {
     return std::unexpected{StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  if (auto validation_result =
-          TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
-      !validation_result.has_value()) {
+  try {
+    if (auto validation_result =
+            TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
+        !validation_result.has_value()) {
+      type_constraints->DropConstraint(label, property, kind);
+      return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
+    }
+  } catch (const utils::OutOfMemoryException &) {
     type_constraints->DropConstraint(label, property, kind);
-    return std::unexpected{StorageTypeConstraintDefinitionError{validation_result.error()}};
+    throw;
   }
   // Defer publication to commit time for MVCC correctness
   auto publisher = [type_constraints, label, property, kind](uint64_t commit_ts) {
@@ -2154,7 +2162,6 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           isolation_level,
           storage_mode,
           false,
-          !constraints_.empty(),
           *std::move(point_index_context),
           *std::move(active_indices),
           *std::move(active_constraints),
@@ -2171,11 +2178,11 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   if (storage_mode_ != new_storage_mode) {
     // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      // Existance and unique constraints are not supported in analytical storage mode so we need to forbid changing
-      // storage mode to analytical if there are any of these constraints
-      if (!constraints_.existence_constraints_->empty() || !constraints_.unique_constraints_->empty()) {
+      auto active_constraints = GetActiveConstraints();
+      // Constraints violation require deltas so we can abort. Hence in analytical can not support any constraint
+      if (!active_constraints.empty()) {
         throw utils::BasicException(
-            "Existance and unique constraints are not supported in analytical storage mode. Please drop them before "
+            "Constraints are not supported in analytical storage mode. Please drop them before "
             "changing storage mode to analytical or use transactional mode.");
       }
       // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
@@ -3580,11 +3587,9 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
           storage_->indices_.vector_edge_index_.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
-  const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_unique = static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
-  return {.existence = mem_storage->constraints_.existence_constraints_->ListConstraints(transaction_.start_timestamp),
-          .unique = mem_unique->ListConstraints(transaction_.start_timestamp),
-          .type = mem_storage->constraints_.type_constraints_->ListConstraints(transaction_.start_timestamp)};
+  return {.existence = transaction_.active_constraints_.existence_->ListConstraints(transaction_.start_timestamp),
+          .unique = transaction_.active_constraints_.unique_->ListConstraints(transaction_.start_timestamp),
+          .type = transaction_.active_constraints_.type_->ListConstraints(transaction_.start_timestamp)};
 }
 
 void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
