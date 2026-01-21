@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,10 +14,7 @@
 #include "coordination/coordinator_log_store.hpp"
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/utils.hpp"
 #include "utils/logging.hpp"
-
-#include "kvstore/kvstore.hpp"
 
 #include <ranges>
 
@@ -248,9 +245,9 @@ std::shared_ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
     logs.push_back(buf);
   }
 
-  auto buf_out = buffer::alloc(sizeof(int32) + cnt * sizeof(int32) + size_total);
+  auto buf_out = buffer::alloc(sizeof(int32) + (cnt * sizeof(int32)) + size_total);
   buf_out->pos(0);
-  buf_out->put((int32)cnt);
+  buf_out->put(cnt);
 
   for (auto &entry : logs) {
     buf_out->put(static_cast<int32>(entry->size()));

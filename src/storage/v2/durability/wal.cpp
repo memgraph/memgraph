@@ -743,13 +743,13 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 
   // Read deltas.
   info.num_deltas = 0;
-  auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
+  auto validate_delta = [&path, &wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
       return {{timestamp, is_transaction_end}};
     } catch (const RecoveryFailure &e) {
-      spdlog::error("Error occurred while reading WAL info: {}", e.what());
+      spdlog::error("Error occurred while reading WAL info for file {}: {}", path, e.what());
       return std::nullopt;
     }
   };
