@@ -513,8 +513,8 @@ void VectorIndex::AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &clea
       if (value.IsVectorIndexId()) {
         UpdateOnSetProperty(value, vertex, name_id_mapper);
       } else {
-        for (const auto &index_name : GetIndicesByProperty(property)) {
-          RemoveVertexFromIndex(vertex, index_name.second);
+        for (const auto &[_, index_name] : GetIndicesByProperty(property)) {
+          RemoveVertexFromIndex(vertex, index_name);
         }
       }
     }
@@ -695,16 +695,20 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue &value, Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   // If property is in the recovery info, it has to be either a vector index id, a list or null.
+  auto type = value.type();
   for (auto &recovery_info : recovery_info_vec) {
-    if (recovery_info.spec.property == property && r::contains(vertex->labels, recovery_info.spec.label_id)) {
-      if (value.IsVectorIndexId()) {
-        recovery_info.index_entries[vertex->gid] = value.ValueVectorIndexList();
-      } else if (value.IsAnyList()) {
-        recovery_info.index_entries[vertex->gid] = ListToVector(value);
-      } else if (value.IsNull()) {
-        recovery_info.index_entries[vertex->gid] = {};
-      } else {
-        throw query::VectorSearchException("Property value must be a vector index id, a list of floats, or null.");
+    if (type == PropertyValue::Type::VectorIndexId) {
+      recovery_info.index_entries[vertex->gid] = value.ValueVectorIndexList();
+    } else {
+      // This can happen if WALs were created before new vector index id type was introduced.
+      if (recovery_info.spec.property == property && r::contains(vertex->labels, recovery_info.spec.label_id)) {
+        if (type == PropertyValue::Type::List) {
+          recovery_info.index_entries[vertex->gid] = ListToVector(value);
+        } else if (type == PropertyValue::Type::Null) {
+          recovery_info.index_entries[vertex->gid] = {};
+        } else {
+          throw query::VectorSearchException("Property value must be a vector index id, a list of floats, or null.");
+        }
       }
     }
   }
