@@ -1030,19 +1030,15 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, E
 }
 
 void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge_ref) {
-  // Deleting edges touches all 3 objects. That means there cannot be any other modifying tx now or before this one
-
-  // Analytical: no need to lock since the vertex labels cannot change due to shared lock
-  // Transactional: no need to lock since all objects are touched by this tx
   tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
 
-  // No post-process -> analytical
   if (post_process_) {
-    // This edge could have had some modifications before deletion
-    // This would case the edge to be added to the post process list
-    // We need to remove it
-    // Vertices cannot change, so no need to post process anything
-    post_process_->edges.erase({edge_ref, edge_type, from, to});
+    if (GetState(from->delta, start_ts_, commit_ts_) == ANOTHER_TX ||
+        GetState(to->delta, start_ts_, commit_ts_) == ANOTHER_TX) {
+      post_process_->edges.insert({edge_ref, edge_type, from, to});
+    } else {
+      post_process_->edges.erase({edge_ref, edge_type, from, to});
+    }
   }
 }
 
