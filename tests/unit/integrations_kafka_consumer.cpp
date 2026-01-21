@@ -34,7 +34,7 @@ inline constexpr std::optional<std::chrono::milliseconds> kDontCareTimeout = std
 int SpanToInt(std::span<const char> span) {
   int result{0};
   if (span.size() != sizeof(int)) {
-    std::runtime_error("Invalid span size");
+    throw std::runtime_error("Invalid span size");
   }
   std::memcpy(&result, span.data(), sizeof(int));
   return result;
@@ -76,7 +76,7 @@ struct ConsumerTest : public ::testing::Test {
       for (const auto &message : messages) {
         EXPECT_EQ(message.TopicName(), kTopicName);
       }
-      if (last_received_message != nullptr) {
+      if (last_received_message != nullptr && messages.back().Payload().size() == sizeof(int)) {
         *last_received_message = SpanToInt(messages.back().Payload());
       } else {
         consumer_function(messages);
