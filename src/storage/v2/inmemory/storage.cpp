@@ -3266,7 +3266,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     std::error_code ec;
     std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
 
-    // Move all WAL files to the old directory
+    // Move or delete all WAL files to the old directory
     auto const wal_files = utils::GetFilesFromDir(recovery_.wal_directory_);
     for (const auto &wal_path : wal_files) {
       if (!use_old_dir) {
