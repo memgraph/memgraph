@@ -157,8 +157,8 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisi
  public:
   using TreeCompositeVisitor::PostVisit;
   using TreeCompositeVisitor::PreVisit;
+  using TreeLeafVisitor::ReturnType;
   using TreeLeafVisitor::Visit;
-  using typename TreeLeafVisitor::ReturnType;
 };
 
 template <class TResult>

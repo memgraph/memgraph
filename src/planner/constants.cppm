@@ -9,25 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#include <cstdint>
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
+#include <cstddef>
 
-namespace memgraph::planner::core {
+export module memgraph.planner.core.constants;
 
-template <typename Symbol>
-requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis>
-struct EClass;
-
-template <typename Symbol, typename Analysis>
-struct EGraph;
-
-template <typename Symbol>
-struct ProcessingContext;
-
+export namespace memgraph::planner::core {
+constexpr size_t REBUILD_BATCH_SIZE = 100;
 }  // namespace memgraph::planner::core

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,7 +117,8 @@ std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
 std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &visitor,
                                               MemgraphCypher::SymbolicNameWithDotsAndMinusContext &ctx) {
   return JoinTokens(
-      ctx.symbolicNameWithMinus(), [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
+      ctx.symbolicNameWithMinus(),
+      [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
       ".");
 }
 }  // namespace
@@ -427,9 +428,9 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   std::vector<PropertyIxPath> sorted_properties = index_query->properties_;
   std::ranges::sort(sorted_properties);
   auto cmp = [](PropertyIxPath const &lhs, PropertyIxPath const &rhs) {
-    auto min_length = std::min(lhs.path.size(), rhs.path.size());
-    return std::ranges::equal(lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(),
-                              rhs.path.cbegin() + min_length);
+    auto const min_length = static_cast<std::ptrdiff_t>(std::min(lhs.path.size(), rhs.path.size()));
+    return std::ranges::equal(
+        lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(), rhs.path.cbegin() + min_length);
   };
   if (std::ranges::adjacent_find(sorted_properties, cmp) != sorted_properties.end()) {
     throw SemanticException("Properties cannot be repeated in a composite index.");
@@ -1158,8 +1159,9 @@ std::vector<std::string> TopicNamesFromSymbols(
   MG_ASSERT(!topic_name_symbols.empty());
   std::vector<std::string> topic_names;
   topic_names.reserve(topic_name_symbols.size());
-  std::transform(topic_name_symbols.begin(), topic_name_symbols.end(), std::back_inserter(topic_names),
-                 [&visitor](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name); });
+  std::ranges::transform(topic_name_symbols, std::back_inserter(topic_names), [&visitor](auto *topic_name) {
+    return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name);
+  });
   return topic_names;
 }
 
@@ -1265,10 +1267,10 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
   MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
   MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
   MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
-  MapConfig<false, std::unordered_map<Expression *, Expression *>>(memory_, KafkaConfigKey::CONFIGS,
-                                                                   stream_query->configs_);
-  MapConfig<false, std::unordered_map<Expression *, Expression *>>(memory_, KafkaConfigKey::CREDENTIALS,
-                                                                   stream_query->credentials_);
+  MapConfig<false, std::unordered_map<Expression *, Expression *>>(
+      memory_, KafkaConfigKey::CONFIGS, stream_query->configs_);
+  MapConfig<false, std::unordered_map<Expression *, Expression *>>(
+      memory_, KafkaConfigKey::CREDENTIALS, stream_query->credentials_);
 
   MapCommonStreamConfigs(memory_, *stream_query);
 
@@ -3182,14 +3184,14 @@ antlrcpp::Any CypherMainVisitor::visitPartialComparisonExpression(
 
 // Addition and subtraction.
 antlrcpp::Any CypherMainVisitor::visitExpression7(MemgraphCypher::Expression7Context *ctx) {
-  return LeftAssociativeOperatorExpression(ctx->expression6(), ctx->children,
-                                           {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
+  return LeftAssociativeOperatorExpression(
+      ctx->expression6(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
 }
 
 // Multiplication, division, modding.
 antlrcpp::Any CypherMainVisitor::visitExpression6(MemgraphCypher::Expression6Context *ctx) {
-  return LeftAssociativeOperatorExpression(ctx->expression5(), ctx->children,
-                                           {MemgraphCypher::ASTERISK, MemgraphCypher::SLASH, MemgraphCypher::PERCENT});
+  return LeftAssociativeOperatorExpression(
+      ctx->expression5(), ctx->children, {MemgraphCypher::ASTERISK, MemgraphCypher::SLASH, MemgraphCypher::PERCENT});
 }
 
 // Exponentiation.
@@ -3241,6 +3243,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
   }
   return expression;
 }
+
 antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(MemgraphCypher::StringAndNullOperatorsContext *) {
   DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
@@ -3416,7 +3419,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
       // ParameterLookup, so that the AST can be cached. This allows for
       // varying literals, which are then looked up in the parameters table
       // (even though they are not user provided). Note, that NULL always
-      // generates a PrimitiveLiteral.
+      // generates a PrimitiveLiteral.=
       return static_cast<Expression *>(storage_->Create<ParameterLookup>(token_position));
     } else if (ctx->StringLiteral()) {
       return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(

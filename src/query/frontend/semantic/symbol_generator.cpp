@@ -60,16 +60,14 @@ std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name
 }
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
-  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
+  auto const &symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scopes_.back().symbols[name] = symbol;
   return symbol;
 }
 
-auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) {
-  auto symbol = symbol_table_->CreateAnonymousSymbol();
-  return symbol;
-}
+auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
 
+// TODO: When is fetching from previous scopes ok?
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
   // NOLINTNEXTLINE
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
@@ -1028,23 +1026,24 @@ void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup)
 
   auto identifier_symbol = static_cast<Identifier *>(property_lookup.expression_)->name_;
 
-  if (this->gather_property_lookup_counts) {
-    if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
-      property_lookup_counts_by_symbol[identifier_symbol] = 0;
+  switch (phase_) {
+    case Phase::GATHER: {
+      if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
+        property_lookup_counts_by_symbol[identifier_symbol] = 0;
+      }
+
+      property_lookup_counts_by_symbol[identifier_symbol]++;
+
+      return;
     }
+    case Phase::ASSIGN: {
+      if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
+          property_lookup_counts_by_symbol[identifier_symbol] > 1) {
+        property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+      }
 
-    property_lookup_counts_by_symbol[identifier_symbol]++;
-
-    return;
-  }
-
-  if (this->assign_property_lookup_evaluations) {
-    if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
-        property_lookup_counts_by_symbol[identifier_symbol] > 1) {
-      property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+      return;
     }
-
-    return;
   }
 }
 

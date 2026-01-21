@@ -8,4 +8,17 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 ColumnLimit : 120
 IncludeBlocks: Preserve
+SeparateDefinitionBlocks: Always
+AllowShortFunctionsOnASingleLine: All
+EmptyLineBeforeAccessModifier: LogicalBlock
+BinPackArguments: false
+InsertTrailingCommas: Wrapped
+AllowShortLambdasOnASingleLine: All
+IntegerLiteralSeparator:
+  Binary: 4
+  BinaryMinDigits: 8
+  Decimal: 3
+  DecimalMinDigits: 5
+  Hex: 4
+  HexMinDigits: 8
 ...

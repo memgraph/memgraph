@@ -1892,7 +1892,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
   }
 
   std::vector<memgraph::query::Clause *> clauses_;
-  bool has_update{};
+  bool has_update{};  // used during antlr -> ast conversion for semantic analysis (unused after that)
 
   SingleQuery *Clone(AstStorage *storage) const override {
     SingleQuery *object = storage->Create<SingleQuery>();

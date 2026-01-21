@@ -29,7 +29,7 @@ namespace memgraph::flags {
 // old experiments can be reused once code cleanup has happened
 enum class Experiments : uint8_t {
   NONE = 0,
-  TEXT_SEARCH = 1 << 0,
+  PLANNER_V2 = 1 << 0,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
