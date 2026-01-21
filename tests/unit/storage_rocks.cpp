@@ -12,23 +12,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <cassert>
-#include <exception>
 #include <string>
-#include <unordered_set>
 
 #include "disk_test_utils.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "storage/v2/view.hpp"
 #include "utils/rocksdb_serialization.hpp"
-
-using memgraph::replication_coordination_glue::ReplicationRole;
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;

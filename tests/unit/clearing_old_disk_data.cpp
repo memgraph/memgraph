@@ -14,6 +14,7 @@
 #include <limits>
 
 #include "disk_test_utils.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/storage.hpp"
