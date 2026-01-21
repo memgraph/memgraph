@@ -17,8 +17,10 @@
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/atomic_utils.hpp"
+#include "utils/compile_time.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/message.hpp"
 #include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
@@ -28,7 +30,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include "utils/compile_time.hpp"
 
 namespace {
 constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);

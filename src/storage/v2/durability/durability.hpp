@@ -54,9 +54,12 @@ struct SnapshotDurabilityInfo {
 /// @param uuid UUID of the Snapshot files. If not empty, fetch only Snapshot
 /// file with the specified UUID. Otherwise, fetch only Snapshot files in the
 /// snapshot_directory.
+/// @param delete_incomplete If set to true, incomplete snapshots will be deleted. Should be done only when instance
+/// restarts
 /// @return List of snapshot files defined with its path and UUID. Empty optional in the case of the error
 std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                                    std::string_view uuid = "");
+                                                                    std::string_view uuid = "",
+                                                                    bool delete_incomplete = false);
 
 /// Used to capture a WAL's data related to durability
 struct WalDurabilityInfo {

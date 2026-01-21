@@ -26,7 +26,6 @@
 #include <thread>
 #include <usearch/index_plugins.hpp>
 
-#include "flags/experimental.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -54,12 +53,12 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
-#include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/thread.hpp"
 #include "utils/timer.hpp"
 
 using namespace std::chrono_literals;
@@ -10128,8 +10127,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
 }
 
 auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory,
-                                        const std::string &current_snapshot_path, const std::string &uuid,
-                                        utils::FileRetainer *file_retainer, Storage *storage) -> OldSnapshotFiles {
+                                        const std::string &current_snapshot_path, utils::FileRetainer *file_retainer,
+                                        Storage *storage) -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
@@ -10186,12 +10185,14 @@ auto SnapshotInfo::IsIncomplete() const -> bool {
          offset_metadata == 0 || offset_edge_batches == 0 || offset_vertex_batches == 0 || offset_ttl == 0;
 }
 
-std::optional<std::filesystem::path> CreateSnapshot(
-    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
-    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-    utils::UUID const &uuid, const memgraph::replication::ReplicationEpoch &epoch,
-    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
-    std::atomic_bool *abort_snapshot) {
+std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
+                                                    const std::filesystem::path &snapshot_directory,
+                                                    const std::filesystem::path &wal_directory,
+                                                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                                    utils::UUID const &uuid, std::string_view const epoch_id,
+                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                                                    utils::FileRetainer *file_retainer,
+                                                    std::atomic_bool *abort_snapshot) {
   utils::Timer timer;
 
   // Ensure that the storage directory exists.
@@ -10868,7 +10869,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid_str);
-    snapshot.WriteString(epoch.id());
+    snapshot.WriteString(epoch_id);
     snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                      : transaction->start_timestamp);  // Fallback to start ts
@@ -10963,8 +10964,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   snapshot.Finalize();
   spdlog::info("Snapshot creation successful!");
 
-  auto const old_snapshot_files =
-      EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid_str, file_retainer, storage);
+  auto const old_snapshot_files = EnsureRetentionCountSnapshotsExist(snapshot_directory, path, file_retainer, storage);
 
   // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&

@@ -14,7 +14,8 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
-#include "flags/run_time_configurable.hpp"
+
+#include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -32,7 +33,6 @@
 
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
-#include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
@@ -762,7 +762,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
 
-  bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
+  bool InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();
 
   StorageInfo GetBaseInfo() override;

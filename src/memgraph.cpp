@@ -56,6 +56,7 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
@@ -165,9 +166,9 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 // Cleans all folders and files that aren't necessary anymore
 void CleanDataDir(std::filesystem::path const &data_directory) {
   // Clean tmp folders from the data directory
-  // These tmp folders are used for storing snapshots and WALs received from main on replica and they should be deleted
-  // during the normal cluster functioning but if the node goes down, files will never be deleted, so we delete them
-  // immediately on the restart
+  // These tmp folders are used for storing snapshots and WALs received from main on replica and they should be
+  // deleted during the normal cluster functioning but if the node goes down, files will never be deleted, so we
+  // delete them immediately on the restart
   auto const mg_db_tmp = data_directory / "tmp";
   spdlog::trace("Deleting dir: {}", mg_db_tmp);
   memgraph::utils::DeleteDir(mg_db_tmp);

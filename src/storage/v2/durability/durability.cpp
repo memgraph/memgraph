@@ -128,19 +128,23 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
 }
 
 std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                                    const std::string_view uuid) {
+                                                                    const std::string_view uuid,
+                                                                    bool const delete_incomplete) {
   std::vector<SnapshotDurabilityInfo> snapshot_files;
   if (!utils::DirExists(snapshot_directory)) {
     spdlog::error("Snapshot directory {} doesn't exist", snapshot_directory);
     return snapshot_files;
   }
 
+  std::vector<std::filesystem::path> incomplete_snapshots;
+
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
     if (!ValidateDurabilityFile(item)) continue;
 
+    SnapshotInfo info;
     try {
-      auto info = ReadSnapshotInfo(item.path());
+      info = ReadSnapshotInfo(item.path());
       if (uuid.empty() || info.uuid == uuid) {
         snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.durable_timestamp);
       } else {
@@ -148,7 +152,16 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
       }
     } catch (const RecoveryFailure &e) {
       spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
+      if (delete_incomplete && info.IsIncomplete()) {
+        incomplete_snapshots.emplace_back(item.path());
+      }
     }
+  }
+
+  // FileRetainer is not needed because we are doing this only on startup and at
+  // that time no file should be used
+  for (auto const &incomplete_snp : incomplete_snapshots) {
+    utils::DeleteFile(incomplete_snp);
   }
 
   if (error_code) {
@@ -547,7 +560,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   auto *const epoch_history = &repl_storage_state.history;
   utils::Timer timer;
 
-  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
+  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_, "", true);
   MG_ASSERT(maybe_snapshot_files.has_value(), "Couldn't recover data because of the failure to read snapshot files");
 
   auto const &snapshot_files = *maybe_snapshot_files;

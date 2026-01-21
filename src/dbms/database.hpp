@@ -16,6 +16,7 @@
 
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
 
