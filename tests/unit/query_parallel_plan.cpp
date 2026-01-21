@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -210,6 +210,28 @@ TYPED_TEST(TestPlanner, MultiMatchCount) {
 
   CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops),
             ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+  DeleteListContent(&left_cartesian_ops);
+  DeleteListContent(&right_cartesian_ops);
+}
+
+TYPED_TEST(TestPlanner, MultiMatchCreateCount) {
+  LicenseWrapper license_wrapper;
+  // Test MATCH (b), (t) CREATE () RETURN count(*)
+  // Write operators should inhibit parallelization even with Cartesian joins
+  FakeDbAccessor dba;
+  auto count_agg = COUNT(nullptr, false);
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("b")), PATTERN(NODE("t"))), CREATE(PATTERN(NODE("x"))),
+                                            RETURN(NEXPR("count", count_agg))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Expect serial plan because CREATE inhibits parallelization
+  // The path from Aggregate through CreateNode to Cartesian to ScanAll is NOT read-only
+  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll()};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectCreateNode(),
+            ExpectAccumulate({}), ExpectAggregate({count_agg}, {}), ExpectProduce());
   DeleteListContent(&left_cartesian_ops);
   DeleteListContent(&right_cartesian_ops);
 }

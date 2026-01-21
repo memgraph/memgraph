@@ -158,6 +158,23 @@ class TestParallelExplain:
             plan, required_operators=["* ScanAll", "SetLabels"], forbidden_operators=["P ScanAll", "P Aggregate"]
         )
 
+    def test_write_with_cartesian_inhibits_parallel(self):
+        """
+        Corresponds to MultiMatchCreateCount
+        MATCH (b), (t) CREATE () RETURN count(*)
+        Expect: * ScanAll (Serial), Cartesian, CreateNode, NO Parallel operators
+        Write operators should inhibit parallelization even with Cartesian joins.
+        """
+        query = "USING PARALLEL EXECUTION MATCH (b), (t) CREATE () RETURN count(*)"
+        plan = self._get_explain_plan(query)
+        # Expect serial plan because CREATE inhibits parallelization
+        # The path from Aggregate through CreateNode to Cartesian to ScanAll is NOT read-only
+        self._verify_plan_contains(
+            plan,
+            required_operators=["* ScanAll", "Cartesian", "CreateNode"],
+            forbidden_operators=["P ScanAll", "P Aggregate"],
+        )
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))

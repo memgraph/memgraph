@@ -710,11 +710,18 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Helper function to find the Scan operator that produces the required symbols
   // This traces symbol dependencies backwards through operators
   // Returns true if a suitable Scan is found, false otherwise
+  // original_start: the original start of the search (used for IsPathReadOnly check to include
+  //                 operators before multi-input branches like Cartesian)
   bool FindScanForSymbols(LogicalOperator *start, const std::set<Symbol::Position_t> &required_symbols,
                           LogicalOperator *&target_scan, LogicalOperator *&scan_parent,
-                          std::vector<LogicalOperator *> &update_ops) {
+                          std::vector<LogicalOperator *> &update_ops, LogicalOperator *original_start = nullptr) {
     if (!start || !scan_parent) {
       return false;
+    }
+
+    // If original_start is not set, use start (first call)
+    if (!original_start) {
+      original_start = start;
     }
 
     target_scan = nullptr;
@@ -741,8 +748,9 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       // Check if this is a Scan that produces any of the symbols we're looking for
       if (utils::IsSubtype(*current, ScanAll::kType)) {
-        // Make sure the scan is read-only
-        if (!IsPathReadOnly(start, current)) {
+        // Make sure the path from the original start to this scan is read-only
+        // This includes operators before multi-input branches (like Cartesian)
+        if (!IsPathReadOnly(original_start, current)) {
           return target_scan != nullptr;
         }
         size_t found = ScanProducesSymbols(current, symbols_to_find);
@@ -900,39 +908,43 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<LogicalOperator *> update_ops;
         if (auto *union_op = dynamic_cast<Union *>(current)) {
           if (ConflictingOperators(union_op->right_op_.get())) break;
-          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
+          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+                                 original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
           if (ConflictingOperators(cartesian_op->right_op_.get())) break;
-          if (FindScanForSymbols(cartesian_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
+          if (FindScanForSymbols(cartesian_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+                                 original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
           if (ConflictingOperators(indexed_join_op->sub_branch_.get())) break;
           if (FindScanForSymbols(indexed_join_op->main_branch_.get(), symbols_to_find, found_scan, found_parent,
-                                 update_ops)) {
+                                 update_ops, original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
           if (ConflictingOperators(hash_join_op->right_op_.get())) break;
-          if (FindScanForSymbols(hash_join_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
+          if (FindScanForSymbols(hash_join_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+                                 original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
           if (ConflictingOperators(rollup_apply_op->list_collection_branch_.get())) break;
-          if (FindScanForSymbols(rollup_apply_op->input_.get(), symbols_to_find, found_scan, found_parent,
-                                 update_ops)) {
+          if (FindScanForSymbols(rollup_apply_op->input_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+                                 original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *union_op = dynamic_cast<Union *>(current)) {
           if (ConflictingOperators(union_op->right_op_.get())) break;
-          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops)) {
+          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+                                 original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
