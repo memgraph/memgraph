@@ -22,6 +22,7 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
 namespace memgraph::storage {
 namespace {
 
@@ -66,6 +67,7 @@ struct IndexItem {
   // locking because resizing the index requires exclusive access.
   synchronized_mg_vector_index_t mg_index;
   VectorIndexSpec spec;
+
   IndexItem(mg_vector_index_t &&index, VectorIndexSpec spec) : mg_index(std::move(index)), spec(std::move(spec)) {}
 };
 
@@ -91,6 +93,7 @@ struct VectorIndex::Impl {
 };
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
+
 VectorIndex::~VectorIndex() = default;
 
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
@@ -119,8 +122,8 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
 
   auto mg_vector_index = mg_vector_index_t::make(metric);
   if (!mg_vector_index) {
-    throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
-                                                   spec.index_name, mg_vector_index.error.what()));
+    throw query::VectorSearchException(fmt::format(
+        "Failed to create vector index {}, error message: {}", spec.index_name, mg_vector_index.error.what()));
   }
 
   if (!mg_vector_index.index.try_reserve(limits)) {
@@ -356,10 +359,14 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   for (const auto &[_, index_item] : pimpl->index_) {
     const auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index.ReadLock();
-    result.emplace_back(spec.index_name, spec.label_id, spec.property,
+    result.emplace_back(spec.index_name,
+                        spec.label_id,
+                        spec.property,
                         NameFromMetric(locked_index->metric().metric_kind()),
-                        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(),
-                        locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind()));
+                        static_cast<std::uint16_t>(locked_index->dimensions()),
+                        locked_index->capacity(),
+                        locked_index->size(),
+                        NameFromScalar(locked_index->metric().scalar_kind()));
   }
   return result;
 }
@@ -367,8 +374,9 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
 std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   std::vector<VectorIndexSpec> result;
   result.reserve(pimpl->index_.size());
-  std::ranges::transform(pimpl->index_, std::back_inserter(result),
-                         [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
+  std::ranges::transform(pimpl->index_, std::back_inserter(result), [](const auto &label_prop_index_item) {
+    return label_prop_index_item.second.spec;
+  });
   return result;
 }
 
@@ -436,7 +444,8 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(
-        vertex, static_cast<double>(result_keys[i].distance),
+        vertex,
+        static_cast<double>(result_keys[i].distance),
         std::abs(SimilarityFromDistance(locked_index->metric().metric_kind(), result_keys[i].distance)));
   }
 
@@ -688,16 +697,18 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue &value, Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   auto type = value.type();
+  if (type != PropertyValue::Type::VectorIndexId && type != PropertyValue::Type::List &&
+      type != PropertyValue::Type::Null) {
+    return;
+  }
   const auto vector = [&]() -> utils::small_vector<float> {
     switch (type) {
       case PropertyValue::Type::VectorIndexId:
         return value.ValueVectorIndexList();
       case PropertyValue::Type::List:
         return ListToVector(value);
-      case PropertyValue::Type::Null:
-        return {};
       default:
-        throw query::VectorSearchException("Property value must be a vector index id, a list of floats, or null.");
+        return {};
     }
   }();
 
