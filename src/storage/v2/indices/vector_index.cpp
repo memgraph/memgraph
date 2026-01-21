@@ -219,7 +219,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   if (it == pimpl->index_name_to_label_prop_.end()) {
     return false;
   }
-  const auto &label_prop = it->second;
+  const auto label_prop = it->second;
   auto &[mg_index, spec] = pimpl->index_.at(label_prop);
   auto locked_index = mg_index.MutableSharedLock();
 
@@ -694,7 +694,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
   }
 }
 
-void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue &value, Vertex *vertex,
+void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   auto type = value.type();
   if (type != PropertyValue::Type::VectorIndexId && type != PropertyValue::Type::List &&
@@ -712,12 +712,9 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue
     }
   }();
 
-  // If saved as VectorIndexId, it's surely a match.
   auto matches = [&](const VectorIndexRecoveryInfo &ri) {
-    return type == PropertyValue::Type::VectorIndexId ||
-           (ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id));
+    return ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id);
   };
-
   for (auto &ri : recovery_info_vec | rv::filter(matches)) {
     ri.index_entries[vertex->gid] = vector;
   }

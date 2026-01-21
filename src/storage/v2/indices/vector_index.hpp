@@ -102,7 +102,7 @@ struct VectorIndexRecovery {
   /// @param value The new property value.
   /// @param vertex The vertex with the changed property.
   /// @param recovery_info_vec The vector of recovery info to update.
-  static void UpdateOnSetProperty(PropertyId property, PropertyValue &value, Vertex *vertex,
+  static void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                   std::vector<VectorIndexRecoveryInfo> &recovery_info_vec);
 
  private:
@@ -139,6 +139,7 @@ class VectorIndex {
   using LabelToRemove = std::set<LabelId>;
   using PropertyToAbort = std::map<PropertyId, PropertyValue>;
   using AbortableInfo = std::map<Vertex *, std::tuple<LabelToAdd, LabelToRemove, PropertyToAbort>>;
+
   struct AbortProcessor {
     std::map<LabelId, std::vector<PropertyId>> l2p;
     std::map<PropertyId, std::vector<LabelId>> p2l;
