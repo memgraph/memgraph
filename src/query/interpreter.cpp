@@ -3001,9 +3001,6 @@ PreparedQuery PrepareCypherQuery(
             SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION_FALLBACK,
             R"(Parallel execution is not supported while using "asio" scheduler. Falling back to single threaded execution.)");
       }
-      spdlog::trace("Executing query with parallel execution using {} threads.", *parallel_execution);
-      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION,
-                                  "Parallel execution enabled.");
     } else {
       spdlog::trace("Query was not parallelized. Falling back to single threaded execution.");
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PARALLEL_EXECUTION_FALLBACK,
