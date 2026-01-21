@@ -33,6 +33,10 @@ on:
         type: string
         description: "The number of worker threads. If not set, number of nodes will be used instead."
         default: ""
+      storage-backup-dir-enabled:
+        description: "If enabled, .old dir will be used."
+        type: boolean
+        default: true
 
 
 env:
@@ -137,9 +141,9 @@ jobs:
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
             NEMESIS_SLEEP_SEC=$((90 * ${{ inputs.num-tenants }}))
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
           else
-            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --recovery-time 600 --nemesis-start-sleep 25"
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --recovery-time 600 --nemesis-start-sleep 25"
           fi
 
           ./run.sh test \

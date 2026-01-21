@@ -36,6 +36,10 @@ on:
         description: "The number of worker threads. If not set, number of nodes will be used instead."
         type: string
         default: "6"
+      storage-backup-dir-enabled:
+        description: "If enabled, .old dir will be used."
+        type: boolean
+        default: true
 
 
   schedule:
@@ -80,6 +84,7 @@ jobs:
       time-limit: ${{ matrix.mt && '7200' || '25200' }}
       num-tenants: ${{ matrix.mt && '3' || '1' }}
       concurrency: ""
+      storage-backup-dir-enabled: true
     secrets: inherit
 
   run-manual-jepsen-tests:
@@ -92,6 +97,7 @@ jobs:
       time-limit: ${{ inputs.time-limit-non-mt }}
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
+      storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -104,4 +110,5 @@ jobs:
       time-limit: ${{ inputs.time-limit-mt }}
       num-tenants: ${{ inputs.num-tenants }}
       concurrency: ${{ inputs.concurrency }}
+      storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
     secrets: inherit

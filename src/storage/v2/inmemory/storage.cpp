@@ -3195,6 +3195,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
 
+  std::string loaded_snapshot_uuid;
+
   try {
     spdlog::debug("Recovering from a snapshot {}", local_path);
     auto recovered_snapshot = storage::durability::LoadSnapshot(
@@ -3211,6 +3213,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
     auto const update_func =
         [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
@@ -3231,76 +3234,91 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     // Destroying current wal file
     wal_file_.reset();
 
+    auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
     constexpr std::string_view old_dir = ".old";
-    spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
-    std::error_code ec{};
-    auto const snapshot_old_dir = recovery_.snapshot_directory_ / old_dir;
-    // Clear old directory
-    if (std::filesystem::exists(snapshot_old_dir)) {
-      std::filesystem::remove_all(snapshot_old_dir);
-    }
-    // Recreate clean old directory
-    std::filesystem::create_directory(snapshot_old_dir, ec);
-    if (ec) {
-      spdlog::warn(
-          "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
-          ec.message());
-      return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
-    }
-    auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
-    // Clear old directory
-    if (std::filesystem::exists(wal_old_dir)) {
-      std::filesystem::remove_all(wal_old_dir);
-    }
-    // Recreate clean old directory
-    std::filesystem::create_directory(wal_old_dir, ec);
-    if (ec) {
-      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
-                   ec.message());
-      return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
-    }
 
-    // Move all snapshot files to the old directory
-    auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_);
-    for (const auto &snapshot_file : snapshot_files) {
-      auto const &snapshot_path = snapshot_file.path;
-      auto const &snapshot_uuid = snapshot_file.uuid;
-      spdlog::trace("Moving snapshot file {}", snapshot_path);
-      if (local_path != snapshot_path) {
-        file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
-      } else {
-        // Recovered snapshot
-        if (file_in_local_dir) {
-          // Used a snapshot for the local storage, back it up before updating the UUID
-          std::filesystem::copy_file(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename(),
-                                     ec);
-          if (ec) {
-            spdlog::warn(
-                "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
-                "manually. Err: {}",
-                ec.message());
-            return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
-          }
-        }
-        if (uuid() != snapshot_uuid) {
-          // Rewrite the UUID in the snapshot file
-          durability::OverwriteSnapshotUUID(local_path, uuid());
-        }
-        // Generate new name for the snapshot file
-        auto new_name = durability::MakeSnapshotName(recovered_snapshot.snapshot_info.durable_timestamp);
-        file_retainer_.RenameFile(local_path, recovery_.snapshot_directory_ / new_name);
+    // Move all previous snapshots and WAL files to .old dir
+    if (use_old_dir) {
+      spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
+      std::error_code ec{};
+      auto const snapshot_old_dir = recovery_.snapshot_directory_ / old_dir;
+      // Clear old directory
+      if (std::filesystem::exists(snapshot_old_dir)) {
+        std::filesystem::remove_all(snapshot_old_dir);
+      }
+      // Recreate clean old directory
+      std::filesystem::create_directory(snapshot_old_dir, ec);
+      if (ec) {
+        spdlog::warn(
+            "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
+            ec.message());
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
+      }
+      auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
+      // Clear old directory
+      if (std::filesystem::exists(wal_old_dir)) {
+        std::filesystem::remove_all(wal_old_dir);
+      }
+      // Recreate clean old directory
+      std::filesystem::create_directory(wal_old_dir, ec);
+      if (ec) {
+        spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
+                     ec.message());
+        return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
       }
     }
 
-    std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
-    auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_);
-
-    for (const auto &wal_file : wal_files) {
-      spdlog::trace("Moving WAL file {}", wal_file.path);
-      file_retainer_.RenameFile(wal_file.path, recovery_.wal_directory_ / old_dir / wal_file.path.filename());
+    // Move all snapshot files except the newest one to the old directory
+    auto const snapshot_files = utils::GetFilesFromDir(recovery_.snapshot_directory_);
+    for (const auto &snapshot_path : snapshot_files) {
+      // Delete file if old dir won't be used anymore
+      if (!use_old_dir) {
+        file_retainer_.DeleteFile(snapshot_path);
+        continue;
+      }
+      // Move to .old if enable_backup_dir is true
+      auto const new_path = recovery_.snapshot_directory_ / old_dir / snapshot_path.filename();
+      if (local_path != snapshot_path) {
+        spdlog::trace("Moving snapshot file {} to {}", snapshot_path, new_path);
+        file_retainer_.RenameFile(snapshot_path, new_path);
+      } else if (file_in_local_dir) {
+        spdlog::trace("Copying snapshot file {} to {}", snapshot_path, new_path);
+        // Used a snapshot for the local storage, back it up
+        std::error_code ec;
+        std::filesystem::copy_file(snapshot_path, new_path, ec);
+        if (ec) {
+          spdlog::warn(
+              "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
+              "manually. Err: {}",
+              ec.message());
+          return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
+        }
+      }
     }
+    std::error_code ec;
+    std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
 
+    // Move or delete all WAL files to the old directory
+    auto const wal_files = utils::GetFilesFromDir(recovery_.wal_directory_);
+    for (const auto &wal_path : wal_files) {
+      if (!use_old_dir) {
+        file_retainer_.DeleteFile(wal_path);
+      } else {
+        auto const new_path = recovery_.wal_directory_ / old_dir / wal_path.filename();
+        spdlog::trace("Moving WAL file {} to {}", wal_path, new_path);
+        file_retainer_.RenameFile(wal_path, new_path);
+      }
+    }
     std::filesystem::remove(recovery_.wal_directory_ / old_dir, ec);  // remove dir if empty
+
+    if (uuid() != loaded_snapshot_uuid) {
+      // Rewrite the UUID in the snapshot file
+      durability::OverwriteSnapshotUUID(local_path, uuid());
+    }
+    // Generate new name for the snapshot file
+    // Must be after moving to .old, otherwise you will move the file itself
+    auto new_name = durability::MakeSnapshotName(recovered_snapshot.snapshot_info.durable_timestamp);
+    file_retainer_.RenameFile(local_path, recovery_.snapshot_directory_ / new_name);
   } catch (const storage::durability::RecoveryFailure &e) {
     handler_error();
     throw utils::BasicException("Couldn't recover from the snapshot because of: {}", e.what());
