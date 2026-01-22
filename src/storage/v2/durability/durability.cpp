@@ -355,9 +355,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
+      indices->vector_index_.RecoverIndex(spec, vertices_acc, name_id_mapper, snapshot_info);
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(spec.label_id.AsUint()), name_id_mapper->IdToName(spec.property.AsUint()));
+                   name_id_mapper->IdToName(spec.spec.label_id.AsUint()), name_id_mapper->IdToName(spec.spec.property.AsUint()));
     }
     spdlog::info("Vector indices are recreated.");
   }

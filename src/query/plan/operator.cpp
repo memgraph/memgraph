@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1184,6 +1184,7 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
       case storage::PropertyValue::Type::Enum:
       case storage::PropertyValueType::Point2d:
       case storage::PropertyValueType::Point3d:
+      case storage::PropertyValueType::VectorIndexId:
         // Prevent indexed lookup with something that would fail if we did
         // the original filter with `operator<`. Note, for some reason,
         // Cypher does not support comparing boolean values.
