@@ -1,0 +1,27 @@
+# Personalized PageRank with source node A1 (id=1)
+# Values validated against NetworkX ground truth
+query: >
+  MATCH (source:Node {id: 1})
+  CALL cugraph.personalized_pagerank.get([source], [0.5]) YIELD node, pagerank
+  RETURN node.id AS node_id, pagerank
+  ORDER BY node_id ASC;
+
+output:
+  - node_id: 1
+    pagerank: 0.284796
+  - node_id: 2
+    pagerank: 0.317167
+  - node_id: 3
+    pagerank: 0.176682
+  - node_id: 4
+    pagerank: 0.0985585
+  - node_id: 5
+    pagerank: 0.00525594
+  - node_id: 6
+    pagerank: 0.012368
+  - node_id: 7
+    pagerank: 0.0185869
+  - node_id: 8
+    pagerank: 0.0313679
+  - node_id: 9
+    pagerank: 0.0552178
