@@ -1,4 +1,4 @@
-// Copyright 2026 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,7 +122,6 @@ class CartesianProduct {
     // Iterator interface says that dereferencing a past-the-end iterator is
     // undefined, so don't bother checking if we are done.
     reference operator*() const { return current_product_; }
-
     pointer operator->() const { return &current_product_; }
 
    private:
@@ -140,7 +139,6 @@ class CartesianProduct {
   };
 
   auto begin() { return iterator(this, false); }
-
   auto end() { return iterator(this, true); }
 
  private:
@@ -197,15 +195,11 @@ class VaryMatchingStart {
     iterator(VaryMatchingStart *, bool);
 
     iterator &operator++();
-
     reference operator*() const { return current_matching_; }
-
     pointer operator->() const { return &current_matching_; }
-
     bool operator==(const iterator &other) const {
       return self_ == other.self_ && start_atoms_it_ == other.start_atoms_it_;
     }
-
     bool operator!=(const iterator &other) const { return !(*this == other); }
 
    private:
@@ -222,7 +216,6 @@ class VaryMatchingStart {
   };
 
   auto begin() { return iterator(this, false); }
-
   auto end() { return iterator(this, true); }
 
  private:
@@ -259,13 +252,9 @@ class VaryQueryPartMatching {
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator);
 
     iterator &operator++();
-
     reference operator*() const { return current_query_part_; }
-
     pointer operator->() const { return &current_query_part_; }
-
     bool operator==(const iterator &) const;
-
     bool operator!=(const iterator &other) const { return !(*this == other); }
 
    private:
@@ -286,26 +275,13 @@ class VaryQueryPartMatching {
   };
 
   auto begin() {
-    return iterator(query_part_,
-                    matchings_.begin(),
-                    matchings_.end(),
-                    optional_matchings_.begin(),
-                    optional_matchings_.end(),
-                    merge_matchings_.begin(),
-                    merge_matchings_.end(),
-                    filter_matchings_.begin(),
-                    filter_matchings_.end());
+    return iterator(query_part_, matchings_.begin(), matchings_.end(), optional_matchings_.begin(),
+                    optional_matchings_.end(), merge_matchings_.begin(), merge_matchings_.end(),
+                    filter_matchings_.begin(), filter_matchings_.end());
   }
-
   auto end() {
-    return iterator(query_part_,
-                    matchings_.end(),
-                    matchings_.end(),
-                    optional_matchings_.end(),
-                    optional_matchings_.end(),
-                    merge_matchings_.end(),
-                    merge_matchings_.end(),
-                    filter_matchings_.end(),
+    return iterator(query_part_, matchings_.end(), matchings_.end(), optional_matchings_.end(),
+                    optional_matchings_.end(), merge_matchings_.end(), merge_matchings_.end(), filter_matchings_.end(),
                     filter_matchings_.end());
   }
 
@@ -357,8 +333,7 @@ class VariableStartPlanner {
 
         for (const auto &subquery : single_query_part.subqueries) {
           const auto subquery_results = ExtractSingleQueryParts(subquery);
-          results.insert(results.end(),
-                         std::make_move_iterator(subquery_results.begin()),
+          results.insert(results.end(), std::make_move_iterator(subquery_results.begin()),
                          std::make_move_iterator(subquery_results.end()));
         }
       }
@@ -394,8 +369,8 @@ class VariableStartPlanner {
   /// @brief Generate multiple plans by varying the order of graph traversal.
   auto Plan(const QueryParts &query_parts) {
     return iter::imap(
-        [context = context_, old_query_parts = query_parts, this](
-            const auto &alternative_query_parts) -> RuleBasedPlanner<TPlanningContext>::PlanResult {
+        [context = context_, old_query_parts = query_parts,
+         this](const auto &alternative_query_parts) -> RuleBasedPlanner<TPlanningContext>::PlanResult {
           uint64_t index = 0;
           auto reconstructed_query_parts = ReconstructQueryParts(old_query_parts, alternative_query_parts, index);
 
