@@ -175,9 +175,9 @@ void VectorEdgeIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Acces
                                                   const VectorEdgeIndexSpec &spec,
                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
-  // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-  PopulateVectorIndexSingleThreaded(
-      vertices, [&](Vertex &vertex) { TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info); });
+  PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+    TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);
+  });  // NOLINT(clang-analyzer-core.CallAndMessage)
 }
 
 void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
