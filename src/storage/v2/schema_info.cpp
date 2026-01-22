@@ -848,7 +848,10 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
   static constexpr bool InEdge = true;
   static constexpr bool OutEdge = !InEdge;
 
-  // Have to loop though edges and lock in order
+  // Copy edge lists while holding the lock to prevent data races with CreateEdge
+  // This gives us a snapshot of edges at this point in time
+  auto in_edges_copy = vertex->in_edges;
+  auto out_edges_copy = vertex->out_edges;
   v_lock.unlock();
 
   auto process = [&](auto &edge, const auto edge_dir) {
@@ -857,7 +860,8 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     auto *from_vertex = (edge_dir == InEdge) ? other_vertex : vertex;
     auto *to_vertex = (edge_dir == InEdge) ? vertex : other_vertex;
 
-    // We have a global schema lock here, so we can unlock/lock all objects without the worry they could change
+    // Lock both vertices in gid order
+    // We hold v_shared_lock but need to ensure correct ordering with other_vertex
     auto vlocks = SchemaInfo::ReadLockFromTo(from_vertex, to_vertex);
     auto edge_lock =
         properties_on_edges_ ? std::shared_lock{edge_ref.ptr->lock} : std::shared_lock<decltype(edge_ref.ptr->lock)>{};
@@ -882,10 +886,10 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     }
   };
 
-  for (const auto &edge : vertex->in_edges) {
+  for (const auto &edge : in_edges_copy) {
     process(edge, InEdge);
   }
-  for (const auto &edge : vertex->out_edges) {
+  for (const auto &edge : out_edges_copy) {
     process(edge, OutEdge);
   }
 }
