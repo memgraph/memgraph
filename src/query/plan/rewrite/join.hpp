@@ -56,7 +56,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
 
-    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
