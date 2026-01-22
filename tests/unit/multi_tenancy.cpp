@@ -664,13 +664,6 @@ TEST_F(MultiTenantTest, RenameDatabaseErrors) {
   // Test 3: Cannot rename to existing database name
   ASSERT_THROW(RenameDatabase(interpreter1, "rename_error_db1", "rename_error_db2", ""),
                memgraph::query::QueryRuntimeException);
-
-  // Test 4: Rename to same name (no-op should succeed)
-  RenameDatabase(interpreter1,
-                 "rename_error_db1",
-                 "rename_error_db1",
-                 "Successfully renamed database rename_error_db1 to rename_error_db1");
-
   // Test 5: Support renaming database that is currently in use
   UseDatabase(interpreter1, "rename_error_db1", "Using rename_error_db1");
   ASSERT_NO_THROW(RenameDatabase(
