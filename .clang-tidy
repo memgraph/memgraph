@@ -69,7 +69,7 @@ Checks: '*,
          -bugprone-nondeterministic-pointer-iteration-order'
 WarningsAsErrors: ''
 HeaderFilterRegex: '(^|/)(src|mage/cpp)/'
-ExcludeHeaderFilterRegex: '.*/_deps/.*'
+ExcludeHeaderFilterRegex: '.*/_deps/.*|.*/libs/.*'
 FormatStyle:     none
 CheckOptions:
   - key:             google-readability-braces-around-statements.ShortStatementLines

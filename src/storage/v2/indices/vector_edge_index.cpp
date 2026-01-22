@@ -21,19 +21,23 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
 namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
 // operations.
 using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t>;
 
+using SyncVectorEdgeIndex = utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>;
+
 struct EdgeTypeIndexItem {
   // unum::usearch::index_dense_gt is thread-safe and supports concurrent operations. However, we still need to use
-  // locking because resizing the index requires exclusive access. For all other operations, we can use shared lock even
-  // though we are modifying index. In the case of removing or adding elements to the index we will use
-  // MutableSharedLock to acquire an shared lock.
-  std::shared_ptr<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>> mg_index;
+  // locking because resizing the index requires exclusive access.
+  SyncVectorEdgeIndex mg_index;
   VectorEdgeIndexSpec spec;
+
+  EdgeTypeIndexItem(mg_vector_edge_index_t index, VectorEdgeIndexSpec spec)
+      : mg_index(std::move(index)), spec(std::move(spec)) {}
 };
 
 /// @brief Implements the underlying functionality of the `VectorIndex` class.
@@ -55,7 +59,6 @@ struct VectorEdgeIndex::Impl {
 namespace {
 
 using EdgeIndexEntry = VectorEdgeIndex::EdgeIndexEntry;
-using SyncVectorEdgeIndex = utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>;
 
 /// @brief Attempts to add all matching edges from a vertex to the vector index.
 /// Handles resize if the index is full.
@@ -98,6 +101,7 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
 }  // namespace
 
 VectorEdgeIndex::VectorEdgeIndex() : pimpl(std::make_unique<Impl>()) {}
+
 VectorEdgeIndex::~VectorEdgeIndex() = default;
 VectorEdgeIndex::VectorEdgeIndex(VectorEdgeIndex &&) noexcept = default;
 VectorEdgeIndex &VectorEdgeIndex::operator=(VectorEdgeIndex &&) noexcept = default;
@@ -146,8 +150,8 @@ void VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   auto mg_edge_index = mg_vector_edge_index_t::make(metric);
   if (!mg_edge_index) {
-    throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
-                                                   spec.index_name, mg_edge_index.error.what()));
+    throw query::VectorSearchException(fmt::format(
+        "Failed to create vector index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
   }
 
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
@@ -156,11 +160,7 @@ void VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
   }
 
   pimpl->index_name_to_edge_type_prop_.emplace(spec.index_name, edge_type_prop);
-  pimpl->edge_index_.emplace(
-      edge_type_prop,
-      EdgeTypeIndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>>(
-                            std::move(mg_edge_index)),
-                        .spec = spec});
+  pimpl->edge_index_.try_emplace(edge_type_prop, std::move(mg_edge_index), spec);
 
   spdlog::info("Created vector index {}", spec.index_name);
 }
@@ -176,7 +176,7 @@ void VectorEdgeIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Acces
                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
   PopulateVectorIndexSingleThreaded(
-      vertices, [&](Vertex &vertex) { TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info); });
+      vertices, [&](Vertex &vertex) { TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info); });
 }
 
 void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
@@ -184,7 +184,7 @@ void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Ac
                                                      std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
   PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
-    TryAddEdgesToIndex(*mg_index, mutable_spec, vertex, snapshot_info, thread_id);
+    TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info, thread_id);
   });
 }
 
@@ -211,7 +211,7 @@ bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypeProp
 
   const auto &property = value != nullptr ? *value : entry.edge->properties.GetProperty(edge_type_prop.property());
   auto vector = property.IsNull() ? utils::small_vector<float>{} : ListToVector(property);
-  storage::UpdateVectorIndex(*mg_index, spec, entry, vector);
+  storage::UpdateVectorIndex(mg_index, spec, entry, vector);
   return !vector.empty();
 }
 
@@ -221,7 +221,8 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
   if (std::ranges::any_of(pimpl->edge_index_ | rv::keys | rv::filter(has_property),
                           [&](const auto &edge_type_prop) { return edge_type_prop.edge_type() == edge_type; })) {
     UpdateVectorIndex({.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge},
-                      EdgeTypePropKey{edge_type, property}, &value);
+                      EdgeTypePropKey{edge_type, property},
+                      &value);
   }
 }
 
@@ -230,11 +231,15 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const 
   result.reserve(pimpl->edge_index_.size());
   for (const auto &[_, index_item] : pimpl->edge_index_) {
     const auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index->ReadLock();
-    result.emplace_back(spec.index_name, spec.edge_type_id, spec.property,
+    auto locked_index = mg_index.ReadLock();
+    result.emplace_back(spec.index_name,
+                        spec.edge_type_id,
+                        spec.property,
                         NameFromMetric(locked_index->metric().metric_kind()),
-                        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(),
-                        locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind()));
+                        static_cast<std::uint16_t>(locked_index->dimensions()),
+                        locked_index->capacity(),
+                        locked_index->size(),
+                        NameFromScalar(locked_index->metric().scalar_kind()));
   }
   return result;
 }
@@ -242,8 +247,9 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const 
 std::vector<VectorEdgeIndexSpec> VectorEdgeIndex::ListIndices() const {
   std::vector<VectorEdgeIndexSpec> result;
   result.reserve(pimpl->edge_index_.size());
-  r::transform(pimpl->edge_index_, std::back_inserter(result),
-               [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
+  r::transform(pimpl->edge_index_, std::back_inserter(result), [](const auto &label_prop_index_item) {
+    return label_prop_index_item.second.spec;
+  });
   return result;
 }
 
@@ -253,7 +259,7 @@ std::optional<uint64_t> VectorEdgeIndex::ApproximateEdgesVectorCount(EdgeTypeId 
     return std::nullopt;
   }
   auto &[mg_index, _] = it->second;
-  auto locked_index = mg_index->ReadLock();
+  auto locked_index = mg_index.ReadLock();
   return locked_index->size();
 }
 
@@ -270,7 +276,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   VectorSearchEdgeResults result;
   result.reserve(result_set_size);
 
-  auto locked_index = mg_index->ReadLock();
+  auto locked_index = mg_index.ReadLock();
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const EdgeIndexEntry &entry) {
         auto guard = std::shared_lock{entry.edge->lock};
@@ -279,7 +285,8 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &entry = static_cast<EdgeIndexEntry>(result_keys[i].member.key);
     result.emplace_back(
-        entry, static_cast<double>(result_keys[i].distance),
+        entry,
+        static_cast<double>(result_keys[i].distance),
         std::abs(SimilarityFromDistance(locked_index->metric().metric_kind(), result_keys[i].distance)));
   }
 
@@ -292,8 +299,8 @@ void VectorEdgeIndex::RestoreEntries(
   for (const auto &property_value_edge : prop_edges) {
     const auto &[property_value, edge_tuple] = property_value_edge;
     const auto &[from_vertex, to_vertex, edge] = edge_tuple;
-    UpdateVectorIndex({.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge}, edge_type_prop,
-                      &property_value);
+    UpdateVectorIndex(
+        {.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge}, edge_type_prop, &property_value);
   }
 }
 
@@ -304,7 +311,7 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
       return;
     }
     auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index->MutableSharedLock();
+    auto locked_index = mg_index.MutableSharedLock();
     std::vector<EdgeIndexEntry> edges_to_remove(locked_index->size());
     locked_index->export_keys(edges_to_remove.data(), 0, locked_index->size());
 
@@ -348,7 +355,7 @@ std::vector<float> VectorEdgeIndex::GetVectorFromEdge(Vertex *from_vertex, Verte
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
   auto &[mg_index, _] = pimpl->edge_index_.at(edge_type_prop->second);
-  auto locked_index = mg_index->ReadLock();
+  auto locked_index = mg_index.ReadLock();
   std::vector<float> vector(static_cast<std::size_t>(locked_index->dimensions()));
   const EdgeIndexEntry entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge};
   locked_index->get(entry, vector.data());

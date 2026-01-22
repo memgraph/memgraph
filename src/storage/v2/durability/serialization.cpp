@@ -276,17 +276,23 @@ void Encoder<FileType>::Finalize() {
 }
 
 template <typename FileType>
-void Encoder<FileType>::DisableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::DisableFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.DisableFlushing();
 }
 
 template <typename FileType>
-void Encoder<FileType>::EnableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::EnableFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.EnableFlushing();
 }
 
 template <typename FileType>
-void Encoder<FileType>::TryFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::TryFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.TryFlushing();
 }
 
@@ -613,7 +619,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       if (!size) return std::nullopt;
       utils::small_vector<std::string> vector_index_ids;
       vector_index_ids.reserve(*size);
-      for (auto i = 0; i < *size; ++i) {
+      for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = ReadString();
         if (!index_name) return std::nullopt;
         vector_index_ids.emplace_back(std::move(*index_name));
@@ -622,7 +628,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       if (!size) return std::nullopt;
       utils::small_vector<float> list;
       list.reserve(*size);
-      for (auto i = 0; i < *size; ++i) {
+      for (uint64_t i = 0; i < *size; ++i) {
         auto item = ReadDouble();
         if (!item) return std::nullopt;
         list.push_back(static_cast<float>(*item));
@@ -697,7 +703,7 @@ bool Decoder::SkipString() {
   auto maybe_size = ReadSize(this);
   if (!maybe_size) return false;
 
-  static constexpr uint64_t kBufferSize = 262144;
+  static constexpr uint64_t kBufferSize = 262'144;
   std::array<uint8_t, kBufferSize> buffer;  // intentionally uninitialized for performance
   uint64_t size = *maybe_size;
   while (size > 0) {
@@ -773,12 +779,12 @@ bool Decoder::SkipExternalPropertyValue() {
       if (!inner_marker || *inner_marker != Marker::TYPE_VECTOR_INDEX_ID) return false;
       auto size = ReadSize(this);
       if (!size) return false;
-      for (auto i = 0; i < *size; ++i) {
+      for (uint64_t i = 0; i < *size; ++i) {
         if (!SkipString()) return false;
       }
       size = ReadSize(this);
       if (!size) return false;
-      for (auto i = 0; i < *size; ++i) {
+      for (uint64_t i = 0; i < *size; ++i) {
         if (!ReadDouble()) return false;
       }
       return true;
