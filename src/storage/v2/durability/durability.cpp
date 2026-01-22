@@ -151,9 +151,15 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
     } catch (const RecoveryFailure &e) {
-      spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
-      if (delete_incomplete && info.IsIncomplete()) {
-        incomplete_snapshots.emplace_back(item.path());
+      if (info.IsIncomplete()) {
+        if (delete_incomplete) {
+          incomplete_snapshots.emplace_back(item.path());
+        } else {
+          // No need to log spdlog::error for the current snapshot file
+          spdlog::info("Skipping {}, snapshot in progress", item.path());
+        }
+      } else {
+        spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
       }
     }
   }
@@ -197,9 +203,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       auto info = ReadWalInfo(item.path());
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
-          "{}, "
-          "sequence "
-          "number {}.",
+          "{}, sequence number {}.",
           item.path(),
           info.uuid,
           info.epoch_id,
