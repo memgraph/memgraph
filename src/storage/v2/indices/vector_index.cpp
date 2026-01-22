@@ -201,12 +201,8 @@ void VectorIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor 
                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
   PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
-    TryAddVertexToIndex(mg_index,
-                        mutable_spec,
-                        vertex,
-                        snapshot_info,
-                        name_id_mapper,
-                        std::nullopt);  // NOLINT(clang-analyzer-core.CallAndMessage)
+    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+    TryAddVertexToIndex(mg_index, mutable_spec, vertex, snapshot_info, name_id_mapper, std::nullopt);
   });
 }
 
