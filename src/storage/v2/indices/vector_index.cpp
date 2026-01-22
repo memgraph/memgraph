@@ -146,6 +146,7 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
   SetupIndex(spec);
   auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
 
+  // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
   auto process_vertex_for_recovery = [&mg_index, &mutable_spec, &recovery_entries, &snapshot_info, name_id_mapper](
                                          Vertex &vertex, std::optional<std::size_t> thread_id) {
     const auto index_id = name_id_mapper->NameToId(mutable_spec.index_name);
@@ -199,6 +200,7 @@ void VectorIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor 
                                               NameIdMapper *name_id_mapper,
                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
+  // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
   PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
     TryAddVertexToIndex(mg_index, mutable_spec, vertex, snapshot_info, name_id_mapper, std::nullopt);
   });
@@ -209,6 +211,7 @@ void VectorIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Access
                                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
   PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
+    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
     TryAddVertexToIndex(mg_index, mutable_spec, vertex, snapshot_info, name_id_mapper, std::optional{thread_id});
   });
 }
@@ -460,8 +463,9 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     }
     auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index.MutableSharedLock();
-    std::vector<Vertex *> vertices_to_remove(locked_index->size());
-    locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
+    const auto index_size = locked_index->size();
+    std::vector<Vertex *> vertices_to_remove(index_size);
+    locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
 
     auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
     for (const auto &vertex : deleted) {

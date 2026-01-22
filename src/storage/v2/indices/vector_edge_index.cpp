@@ -175,6 +175,7 @@ void VectorEdgeIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Acces
                                                   const VectorEdgeIndexSpec &spec,
                                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
+  // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
   PopulateVectorIndexSingleThreaded(
       vertices, [&](Vertex &vertex) { TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info); });
 }
@@ -183,6 +184,7 @@ void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Ac
                                                      const VectorEdgeIndexSpec &spec,
                                                      std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
+  // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
   PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
     TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info, thread_id);
   });
@@ -312,8 +314,9 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
     }
     auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index.MutableSharedLock();
-    std::vector<EdgeIndexEntry> edges_to_remove(locked_index->size());
-    locked_index->export_keys(edges_to_remove.data(), 0, locked_index->size());
+    const auto index_size = locked_index->size();
+    std::vector<EdgeIndexEntry> edges_to_remove(index_size);
+    locked_index->export_keys(edges_to_remove.data(), 0, index_size);
 
     auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
                      auto guard = std::shared_lock{entry.edge->lock};

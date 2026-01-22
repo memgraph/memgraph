@@ -1547,7 +1547,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     edge.ptr->properties.SetBuffer(properties);
   }
 
-  ModifiedEdgeInfo modified_edge(
+  const ModifiedEdgeInfo modified_edge(
       Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
   if (transaction->AddModifiedEdge(gid, modified_edge)) {
     spdlog::trace("Edge {} added to out edges of vertex with gid {}", gid.ToString(), from_vertex->gid.AsUint());

@@ -9593,10 +9593,11 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
             properties.emplace_back(get_property_from_id(*property));
           }
 
-          AddRecoveredIndexConstraint(
-              &indices_constraints.indices.text_indices,
-              TextIndexSpec{index_name.value(), get_label_from_id(*label), std::move(properties)},
-              "The text index already exists!");
+          AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
+                                      TextIndexSpec{.index_name = index_name.value(),
+                                                    .label = get_label_from_id(*label),
+                                                    .properties = std::move(properties)},
+                                      "The text index already exists!");
           SPDLOG_TRACE("Recovered metadata of text index {} for :{}",
                        index_name.value(),
                        name_id_mapper->IdToName(snapshot_id_map.at(*label)));

@@ -11,6 +11,7 @@
 
 #include "storage/v2/property_store.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -2491,9 +2492,8 @@ bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) con
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
-  transform(property_map.begin(), property_map.end(), back_inserter(all_property_values), [](const auto &kv_entry) {
-    return kv_entry.second;
-  });
+  std::ranges::transform(
+      property_map, std::back_inserter(all_property_values), [](const auto &kv_entry) { return kv_entry.second; });
 
   return std::all_of(
       property_values.begin(), property_values.end(), [&all_property_values](const PropertyValue &value) {
