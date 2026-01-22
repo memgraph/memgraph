@@ -22,21 +22,14 @@
 #include <optional>
 #include <system_error>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 
 #include "auth/auth.hpp"
 #include "constants.hpp"
 #include "dbms/database.hpp"
-#include "dbms/inmemory/replication_handlers.hpp"
-#include "dbms/rpc.hpp"
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/transaction.hpp"
-#include "system/system.hpp"
-#include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
 #endif
 #include "dbms/database_protector.hpp"
@@ -315,6 +308,7 @@ class DbmsHandler {
   }
 
   auto ReplicationState() { return repl_state_.Lock(); }
+
   auto ReplicationState() const { return repl_state_.ReadLock(); }
 
   /**
