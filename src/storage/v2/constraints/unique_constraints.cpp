@@ -13,10 +13,10 @@
 
 namespace memgraph::storage {
 
-void UniqueConstraints::AbortProcessor::Collect(Vertex const *vertex) {
+void UniqueConstraints::ValidationProcessor::Collect(Vertex const *vertex) {
   for (const auto &label : vertex->labels) {
-    auto it = abortable_info_.find(label);
-    if (it == abortable_info_.end()) {
+    auto it = validation_info_.find(label);
+    if (it == validation_info_.end()) {
       continue;
     }
 

@@ -340,10 +340,9 @@ class DiskStorage final : public Storage {
                                                                                          PropertyId property) override;
 
     std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> CreateUniqueConstraint(
-        LabelId label, const std::set<PropertyId> &properties) override;
+        LabelId label, SortedPropertyIds const &properties) override;
 
-    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
-                                                           const std::set<PropertyId> &properties) override;
+    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label, SortedPropertyIds const &properties) override;
 
     std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) override;
@@ -572,7 +571,7 @@ class DiskStorage final : public Storage {
       LabelId label, PropertyId property) const;
 
   [[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>
-  CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) const;
+  CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label, SortedPropertyIds const &properties) const;
 
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelIndex(LabelId label);
 

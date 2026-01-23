@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <set>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
@@ -1922,6 +1923,112 @@ TEST(PropertyStore, DecodeExpectedPropertyType) {
     EXPECT_EQ(type2.type, PropertyValue::Type::Enum);
     EXPECT_EQ(type2.enum_type, EnumTypeId{5});
   }
+}
+
+//==============================================================================
+// ExtractPropertyValues span overload tests
+//==============================================================================
+
+TEST(PropertyStore, ExtractPropertyValuesSpan_ExtractSingleProperty) {
+  PropertyStore store;
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+
+  std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue("value1")},
+      {p2, PropertyValue(42)},
+  };
+  EXPECT_TRUE(store.InitProperties(data));
+
+  // Extract single property using span
+  std::vector<PropertyId> props = {p1};
+  auto result = store.ExtractPropertyValues(std::span<PropertyId const>{props});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->size(), 1);
+  EXPECT_EQ((*result)[0], PropertyValue("value1"));
+}
+
+TEST(PropertyStore, ExtractPropertyValuesSpan_ExtractMultiplePropertiesInOrder) {
+  PropertyStore store;
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue("value1")},
+      {p2, PropertyValue(42)},
+      {p3, PropertyValue(3.14)},
+  };
+  EXPECT_TRUE(store.InitProperties(data));
+
+  // Extract multiple properties in sorted order
+  std::vector<PropertyId> props = {p1, p2, p3};
+  auto result = store.ExtractPropertyValues(std::span<PropertyId const>{props});
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->size(), 3);
+  EXPECT_EQ((*result)[0], PropertyValue("value1"));
+  EXPECT_EQ((*result)[1], PropertyValue(42));
+  EXPECT_EQ((*result)[2], PropertyValue(3.14));
+}
+
+TEST(PropertyStore, ExtractPropertyValuesSpan_ReturnsNulloptWhenPropertyMissing) {
+  PropertyStore store;
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue("value1")},
+      {p3, PropertyValue(3.14)},
+  };
+  EXPECT_TRUE(store.InitProperties(data));
+
+  // Try to extract with a missing property (p2)
+  std::vector<PropertyId> props = {p1, p2, p3};
+  auto result = store.ExtractPropertyValues(std::span<PropertyId const>{props});
+  EXPECT_FALSE(result.has_value());
+}
+
+TEST(PropertyStore, ExtractPropertyValuesSpan_WorksWithSortedPropertyIds) {
+  PropertyStore store;
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue("value1")},
+      {p2, PropertyValue(42)},
+      {p3, PropertyValue(3.14)},
+  };
+  EXPECT_TRUE(store.InitProperties(data));
+
+  // Create SortedPropertyIds from a set (guarantees sorted order)
+  std::set<PropertyId> prop_set = {p1, p2, p3};
+  SortedPropertyIds sorted_props{prop_set};
+
+  // Use implicit conversion to span
+  auto result = store.ExtractPropertyValues(sorted_props.as_span());
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(result->size(), 3);
+  EXPECT_EQ((*result)[0], PropertyValue("value1"));
+  EXPECT_EQ((*result)[1], PropertyValue(42));
+  EXPECT_EQ((*result)[2], PropertyValue(3.14));
+}
+
+TEST(PropertyStore, ExtractPropertyValuesSpan_EmptySpanReturnsEmptyVector) {
+  PropertyStore store;
+  auto const p1 = PropertyId::FromInt(1);
+
+  std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, PropertyValue("value1")},
+  };
+  EXPECT_TRUE(store.InitProperties(data));
+
+  // Extract with empty span
+  std::vector<PropertyId> props;
+  auto result = store.ExtractPropertyValues(std::span<PropertyId const>{props});
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->empty());
 }
 
 //==============================================================================

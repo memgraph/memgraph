@@ -46,7 +46,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   struct MultipleThreadsConstraintValidation {
     auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties,
+                    SortedPropertyIds const &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
 
@@ -56,7 +56,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   struct SingleThreadConstraintValidation {
     auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties,
+                    SortedPropertyIds const &properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
   };
@@ -74,7 +74,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
 
-  using Container = std::map<LabelId, std::map<std::set<PropertyId>, IndividualConstraintPtr>>;
+  using Container = std::map<LabelId, std::map<SortedPropertyIds, IndividualConstraintPtr>>;
 
   using ContainerPtr = std::shared_ptr<Container const>;
 
@@ -85,12 +85,12 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     explicit ActiveConstraints(ContainerPtr snapshot = std::make_shared<Container>())
         : container_{std::move(snapshot)} {}
 
-    auto ListConstraints(uint64_t start_timestamp) const
-        -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
-    void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
-    auto GetAbortProcessor() const -> AbortProcessor override;
-    void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
-    void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
+    auto ListConstraints(uint64_t start_timestamp) const -> std::vector<std::pair<LabelId, SortedPropertyIds>> override;
+
+    auto GetValidationProcessor() const -> ValidationProcessor override;
+    auto ValidateAndCommitEntries(ValidationInfo &&info, uint64_t start_timestamp, const Transaction *tx,
+                                  uint64_t commit_timestamp) -> std::expected<void, ConstraintViolation> override;
+    void AbortEntries(ValidationInfo &&info, uint64_t exact_start_timestamp) override;
     bool empty() const override;
 
     // Unique constraints are validated at commit time via UpdateBeforeCommit(),
@@ -117,23 +117,16 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
+  auto CreateConstraint(LabelId label, SortedPropertyIds const &properties,
                         const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                         const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt)
       -> std::expected<CreationStatus, ConstraintViolation>;
 
   /// Publishes a constraint after validation, making it visible at the given commit timestamp.
-  bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
+  bool PublishConstraint(LabelId label, SortedPropertyIds const &properties, uint64_t commit_timestamp);
 
-  auto DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DeletionStatus override;
-
-  /// Validates the given vertex against unique constraints before committing.
-  /// This method should be called while commit lock is active with
-  /// `commit_timestamp` being a potential commit timestamp of the transaction.
-  /// @throw std::bad_alloc
-  auto Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
-                uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
+  auto DropConstraint(LabelId label, SortedPropertyIds const &properties) -> DeletionStatus override;
 
   /// GC method that removes outdated entries from constraints' storages.
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, const std::stop_token &token);
@@ -148,7 +141,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   void RunGC();
 
  private:
-  auto GetIndividualConstraint(const LabelId label, const std::set<PropertyId> &properties) const
+  auto GetIndividualConstraint(const LabelId label, SortedPropertyIds const &properties) const
       -> IndividualConstraintPtr;
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
 };

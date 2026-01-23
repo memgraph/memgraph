@@ -864,12 +864,12 @@ class DbAccessor final {
   }
 
   std::expected<storage::UniqueConstraints::CreationStatus, storage::StorageUniqueConstraintDefinitionError>
-  CreateUniqueConstraint(storage::LabelId label, const std::set<storage::PropertyId> &properties) {
+  CreateUniqueConstraint(storage::LabelId label, storage::SortedPropertyIds const &properties) {
     return accessor_->CreateUniqueConstraint(label, properties);
   }
 
   storage::UniqueConstraints::DeletionStatus DropUniqueConstraint(storage::LabelId label,
-                                                                  const std::set<storage::PropertyId> &properties) {
+                                                                  storage::SortedPropertyIds const &properties) {
     return accessor_->DropUniqueConstraint(label, properties);
   }
 

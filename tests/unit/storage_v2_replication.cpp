@@ -560,7 +560,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto read_only_access = main.db.ReadOnlyAccess();
     ASSERT_EQ(read_only_access->DropUniqueConstraint(
                   main.db.storage()->NameToLabel(label),
-                  {main.db.storage()->NameToProperty(property), main.db.storage()->NameToProperty(property_extra)}),
+                  memgraph::storage::SortedPropertyIds{main.db.storage()->NameToProperty(property),
+                                                       main.db.storage()->NameToProperty(property_extra)}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_TRUE(read_only_access->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,13 +73,18 @@ class PropertyStore {
   /// complexity of this function is O(n^2).
   bool HasAllProperties(const std::set<PropertyId> &properties) const;
 
+  /// Checks whether all properties in the span exist in the store. The time
+  /// complexity of this function is O(n^2).
+  bool HasAllProperties(std::span<PropertyId const> properties) const;
+
   /// Checks whether all property values in the vector `property_values` exist in the store. The time
   /// complexity of this function is O(n^2).
   bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const;
 
-  /// Extracts property values for all property ids in the set `properties`. The time
-  /// complexity of this function is O(n).
-  std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;
+  /// Extracts property values for all property ids in the span `sorted_properties`.
+  /// Properties must be sorted. Returns nullopt if ANY property is missing.
+  /// The time complexity of this function is O(n).
+  std::optional<std::vector<PropertyValue>> ExtractPropertyValues(std::span<PropertyId const> sorted_properties) const;
 
   /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
   /// represented by Null. The time complexity of this function is O(n).
