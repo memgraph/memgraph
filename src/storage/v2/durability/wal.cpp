@@ -512,12 +512,11 @@ template <typename T>
 auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
 
 template <typename T>
-concept IsReadSkip = requires {
-  typename T::ctr_types;
-};
+concept IsReadSkip = requires { typename T::ctr_types; };
 
 template <bool is_read, typename T>
-requires(std::is_enum_v<T>) auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+  requires(std::is_enum_v<T>)
+auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<is_read, T, void> {
   using underlying_type = std::underlying_type_t<T>;
   if constexpr (is_read) {
@@ -574,8 +573,7 @@ auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
     // see [dcl.init.list] 9.4.5.4
     // Ordering of these constructor argument calls is well defined
     return T{Decode<true>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version)...};
-  }
-  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 template <typename T>
@@ -584,8 +582,7 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
 
   [&]<auto... I>(std::index_sequence<I...>) {
     (Decode<false>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version), ...);
-  }
-  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 // Function used to either read or skip the current WAL delta data. The WAL
@@ -600,7 +597,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
   auto action = decoder->ReadMarker();
   if (!action) throw RecoveryFailure(kInvalidWalErrorMessage);
 
-    // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define read_skip(enum_val, decode_to)                     \
   case Marker::DELTA_##enum_val: {                         \
     if constexpr (read_data) {                             \
@@ -832,7 +829,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       // entire WAL file writing logic.
       auto property_value = vertex->properties.GetProperty(delta.property.key);
       if (property_value.IsVectorIndexId()) {
-        property_value.ValueVectorIndexList() = storage->indices_.vector_index_.GetVectorProperty(
+        property_value.ValueVectorIndexList() = storage->indices_.vector_index_.GetVectorPropertyFromIndex(
             vertex, storage->name_id_mapper_->IdToName(property_value.ValueVectorIndexIds()[0]));
       }
       encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
@@ -970,8 +967,8 @@ std::optional<RecoveryInfo> LoadWal(
 
   // Check timestamp.
   if (last_applied_delta_timestamp && info.to_timestamp <= *last_applied_delta_timestamp) {
-    spdlog::info("Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp,
-                 *last_applied_delta_timestamp);
+    spdlog::info(
+        "Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp, *last_applied_delta_timestamp);
     return std::nullopt;
   }
 
@@ -1017,8 +1014,8 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        VectorIndexRecovery::UpdateOnLabelAddition(label_id, &*vertex, name_id_mapper,
-                                                   indices_constraints->indices.vector_indices);
+        VectorIndexRecovery::UpdateOnLabelAddition(
+            label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1033,8 +1030,8 @@ std::optional<RecoveryInfo> LoadWal(
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        VectorIndexRecovery::UpdateOnLabelRemoval(label_id, &*vertex, name_id_mapper,
-                                                  indices_constraints->indices.vector_indices);
+        VectorIndexRecovery::UpdateOnLabelRemoval(
+            label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1046,8 +1043,8 @@ std::optional<RecoveryInfo> LoadWal(
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        VectorIndexRecovery::UpdateOnSetProperty(property_id, property_value, &*vertex,
-                                                 indices_constraints->indices.vector_indices);
+        VectorIndexRecovery::UpdateOnSetProperty(
+            property_id, property_value, &*vertex, indices_constraints->indices.vector_indices);
         vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {
@@ -1170,8 +1167,13 @@ std::optional<RecoveryInfo> LoadWal(
           });
 
           const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
-          schema_info->SetProperty(edge_type, from_vertex, to_vertex, property_id, ExtendedPropertyType{property_value},
-                                   old_type, items.properties_on_edges);
+          schema_info->SetProperty(edge_type,
+                                   from_vertex,
+                                   to_vertex,
+                                   property_id,
+                                   ExtendedPropertyType{property_value},
+                                   old_type,
+                                   items.properties_on_edges);
         }
 
         edge->properties.SetProperty(property_id, property_value);
@@ -1191,34 +1193,38 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalEdgeTypeIndexCreate const &data) {
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
-                                    "The edge-type index already exists!");
+        AddRecoveredIndexConstraint(
+            &indices_constraints->indices.edge, edge_type_id, "The edge-type index already exists!");
       },
       [&](WalEdgeTypeIndexDrop const &data) {
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
-                                       "The edge-type index doesn't exist!");
+        RemoveRecoveredIndexConstraint(
+            &indices_constraints->indices.edge, edge_type_id, "The edge-type index doesn't exist!");
       },
       [&](WalEdgeTypePropertyIndexCreate const &data) {
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.edge_type_property, {edge_type_id, property_id},
+        AddRecoveredIndexConstraint(&indices_constraints->indices.edge_type_property,
+                                    {edge_type_id, property_id},
                                     "The edge-type + property index already exists!");
       },
       [&](WalEdgeTypePropertyIndexDrop const &data) {
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_type_property, {edge_type_id, property_id},
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_type_property,
+                                       {edge_type_id, property_id},
                                        "The edge-type + property index doesn't exist!");
       },
       [&](WalEdgePropertyIndexCreate const &data) {
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {property_id},
+        AddRecoveredIndexConstraint(&indices_constraints->indices.edge_property,
+                                    {property_id},
                                     "The global edge property index already exists!");
       },
       [&](WalEdgePropertyIndexDrop const &data) {
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {property_id},
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_property,
+                                       {property_id},
                                        "The global edge property index doesn't exist!");
       },
       [&](WalLabelIndexStatsSet const &data) {
@@ -1231,31 +1237,35 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelIndexStatsClear const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        RemoveRecoveredIndexStats(&indices_constraints->indices.label_stats, label_id,
-                                  "The label index stats doesn't exist!");
+        RemoveRecoveredIndexStats(
+            &indices_constraints->indices.label_stats, label_id, "The label index stats doesn't exist!");
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
-        AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
+        AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties,
+                                    {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties,
+                                       {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
       [&](WalPointIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.point_label_property, {label_id, property_id},
+        AddRecoveredIndexConstraint(&indices_constraints->indices.point_label_property,
+                                    {label_id, property_id},
                                     "The label property index already exists!");
       },
       [&](WalPointIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.point_label_property, {label_id, property_id},
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.point_label_property,
+                                       {label_id, property_id},
                                        "The label property index doesn't exist!");
       },
       [&](WalLabelPropertyIndexStatsSet const &data) {
@@ -1270,8 +1280,8 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexStatsClear const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        RemoveRecoveredIndexStats(&indices_constraints->indices.label_property_stats, label_id,
-                                  "The label index stats doesn't exist!");
+        RemoveRecoveredIndexStats(
+            &indices_constraints->indices.label_property_stats, label_id, "The label index stats doesn't exist!");
       },
       [&](WalTextIndexCreate const &data) {
         const auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1303,13 +1313,15 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalExistenceConstraintCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        AddRecoveredIndexConstraint(&indices_constraints->constraints.existence, {label_id, property_id},
+        AddRecoveredIndexConstraint(&indices_constraints->constraints.existence,
+                                    {label_id, property_id},
                                     "The existence constraint already exists!");
       },
       [&](WalExistenceConstraintDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        RemoveRecoveredIndexConstraint(&indices_constraints->constraints.existence, {label_id, property_id},
+        RemoveRecoveredIndexConstraint(&indices_constraints->constraints.existence,
+                                       {label_id, property_id},
                                        "The existence constraint doesn't exist!");
       },
       [&](WalUniqueConstraintCreate const &data) {
@@ -1318,7 +1330,8 @@ std::optional<RecoveryInfo> LoadWal(
         for (const auto &prop : data.properties) {
           property_ids.insert(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
         }
-        AddRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
+        AddRecoveredIndexConstraint(&indices_constraints->constraints.unique,
+                                    {label_id, property_ids},
                                     "The unique constraint already exists!");
       },
       [&](WalUniqueConstraintDrop const &data) {
@@ -1327,20 +1340,21 @@ std::optional<RecoveryInfo> LoadWal(
         for (const auto &prop : data.properties) {
           property_ids.insert(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
         }
-        RemoveRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
-                                       "The unique constraint doesn't exist!");
+        RemoveRecoveredIndexConstraint(
+            &indices_constraints->constraints.unique, {label_id, property_ids}, "The unique constraint doesn't exist!");
       },
       [&](WalTypeConstraintCreate const &data) {
         auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        AddRecoveredIndexConstraint(&indices_constraints->constraints.type, {label, property, data.kind},
+        AddRecoveredIndexConstraint(&indices_constraints->constraints.type,
+                                    {label, property, data.kind},
                                     "The type constraint already exists!");
       },
       [&](WalTypeConstraintDrop const &data) {
         auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        RemoveRecoveredIndexConstraint(&indices_constraints->constraints.type, {label, property, data.kind},
-                                       "The type constraint doesn't exist!");
+        RemoveRecoveredIndexConstraint(
+            &indices_constraints->constraints.type, {label, property, data.kind}, "The type constraint doesn't exist!");
       },
       [&](WalEnumCreate &data) {
         auto res = enum_store->RegisterEnum(std::move(data.etype), std::move(data.evalues));
@@ -1409,13 +1423,18 @@ std::optional<RecoveryInfo> LoadWal(
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
-        indices_constraints->indices.vector_edge_indices.emplace_back(
-            data.index_name, edge_type_id, property_id, unum_metric_kind, data.dimension, data.resize_coefficient,
-            data.capacity, scalar_kind);
+        indices_constraints->indices.vector_edge_indices.emplace_back(data.index_name,
+                                                                      edge_type_id,
+                                                                      property_id,
+                                                                      unum_metric_kind,
+                                                                      data.dimension,
+                                                                      data.resize_coefficient,
+                                                                      data.capacity,
+                                                                      scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
-        VectorIndexRecovery::UpdateOnIndexDrop(data.index_name, name_id_mapper,
-                                               indices_constraints->indices.vector_indices, vertex_acc);
+        VectorIndexRecovery::UpdateOnIndexDrop(
+            data.index_name, name_id_mapper, indices_constraints->indices.vector_indices, vertex_acc);
         indices_constraints->indices.vector_edge_indices.erase(
             r::remove_if(indices_constraints->indices.vector_edge_indices,
                          [&](const auto &recovery_info) { return recovery_info.index_name == data.index_name; }),
@@ -1479,7 +1498,8 @@ std::optional<RecoveryInfo> LoadWal(
   spdlog::info(
       "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
       "abort txn but deltas were already made durable.",
-      deltas_applied, info.num_deltas - deltas_applied);
+      deltas_applied,
+      info.num_deltas - deltas_applied);
 
   return ret;
 }

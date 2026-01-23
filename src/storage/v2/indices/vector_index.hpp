@@ -195,7 +195,7 @@ class VectorIndex {
   /// @param vertex The vertex to retrieve the vector from.
   /// @param index_name The name of the index to retrieve the vector from.
   /// @return The vector of the vertex as a list of float values.
-  utils::small_vector<float> GetVectorProperty(Vertex *vertex, std::string_view index_name) const;
+  utils::small_vector<float> GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name) const;
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.

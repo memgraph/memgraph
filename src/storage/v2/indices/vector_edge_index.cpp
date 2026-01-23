@@ -47,12 +47,11 @@ struct EdgeTypeIndexItem {
 struct VectorEdgeIndex::Impl {
   /// The `index_` member is a map that associates a `EdgeTypePropKey` (a combination of edge type and property)
   /// with the pair of a IndexItem.
-  /// std::map<EdgeTypePropKey, EdgeTypeIndexItem> edge_index_;
   std::map<EdgeTypePropKey, EdgeTypeIndexItem, std::less<>> edge_index_;
 
   /// The `index_name_to_edge_type_prop_` is a map that maps an index name (as a string) to the corresponding
   /// `EdgeTypePropKey`. This allows the system to quickly resolve an index name to the spec
-  /// associated with that index, enabling easy lookup and management of indexes by name.
+  /// associated with that index.
   std::map<std::string, EdgeTypePropKey, std::less<>> index_name_to_edge_type_prop_;
 };
 

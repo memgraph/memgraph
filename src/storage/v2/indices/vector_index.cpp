@@ -45,13 +45,12 @@ struct IndexItem {
 /// the interface of `VectorIndex` from its implementation
 struct VectorIndex::Impl {
   /// The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
-  /// with the pair of a IndexItem. We use unordered_map because IndexItem contains a non-movable
-  /// Synchronized wrapper (mutex can't be moved), and unordered_map stores elements in nodes.
+  /// with the pair of a IndexItem.
   std::unordered_map<LabelPropKey, IndexItem> index_;
 
   /// The `index_name_to_label_prop_` is a map that maps an index name (as a string) to the corresponding
   /// `LabelPropKey`. This allows the system to quickly resolve an index name to the spec
-  /// associated with that index, enabling easy lookup and management of indexes by name.
+  /// associated with that index.
   std::map<std::string, LabelPropKey, std::less<>> index_name_to_label_prop_;
 };
 
@@ -111,8 +110,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   auto &recovery_entries = recovery_info.index_entries;
   SetupIndex(spec);
   auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
-  auto process_vertex_for_recovery = [&, this](
-                                         Vertex &vertex, VectorIndexSpec &spec, std::optional<std::size_t> thread_id) {
+  auto process_vertex_for_recovery = [&](Vertex &vertex, VectorIndexSpec &spec, std::optional<std::size_t> thread_id) {
     if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
       UpdateVectorIndex(mg_index, spec, &vertex, std::move(it->second), thread_id);
     } else {
@@ -132,9 +130,8 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
 }
 
 void VectorIndex::CleanupFailedIndex(const VectorIndexSpec &spec) {
-  const auto label_prop = LabelPropKey{spec.label_id, spec.property};
   pimpl->index_name_to_label_prop_.erase(spec.index_name);
-  pimpl->index_.erase(label_prop);
+  pimpl->index_.erase({spec.label_id, spec.property});
 }
 
 void VectorIndex::TryAddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, NameIdMapper *name_id_mapper,
@@ -150,7 +147,7 @@ void VectorIndex::TryAddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, Nam
     if (property.IsVectorIndexId()) {
       auto &ids = property.ValueVectorIndexIds();
       ids.push_back(name_id_mapper->NameToId(spec.index_name));
-      return GetVectorProperty(&vertex, name_id_mapper->IdToName(ids[0]));
+      return GetVectorPropertyFromIndex(&vertex, name_id_mapper->IdToName(ids[0]));
     }
     return ListToVector(property);
   }();
@@ -189,7 +186,6 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
       } else {
         vertex.properties.SetProperty(label_prop.property(), vector_property);
       }
-      locked_index->remove(&vertex);
     }
   }
   pimpl->index_.erase(label_prop);
@@ -220,7 +216,8 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *
     // Get vector from existing property
     auto vector_property = [&]() {
       if (old_property_value.IsVectorIndexId()) {
-        return GetVectorProperty(vertex, name_id_mapper->IdToName(old_property_value.ValueVectorIndexIds()[0]));
+        return GetVectorPropertyFromIndex(vertex,
+                                          name_id_mapper->IdToName(old_property_value.ValueVectorIndexIds()[0]));
       }
       if (old_property_value.IsAnyList()) {
         return ListToVector(old_property_value);
@@ -293,7 +290,7 @@ void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, std::string_view index_n
   UpdateVectorIndex(mg_index, spec, vertex, {});
 }
 
-utils::small_vector<float> VectorIndex::GetVectorProperty(Vertex *vertex, std::string_view index_name) const {
+utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name) const {
   auto it = pimpl->index_name_to_label_prop_.find(index_name);
   if (it == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));

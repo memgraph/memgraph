@@ -53,7 +53,7 @@ std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, V
   auto vector_index_ids =
       storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property, storage->name_id_mapper_.get());
   if (vector_index_ids.empty()) return std::nullopt;
-  return ConvertToVectorIndexProperty(value, std::move(vector_index_ids));
+  return PropertyValue(std::move(vector_index_ids), ListToVector(value));
 }
 }  // namespace
 
@@ -387,7 +387,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       old_value = vertex->properties.GetProperty(property);
       if (old_value.IsVectorIndexId()) {
         // vector is stored in the index
-        auto old_value_vector = storage_->indices_.vector_index_.GetVectorProperty(
+        auto old_value_vector = storage_->indices_.vector_index_.GetVectorPropertyFromIndex(
             vertex, storage_->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds()[0]));
         if (skip_duplicate_write && old_value_vector == new_value.ValueVectorIndexList()) return true;
         old_value.ValueVectorIndexList() = std::move(old_value_vector);
@@ -559,7 +559,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     }
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       if (new_value.IsVectorIndexId()) {
-        auto old_value_vector = storage->indices_.vector_index_.GetVectorProperty(
+        auto old_value_vector = storage->indices_.vector_index_.GetVectorPropertyFromIndex(
             vertex, storage->name_id_mapper_->IdToName(new_value.ValueVectorIndexIds()[0]));
         if (skip_duplicate_update && old_value_vector == new_value.ValueVectorIndexList()) continue;
         if (old_value.IsVectorIndexId()) {
@@ -655,7 +655,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 
     auto prop_value = vertex_->properties.GetProperty(property);
     if (prop_value.IsVectorIndexId()) {
-      prop_value.ValueVectorIndexList() = storage_->indices_.vector_index_.GetVectorProperty(
+      prop_value.ValueVectorIndexList() = storage_->indices_.vector_index_.GetVectorPropertyFromIndex(
           vertex_, storage_->name_id_mapper_->IdToName(prop_value.ValueVectorIndexIds()[0]));
     }
     return prop_value;
@@ -722,7 +722,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
-  // TODO(@DavIvek): add vector index id logic here
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
