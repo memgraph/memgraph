@@ -142,27 +142,21 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
     if (!ValidateDurabilityFile(item)) continue;
 
-    SnapshotInfo info;
     try {
-      info = ReadSnapshotInfo(item.path());
+      auto info = ReadSnapshotInfo(item.path());
       if (uuid.empty() || info.uuid == uuid) {
         snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.durable_timestamp);
       } else {
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
-    } catch (const RecoveryFailure &e) {
-      // TODO: (andi) This is wrong because the ReadSnapshotInfo will throw and exception hence you're using the locally
-      // defined one
-      if (info.IsIncomplete()) {
-        if (delete_incomplete) {
-          incomplete_snapshots.emplace_back(item.path());
-        } else {
-          // No need to log spdlog::error for the current snapshot file
-          spdlog::info("Skipping {}, snapshot in progress", item.path());
-        }
+    } catch (IncompleteSnapshotFailure const &e) {
+      if (delete_incomplete) {
+        incomplete_snapshots.emplace_back(item.path());
       } else {
-        spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
+        spdlog::info("Skipping {}, snapshot in progress", item.path());
       }
+    } catch (const RecoveryFailure &e) {
+      spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
     }
   }
 
