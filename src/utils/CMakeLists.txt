@@ -35,6 +35,8 @@ target_sources(mg-utils
     resource_monitoring.cpp
     safe_string.cpp
     disk_utils.cpp
+    consolidated_scheduler.cpp
+    timer_backend.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -51,6 +53,8 @@ target_sources(mg-utils
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
+    consolidated_scheduler.hpp
+    timer_backend.hpp
     barrier.hpp
     transparent_compare.hpp
     compile_time.hpp
