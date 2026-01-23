@@ -52,6 +52,7 @@ namespace memgraph::dbms {
 class SnapshotObserver final : public utils::Observer<void> {
  public:
   explicit SnapshotObserver(slk::Builder *res_builder) : res_builder_(res_builder) {}
+
   void Update() override {
     auto guard = std::lock_guard{mtx_};
     rpc::SendInProgressMsg(res_builder_);
@@ -211,7 +212,9 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
 
 void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
                   std::string_view rpc_req) {
-  spdlog::error("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+  spdlog::error("Received {} with main_id: {} != current_main_uuid: {}",
+                rpc_req,
+                std::string(main_req_id),
                 current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
 }
 
@@ -223,46 +226,60 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, request_version, req_reader,
-                                                      res_builder);
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto *res_builder) {
+        InMemoryReplicationHandlers::HeartbeatHandler(
+            dbms_handler, data.uuid_, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
       [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
-                                                          res_builder);
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto *res_builder) {
+        InMemoryReplicationHandlers::PrepareCommitHandler(
+            dbms_handler, data.uuid_, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
       [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
-                                                           res_builder);
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto *res_builder) {
+        InMemoryReplicationHandlers::FinalizeCommitHandler(
+            dbms_handler, data.uuid_, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
       [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for SnapshotHandler");
-        InMemoryReplicationHandlers::SnapshotHandler(*file_replication_handler, dbms_handler, data.uuid_,
-                                                     request_version, req_reader, res_builder);
+        InMemoryReplicationHandlers::SnapshotHandler(
+            *file_replication_handler, dbms_handler, data.uuid_, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
       [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for WalFilesHandler");
-        InMemoryReplicationHandlers::WalFilesHandler(*file_replication_handler, dbms_handler, data.uuid_,
-                                                     request_version, req_reader, res_builder);
+        InMemoryReplicationHandlers::WalFilesHandler(
+            *file_replication_handler, dbms_handler, data.uuid_, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
       [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handle not prepared for CurrentWalHandler");
-        InMemoryReplicationHandlers::CurrentWalHandler(*file_replication_handler, dbms_handler, data.uuid_,
-                                                       request_version, req_reader, res_builder);
+        InMemoryReplicationHandlers::CurrentWalHandler(
+            *file_replication_handler, dbms_handler, data.uuid_, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto *res_builder) {
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, request_version, req_reader, res_builder);
       });
 }
@@ -340,8 +357,8 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     return std::string{storage->repl_storage_state_.epoch_.id()};
   });
 
-  const storage::replication::HeartbeatRes res{true, commit_info.ldt_, last_epoch_with_commit,
-                                               commit_info.num_committed_txns_};
+  const storage::replication::HeartbeatRes res{
+      true, commit_info.ldt_, last_epoch_with_commit, commit_info.num_committed_txns_};
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 }
 
@@ -408,8 +425,12 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
-  auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
-                                                /*two_phase_commit*/ req.two_phase_commit, /*loading_wal*/ false);
+  auto deltas_res = ReadAndApplyDeltasSingleTxn(storage,
+                                                &decoder,
+                                                storage::durability::kVersion,
+                                                res_builder,
+                                                /*two_phase_commit*/ req.two_phase_commit,
+                                                /*loading_wal*/ false);
 
   storage::replication::PrepareCommitRes res{false};
   if (deltas_res) {
@@ -455,7 +476,8 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   if (req.durability_commit_timestamp != two_pc_cache_.durability_commit_timestamp_) {
     spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
-                 req.durability_commit_timestamp, two_pc_cache_.durability_commit_timestamp_);
+                 req.durability_commit_timestamp,
+                 two_pc_cache_.durability_commit_timestamp_);
     storage::replication::FinalizeCommitRes const res(true);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -561,7 +583,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
+    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0},
+                           request_version,
+                           res_builder,
                            fmt::format("db: {}", storage->name()));
     return;
   }
@@ -571,7 +595,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
-      rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
+      rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0},
+                             request_version,
+                             res_builder,
                              fmt::format("db: {}", storage->name()));
       return;
     }
@@ -588,10 +614,17 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     try {
       spdlog::debug("Loading snapshot for db {}.", storage->name());
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
-          dst_snapshot_file, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
-          &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
-          storage->config_, &storage->enum_store_,
-          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr, &storage->ttl_,
+          dst_snapshot_file,
+          &storage->vertices_,
+          &storage->edges_,
+          &storage->edges_metadata_,
+          &storage->repl_storage_state_.history,
+          storage->name_id_mapper_.get(),
+          &storage->edge_count_,
+          storage->config_,
+          &storage->enum_store_,
+          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
+          &storage->ttl_,
           snapshot_observer_info);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
@@ -608,14 +641,21 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
-      RecoverIndicesStatsAndConstraints(&storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_,
-                                        &storage->constraints_, storage->config_, recovery_info, indices_constraints,
-                                        storage->config_.salient.items.properties_on_edges, snapshot_observer_info);
+      RecoverIndicesStatsAndConstraints(&storage->vertices_,
+                                        storage->name_id_mapper_.get(),
+                                        &storage->indices_,
+                                        &storage->constraints_,
+                                        storage->config_,
+                                        recovery_info,
+                                        indices_constraints,
+                                        storage->config_.salient.items.properties_on_edges,
+                                        snapshot_observer_info);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
           "preserved so you can restore your data by restarting instance.",
-          dst_snapshot_file, e.what());
+          dst_snapshot_file,
+          e.what());
       storage->Clear();
       const storage::replication::SnapshotRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
@@ -649,8 +689,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       return;
     }
     auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-    MoveDurabilityFiles(snapshots_to_process, backup_snapshot_dir, curr_wal_files, backup_wal_dir,
-                        &(storage->file_retainer_));
+    MoveDurabilityFiles(
+        snapshots_to_process, backup_snapshot_dir, curr_wal_files, backup_wal_dir, &(storage->file_retainer_));
   } else {
     DeleteFiles(snapshots_to_process, &storage->file_retainer_);
     DeleteFiles(curr_wal_files, &storage->file_retainer_);
@@ -714,8 +754,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
-        rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder,
-                               storage->name());
+        rpc::SendFinalResponse(
+            storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder, storage->name());
         return;
       }
 
@@ -755,7 +795,10 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-  ProcessOldDurableFiles(req.reset_needed, storage->recovery_.snapshot_directory_, current_wal_directory, old_wal_files,
+  ProcessOldDurableFiles(req.reset_needed,
+                         storage->recovery_.snapshot_directory_,
+                         current_wal_directory,
+                         old_wal_files,
                          &storage->file_retainer_);
 }
 
@@ -841,7 +884,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
       load_wal_res.num_txns_committed};
 
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-  ProcessOldDurableFiles(req.reset_needed, storage->recovery_.snapshot_directory_, current_wal_directory, old_wal_files,
+  ProcessOldDurableFiles(req.reset_needed,
+                         storage->recovery_.snapshot_directory_,
+                         current_wal_directory,
+                         old_wal_files,
                          &storage->file_retainer_);
 }
 
@@ -860,7 +906,13 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 
   std::optional<storage::durability::WalInfo> maybe_wal_info;
   try {
-    maybe_wal_info.emplace(storage::durability::ReadWalInfo(wal_path));
+    auto wal_info = storage::durability::ReadWalInfo(wal_path);
+    if (wal_info.num_deltas != 0) {
+      maybe_wal_info.emplace(std::move(wal_info));
+    } else {
+      spdlog::info("Received WAL file doesn't have deltas, nothing to load");
+      return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+    }
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
@@ -915,9 +967,13 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   uint64_t num_txns_committed{0};
   for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
     // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
-    auto const deltas_res =
-        ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*two_phase_commit*/ false,
-                                    /*loading_wal*/ true, local_batch_counter);
+    auto const deltas_res = ReadAndApplyDeltasSingleTxn(storage,
+                                                        &wal_decoder,
+                                                        *version,
+                                                        res_builder,
+                                                        /*two_phase_commit*/ false,
+                                                        /*loading_wal*/ true,
+                                                        local_batch_counter);
     if (deltas_res) {
       local_delta_idx += deltas_res->current_delta_idx;
       local_batch_counter = deltas_res->current_batch_counter;
@@ -1098,8 +1154,12 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto const edge_gid = data.gid.AsUint();
           auto const from_vertex_gid = data.from_vertex.AsUint();
           auto const to_vertex_gid = data.to_vertex.AsUint();
-          spdlog::trace("   Delta {}. Create edge {} of type {} from vertex {} to vertex {}", current_delta_idx,
-                        edge_gid, data.edge_type, from_vertex_gid, to_vertex_gid);
+          spdlog::trace("   Delta {}. Create edge {} of type {} from vertex {} to vertex {}",
+                        current_delta_idx,
+                        edge_gid,
+                        data.edge_type,
+                        from_vertex_gid,
+                        to_vertex_gid);
           auto *transaction = get_replication_accessor(delta_timestamp);
           auto from_vertex = transaction->FindVertex(data.from_vertex, View::NEW);
           if (!from_vertex) {
@@ -1109,19 +1169,23 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!to_vertex) {
             throw utils::BasicException("Failed to find vertex {} when adding edge {}.", to_vertex_gid, edge_gid);
           }
-          auto edge = transaction->CreateEdgeEx(&*from_vertex, &*to_vertex, transaction->NameToEdgeType(data.edge_type),
-                                                data.gid);
+          auto edge = transaction->CreateEdgeEx(
+              &*from_vertex, &*to_vertex, transaction->NameToEdgeType(data.edge_type), data.gid);
           if (!edge) {
-            throw utils::BasicException("Failed to add edge {} between vertices {} and {}.", edge_gid, from_vertex_gid,
-                                        to_vertex_gid);
+            throw utils::BasicException(
+                "Failed to add edge {} between vertices {} and {}.", edge_gid, from_vertex_gid, to_vertex_gid);
           }
         },
         [&](WalEdgeDelete const &data) {
           auto const edge_gid = data.gid.AsUint();
           auto const from_vertex_gid = data.from_vertex.AsUint();
           auto const to_vertex_gid = data.to_vertex.AsUint();
-          spdlog::trace("   Delta {}. Delete edge {} of type {} from vertex {} to vertex {}", current_delta_idx,
-                        edge_gid, data.edge_type, from_vertex_gid, to_vertex_gid);
+          spdlog::trace("   Delta {}. Delete edge {} of type {} from vertex {} to vertex {}",
+                        current_delta_idx,
+                        edge_gid,
+                        data.edge_type,
+                        from_vertex_gid,
+                        to_vertex_gid);
           auto *transaction = get_replication_accessor(delta_timestamp);
           auto from_vertex = transaction->FindVertex(data.from_vertex, View::NEW);
           if (!from_vertex) {
@@ -1137,8 +1201,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Couldn't find edge {} when deleting edge.", edge_gid);
           }
           if (auto ret = transaction->DeleteEdge(&*edge); !ret.has_value()) {
-            throw utils::BasicException("Failed to delete edge {} between vertices {} and {}.", edge_gid,
-                                        from_vertex_gid, to_vertex_gid);
+            throw utils::BasicException(
+                "Failed to delete edge {} between vertices {} and {}.", edge_gid, from_vertex_gid, to_vertex_gid);
           }
         },
         [&](WalEdgeSetProperty const &data) {
@@ -1168,28 +1232,28 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               is_visible = !edge->deleted;
               local_delta = edge->delta;
             }
-            ApplyDeltasForRead(&transaction->GetTransaction(), local_delta, View::NEW,
-                               [&is_visible](const Delta &delta) {
-                                 switch (delta.action) {
-                                   case Delta::Action::ADD_LABEL:
-                                   case Delta::Action::REMOVE_LABEL:
-                                   case Delta::Action::SET_PROPERTY:
-                                   case Delta::Action::ADD_IN_EDGE:
-                                   case Delta::Action::ADD_OUT_EDGE:
-                                   case Delta::Action::REMOVE_IN_EDGE:
-                                   case Delta::Action::REMOVE_OUT_EDGE:
-                                     break;
-                                   case Delta::Action::RECREATE_OBJECT: {
-                                     is_visible = true;
-                                     break;
-                                   }
-                                   case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                                   case Delta::Action::DELETE_OBJECT: {
-                                     is_visible = false;
-                                     break;
-                                   }
-                                 }
-                               });
+            ApplyDeltasForRead(
+                &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
+                  switch (delta.action) {
+                    case Delta::Action::ADD_LABEL:
+                    case Delta::Action::REMOVE_LABEL:
+                    case Delta::Action::SET_PROPERTY:
+                    case Delta::Action::ADD_IN_EDGE:
+                    case Delta::Action::ADD_OUT_EDGE:
+                    case Delta::Action::REMOVE_IN_EDGE:
+                    case Delta::Action::REMOVE_OUT_EDGE:
+                      break;
+                    case Delta::Action::RECREATE_OBJECT: {
+                      is_visible = true;
+                      break;
+                    }
+                    case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                    case Delta::Action::DELETE_OBJECT: {
+                      is_visible = false;
+                      break;
+                    }
+                  }
+                });
             if (!is_visible) {
               throw utils::BasicException("Edge {} isn't visible when setting property.", edge_gid);
             }
@@ -1213,8 +1277,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                 return std::get<2>(in) == raw_edge_ref;
               });
               if (found_edge == from_vertex->out_edges.end()) {
-                throw utils::BasicException("Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid,
-                                            from_vertex->gid.AsUint());
+                throw utils::BasicException(
+                    "Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid, from_vertex->gid.AsUint());
               }
               const auto &[edge_type, vertex_to, edge_ref] = *found_edge;
               return std::tuple{edge_ref, edge_type, &*from_vertex, vertex_to};
@@ -1223,8 +1287,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             auto found_edge = storage->FindEdge(edge->gid);
             if (!found_edge) {
               constexpr auto src_loc{std::source_location()};
-              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(),
-                                          src_loc.line());
+              throw utils::BasicException(
+                  "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
             }
             const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
             return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
@@ -1237,8 +1301,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTransactionStart const &data) {
-          spdlog::trace("   Delta {}. Transaction start. Commit txn: {}, Access type: {}", current_delta_idx,
-                        data.commit, data.access_type ? static_cast<uint64_t>(*data.access_type) : -1);
+          spdlog::trace("   Delta {}. Transaction start. Commit txn: {}, Access type: {}",
+                        current_delta_idx,
+                        data.commit,
+                        data.access_type ? static_cast<uint64_t>(*data.access_type) : -1);
 
           if (loading_wal) {
             // This only gets used when loading a WAL from main
@@ -1307,23 +1373,27 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalLabelPropertyIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
+          spdlog::trace("   Delta {}. Create label+property index on :{} ({})",
+                        current_delta_idx,
+                        data.label,
                         data.composite_property_paths);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
           if (!transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)))
-            throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
-                                        data.composite_property_paths);
+            throw utils::BasicException(
+                "Failed to create label+property index on :{} ({}).", data.label, data.composite_property_paths);
         },
         [&](WalLabelPropertyIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
+          spdlog::trace("   Delta {}. Drop label+property index on :{} ({})",
+                        current_delta_idx,
+                        data.label,
                         data.composite_property_paths);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
 
           if (!transaction->DropIndex(storage->NameToLabel(data.label), std::move(property_paths))) {
-            throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
-                                        data.composite_property_paths);
+            throw utils::BasicException(
+                "Failed to drop label+property index on :{} ({}).", data.label, data.composite_property_paths);
           }
         },
         [&](WalLabelPropertyIndexStatsSet const &data) {
@@ -1363,8 +1433,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
                    .has_value()) {
-            throw utils::BasicException("Failed to create edge property index on :{}({}).", data.edge_type,
-                                        data.property);
+            throw utils::BasicException(
+                "Failed to create edge property index on :{}({}).", data.edge_type, data.property);
           }
         },
         [&](WalEdgeTypePropertyIndexDrop const &data) {
@@ -1372,8 +1442,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
                    .has_value()) {
-            throw utils::BasicException("Failed to drop edge property index on :{}({}).", data.edge_type,
-                                        data.property);
+            throw utils::BasicException(
+                "Failed to drop edge property index on :{}({}).", data.edge_type, data.property);
           }
         },
         [&](WalEdgePropertyIndexCreate const &data) {
@@ -1399,8 +1469,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             }
             return {};
           });
-          spdlog::trace("   Delta {}. Create text search index {} on :{}{}", current_delta_idx, data.index_name,
-                        data.label, properties_str);
+          spdlog::trace("   Delta {}. Create text search index {} on :{}{}",
+                        current_delta_idx,
+                        data.index_name,
+                        data.label,
+                        properties_str);
           auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
             if (!data.properties) {
               return {};
@@ -1423,16 +1496,19 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             }
             return {};
           });
-          spdlog::trace("   Delta {}. Create text search index {} on :{}{}", current_delta_idx, data.index_name,
-                        data.edge_type, properties_str);
+          spdlog::trace("   Delta {}. Create text search index {} on :{}{}",
+                        current_delta_idx,
+                        data.index_name,
+                        data.edge_type,
+                        properties_str);
           auto prop_ids = data.properties |
                           rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
                           r::to_vector;
           const auto ret =
               transaction->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids});
           if (!ret) {
-            throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name,
-                                        data.edge_type);
+            throw utils::BasicException(
+                "Failed to create text search index {} on {}.", data.index_name, data.edge_type);
           }
         },
         [&](WalTextIndexDrop const &data) {
@@ -1443,19 +1519,19 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalExistenceConstraintCreate const &data) {
-          spdlog::trace("   Delta {}. Create existence constraint on :{} ({})", current_delta_idx, data.label,
-                        data.property);
+          spdlog::trace(
+              "   Delta {}. Create existence constraint on :{} ({})", current_delta_idx, data.label, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto ret = transaction->CreateExistenceConstraint(storage->NameToLabel(data.label),
                                                             storage->NameToProperty(data.property));
           if (!ret) {
-            throw utils::BasicException("Failed to create existence constraint on :{} ({}).", data.label,
-                                        data.property);
+            throw utils::BasicException(
+                "Failed to create existence constraint on :{} ({}).", data.label, data.property);
           }
         },
         [&](WalExistenceConstraintDrop const &data) {
-          spdlog::trace("   Delta {}. Drop existence constraint on :{} ({})", current_delta_idx, data.label,
-                        data.property);
+          spdlog::trace(
+              "   Delta {}. Drop existence constraint on :{} ({})", current_delta_idx, data.label, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (!transaction
                    ->DropExistenceConstraint(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
@@ -1492,27 +1568,37 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTypeConstraintCreate const &data) {
-          spdlog::trace("   Delta {}. Create IS TYPED {} constraint on :{} ({})", current_delta_idx,
-                        storage::TypeConstraintKindToString(data.kind), data.label, data.property);
+          spdlog::trace("   Delta {}. Create IS TYPED {} constraint on :{} ({})",
+                        current_delta_idx,
+                        storage::TypeConstraintKindToString(data.kind),
+                        data.label,
+                        data.property);
 
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateTypeConstraint(storage->NameToLabel(data.label),
-                                                       storage->NameToProperty(data.property), data.kind);
+          auto ret = transaction->CreateTypeConstraint(
+              storage->NameToLabel(data.label), storage->NameToProperty(data.property), data.kind);
           if (!ret) {
             throw utils::BasicException("Failed to create IS TYPED {} constraint on :{} ({}).",
-                                        TypeConstraintKindToString(data.kind), data.label, data.property);
+                                        TypeConstraintKindToString(data.kind),
+                                        data.label,
+                                        data.property);
           }
         },
         [&](WalTypeConstraintDrop const &data) {
-          spdlog::trace("   Delta {}. Drop IS TYPED {} constraint on :{} ({})", current_delta_idx,
-                        TypeConstraintKindToString(data.kind), data.label, data.property);
+          spdlog::trace("   Delta {}. Drop IS TYPED {} constraint on :{} ({})",
+                        current_delta_idx,
+                        TypeConstraintKindToString(data.kind),
+                        data.label,
+                        data.property);
 
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->DropTypeConstraint(storage->NameToLabel(data.label),
-                                                     storage->NameToProperty(data.property), data.kind);
+          auto ret = transaction->DropTypeConstraint(
+              storage->NameToLabel(data.label), storage->NameToProperty(data.property), data.kind);
           if (!ret) {
             throw utils::BasicException("Failed to drop IS TYPED {} constraint on :{} ({}).",
-                                        TypeConstraintKindToString(data.kind), data.label, data.property);
+                                        TypeConstraintKindToString(data.kind),
+                                        data.label,
+                                        data.property);
           }
         },
         [&](WalEnumCreate const &data) {
@@ -1534,13 +1620,16 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalEnumAlterUpdate const &data) {
-          spdlog::trace("   Delta {}. Alter enum {} update {} to {}", current_delta_idx, data.etype, data.evalue_old,
+          spdlog::trace("   Delta {}. Alter enum {} update {} to {}",
+                        current_delta_idx,
+                        data.etype,
+                        data.evalue_old,
                         data.evalue_new);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto res = transaction->EnumAlterUpdate(data.etype, data.evalue_old, data.evalue_new);
           if (!res) {
-            throw utils::BasicException("Failed to alter enum {} update {} to {}.", data.etype, data.evalue_old,
-                                        data.evalue_new);
+            throw utils::BasicException(
+                "Failed to alter enum {} update {} to {}.", data.etype, data.evalue_old, data.evalue_new);
           }
         },
         [&](WalPointIndexCreate const &data) {
@@ -1587,8 +1676,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalVectorEdgeIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create vector index on :{}({})", current_delta_idx, data.edge_type,
-                        data.property);
+          spdlog::trace(
+              "   Delta {}. Create vector index on :{}({})", current_delta_idx, data.edge_type, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto edgeType = storage->NameToEdgeType(data.edge_type);
           auto propId = storage->NameToProperty(data.property);

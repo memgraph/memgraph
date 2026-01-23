@@ -151,6 +151,8 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
     } catch (const RecoveryFailure &e) {
+      // TODO: (andi) This is wrong because the ReadSnapshotInfo will throw and exception hence you're using the locally
+      // defined one
       if (info.IsIncomplete()) {
         if (delete_incomplete) {
           incomplete_snapshots.emplace_back(item.path());
@@ -181,7 +183,8 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           const std::string_view uuid,
-                                                          const std::optional<size_t> current_seq_num) {
+                                                          const std::optional<size_t> current_seq_num,
+                                                          bool const delete_empty) {
   std::vector<WalDurabilityInfo> wal_files;
 
   if (!utils::DirExists(wal_directory)) {
@@ -194,8 +197,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
   // actual current wal will be skipped
 
   std::error_code error_code;
+  std::vector<std::filesystem::path> wals_to_delete;
 
-  // TODO: (andi) Inefficient to use I/O again, you already read infos.
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!ValidateDurabilityFile(item)) continue;
 
@@ -210,7 +213,14 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
           info.from_timestamp,
           info.to_timestamp,
           info.seq_num);
-      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
+
+      if (info.num_deltas == 0) {
+        if (delete_empty) {
+          wals_to_delete.emplace_back(item.path());
+        } else {
+          spdlog::trace("WAL file {} without deltas, skipping it", item.path());
+        }
+      } else if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num,
                                info.from_timestamp,
                                info.to_timestamp,
@@ -229,6 +239,13 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read WAL file {}. Error: {}", item.path(), e.what());
     }
+  }
+
+  // Deletions should only be done on the startup and at that point there is no
+  // need to use FileRetainer.
+  for (auto const &wal_to_delete : wals_to_delete) {
+    utils::DeleteFile(wal_to_delete);
+    spdlog::trace("Deleted WAL file without deltas", wal_to_delete);
   }
 
   if (error_code) {
@@ -639,6 +656,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     };
 
     std::vector<WalFileInfo> wal_files;
+    std::vector<std::filesystem::path> wals_to_delete;
     for (const auto &item : std::filesystem::directory_iterator(wal_directory_, error_code)) {
       if (!item.is_regular_file()) {
         spdlog::trace("Non-regular WAL file {} found in the wal directory. Skipping it.", item.path());
@@ -646,11 +664,21 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
       try {
         auto info = ReadWalInfo(item.path());
-        wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
+        if (info.num_deltas == 0) {
+          wals_to_delete.emplace_back(item.path());
+        } else {
+          wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
+        }
       } catch (const RecoveryFailure &e) {
         spdlog::error("Recovery failure while reading wal file: {}", e.what());
       }
     }
+
+    // Here it is safe to delete WAL file without deltas because we are at instance's startup
+    for (auto const &wal_to_delete : wals_to_delete) {
+      utils::DeleteFile(wal_to_delete);
+    }
+
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
 
     if (wal_files.empty()) {

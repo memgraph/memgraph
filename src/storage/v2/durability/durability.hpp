@@ -90,11 +90,14 @@ struct WalDurabilityInfo {
 /// @param current_seq_num Sequence number of the WAL file which is currently
 /// being written. If specified, load only finalized WAL files, i.e. WAL files
 /// with seq_num < current_seq_num.
+/// @param delete_empty If set to true, WAL files without data deltas will be deleted. Should
+/// be done only during the restart
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path. Returns nullopt in the case of the error
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           std::string_view uuid = "",
-                                                          std::optional<size_t> current_seq_num = {});
+                                                          std::optional<size_t> current_seq_num = {},
+                                                          bool delete_empty = false);
 
 bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 
@@ -140,6 +143,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                             utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
