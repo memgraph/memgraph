@@ -130,7 +130,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
-enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED };
+enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED, SERIALIZATION_ERROR };
 
 template <typename TObj>
 inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
@@ -146,9 +146,26 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
     if (ts < transaction->start_timestamp) {
       return WriteResult::SUCCESS;
     }
-    // Head delta is from another uncommitted transaction. Since we're performing
-    // an edge create operation, such operations are never serialized error, but
-    // must be marked as interleaved.
+    // Head delta is from another uncommitted transaction. Check if this is
+    // a situation where the entire uncommitted delta chain is of commutative
+    // operations: if so, we can safely add an interleaved deltas.
+    // TODO(colinbarry): This is pessimistic: everywhere apart from the
+    // schema_info can handle the case of mixed deltas. Once schema_info is
+    // changed to cope with uncommitted label/prop changes via a deferred
+    // processing scheme for interleaved deltas, we can remove this `for` loop.
+    for (const Delta *delta = object->delta; delta != nullptr; delta = delta->next.load(std::memory_order_acquire)) {
+      const auto delta_ts = delta->timestamp->load(std::memory_order_acquire);
+
+      if (delta_ts == transaction->transaction_id) continue;
+
+      if (delta_ts < transaction->start_timestamp) break;
+
+      if (delta->action == Delta::Action::ADD_LABEL || delta->action == Delta::Action::REMOVE_LABEL ||
+          delta->action == Delta::Action::SET_PROPERTY) {
+        return WriteResult::SERIALIZATION_ERROR;
+      }
+    }
+
     return WriteResult::INTERLEAVED;
   }
 
