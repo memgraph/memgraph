@@ -438,7 +438,7 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
   FLAGS_storage_parallel_schema_recovery = false;
 
   auto vertices_acc = vertices_.access();
-  const auto recovery_info = CreateRecoveryInfo();
+  auto recovery_info = CreateRecoveryInfo();
   auto name_id_mapper = std::make_unique<NameIdMapper>();
 
   EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
@@ -454,7 +454,7 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
 
   auto vertices_acc = vertices_.access();
-  const auto recovery_info = CreateRecoveryInfo();
+  auto recovery_info = CreateRecoveryInfo();
   auto name_id_mapper = std::make_unique<NameIdMapper>();
 
   EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
@@ -470,7 +470,7 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
   auto vertices_acc = vertices_.access();
-  const auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
+  auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
   auto name_id_mapper = std::make_unique<NameIdMapper>();
 
   EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));

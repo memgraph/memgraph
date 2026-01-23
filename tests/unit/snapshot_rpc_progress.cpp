@@ -536,7 +536,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto const spec =
+  auto spec =
       VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
   auto vertices = SkipList<Vertex>();
@@ -555,7 +555,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto const spec =
+  auto spec =
       VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
   auto vertices = SkipList<Vertex>();

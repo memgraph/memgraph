@@ -259,22 +259,18 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
 /// @return A vector of float values.
 /// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
 inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
-  if (value.IsNull()) return {};
-  if (value.IsAnyList()) {
-    const auto list_size = value.ListSize();
-    utils::small_vector<float> vector;
-    vector.reserve(list_size);
-    for (auto i = 0; i < list_size; i++) {
-      auto numeric_value = GetNumericValueAt(value, i);
-      if (!numeric_value) {
-        throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-      }
-      auto float_value = std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value);
-      vector.push_back(float_value);
-    }
-    return vector;
+  if (!value.IsAnyList())
+    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+
+  const auto list_size = value.ListSize();
+  utils::small_vector<float> vector;
+  vector.reserve(list_size);
+  for (auto i = 0; i < list_size; i++) {
+    auto numeric_value = GetNumericValueAt(value, i);
+    auto float_value = std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value);
+    vector.push_back(float_value);
   }
-  throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+  return vector;
 }
 
 /// @brief Restores a vector property on a vertex by setting it as a PropertyValue with double values.
@@ -403,30 +399,25 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (will be updated if resize occurs).
 /// @param key The key to add/update in the index.
-/// @param vector The float vector data. If empty, entry is only removed.
+/// @param vector The float vector data (taken by value to enable move semantics). If empty, entry is only removed.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
 template <typename Index, typename Key, typename Spec>
 void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
+                       utils::small_vector<float> vector, std::optional<std::size_t> thread_id = std::nullopt) {
   if (!vector.empty() && vector.size() != spec.dimension) {
     throw query::VectorSearchException(
         "Vector index property must have the same number of dimensions as specified in the index.");
   }
 
-  // Remove existing entry if present
+  auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
   {
     auto locked_index = mg_index.MutableSharedLock();
     if (locked_index->contains(key)) {
       locked_index->remove(key);
     }
-  }
-  // If vector is empty, we only needed removal
-  if (vector.empty()) return;
+    if (vector.empty()) return;
 
-  auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
-  {
-    auto locked_index = mg_index.MutableSharedLock();
     auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
     if (!result.error) return;
     if (locked_index->size() >= locked_index->capacity()) {

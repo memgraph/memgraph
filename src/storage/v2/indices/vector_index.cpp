@@ -53,11 +53,6 @@ struct VectorIndex::Impl {
   /// `LabelPropKey`. This allows the system to quickly resolve an index name to the spec
   /// associated with that index, enabling easy lookup and management of indexes by name.
   std::map<std::string, LabelPropKey, std::less<>> index_name_to_label_prop_;
-
-  /// The `label_to_index_` is a map that maps a label to a map of property ids to index names. This allows the system
-  /// to quickly resolve a label to the indexes associated with that label, enabling easy lookup and management of
-  /// indexes by label.
-  std::unordered_map<LabelId, std::unordered_map<PropertyId, std::string>> label_to_index_;
 };
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
@@ -105,7 +100,6 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
   }
 
   pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
-  pimpl->label_to_index_[spec.label_id].emplace(spec.property, spec.index_name);
   pimpl->index_.try_emplace(label_prop, std::move(mg_vector_index.index), spec);
 
   spdlog::info("Created vector index {}", spec.index_name);
@@ -117,14 +111,11 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   auto &recovery_entries = recovery_info.index_entries;
   SetupIndex(spec);
   auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
-  auto process_vertex_for_recovery = [this, &mg_index, &recovery_entries, &snapshot_info, name_id_mapper](
+  auto process_vertex_for_recovery = [&, this](
                                          Vertex &vertex, VectorIndexSpec &spec, std::optional<std::size_t> thread_id) {
-    // First check if we have a pre-computed vector from recovery entries and add directly to the index
     if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
-      auto vector = std::move(it->second);
-      UpdateVectorIndex(mg_index, spec, &vertex, vector, thread_id);
+      UpdateVectorIndex(mg_index, spec, &vertex, std::move(it->second), thread_id);
     } else {
-      // Otherwise, get the vector from the property and add to the index
       TryAddVertexToIndex(spec, vertex, name_id_mapper, thread_id);
     }
     if (snapshot_info) {
@@ -203,7 +194,6 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   }
   pimpl->index_.erase(label_prop);
   pimpl->index_name_to_label_prop_.erase(it);
-  pimpl->label_to_index_.erase(label_prop.label());
   spdlog::info("Dropped vector index {}", index_name);
   return true;
 }
@@ -211,7 +201,6 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
 void VectorIndex::Clear() {
   pimpl->index_name_to_label_prop_.clear();
   pimpl->index_.clear();
-  pimpl->label_to_index_.clear();
 }
 
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
@@ -454,17 +443,23 @@ utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *ve
 }
 
 std::unordered_map<PropertyId, std::string> VectorIndex::GetIndicesByLabel(LabelId label) const {
-  if (auto it = pimpl->label_to_index_.find(label); it != pimpl->label_to_index_.end()) {
-    return it->second;
+  std::unordered_map<PropertyId, std::string> result;
+  for (const auto &[label_prop, index_item] : pimpl->index_) {
+    if (label_prop.label() == label) {
+      result.emplace(label_prop.property(), index_item.spec.index_name);
+    }
   }
-  return {};
+  return result;
 }
 
 std::unordered_map<LabelId, std::string> VectorIndex::GetIndicesByProperty(PropertyId property) const {
-  auto has_property = [&](const auto &entry) { return entry.second.contains(property); };
-  auto to_label_name = [&](const auto &entry) { return std::pair{entry.first, entry.second.at(property)}; };
-  return pimpl->label_to_index_ | rv::filter(has_property) | rv::transform(to_label_name) |
-         r::to<std::unordered_map<LabelId, std::string>>();
+  std::unordered_map<LabelId, std::string> result;
+  for (const auto &[label_prop, index_item] : pimpl->index_) {
+    if (label_prop.property() == property) {
+      result.emplace(label_prop.label(), index_item.spec.index_name);
+    }
+  }
+  return result;
 }
 
 void VectorIndex::AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
