@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,12 +14,10 @@
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
-#include <filesystem>
 #include <iterator>
 #include <memory>
 #include <optional>
 #include <string_view>
-#include <unordered_map>
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
@@ -87,8 +85,8 @@ class DatabaseHandler : public Handler<Database> {
       return nullptr;
     };
 
-    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, repl_state,
-                         database_protector_factory);
+    return HandlerT::New(
+        std::piecewise_construct, *config.salient.name.str_view(), config, repl_state, database_protector_factory);
   }
 
   /**
