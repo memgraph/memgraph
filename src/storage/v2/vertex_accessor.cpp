@@ -722,6 +722,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
+  // TODO(@DavIvek): add vector index id logic here
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;

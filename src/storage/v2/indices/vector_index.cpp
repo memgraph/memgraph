@@ -138,11 +138,10 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
   spdlog::info("Created vector index {}", spec.index_name);
 }
 
-void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
-                               utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  const auto &spec = recovery_info.spec;
-  const auto &recovery_entries = recovery_info.index_entries;
+void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
+                               NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto &spec = recovery_info.spec;
+  auto &recovery_entries = recovery_info.index_entries;
   SetupIndex(spec);
   auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
 
@@ -155,7 +154,7 @@ void VectorIndex::RecoverIndex(const VectorIndexRecoveryInfo &recovery_info,
 
     // First check if we have a pre-computed vector from recovery entries
     if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
-      vector = it->second;
+      vector = std::move(it->second);
     } else {
       // Otherwise, check if vertex has the required label and property
       if (!std::ranges::contains(vertex.labels, mutable_spec.label_id)) {
