@@ -139,9 +139,10 @@ bool StartRpcServer(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     replication::RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system) {
 #else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler,
-                    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>
-                        repl_state replication::RoleReplicaData &data) {
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state,
+    replication::RoleReplicaData &data) {
 #endif
   // Register storage handlers
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
