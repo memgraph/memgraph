@@ -110,7 +110,10 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     SetupIndex(spec);
-    PopulateIndexOnSingleThread(vertices, spec, snapshot_info);
+    auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
+    PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+      TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);  // NOLINT(clang-analyzer-core.CallAndMessage)
+    });
   } catch (const utils::OutOfMemoryException &) {
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     CleanupFailedIndex(spec);
@@ -124,10 +127,17 @@ void VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipL
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     SetupIndex(spec);
+    auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
-      PopulateIndexOnMultipleThreads(vertices, spec, snapshot_info);
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+      PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
+        TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info, thread_id);
+      });
     } else {
-      PopulateIndexOnSingleThread(vertices, spec, snapshot_info);
+      PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+        TryAddEdgesToIndex(
+            mg_index, mutable_spec, vertex, snapshot_info);  // NOLINT(clang-analyzer-core.CallAndMessage)
+      });
     }
   } catch (const utils::OutOfMemoryException &) {
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -168,25 +178,6 @@ void VectorEdgeIndex::CleanupFailedIndex(const VectorEdgeIndexSpec &spec) {
   const EdgeTypePropKey edge_type_prop{spec.edge_type_id, spec.property};
   pimpl->index_name_to_edge_type_prop_.erase(spec.index_name);
   pimpl->edge_index_.erase(edge_type_prop);
-}
-
-void VectorEdgeIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices,
-                                                  const VectorEdgeIndexSpec &spec,
-                                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
-  PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
-    TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);  // NOLINT(clang-analyzer-core.CallAndMessage)
-  });
-}
-
-void VectorEdgeIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
-                                                     const VectorEdgeIndexSpec &spec,
-                                                     std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
-  // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-  PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
-    TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info, thread_id);
-  });
 }
 
 bool VectorEdgeIndex::DropIndex(std::string_view index_name) {

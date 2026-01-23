@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,6 +65,7 @@ class VectorEdgeIndex {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
+
   struct EdgeIndexEntry {
     Vertex *from_vertex;
     Vertex *to_vertex;
@@ -190,20 +191,6 @@ class VectorEdgeIndex {
   /// @throw query::VectorSearchException if the property is not a list or if the dimensions do not match.
   bool UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypePropKey &edge_type_prop,
                          const PropertyValue *value = nullptr);
-
-  /// @brief Populates the index with edges on a single thread.
-  /// @param vertices Accessor to the vertices to scan for edges.
-  /// @param spec The index specification.
-  /// @param snapshot_info Optional snapshot observer for progress tracking.
-  void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorEdgeIndexSpec &spec,
-                                   std::optional<SnapshotObserverInfo> const &snapshot_info);
-
-  /// @brief Populates the index with edges using multiple threads.
-  /// @param vertices Accessor to the vertices to scan for edges.
-  /// @param spec The index specification.
-  /// @param snapshot_info Optional snapshot observer for progress tracking.
-  void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, const VectorEdgeIndexSpec &spec,
-                                      std::optional<SnapshotObserverInfo> const &snapshot_info);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
