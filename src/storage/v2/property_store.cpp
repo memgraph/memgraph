@@ -2422,14 +2422,14 @@ bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) con
 }
 
 bool PropertyStore::HasAllProperties(std::span<PropertyId const> properties) const {
-  return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
+  return std::ranges::all_of(properties, [this](const auto &prop) { return HasProperty(prop); });
 }
 
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
   std::ranges::transform(
-      property_map, back_inserter(all_property_values), [](const auto &kv_entry) { return kv_entry.second; });
+      property_map, std::back_inserter(all_property_values), [](const auto &kv_entry) { return kv_entry.second; });
 
   return std::ranges::all_of(property_values, [&all_property_values](const PropertyValue &value) {
     return std::ranges::contains(all_property_values, value);
