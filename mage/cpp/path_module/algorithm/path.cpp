@@ -44,14 +44,14 @@ Path::PathHelper::PathHelper(const mgp::Map &config) {
 
   auto value = config.At("maxHops");
   if (!value.IsNull()) {
-    int64_t max_hops = value.ValueInt();
+    const int64_t max_hops = value.ValueInt();
     if (max_hops >= 0) {
       config_.max_hops = max_hops;
     }
   }
   value = config.At("minHops");
   if (!value.IsNull()) {
-    int64_t min_hops = value.ValueInt();
+    const int64_t min_hops = value.ValueInt();
     if (min_hops >= 0) {
       config_.min_hops = min_hops;
     }
@@ -106,7 +106,7 @@ bool Path::PathHelper::AreLabelsValid(const LabelBools &label_bools) const {
 }
 
 bool Path::PathHelper::ContinueExpanding(const LabelBools &label_bools, size_t path_size) const {
-  return (static_cast<int64_t>(path_size) <= config_.max_hops &&
+  return (std::cmp_less_equal(path_size, config_.max_hops) &&
           ((!label_bools.blacklisted && !label_bools.terminated &&
             (label_bools.end_node || Whitelisted(label_bools.whitelisted))) ||
            (path_size == 1 && !config_.filter_start_node)));
@@ -311,8 +311,9 @@ void Path::Create(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *re
 
       auto contains = [](mgp::Relationships relationships, const mgp::Id id) {
         // NOLINTNEXTLINE(modernize-use-ranges,boost-use-ranges)
-        return std::any_of(relationships.begin(), relationships.end(),
-                           [&id](const auto &relationship) { return relationship.To().Id() == id; });
+        return std::any_of(relationships.begin(), relationships.end(), [&id](const auto &relationship) {
+          return relationship.To().Id() == id;
+        });
       };
 
       if ((endpoint_is_from && !contains(rel.From().OutRelationships(), rel.To().Id())) ||
@@ -501,7 +502,7 @@ mgp::List Path::PathSubgraph::BFS() {
   std::queue<std::pair<mgp::Node, int64_t>> queue;
 
   for (const auto &node : path_data_.start_nodes_) {
-    queue.push({node, 0});
+    queue.emplace({node, 0});
     path_data_.visited_.insert(node.Id().AsInt());
   }
 
