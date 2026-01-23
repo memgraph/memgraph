@@ -54,9 +54,6 @@ struct SnapshotInfo {
   uint64_t edges_count;
   uint64_t vertices_count;
   uint64_t num_committed_txns;
-
-  // NOTE: Can be called only after loading the snapshot
-  auto IsIncomplete() const -> bool;
 };
 
 /// Structure used to hold information about the snapshot that has been

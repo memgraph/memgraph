@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,12 @@ namespace memgraph::storage::durability {
 class RecoveryFailure : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(RecoveryFailure)
+};
+
+// Exception used to communicate to the caller that the snapshot is incomplete
+class IncompleteSnapshotFailure : public RecoveryFailure {
+  using RecoveryFailure::RecoveryFailure;
+  SPECIALIZE_GET_EXCEPTION_NAME(IncompleteSnapshotFailure);
 };
 
 }  // namespace memgraph::storage::durability

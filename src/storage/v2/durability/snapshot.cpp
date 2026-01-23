@@ -543,12 +543,14 @@ SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::p
 }  // namespace
 
 // Function used to read information about the snapshot file.
+// If unable to read version, magic, size, offsets => consider it as incomplete
+// Otherwise, think of it as a recovery failure, the file could be corrupted etc.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   // Check magic and version.
   Decoder snapshot;
   auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid snapshot version!");
+  if (!version) throw IncompleteSnapshotFailure("Couldn't read snapshot magic and/or version!");
+  if (!IsVersionSupported(*version)) throw IncompleteSnapshotFailure("Invalid snapshot version!");
 
   if (version < kDurableTS) {
     return ReadSnapshotInfoPreVersion23(path);
@@ -564,16 +566,16 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   {
     auto marker = snapshot.ReadMarker();
     if (!marker || *marker != Marker::SECTION_OFFSETS)
-      throw RecoveryFailure("Couldn't read marker for section offsets!");
+      throw IncompleteSnapshotFailure("Couldn't read marker for section offsets!");
 
     auto snapshot_size = snapshot.GetSize();
-    if (!snapshot_size) throw RecoveryFailure("Couldn't read snapshot size!");
+    if (!snapshot_size) throw IncompleteSnapshotFailure("Couldn't read snapshot size!");
 
     auto read_offset = [&snapshot, snapshot_size] {
       auto maybe_offset = snapshot.ReadUint();
-      if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
+      if (!maybe_offset) throw IncompleteSnapshotFailure("Invalid snapshot format!");
       auto offset = *maybe_offset;
-      if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
+      if (offset > *snapshot_size) throw IncompleteSnapshotFailure("Invalid snapshot format!");
       return offset;
     };
 
@@ -2179,7 +2181,6 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
                                                    .statistic = *statistic,
                                                    .avg_group_size = *avg_group_size,
                                                    .avg_degree = *avg_degree}));
-
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -10139,15 +10140,16 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
     // Skip current snapshot
     if (item.path() == current_snapshot_path) continue;
 
-    SnapshotInfo info;
     try {
-      info = ReadSnapshotInfo(item.path());
+      auto const info = ReadSnapshotInfo(item.path());
       old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
+    } catch (IncompleteSnapshotFailure const &e) {
+      spdlog::trace("Deleting incomplete snapshot file");
+      file_retainer->DeleteFile(item.path());
     } catch (const RecoveryFailure &e) {
-      // We want to find out what happened with the corrupted snapshot file, not delete it
       spdlog::warn("Found a corrupt snapshot file {} because of: {}.", item.path(), e.what());
-      if (FLAGS_storage_force_cleanup || info.IsIncomplete()) {
-        spdlog::trace("Corrupted/incomplete file will be deleted.");
+      if (FLAGS_storage_force_cleanup) {
+        spdlog::trace("File {} will be deleted.", item.path());
         file_retainer->DeleteFile(item.path());
       }
     }
@@ -10179,22 +10181,6 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   }
 
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
-}
-
-auto SnapshotInfo::IsIncomplete() const -> bool {
-  return std::ranges::any_of(std::array{offset_edges,
-                                        offset_vertices,
-                                        offset_indices,
-                                        offset_edge_indices,
-                                        offset_constraints,
-                                        offset_mapper,
-                                        offset_enums,
-                                        offset_epoch_history,
-                                        offset_metadata,
-                                        offset_edge_batches,
-                                        offset_vertex_batches,
-                                        offset_ttl},
-                             [](auto v) { return v == 0; });
 }
 
 std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
