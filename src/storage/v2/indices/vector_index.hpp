@@ -163,8 +163,7 @@ class VectorIndex {
   /// @param snapshot_info
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                   NameIdMapper *name_id_mapper,
+  bool CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, NameIdMapper *name_id_mapper,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   void RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
@@ -277,21 +276,13 @@ class VectorIndex {
   /// @param spec The specification of the failed index.
   void CleanupFailedIndex(const VectorIndexSpec &spec);
 
-  /// @brief Populates the index with vertices on a single thread.
-  /// @param vertices Accessor to the vertices to scan.
-  /// @param spec The index specification.
-  /// @param snapshot_info Optional snapshot observer for progress tracking.
-  void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
-                                   NameIdMapper *name_id_mapper,
-                                   std::optional<SnapshotObserverInfo> const &snapshot_info);
-
-  /// @brief Populates the index with vertices using multiple threads.
-  /// @param vertices Accessor to the vertices to scan.
-  /// @param spec The index specification.
-  /// @param snapshot_info Optional snapshot observer for progress tracking.
-  void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
-                                      NameIdMapper *name_id_mapper,
-                                      std::optional<SnapshotObserverInfo> const &snapshot_info);
+  /// @brief Attempts to add a vertex to the vector index if it matches the spec criteria.
+  /// @param spec The index specification (may be modified if resize occurs).
+  /// @param vertex The vertex to potentially add.
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  /// @param thread_id Optional thread ID hint for usearch's internal optimizations.
+  void TryAddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, NameIdMapper *name_id_mapper,
+                           std::optional<std::size_t> thread_id = std::nullopt);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

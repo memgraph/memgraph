@@ -24,38 +24,6 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
-namespace {
-
-using SyncVectorIndex = utils::Synchronized<mg_vector_index_t, std::shared_mutex>;
-
-/// @brief Attempts to add a vertex to the vector index if it matches the spec criteria.
-/// Handles resize if the index is full.
-/// @param mg_index The synchronized index wrapper.
-/// @param spec The index specification (may be modified if resize occurs).
-/// @param vertex The vertex to potentially add.
-/// @param snapshot_info Optional snapshot observer for progress tracking.
-/// @param thread_id Optional thread ID hint for usearch's internal optimizations.
-void TryAddVertexToIndex(SyncVectorIndex &mg_index, VectorIndexSpec &spec, Vertex &vertex,
-                         std::optional<SnapshotObserverInfo> const &snapshot_info, NameIdMapper *name_id_mapper,
-                         std::optional<std::size_t> thread_id = std::nullopt) {
-  if (!std::ranges::contains(vertex.labels, spec.label_id)) {
-    return;
-  }
-  auto property = vertex.properties.GetProperty(spec.property);
-  if (property.IsNull()) {
-    return;
-  }
-  auto vector = property.IsVectorIndexId() ? GetVector(mg_index, &vertex) : ListToVector(property);
-  UpdateVectorIndex(mg_index, spec, &vertex, vector, thread_id);
-  vertex.properties.SetProperty(spec.property,
-                                PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(spec.index_name)},
-                                              utils::small_vector<float>{}));
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VECTOR_IDX);
-  }
-}
-
-}  // namespace
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
 // operations.
@@ -96,12 +64,17 @@ VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 
 VectorIndex::~VectorIndex() = default;
 
-bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     SetupIndex(spec);
-    PopulateIndexOnSingleThread(vertices, spec, name_id_mapper, snapshot_info);
+    PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+      TryAddVertexToIndex(spec, vertex, name_id_mapper, std::nullopt);
+      if (snapshot_info) {
+        snapshot_info->Update(UpdateType::VECTOR_IDX);
+      }
+    });
   } catch (const utils::OutOfMemoryException &) {
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     CleanupFailedIndex(spec);
@@ -143,38 +116,16 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   auto &spec = recovery_info.spec;
   auto &recovery_entries = recovery_info.index_entries;
   SetupIndex(spec);
-  auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
-
-  auto process_vertex_for_recovery = [&mg_index, &mutable_spec, &recovery_entries, &snapshot_info, name_id_mapper](
-                                         Vertex &vertex, std::optional<std::size_t> thread_id) {
-    const auto index_id =
-        name_id_mapper->NameToId(mutable_spec.index_name);  // NOLINT(clang-analyzer-core.CallAndMessage)
-    utils::small_vector<float> vector;
-    auto should_set_property = false;
-
-    // First check if we have a pre-computed vector from recovery entries
+  auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
+  auto process_vertex_for_recovery = [this, &mg_index, &recovery_entries, &snapshot_info, name_id_mapper](
+                                         Vertex &vertex, VectorIndexSpec &spec, std::optional<std::size_t> thread_id) {
+    // First check if we have a pre-computed vector from recovery entries and add directly to the index
     if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
-      vector = std::move(it->second);
+      auto vector = std::move(it->second);
+      UpdateVectorIndex(mg_index, spec, &vertex, vector, thread_id);
     } else {
-      // Otherwise, check if vertex has the required label and property
-      if (!std::ranges::contains(vertex.labels, mutable_spec.label_id)) {
-        return;
-      }
-      auto property = vertex.properties.GetProperty(mutable_spec.property);
-      if (property.IsNull()) {
-        return;
-      }
-      vector = ListToVector(property);
-      should_set_property = true;
-    }
-    if (vector.empty()) {
-      return;
-    }
-    UpdateVectorIndex(mg_index, mutable_spec, &vertex, vector, thread_id);
-
-    if (should_set_property) {
-      vertex.properties.SetProperty(
-          mutable_spec.property, PropertyValue(utils::small_vector<uint64_t>{index_id}, utils::small_vector<float>{}));
+      // Otherwise, get the vector from the property and add to the index
+      TryAddVertexToIndex(spec, vertex, name_id_mapper, thread_id);
     }
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VECTOR_IDX);
@@ -182,10 +133,10 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   };
 
   if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
-    PopulateVectorIndexMultiThreaded(vertices, process_vertex_for_recovery);
+    PopulateVectorIndexMultiThreaded(vertices, process_vertex_for_recovery, spec);
   } else {
     PopulateVectorIndexSingleThreaded(vertices,
-                                      [&](Vertex &vertex) { process_vertex_for_recovery(vertex, std::nullopt); });
+                                      [&](Vertex &vertex) { process_vertex_for_recovery(vertex, spec, std::nullopt); });
   }
 }
 
@@ -195,24 +146,31 @@ void VectorIndex::CleanupFailedIndex(const VectorIndexSpec &spec) {
   pimpl->index_.erase(label_prop);
 }
 
-void VectorIndex::PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorIndexSpec &spec,
-                                              NameIdMapper *name_id_mapper,
-                                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
-  PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
-    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-    TryAddVertexToIndex(mg_index, mutable_spec, vertex, snapshot_info, name_id_mapper, std::nullopt);
-  });
-}
-
-void VectorIndex::PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
-                                                 const VectorIndexSpec &spec, NameIdMapper *name_id_mapper,
-                                                 std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto &[mg_index, mutable_spec] = pimpl->index_.at({spec.label_id, spec.property});
-  PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
-    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-    TryAddVertexToIndex(mg_index, mutable_spec, vertex, snapshot_info, name_id_mapper, std::optional{thread_id});
-  });
+void VectorIndex::TryAddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, NameIdMapper *name_id_mapper,
+                                      std::optional<std::size_t> thread_id) {
+  if (!std::ranges::contains(vertex.labels, spec.label_id)) {
+    return;
+  }
+  auto property = vertex.properties.GetProperty(spec.property);
+  if (property.IsNull()) {
+    return;
+  }
+  const auto vector = [&]() {
+    if (property.IsVectorIndexId()) {
+      auto &ids = property.ValueVectorIndexIds();
+      ids.push_back(name_id_mapper->NameToId(spec.index_name));
+      return GetVectorProperty(&vertex, name_id_mapper->IdToName(ids[0]));
+    }
+    return ListToVector(property);
+  }();
+  auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
+  UpdateVectorIndex(mg_index, spec, &vertex, vector, thread_id);
+  vertex.properties.SetProperty(
+      spec.property,
+      property.IsVectorIndexId()
+          ? property
+          : PropertyValue(utils::small_vector<uint64_t>{name_id_mapper->NameToId(spec.index_name)},
+                          utils::small_vector<float>{}));
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices,

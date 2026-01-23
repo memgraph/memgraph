@@ -671,3 +671,49 @@ Feature: Vector search related features
         Then the result should be:
             | distance | node     | similarity |
             | 0.0      | (:L1:L2) | 1.0        |
+
+    Scenario: Creating index after vector is already in another index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1:L2 {prop1: [1.0, 2.0]})
+            """
+        And having executed
+            """
+            CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n        |
+            | (:L1:L2) |
+
+        When executing query:
+            """
+            CALL vector_search.search("test_index2", 2, [1.0, 2.0]) YIELD * RETURN *;
+            """
+        Then the result should be:
+            | distance | node     | similarity |
+            | 0.0      | (:L1:L2) | 1.0        |
+
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 2, [1.0, 2.0]) YIELD * RETURN *;
+            """
+
+        Then the result should be:
+            | distance | node     | similarity |
+            | 0.0      | (:L1:L2) | 1.0        |

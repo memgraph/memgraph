@@ -259,9 +259,7 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
 /// @return A vector of float values.
 /// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
 inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
-  if (value.IsNull()) {
-    return {};
-  }
+  if (value.IsNull()) return {};
   if (value.IsAnyList()) {
     const auto list_size = value.ListSize();
     utils::small_vector<float> vector;
