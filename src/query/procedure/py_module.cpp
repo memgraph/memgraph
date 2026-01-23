@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -925,6 +925,22 @@ void PyCollectGarbage() {
   }
 }
 
+void RegisterPyThread() {
+  // Pre-register this thread with the Python interpreter by acquiring and
+  // releasing the GIL. This creates a Python thread state for this thread,
+  // which will be reused in subsequent PyGILState_Ensure() calls.
+  //
+  // This prevents the "PyGILState_Ensure: Couldn't create thread-state for new thread"
+  // error that can occur when many threads simultaneously try to acquire the GIL
+  // for the first time during parallel execution.
+  if (!Py_IsInitialized()) {
+    return;
+  }
+
+  auto gil = py::EnsureGIL();
+  // Thread state is now cached for this thread - nothing else needed
+}
+
 namespace {
 struct RecordFieldCache {
   PyObject *key;
@@ -1095,6 +1111,13 @@ std::function<void()> PyObjectCleanup(py::Object &py_object) {
     // of our `_mgp` instances then this will prevent them from using those
     // objects (whose internal `mgp_*` pointers are now invalid and would cause
     // a crash).
+    //
+    // During C++ stack unwinding (e.g., memory limit exceeded), skip cleanup entirely.
+    // The query is failing anyway, and calling Python C API during unwinding is risky
+    // (Python may have a pending exception that would cause CallMethod to fail).
+    if (std::uncaught_exceptions() > 0) {
+      return;
+    }
     if (!py_object.CallMethod("invalidate")) {
       LOG_FATAL(py::FetchError().value());
     }

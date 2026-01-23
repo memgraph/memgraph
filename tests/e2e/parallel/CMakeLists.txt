@@ -17,6 +17,7 @@ copy_parallel_e2e_python_files(test_frame_change_collector.py)
 copy_parallel_e2e_python_files(test_trigger_context_collector.py)
 copy_parallel_e2e_python_files(test_profile.py)
 copy_parallel_e2e_python_files(test_memory.py)
+copy_parallel_e2e_python_files(test_procedures.py)
 
 # Copy configuration and runner files
 copy_e2e_files(parallel workloads.yaml)
@@ -25,3 +26,6 @@ copy_e2e_files(parallel workloads.yaml)
 copy_e2e_python_files_from_parent_folder(parallel ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(parallel ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(parallel ".." mg_utils.py)
+
+# Process procedures subdirectory
+add_subdirectory(procedures)

@@ -666,8 +666,15 @@ int main(int argc, char **argv) {
   unsigned io_n_threads = FLAGS_bolt_num_workers;
 
   if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
+    // Register each worker thread with the Python interpreter at startup.
+    // This pre-initializes Python thread states to prevent "PyGILState_Ensure: Couldn't create
+    // thread-state for new thread" errors when many threads simultaneously try to call Python
+    // procedures during parallel execution.
+    // NOTE: We should also register cleanup, but since threads exist until the end of the program,
+    //       everyhting will be cleaned up anyway at program exit.
+    auto python_thread_init = []() { memgraph::query::procedure::RegisterPyThread(); };
     worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
-                         /* high priority */ 1U);
+                         /* high priority */ 1U, python_thread_init);
     io_n_threads = 1U;
   }
 

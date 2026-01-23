@@ -47,45 +47,22 @@ class TestParallelExplain:
         assert not missing, f"Missing operators in plan: {missing}.\nFull Plan:\n{plan_text}"
         assert not unexpected, f"Unexpected operators in plan: {unexpected}.\nFull Plan:\n{plan_text}"
 
-    def test_parallel_scan_and_aggregate(self):
-        """
-        Corresponds to ParallelExecutionAggregation
-        USING PARALLEL EXECUTION MATCH (n) RETURN count(*)
-        Expect: P ScanAll, P Aggregate
-        """
-        query = "USING PARALLEL EXECUTION MATCH (n) RETURN count(*)"
+    @pytest.mark.parametrize(
+        "query,expected",
+        [
+            ("USING PARALLEL EXECUTION MATCH (n) RETURN count(*)", ["P ScanAll", "P Aggregate"]),
+            (
+                "USING PARALLEL EXECUTION MATCH (n) WHERE n.p < 100 RETURN count(n)",
+                ["P ScanAll", "Filter", "P Aggregate"],
+            ),
+            ("USING PARALLEL EXECUTION MATCH (n) WITH n AS m RETURN avg(m.p)", ["P ScanAll", "P Aggregate"]),
+            ("USING PARALLEL EXECUTION MATCH (n) RETURN min(n.p), max(n.p), count(n.p)", ["P ScanAll", "P Aggregate"]),
+        ],
+    )
+    def test_parallel_aggregation_plans(self, query, expected):
+        """Test various aggregation queries result in parallel operators."""
         plan = self._get_explain_plan(query)
-        self._verify_plan_contains(plan, ["P ScanAll", "P Aggregate"])
-
-    def test_parallel_aggregation_with_filter(self):
-        """
-        Corresponds to CountWithFilter
-        USING PARALLEL EXECUTION MATCH (n) WHERE n.p < 100 RETURN count(n)
-        Expect: P ScanAll, Filter, P Aggregate
-        """
-        query = "USING PARALLEL EXECUTION MATCH (n) WHERE n.p < 100 RETURN count(n)"
-        plan = self._get_explain_plan(query)
-        self._verify_plan_contains(plan, ["P ScanAll", "Filter", "P Aggregate"])
-
-    def test_parallel_avg_with_alias(self):
-        """
-        Corresponds to AvgWithAlias
-        USING PARALLEL EXECUTION MATCH (n) WITH n AS m RETURN avg(m.p)
-        Expect: P ScanAll, P Aggregate
-        """
-        query = "USING PARALLEL EXECUTION MATCH (n) WITH n AS m RETURN avg(m.p)"
-        plan = self._get_explain_plan(query)
-        self._verify_plan_contains(plan, ["P ScanAll", "P Aggregate"])
-
-    def test_parallel_multi_agg(self):
-        """
-        Corresponds to MultiAgg
-        USING PARALLEL EXECUTION MATCH (n) RETURN min(n.p), max(n.p), count(n.p)
-        Expect: P ScanAll, P Aggregate (handling multiple aggs)
-        """
-        query = "USING PARALLEL EXECUTION MATCH (n) RETURN min(n.p), max(n.p), count(n.p)"
-        plan = self._get_explain_plan(query)
-        self._verify_plan_contains(plan, ["P ScanAll", "P Aggregate"])
+        self._verify_plan_contains(plan, expected)
 
     def test_parallel_orderby(self):
         """

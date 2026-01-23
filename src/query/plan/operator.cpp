@@ -9909,7 +9909,9 @@ class ParallelBranchCursor : public Cursor {
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
         const OOMExceptionEnabler oom_exception;
         const utils::Timer timer;
-        mem_tracking.StartTracking();  // automatically stops
+        if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+          mem_tracking.StartTracking();
+        }
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
@@ -9945,6 +9947,8 @@ class ParallelBranchCursor : public Cursor {
             // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
             // Main thread is handled by the higher level
             context.profile_execution_time += timer.Elapsed();
+            // Main thread will continue using the same tracker
+            mem_tracking.StopTracking();
           }
           // NOTE: hops limit is shared between threads, so we need to free the leftover quota
           context.hops_limit.Free();

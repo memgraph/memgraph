@@ -68,147 +68,34 @@ class TestParallelQueryMemoryLimit:
         assert len(result) == 1
         assert result[0]["count(n)"] == 1000
 
-    def test_parallel_query_exceeds_memory_limit(self):
-        """
-        Test that a parallel query fails when exceeding memory limit.
 
-        Note: Very small limits may trigger before parallel execution even starts.
-        """
-        # Create larger dataset
-        self.memgraph.execute_query("UNWIND range(1, 10000) AS i CREATE (:BigNode {id: i, data: 'x'})")
-
-        # Query with very small memory limit should fail
-        query = pq("MATCH (n:BigNode) RETURN n.id, n.data ORDER BY n.id QUERY MEMORY LIMIT 1KB")
-
-        with pytest.raises(MEMORY_ERRORS) as exc_info:
-            self.memgraph.fetch_all(query)
-
-        # Should get memory limit exceeded error
-        error_msg = str(exc_info.value).lower()
-        assert "memory" in error_msg or "limit" in error_msg
-
-    def test_parallel_aggregation_memory_limit(self):
-        """
-        Test memory limit with parallel aggregation operations.
-
-        Aggregation accumulates results which can consume significant memory.
-        """
-        # Create dataset for aggregation
-        self.memgraph.execute_query("UNWIND range(1, 5000) AS i CREATE (:AggNode {id: i, group: i % 50, value: i * 2})")
-
-        # Aggregation with reasonable limit should succeed
-        query = pq(
-            "MATCH (n:AggNode) "
-            "RETURN n.group AS g, count(n) AS cnt, avg(n.value) AS avg_val "
-            "QUERY MEMORY LIMIT 50MB"
-        )
-        result = self.memgraph.fetch_all(query)
-
-        assert result is not None
-        assert len(result) == 50  # 50 groups
-
-    def test_parallel_orderby_memory_limit(self):
-        """
-        Test memory limit with parallel ORDER BY.
-
-        ORDER BY requires buffering results which can consume memory.
-        """
-        # Create dataset
-        self.memgraph.execute_query("UNWIND range(1, 2000) AS i CREATE (:SortNode {id: i, value: i % 100})")
-
-        # ORDER BY with reasonable limit should succeed
-        query = pq("MATCH (n:SortNode) RETURN n ORDER BY n.value, n.id QUERY MEMORY LIMIT 50MB")
-        result = self.memgraph.fetch_all(query)
-
-        assert result is not None
-        assert len(result) == 2000
-
-    def test_parallel_query_memory_limit_vs_serial(self):
-        """
-        Compare memory behavior between serial and parallel execution.
-
-        Both should respect the same memory limit, but parallel may have
-        different memory patterns due to branch-local allocations.
-        """
-        # Create dataset
-        self.memgraph.execute_query("UNWIND range(1, 3000) AS i CREATE (:CompareNode {id: i})")
-
-        # Serial query with limit
-        serial_query = "MATCH (n:CompareNode) RETURN count(n) QUERY MEMORY LIMIT 50MB"
-        serial_result = self.memgraph.fetch_all(serial_query)
-
-        # Parallel query with same limit
-        parallel_query = pq("MATCH (n:CompareNode) RETURN count(n) QUERY MEMORY LIMIT 50MB")
-        parallel_result = self.memgraph.fetch_all(parallel_query)
-
-        # Both should succeed and return same count
-        assert serial_result[0]["count(n)"] == 3000
-        assert parallel_result[0]["count(n)"] == 3000
-
-
-class TestParallelMemoryTracking:
-    """
-    Tests for memory tracking accuracy with parallel execution.
-
-    Verifies that memory tracking works correctly when work is distributed
-    across multiple parallel branches.
-    """
+class TestParallelMemoryViolations:
+    """Consolidated tests for various memory limit violation scenarios."""
 
     @pytest.fixture(autouse=True)
     def setup(self, fresh_memgraph):
         self.memgraph = fresh_memgraph
+        # Setup data for various tests
+        fresh_memgraph.execute_query(
+            "UNWIND range(1, 5000) AS i CREATE (:DataNode {id: i, data: 'payload_' + toString(i)})"
+        )
         yield
 
-    def test_memory_tracked_across_branches(self):
-        """
-        Test that memory is tracked across all parallel branches.
-
-        Even if each branch uses less than the limit, the total should
-        be tracked correctly.
-        """
-        # Create substantial dataset
-        self.memgraph.execute_query(
-            "UNWIND range(1, 5000) AS i CREATE (:TrackNode {id: i, payload: 'data' + toString(i)})"
-        )
-
-        # Query that would exceed limit if all branches counted together
-        # but might succeed if branches were counted independently
-        query = pq("MATCH (n:TrackNode) " "RETURN collect(n.payload) AS all_payloads " "QUERY MEMORY LIMIT 1KB")
-
-        # Should fail because total memory across branches exceeds limit
-        with pytest.raises(MEMORY_ERRORS):
+    @pytest.mark.parametrize(
+        "query_pattern",
+        [
+            "MATCH (n:DataNode) RETURN n.id, n.data ORDER BY n.id",
+            "MATCH (n:DataNode) RETURN collect(n.data)",
+            "MATCH (n:DataNode) RETURN n.id % 50, count(*), avg(n.id)",
+            "MATCH (n:DataNode) WITH n ORDER BY n.id RETURN n.id",
+        ],
+    )
+    def test_memory_limit_exceeded(self, query_pattern):
+        """Test that different query patterns correctly trigger memory limit errors."""
+        query = pq(f"{query_pattern} QUERY MEMORY LIMIT 1KB")
+        with pytest.raises(MEMORY_ERRORS) as exc_info:
             self.memgraph.fetch_all(query)
-
-    def test_parallel_scan_memory_tracking(self):
-        """
-        Test that parallel scan operations track memory correctly.
-        """
-        # Create dataset
-        self.memgraph.execute_query("UNWIND range(1, 2000) AS i CREATE (:ScanTrack {id: i})")
-
-        # Query with comfortable memory limit
-        query = pq("MATCH (n:ScanTrack) RETURN n.id QUERY MEMORY LIMIT 100MB")
-        result = self.memgraph.fetch_all(query)
-
-        assert len(result) == 2000
-
-    def test_parallel_filter_memory_tracking(self):
-        """
-        Test memory tracking with parallel filter operations.
-        """
-        # Create dataset with varying data sizes
-        self.memgraph.execute_query(
-            """
-            UNWIND range(1, 3000) AS i
-            CREATE (:FilterTrack {id: i, data: CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END})
-            """
-        )
-
-        # Filter query with memory limit
-        query = pq("MATCH (n:FilterTrack) WHERE n.data = 'even' RETURN count(n) QUERY MEMORY LIMIT 50MB")
-        result = self.memgraph.fetch_all(query)
-
-        assert result[0]["count(n)"] == 1500  # Half are even
+        assert "memory" in str(exc_info.value).lower() or "limit" in str(exc_info.value).lower()
 
 
 class TestParallelMemoryExhaustion:

@@ -155,110 +155,10 @@ class TestExceptionOnSingleElement:
         assert result[0]["result"] == "invalid_string_1"
 
 
-class TestExceptionOnThreadCountDatabase:
-    """Test exception handling on thread-count sized database."""
-
-    @pytest.fixture
-    def thread_count(self, num_workers):
-        """Use configured thread count for parallel testing."""
-        return num_workers
-
-    def test_no_exception_all_valid(self, memgraph, thread_count):
-        """All valid integers should not raise exception."""
-        setup_thread_count_db(memgraph, thread_count)
-
-        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
-        assert result[0]["result"] == 1
-
-    def test_exception_from_first_branch(self, memgraph, thread_count):
-        """Exception from first element (main branch)."""
-        setup_with_type_error(memgraph, thread_count, ExceptionOrigin.FIRST)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-    def test_exception_from_last_branch(self, memgraph, thread_count):
-        """Exception from last element (last parallel branch)."""
-        setup_with_type_error(memgraph, thread_count, ExceptionOrigin.LAST)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-    def test_exception_from_middle_branch(self, memgraph, thread_count):
-        """Exception from middle element."""
-        setup_with_type_error(memgraph, thread_count, ExceptionOrigin.MIDDLE)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-    def test_exception_from_multiple_branches(self, memgraph, thread_count):
-        """Exception from every other element (multiple branches)."""
-        error_positions = setup_with_type_error(memgraph, thread_count, ExceptionOrigin.EVERY_OTHER)
-
-        # Verify we have multiple error positions
-        assert len(error_positions) >= 2, f"Expected at least 2 error positions, got {len(error_positions)}"
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-    def test_exception_from_all_branches(self, memgraph, thread_count):
-        """All elements have invalid type (all branches)."""
-        setup_with_type_error(memgraph, thread_count, ExceptionOrigin.ALL)
-
-        # All strings - should work as min of strings
-        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
-        # Lexicographic min of "invalid_string_1", "invalid_string_2", etc.
-        assert result[0]["result"].startswith("invalid_string_")
-
-
-class TestExceptionOnLargeDatabase:
-    """Test exception handling on large database."""
-
-    # Use smaller count for test speed
-    LARGE_COUNT = 1000
-
-    def test_no_exception_all_valid(self, memgraph):
-        """All valid integers should not raise exception."""
-        setup_large_db(memgraph, self.LARGE_COUNT)
-
-        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
-        assert result[0]["result"] == 1
-
-    def test_exception_from_first_branch(self, memgraph):
-        """Exception from first element on large dataset."""
-        setup_with_type_error(memgraph, self.LARGE_COUNT, ExceptionOrigin.FIRST)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-    def test_exception_from_last_branch(self, memgraph):
-        """Exception from last element on large dataset."""
-        setup_with_type_error(memgraph, self.LARGE_COUNT, ExceptionOrigin.LAST)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-    def test_exception_from_middle_branch(self, memgraph):
-        """Exception from middle element on large dataset."""
-        setup_with_type_error(memgraph, self.LARGE_COUNT, ExceptionOrigin.MIDDLE)
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-    def test_exception_from_multiple_branches(self, memgraph):
-        """Exception from every other element on large dataset."""
-        error_positions = setup_with_type_error(memgraph, self.LARGE_COUNT, ExceptionOrigin.EVERY_OTHER)
-
-        assert len(error_positions) == 500  # Half of 1000
-
-        with pytest.raises((DatabaseError, ClientError, TransientError)):
-            run_aggregation_query(memgraph)
-
-
 class TestExceptionParameterized:
-    """Parametrized tests covering all combinations of size and origin."""
+    """Consolidated parameterized tests covering all combinations of size and origin."""
 
-    @pytest.mark.parametrize("element_count", [2, 4, 8, 16, 100])
+    @pytest.mark.parametrize("element_count", [2, 4, 8, 16, 100, 1000])
     @pytest.mark.parametrize(
         "origin",
         [ExceptionOrigin.FIRST, ExceptionOrigin.LAST, ExceptionOrigin.MIDDLE, ExceptionOrigin.EVERY_OTHER],
@@ -269,6 +169,12 @@ class TestExceptionParameterized:
 
         with pytest.raises((DatabaseError, ClientError, TransientError)):
             run_aggregation_query(memgraph)
+
+    def test_no_exception_all_valid(self, memgraph, num_workers):
+        """Baseline check: all valid integers should aggregate without exception."""
+        setup_thread_count_db(memgraph, num_workers)
+        result = memgraph.fetch_all(pq("MATCH (n:A) RETURN min(n.p) AS result"))
+        assert result[0]["result"] == 1
 
 
 class TestExceptionMessageConsistency:

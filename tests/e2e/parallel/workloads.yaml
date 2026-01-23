@@ -5,6 +5,23 @@
 #
 # Note: Unlike other e2e tests, parallel tests do NOT use the 'cluster' key
 # because each pytest worker manages its own instance dynamically.
+# Exception: test_procedures.py uses cluster-based approach to load procedures.
+
+bolt_port: &bolt_port "7687"
+
+# Cluster configuration for procedure tests (requires proc loading)
+args_procedures: &args_procedures
+  - "--bolt-port"
+  - *bolt_port
+  - "--log-level=TRACE"
+
+procedure_cluster: &procedure_cluster
+  cluster:
+    main:
+      args: *args_procedures
+      log_file: "parallel-procedures-e2e.log"
+      setup_queries: []
+      validation_queries: []
 
 workloads:
   - name: "Parallel e2e tests exceptions"
@@ -46,3 +63,9 @@ workloads:
   - name: "Parallel e2e tests memory"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["parallel/test_memory.py"]
+
+  - name: "Parallel e2e tests procedures"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/parallel/procedures/"
+    args: ["parallel/test_procedures.py"]
+    <<: *procedure_cluster
