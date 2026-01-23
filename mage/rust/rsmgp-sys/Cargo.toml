@@ -1,0 +1,32 @@
+[package]
+name = "rsmgp-sys"
+version = "1.0.0"
+description = "Library to develop query modules for Memgraph in Rust."
+authors = ["Memgraph Contributors <tech@memgraph.com>"]
+license = "Apache-2.0"
+edition = "2018"
+homepage = "https://memgraph.com"
+repository = "https://github.com/memgraph/mage"
+readme = "README.md"
+documentation = "https://docs.rs/rsmgp-sys"
+keywords = ["memgraph", "query", "module", "library"]
+categories = ["database", "api-bindings"]
+
+[dependencies]
+c_str_macro = "1.0.2"
+snafu = "0.6.10"
+mockall_double = "0.2.0"
+chrono = "0.4.19"
+
+[dev-dependencies]
+mockall = "0.9.1"
+serial_test = "0.5.1"
+libc = "0.2.95"
+
+[build-dependencies]
+bindgen = "0.57.0"
+
+[dev-dependencies.cargo-husky]
+version = "1"
+default-features = false
+features = ["user-hooks"]

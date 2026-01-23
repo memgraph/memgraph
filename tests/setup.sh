@@ -4,7 +4,9 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
-# Temporarily disabled npm usage in CI
-echo "NPM usage temporarily disabled in CI"
-exit 0
+DISABLE_NODE=${DISABLE_NODE:-false}
+if [ "$DISABLE_NODE" = "true" ]; then
+  echo "Skipping node setup because DISABLE_NODE is set to true"
+  exit 0
+fi
 "$DIR"/e2e/graphql/setup.sh

@@ -1,0 +1,9 @@
+
+query: >
+    MATCH ()-[r]->()
+    MATCH (n:Dog)-[k]->(t:Human)
+    WITH collect(DISTINCT r) AS collectedR, k
+    RETURN collections.contains(collectedR, k) AS output;
+
+output:
+  - output: true

@@ -1,0 +1,6 @@
+query: >
+    CALL date.parse("14-Feb-1985 01:02:03", "s", "%d-%b-%Y %H:%M:%S", "Pacific/Chatham") YIELD parsed
+    RETURN parsed
+
+output:
+    - parsed: 477141423

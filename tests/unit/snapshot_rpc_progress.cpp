@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -579,9 +579,9 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
-  auto maybe_violation =
+  auto validation_result =
       ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
-  ASSERT_FALSE(maybe_violation.has_value());
+  ASSERT_TRUE(validation_result.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) {
@@ -608,9 +608,9 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
   snapshot_info.emplace(mocked_observer, 4);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
-  auto maybe_violation =
+  auto validation_result =
       ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
-  ASSERT_FALSE(maybe_violation.has_value());
+  ASSERT_TRUE(validation_result.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
@@ -641,9 +641,9 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
       .vertex_recovery_info = std::vector<std::pair<Gid, uint64_t>>{{Gid::FromUint(1), 3}, {Gid::FromUint(4), 3}},
       .thread_count = 2};
 
-  auto maybe_violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop,
-                                                                            par_schema_info, snapshot_info);
-  ASSERT_FALSE(maybe_violation.has_value());
+  auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop,
+                                                                              par_schema_info, snapshot_info);
+  ASSERT_TRUE(validation_result.has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
@@ -660,7 +660,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
       unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
-          .GetValue(),
+          .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 
@@ -692,7 +692,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(
       unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
-          .GetValue(),
+          .value(),
       InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 
@@ -728,7 +728,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
   InMemoryUniqueConstraints unique_constraints;
   ASSERT_EQ(unique_constraints
                 .CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, par_schema_info, snapshot_info)
-                .GetValue(),
+                .value(),
             InMemoryUniqueConstraints::CreationStatus::SUCCESS);
 }
 
@@ -744,9 +744,9 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
   TypeConstraints type_constraints;
-  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER));
-
-  ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
+  type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER);
+  type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
+  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
 }
 
 TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
@@ -775,6 +775,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   TypeConstraints type_constraints;
-  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER));
-  ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
+  type_constraints.RegisterConstraint(label, prop, TypeConstraintKind::INTEGER);
+  type_constraints.PublishConstraint(label, prop, TypeConstraintKind::INTEGER, 1);
+  ASSERT_TRUE(type_constraints.ValidateAllVertices(vertices.access(), snapshot_info).has_value());
 }

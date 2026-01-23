@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,12 +16,12 @@
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
-template <typename ErrorType, typename Func, typename... Args>
-void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
+template <typename ResultType, typename Func, typename... Args>
+void do_per_thread_validation(ResultType &result, Func &&func,
                               const std::vector<std::pair<Gid, uint64_t>> &vertex_batches,
                               std::atomic<uint64_t> &batch_counter, const utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info, Args &&...args) {
-  while (!maybe_error.ReadLock()->has_value()) {
+  while (result.ReadLock()->has_value()) {
     const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
     if (batch_index >= vertex_batches.size()) {
       return;
@@ -31,14 +31,14 @@ void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
     auto vertex_curr = vertices.find(gid_start);
     DMG_ASSERT(vertex_curr != vertices.end(), "No vertex was found with given gid");
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
-      const auto violation = func(*vertex_curr, std::forward<Args>(args)...);
-      if (!violation.has_value()) [[likely]] {
-        if (snapshot_info.has_value()) {
+      const auto validation_result = func(*vertex_curr, std::forward<Args>(args)...);
+      if (validation_result) [[likely]] {
+        if (snapshot_info) {
           snapshot_info->Update(UpdateType::VERTICES);
         }
         continue;
       }
-      maybe_error.WithLock([&violation](auto &maybe_error) { maybe_error = *violation; });
+      result.WithLock([&validation_result](auto &result) { result = std::unexpected{validation_result.error()}; });
       break;
     }
   }

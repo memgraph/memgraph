@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "slk/streams.hpp"
-#include "utils/cast.hpp"
 #include "utils/concepts.hpp"
 #include "utils/endian.hpp"
 #include "utils/exceptions.hpp"
@@ -163,20 +162,20 @@ MAKE_PRIMITIVE_LOAD(uint64_t)
 
 #undef MAKE_PRIMITIVE_LOAD
 
-inline void Save(float obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint32_t>(obj), builder); }
+inline void Save(float obj, Builder *builder) { slk::Save(std::bit_cast<uint32_t>(obj), builder); }
 
-inline void Save(double obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint64_t>(obj), builder); }
+inline void Save(double obj, Builder *builder) { slk::Save(std::bit_cast<uint64_t>(obj), builder); }
 
 inline void Load(float *obj, Reader *reader) {
   uint32_t obj_encoded;
   slk::Load(&obj_encoded, reader);
-  *obj = utils::MemcpyCast<float>(obj_encoded);
+  *obj = std::bit_cast<float>(obj_encoded);
 }
 
 inline void Load(double *obj, Reader *reader) {
   uint64_t obj_encoded;
   slk::Load(&obj_encoded, reader);
-  *obj = utils::MemcpyCast<double>(obj_encoded);
+  *obj = std::bit_cast<double>(obj_encoded);
 }
 
 // Implementation of serialization of complex types.
@@ -592,12 +591,12 @@ inline void Load(utils::TypeId *obj, Reader *reader) {
   using enum_type = std::underlying_type_t<utils::TypeId>;
   enum_type obj_encoded;
   slk::Load(&obj_encoded, reader);
-  *obj = utils::TypeId(utils::MemcpyCast<enum_type>(obj_encoded));
+  *obj = utils::TypeId(std::bit_cast<enum_type>(obj_encoded));
 }
 
 template <utils::Enum T>
 void Save(const T &enum_value, slk::Builder *builder) {
-  slk::Save(utils::UnderlyingCast(enum_value), builder);
+  slk::Save(std::to_underlying(enum_value), builder);
 }
 
 template <utils::Enum T>

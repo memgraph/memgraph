@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,6 +57,11 @@ class SynchronizedMetaDataStore {
     }
   }
 
+  size_t size() const {
+    std::shared_lock read_lock(lock_);
+    return element_store_.size();
+  }
+
   void clear() {
     std::unique_lock write_lock(lock_);
     element_store_.clear();
@@ -64,7 +69,7 @@ class SynchronizedMetaDataStore {
 
  private:
   std::unordered_set<T> element_store_;
-  RWLock lock_{RWLock::Priority::READ};
+  mutable RWLock lock_{RWLock::Priority::READ};
 };
 
 }  // namespace memgraph::utils

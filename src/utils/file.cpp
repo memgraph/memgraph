@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,12 +18,50 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
-#include <shared_mutex>
+#include <ranges>
 #include <type_traits>
+#include <vector>
 
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
+
+auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
+    -> std::pair<std::filesystem::path, FileUniquePtr> {
+  // w for writing
+  // b for binary
+  // x for exclusive access
+  constexpr auto file_mode = "wbx";
+
+  // Try without suffix
+  FileUniquePtr file(std::fopen(base_path.string().data(), file_mode), &std::fclose);
+
+  if (file) {
+    return std::make_pair(base_path, std::move(file));
+  }
+
+  auto const stem = base_path.stem();
+  auto const ext = base_path.extension();
+  auto const parent = base_path.parent_path();
+
+  auto suffix = 1;
+  // We don't want more than 10k files with the same name
+  constexpr auto max_suffix = 10'000;
+
+  std::filesystem::path new_path;
+
+  do {
+    new_path = parent / std::format("{}_{}{}", stem.string(), suffix, ext.string());
+    FileUniquePtr file(std::fopen(new_path.string().data(), file_mode), &std::fclose);
+    if (file) {
+      return std::make_pair(new_path, std::move(file));
+    }
+  } while (suffix++ < max_suffix);
+
+  throw utils::BasicException("More than 10k files with the same name. File {} won't be downloaded.",
+                              base_path.string());
+}
 
 std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
 
@@ -65,6 +103,16 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept {
   return std::filesystem::remove_all(dir, error_code) > 0;
 }
 
+auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::filesystem::path> {
+  if (!utils::DirExists(dir)) {
+    spdlog::error("Directory {} doesn't exist", dir);
+    return {};
+  }
+  std::error_code error_code;
+  return std::filesystem::directory_iterator(dir, error_code) |
+         std::views::transform([](auto const &dir_entry) { return dir_entry.path(); }) | std::ranges::to<std::vector>();
+}
+
 bool DeleteFile(const std::filesystem::path &file) noexcept {
   std::error_code error_code;  // For exception suppression.
   auto const res = std::filesystem::remove(file, error_code);
@@ -103,10 +151,10 @@ InputFile::InputFile(InputFile &&other) noexcept
       path_(std::move(other.path_)),
       file_size_(other.file_size_),
       file_position_(other.file_position_),
+      buffer_(other.buffer_),
       buffer_start_(other.buffer_start_),
       buffer_size_(other.buffer_size_),
       buffer_position_(other.buffer_position_) {
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
   other.fd_ = -1;
   other.file_size_ = 0;
   other.file_position_ = 0;
@@ -122,10 +170,10 @@ InputFile &InputFile::operator=(InputFile &&other) noexcept {
   path_ = std::move(other.path_);
   file_size_ = other.file_size_;
   file_position_ = other.file_position_;
+  buffer_ = other.buffer_;
   buffer_start_ = other.buffer_start_;
   buffer_size_ = other.buffer_size_;
   buffer_position_ = other.buffer_position_;
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
 
   other.fd_ = -1;
   other.file_size_ = 0;
@@ -147,11 +195,10 @@ bool InputFile::Open(const std::filesystem::path &path) {
     if (fd_ == -1 && errno == EINTR) {
       // The call was interrupted, try again...
       continue;
-    } else {
-      // All other possible errors are fatal errors and are handled with the
-      // return value.
-      break;
     }
+    // All other possible errors are fatal errors and are handled with the
+    // return value.
+    break;
   }
 
   if (fd_ == -1) return false;
@@ -180,7 +227,7 @@ bool InputFile::Read(uint8_t *data, size_t size) {
       buffer_left = buffer_size_ - buffer_position_;
     }
     auto to_copy = std::min(size, buffer_left);
-    memcpy(write_ptr, buffer_ + buffer_position_, to_copy);
+    memcpy(write_ptr, buffer_.data() + buffer_position_, to_copy);
     size -= to_copy;
     write_ptr += to_copy;
     buffer_position_ += to_copy;
@@ -202,13 +249,13 @@ bool InputFile::Peek(uint8_t *data, size_t size) {
     // buffer position.
     buffer_position_ = old_buffer_position;
   } else {
-    SetPosition(Position::SET, real_position);
+    SetPosition(Position::SET, static_cast<ssize_t>(real_position));
   }
 
   return ret;
 }
 
-size_t InputFile::GetSize() { return file_size_; }
+size_t InputFile::GetSize() const { return file_size_; }
 
 size_t InputFile::GetPosition() {
   if (buffer_start_) return *buffer_start_ + buffer_position_;
@@ -216,7 +263,22 @@ size_t InputFile::GetPosition() {
 }
 
 std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) {
-  int whence;
+  // It would be wrong not to take into account buffering
+  if (position == Position::RELATIVE_TO_CURRENT) {
+    offset = static_cast<ssize_t>(GetPosition()) + offset;
+    position = Position::SET;
+  }
+
+  // Optimization if the new position fits within the old buffer
+  if (position == Position::SET && buffer_start_.has_value()) {
+    auto target = static_cast<size_t>(offset);
+    if (target >= *buffer_start_ && target < *buffer_start_ + buffer_size_) {
+      buffer_position_ = target - *buffer_start_;
+      return target;
+    }
+  }
+
+  int whence = 0;
   switch (position) {
     case Position::SET:
       whence = SEEK_SET;
@@ -235,6 +297,7 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     }
     if (pos < 0) return std::nullopt;
     file_position_ = pos;
+
     buffer_start_ = std::nullopt;
     buffer_size_ = 0;
     buffer_position_ = 0;
@@ -251,11 +314,10 @@ void InputFile::Close() noexcept {
     if (ret == -1 && errno == EINTR) {
       // The call was interrupted, try again...
       continue;
-    } else {
-      // All other possible errors are fatal errors and are handled in the
-      // MG_ASSERT below.
-      break;
     }
+    // All other possible errors are fatal errors and are handled in the
+    // MG_ASSERT below.
+    break;
   }
 
   if (ret != 0) {
@@ -280,7 +342,7 @@ bool InputFile::LoadBuffer() {
 
   size_t offset = 0;
   while (size > 0) {
-    auto got = read(fd_, buffer_ + offset, size);
+    auto got = read(fd_, buffer_.data() + offset, size);
     if (got == -1 && errno == EINTR) {
       continue;
     }
@@ -304,9 +366,11 @@ OutputFile::~OutputFile() {
 }
 
 OutputFile::OutputFile(OutputFile &&other) noexcept
-    : fd_(other.fd_), written_since_last_sync_(other.written_since_last_sync_), path_(std::move(other.path_)) {
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
-  buffer_position_.store(other.buffer_position_.load(std::memory_order_acquire), std::memory_order_release);
+    : fd_(other.fd_),
+      buffer_position_(other.buffer_position_.load(std::memory_order_acquire)),
+      written_since_last_sync_(other.written_since_last_sync_),
+      buffer_(other.buffer_),
+      path_(std::move(other.path_)) {
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
   other.buffer_position_.store(0, std::memory_order_release);
@@ -319,7 +383,7 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   written_since_last_sync_ = other.written_since_last_sync_;
   path_ = std::move(other.path_);
   buffer_position_ = other.buffer_position_.load();
-  memcpy(buffer_, other.buffer_, kFileBufferSize);
+  buffer_ = other.buffer_;
 
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
@@ -345,11 +409,10 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     if (fd_ == -1 && errno == EINTR) {
       // The call was interrupted, try again...
       continue;
-    } else {
-      // All other possible errors are fatal errors and are handled in the
-      // MG_ASSERT below.
-      break;
     }
+    // All other possible errors are fatal errors and are handled in the
+    // MG_ASSERT below.
+    break;
   }
 
   MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
@@ -364,14 +427,14 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   MG_ASSERT(IsOpen(), "Trying to write to an unopened file!");
   auto const buffer_start = buffer_position_.load(std::memory_order_acquire);
 
-  auto write_ptr = buffer_ + buffer_start;
+  auto *write_ptr = buffer_.data() + buffer_start;
   auto buffer_remaining = kFileBufferSize - buffer_start;
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
       FlushBufferInternal(kFileBufferSize);
       buffer_remaining = kFileBufferSize;
-      write_ptr = buffer_;
+      write_ptr = buffer_.data();
     }
 
     auto const amount_to_write = std::min(size, buffer_remaining);
@@ -382,14 +445,14 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
     buffer_remaining -= amount_to_write;
     written_since_last_sync_ += amount_to_write;
   }
-  buffer_position_.store(write_ptr - buffer_, std::memory_order_release);
+  buffer_position_.store(write_ptr - buffer_.data(), std::memory_order_release);
 }
 
 void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
 void OutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
 
 size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
-  int whence;
+  int whence = 0;
   switch (position) {
     case Position::SET:
       whence = SEEK_SET;
@@ -519,7 +582,7 @@ void OutputFile::FlushBuffer() {
 
 void OutputFile::FlushBufferInternal(size_t to_write) {
   // Doesn't update buffer_position_ to avoid using atomics
-  auto *buffer = buffer_;
+  auto *buffer = buffer_.data();
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
@@ -555,7 +618,7 @@ void OutputFile::EnableFlushing() {
 }
 
 std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
-  return {buffer_, buffer_position_.load(std::memory_order_acquire)};
+  return {buffer_.data(), buffer_position_.load(std::memory_order_acquire)};
 }
 
 size_t OutputFile::GetSize() {
@@ -613,14 +676,14 @@ const std::filesystem::path &NonConcurrentOutputFile::path() const { return path
 void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
   auto const buffer_start = buffer_position_;
 
-  auto write_ptr = buffer_ + buffer_start;
+  auto *write_ptr = buffer_.data() + buffer_start;
   auto buffer_remaining = kFileBufferSize - buffer_start;
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
       FlushBufferInternal(kFileBufferSize);
       buffer_remaining = kFileBufferSize;
-      write_ptr = buffer_;
+      write_ptr = buffer_.data();
     }
 
     auto const amount_to_write = std::min(size, buffer_remaining);
@@ -631,7 +694,7 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
     buffer_remaining -= amount_to_write;
     written_since_last_sync_ += amount_to_write;
   }
-  buffer_position_ = write_ptr - buffer_;
+  buffer_position_ = write_ptr - buffer_.data();
 }
 
 void NonConcurrentOutputFile::Write(const char *data, size_t size) {
@@ -640,7 +703,7 @@ void NonConcurrentOutputFile::Write(const char *data, size_t size) {
 void NonConcurrentOutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
 
 size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t offset) {
-  int whence;
+  int whence = 0;
   switch (position) {
     case Position::SET:
       whence = SEEK_SET;
@@ -773,7 +836,7 @@ void NonConcurrentOutputFile::FlushBuffer() {
 }
 
 void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
-  auto *buffer = buffer_;
+  auto *buffer = buffer_.data();
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
@@ -802,7 +865,7 @@ void NonConcurrentOutputFile::FlushBufferInternal() {
 }
 
 std::pair<const uint8_t *, size_t> NonConcurrentOutputFile::CurrentBuffer() const {
-  return {buffer_, buffer_position_};
+  return {buffer_.data(), buffer_position_};
 }
 
 size_t NonConcurrentOutputFile::GetSize() {

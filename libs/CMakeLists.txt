@@ -9,14 +9,12 @@ if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
-find_package(BZip2 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
 
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt REQUIRED)
-find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -215,13 +213,11 @@ set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
 mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
 
-# Setup json
+# Setup json for offline build (TODO: Remove this once the conan package has the patch)
 FetchContent_Declare(
     nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
-    PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch"
-    # FIND_PACKAGE_ARGS # maybe needed for FETCHCONTENT_TRY_FIND_PACKAGE_MODE OPT_IN
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json
+    PATCH_COMMAND patch -p1 < "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann_json3.11.3.patch" || true
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
@@ -334,13 +330,6 @@ mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdts
 
 set(ABSL_PROPAGATE_CXX_STD ON)
 
-macro(link_jmalloc)
-  set_path_external_library(jemalloc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
-endmacro()
-mg_build_if_needed(link_jmalloc "jemalloc")
-
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
 if(DEFINED MG_TOOLCHAIN_VERSION)
   if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
@@ -355,40 +344,13 @@ macro(build_nuraft)
 endmacro()
 mg_build_if_needed(build_nuraft "nuraft")
 mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft.a" "${MG_TOOLCHAIN_ROOT}/include")
-find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE openssl::openssl)
 
-# Always build mgcxx locally (not from toolchain)
-set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
-  CACHE PATH "Path to mgcxx include directory" FORCE)
-set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
-  CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
-set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
-  CACHE FILEPATH "Path to mgcxx text search library" FORCE)
-
-# Ensure the include directory exists
-file(MAKE_DIRECTORY ${MGCXX_INCLUDE_DIR})
-
-# Add mgcxx as an external project with proper build configuration
-add_external_project(mgcxx
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-  CMAKE_ARGS -DENABLE_TESTS=OFF
-  BUILD_BYPRODUCTS
-    ${MGCXX_TEXT_SEARCH_LIBRARY}
-    ${TANTIVY_TEXT_SEARCH_LIBRARY}
-    ${MGCXX_INCLUDE_DIR}/mgcxx_text_search.hpp)
-
-mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
-import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-
-# Prepend local mgcxx include directory to ensure it's found before toolchain headers
-file(MAKE_DIRECTORY ${MGCXX_INCLUDE_DIR})
-include_directories(BEFORE ${MGCXX_INCLUDE_DIR})
-
-# mgcxx libraries are imported from toolchain via mg_create_linkable_if_no_cmake above
-target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
-target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
+# include mgcxx
+set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
+target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
+add_library(tantivy_text_search ALIAS mgcxx_text_search)
 
 # setup usearch
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)

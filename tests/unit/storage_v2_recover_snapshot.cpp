@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,26 +93,26 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create a snapshot
   auto snapshot_result = storage->CreateSnapshot();
-  ASSERT_FALSE(snapshot_result.HasError());
-  auto snapshot_path = snapshot_result.GetValue();
+  ASSERT_TRUE(snapshot_result.has_value());
+  auto snapshot_path = snapshot_result.value();
 
   // Add more data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create another snapshot to have multiple snapshots
   auto snapshot_result2 = storage->CreateSnapshot();
-  ASSERT_FALSE(snapshot_result2.HasError());
+  ASSERT_TRUE(snapshot_result2.has_value());
 
   // Verify we have snapshots in the directory
   auto snapshots_dir = config_.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory;
@@ -129,7 +129,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   // Recover from the first snapshot
   auto recover_result =
       storage->RecoverSnapshot(snapshot_path, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
-  ASSERT_FALSE(recover_result.HasError()) << "RecoverSnapshot should succeed";
+  ASSERT_TRUE(recover_result.has_value()) << "RecoverSnapshot should succeed";
 
   // Verify .old directory was created
   auto old_snapshots_dir = snapshots_dir / ".old";
@@ -165,7 +165,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
       << "Recovered snapshot " << new_snapshot_path << " should have the same start timestamp as the original snapshot";
 
   // Verify there is only one vertex (the one created in the first transaction)
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertices = acc->Vertices(memgraph::storage::View::NEW);
   int count = 0;
   for (const auto &vertex : vertices) {
@@ -176,7 +176,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   // Second recovery
   auto recover2_result =
       storage->RecoverSnapshot(new_snapshot_path, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
-  ASSERT_FALSE(recover2_result.HasError()) << "RecoverSnapshot should succeed";
+  ASSERT_TRUE(recover2_result.has_value()) << "RecoverSnapshot should succeed";
 
   // Verify .old contains the new snapshot only
   old_files.clear();
@@ -222,18 +222,18 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create a snapshot
   auto snapshot_result = storage->CreateSnapshot();
-  ASSERT_FALSE(snapshot_result.HasError());
+  ASSERT_TRUE(snapshot_result.has_value());
 
   // Move the snapshot to the local storage
   TmpDirManager local_dir{"MG_test_unit_storage_v2_recover_snapshot_local"};
-  auto snapshot_path = snapshot_result.GetValue();
+  auto snapshot_path = snapshot_result.value();
   std::filesystem::rename(snapshot_path, local_dir.Path() / snapshot_path.filename());
   snapshot_path = local_dir.Path() / snapshot_path.filename();
 
@@ -245,7 +245,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 
   // Verify storage is empty
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
     for (const auto &vertex : vertices) {
@@ -256,16 +256,16 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 
   {
     auto snapshot_result = storage->CreateSnapshot();
-    ASSERT_FALSE(snapshot_result.HasError());
+    ASSERT_TRUE(snapshot_result.has_value());
   }
   // Recover from the local snapshot
   auto recover_result =
       storage->RecoverSnapshot(snapshot_path, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
-  ASSERT_FALSE(recover_result.HasError()) << "RecoverSnapshot should succeed";
+  ASSERT_TRUE(recover_result.has_value()) << "RecoverSnapshot should succeed";
 
   // Verify storage is empty
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
     for (const auto &vertex : vertices) {
@@ -322,31 +322,31 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create a snapshot
   auto snapshot_result = storage->CreateSnapshot();
-  ASSERT_FALSE(snapshot_result.HasError());
-  auto snapshot_path = snapshot_result.GetValue();
+  ASSERT_TRUE(snapshot_result.has_value());
+  auto snapshot_path = snapshot_result.value();
 
   // Add some data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Recover from the snapshot
   auto recover_result =
       storage->RecoverSnapshot(snapshot_path, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
-  ASSERT_FALSE(recover_result.HasError()) << "RecoverSnapshot should succeed";
+  ASSERT_TRUE(recover_result.has_value()) << "RecoverSnapshot should succeed";
 
   // Verify storage has the snapshot data
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertices = acc->Vertices(memgraph::storage::View::NEW);
     int count = 0;
     for (const auto &vertex : vertices) {
@@ -410,9 +410,9 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
 
   // Add more data (generates more WALs)
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify WAL was created

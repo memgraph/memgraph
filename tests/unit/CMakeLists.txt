@@ -22,7 +22,6 @@ target_precompile_headers(memgraph_unit_main PRIVATE
 add_library(storage_test_utils storage_test_utils.cpp)
 target_link_libraries(storage_test_utils mg::storage)
 
-find_package(OpenSSL REQUIRED)
 find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
 
 # Test integrations-kafka
@@ -321,6 +320,12 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+
+add_unit_test(utils_aws
+    SOURCES utils_aws.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_barrier
     SOURCES utils_barrier.cpp
     LINK_TARGETS mg-utils
@@ -375,6 +380,11 @@ add_unit_test(utils_memory_tracker
 add_unit_test(utils_query_memory_tracker
     SOURCES utils_query_memory_tracker.cpp
     LINK_TARGETS mg-utils
+)
+
+add_unit_test(jemalloc_hook_stress_test
+    SOURCES jemalloc_hook_stress_test.cpp
+    LINK_TARGETS mg-memory mg-utils
 )
 
 add_unit_test(utils_on_scope_exit

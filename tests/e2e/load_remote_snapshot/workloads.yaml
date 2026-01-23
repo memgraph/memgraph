@@ -1,0 +1,19 @@
+args: &args
+  - "--bolt-port=7687"
+  - "--log-level=TRACE"
+  - "--file-download-conn-timeout-sec=15"
+
+load_remote_snapshot_in_memory_cluster: &load_remote_snapshot_in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "load_remote_snapshot.txt"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Load remote snapshot"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_remote_snapshot/load_remote_snapshot.py"]
+    <<: *load_remote_snapshot_in_memory_cluster

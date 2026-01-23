@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,41 +68,41 @@ class PoolResource final {
 };
 
 static void AddVertices(memgraph::storage::Storage *db, int vertex_count) {
-  auto dba = db->Access();
+  auto dba = db->Access(memgraph::storage::WRITE);
   for (int i = 0; i < vertex_count; i++) dba->CreateVertex();
-  MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 static const char *kStartLabel = "start";
 
 static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int depth) {
   {
-    auto dba = db->Access();
+    auto dba = db->Access(memgraph::storage::WRITE);
     auto center_vertex = dba->CreateVertex();
-    MG_ASSERT(center_vertex.AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
+    MG_ASSERT(center_vertex.AddLabel(dba->NameToLabel(kStartLabel)).has_value());
     for (int i = 0; i < spoke_count; ++i) {
       auto prev_vertex = center_vertex;
       for (int j = 0; j < depth; ++j) {
         auto dest = dba->CreateVertex();
-        MG_ASSERT(dba->CreateEdge(&prev_vertex, &dest, dba->NameToEdgeType("Type")).HasValue());
+        MG_ASSERT(dba->CreateEdge(&prev_vertex, &dest, dba->NameToEdgeType("Type")).has_value());
         prev_vertex = dest;
       }
     }
-    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = db->UniqueAccess();
-    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
   }
 }
 
 static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
   {
-    auto dba = db->Access();
+    auto dba = db->Access(memgraph::storage::WRITE);
     std::vector<memgraph::storage::VertexAccessor> vertices;
     vertices.reserve(vertex_count);
     auto root = dba->CreateVertex();
-    MG_ASSERT(root.AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
+    MG_ASSERT(root.AddLabel(dba->NameToLabel(kStartLabel)).has_value());
     vertices.push_back(root);
     // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
     std::mt19937_64 rg(42);
@@ -110,14 +110,14 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
       auto v = dba->CreateVertex();
       std::uniform_int_distribution<> dis(0U, vertices.size() - 1U);
       auto &parent = vertices.at(dis(rg));
-      MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).HasValue());
+      MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).has_value());
       vertices.push_back(v);
     }
-    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto unique_acc = db->UniqueAccess();
-    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    MG_ASSERT(unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).has_value());
   }
 }
 
@@ -140,7 +140,7 @@ static void Distinct(benchmark::State &state) {
   memgraph::query::Parameters parameters;
   std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
   AddVertices(db.get(), state.range(0));
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto query_string = "MATCH (s) RETURN DISTINCT s";
   auto *cypher_query = ParseCypherQuery(query_string, &ast);
@@ -193,7 +193,7 @@ static void ExpandVariable(benchmark::State &state) {
   AddStarGraph(db.get(), state.range(0), state.range(1));
   memgraph::query::SymbolTable symbol_table;
   auto expand_variable = MakeExpandVariable(memgraph::query::EdgeAtom::Type::DEPTH_FIRST, &symbol_table);
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -235,7 +235,7 @@ static void ExpandBfs(benchmark::State &state) {
   AddTree(db.get(), state.range(0));
   memgraph::query::SymbolTable symbol_table;
   auto expand_variable = MakeExpandVariable(memgraph::query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -273,7 +273,7 @@ static void ExpandShortest(benchmark::State &state) {
   auto expand_variable = MakeExpandVariable(memgraph::query::EdgeAtom::Type::BREADTH_FIRST, &symbol_table);
   expand_variable.common_.existing_node = true;
   auto dest_symbol = expand_variable.common_.node_symbol;
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -317,7 +317,7 @@ static void ExpandWeightedShortest(benchmark::State &state) {
       symbol_table.CreateSymbol("edge", false), symbol_table.CreateSymbol("vertex", false),
       ast.Create<memgraph::query::PrimitiveLiteral>(1)};
   auto dest_symbol = expand_variable.common_.node_symbol;
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -365,7 +365,7 @@ static void Accumulate(benchmark::State &state) {
   }
   memgraph::query::plan::Accumulate accumulate(scan_all, symbols,
                                                /* advance_command= */ false);
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -415,7 +415,7 @@ static void Aggregate(benchmark::State &state) {
                             symbol_table.CreateSymbol("out" + std::to_string(i), false)});
   }
   memgraph::query::plan::Aggregate aggregate(scan_all, aggregations, group_by, symbols);
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -464,11 +464,11 @@ static void OrderBy(benchmark::State &state) {
   sort_items.reserve(state.range(0));
   for (int i = 0; i < state.range(0); ++i) {
     symbols.push_back(symbol_table.CreateSymbol(std::to_string(i), false));
-    auto rand_value = memgraph::utils::MemcpyCast<int64_t>(rg());
+    auto rand_value = std::bit_cast<int64_t>(rg());
     sort_items.push_back({memgraph::query::Ordering::ASC, ast.Create<memgraph::query::PrimitiveLiteral>(rand_value)});
   }
   memgraph::query::plan::OrderBy order_by(scan_all, sort_items, symbols);
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -507,7 +507,7 @@ static void Unwind(benchmark::State &state) {
   auto *list_expr = ast.Create<memgraph::query::Identifier>("list")->MapTo(list_sym);
   auto out_sym = symbol_table.CreateSymbol("out", false);
   memgraph::query::plan::Unwind unwind(scan_all, list_expr, out_sym);
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // We need to only set the memory for temporary (per pull) evaluations
   TMemory per_pull_memory;
@@ -546,7 +546,7 @@ static void Foreach(benchmark::State &state) {
       std::make_shared<memgraph::query::plan::CreateNode>(nullptr, memgraph::query::plan::NodeCreationInfo{});
   auto foreach = std::make_shared<memgraph::query::plan::Foreach>(nullptr, std::move(create_node), list_expr, out_sym);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   TMemory per_pull_memory;
   memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};

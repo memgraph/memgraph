@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,8 @@ struct QueryUserOrRole {
   QueryUserOrRole(std::optional<std::string> username, std::vector<std::string> rolenames)
       : username_{std::move(username)}, rolenames_{std::move(rolenames)} {}
   virtual ~QueryUserOrRole() = default;
+
+  virtual std::shared_ptr<QueryUserOrRole> clone() const = 0;
 
   virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges,
                             std::optional<std::string_view> db_name, UserPolicy *policy) const = 0;

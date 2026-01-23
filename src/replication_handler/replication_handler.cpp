@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,9 +16,7 @@
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "utils/functional.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/timer.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -113,9 +111,9 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 }  // namespace
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
-    utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> &instance_client) {
-  if (instance_client.HasError()) {
-    switch (instance_client.GetError()) {
+    std::expected<ReplicationClient *, RegisterReplicaStatus> &instance_client) {
+  if (!instance_client) {
+    switch (instance_client.error()) {
       case RegisterReplicaStatus::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
       case RegisterReplicaStatus::NAME_EXISTS:
@@ -199,6 +197,25 @@ bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({},
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
+    // Need to take read-only access to all databases so we have a guranteee all write txns are finished before demoting
+    // to replica.
+    std::vector<std::unique_ptr<storage::Storage::Accessor>> accs;
+    auto const res = dbms_handler_.AllOf([&accs](dbms::DatabaseAccess db_acc) -> bool {
+      // Timeout on read only access for the DB
+      constexpr auto read_only_timeout = 2s;
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      try {
+        accs.emplace_back(storage->ReadOnlyAccess(std::nullopt, read_only_timeout));
+      } catch (std::exception const &e) {
+        return false;
+      }
+      return true;
+    });
+
+    if (!res) {
+      return false;
+    }
+
     auto locked_repl_state = repl_state_.TryLock();
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
@@ -237,14 +254,18 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       locked_repl_state->GetReplicaRole().server->Shutdown();
     }
 
-    // STEP 1) bring down all REPLICA servers
+    // Step 1) Destroy repl accessor. It is safe to do this from another thread
+    // because server has already been stopped
+    dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
+
+    // STEP 2) bring down all REPLICA servers
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       // Remember old epoch + storage timestamp association
       storage->PrepareForNewEpoch();
     });
 
-    // STEP 2) Change to MAIN
+    // STEP 3) Change to MAIN
     // TODO: restore replication servers if false?
     if (!locked_repl_state->SetReplicationRoleMain(main_uuid)) {
       // TODO: Handle recovery on failure???
@@ -255,7 +276,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     auto const new_epoch = ReplicationEpoch();
     spdlog::trace("Generated new epoch {}", new_epoch.id());
 
-    // STEP 3) We are now MAIN, update storage local epoch
+    // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       storage->repl_storage_state_.epoch_ = new_epoch;
@@ -276,7 +297,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
 
-    // STEP 4) Resume TTL
+    // STEP 5) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto &ttl = db_acc->ttl();
       ttl.Resume();
@@ -290,22 +311,22 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
 // as MAIN, define and connect to REPLICAS
 auto ReplicationHandler::TryRegisterReplica(const ReplicationClientConfig &config)
-    -> utils::BasicResult<query::RegisterReplicaError> {
+    -> std::expected<void, query::RegisterReplicaError> {
   try {
     auto locked_repl_state = repl_state_.TryLock();
     return RegisterReplica_<true>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
-    return query::RegisterReplicaError::NO_ACCESS;
+    return std::unexpected(query::RegisterReplicaError::NO_ACCESS);
   }
 }
 
 auto ReplicationHandler::RegisterReplica(const ReplicationClientConfig &config)
-    -> utils::BasicResult<query::RegisterReplicaError> {
+    -> std::expected<void, query::RegisterReplicaError> {
   try {
     auto locked_repl_state = repl_state_.TryLock();
     return RegisterReplica_<false>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
-    return query::RegisterReplicaError::NO_ACCESS;
+    return std::unexpected(query::RegisterReplicaError::NO_ACCESS);
   }
 }
 
@@ -434,9 +455,9 @@ bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(
 
 bool ReplicationHandler::IsReplica() const { return repl_state_.ReadLock()->IsReplica(); }
 
-auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowReplicaError, query::ReplicasInfos> {
+auto ReplicationHandler::ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> {
   // TODO try lock
-  using res_t = utils::BasicResult<query::ShowReplicaError, query::ReplicasInfos>;
+  using res_t = std::expected<query::ReplicasInfos, query::ShowReplicaError>;
   auto main = [this](RoleMainData const &main) -> res_t {
     auto entries = std::vector<query::ReplicasInfo>{};
     entries.reserve(main.registered_replicas_.size());
@@ -478,7 +499,7 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
     }
     return query::ReplicasInfos{std::move(entries)};
   };
-  auto replica = [](RoleReplicaData const &) -> res_t { return query::ShowReplicaError::NOT_MAIN; };
+  auto replica = [](RoleReplicaData const &) -> res_t { return std::unexpected{query::ShowReplicaError::NOT_MAIN}; };
 
   return std::visit(utils::Overloaded{main, replica}, repl_state_.ReadLock()->ReplicationData());
 }

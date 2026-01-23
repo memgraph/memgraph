@@ -27,7 +27,6 @@
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/cast.hpp"
 #include "utils/compressor.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
@@ -292,8 +291,8 @@ class Writer {
     }
   }
 
-  std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
-  bool WriteDoubleForceInt64(double value) { return InternalWriteInt<uint64_t>(utils::MemcpyCast<uint64_t>(value)); }
+  std::optional<Size> WriteDouble(double value) { return WriteUint(std::bit_cast<uint64_t>(value)); }
+  bool WriteDoubleForceInt64(double value) { return InternalWriteInt<uint64_t>(std::bit_cast<uint64_t>(value)); }
 
   bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
 
@@ -437,13 +436,13 @@ class Reader {
   std::optional<double> ReadDouble(Size size) {
     auto value = ReadUint(size);
     if (!value) return std::nullopt;
-    return utils::MemcpyCast<double>(*value);
+    return std::bit_cast<double>(*value);
   }
 
   std::optional<double> ReadDoubleForce64() {
     auto value = InternalReadInt<uint64_t>();
     if (!value) return std::nullopt;
-    return utils::MemcpyCast<double>(*value);
+    return std::bit_cast<double>(*value);
   }
 
   std::optional<utils::Timezone> ReadTimezone(auto type) {
@@ -659,7 +658,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!metadata) return std::nullopt;
 
       const auto temporal_data = value.ValueTemporalData();
-      auto type_size = writer->WriteUint(utils::UnderlyingCast(temporal_data.type));
+      auto type_size = writer->WriteUint(std::to_underlying(temporal_data.type));
       if (!type_size) return std::nullopt;
 
       auto microseconds_size = writer->WriteInt(temporal_data.microseconds);
@@ -674,7 +673,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!metadata) return std::nullopt;
 
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
-      auto type_size = writer->WriteUint(utils::UnderlyingCast(zoned_temporal_data.type));
+      auto type_size = writer->WriteUint(std::to_underlying(zoned_temporal_data.type));
       if (!type_size) return std::nullopt;
 
       auto microseconds_size = writer->WriteInt(zoned_temporal_data.IntMicroseconds());
@@ -2420,9 +2419,8 @@ bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &prope
             [](const auto &kv_entry) { return kv_entry.second; });
 
   return std::all_of(
-      property_values.begin(), property_values.end(), [&all_property_values](const PropertyValue &value) {
-        return std::find(all_property_values.begin(), all_property_values.end(), value) != all_property_values.end();
-      });
+      property_values.begin(), property_values.end(),
+      [&all_property_values](const PropertyValue &value) { return std::ranges::contains(all_property_values, value); });
 }
 
 std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
@@ -2886,7 +2884,7 @@ std::vector<PropertyId> PropertyStore::PropertiesOfTypes(std::span<Type const> t
       auto property_id = reader.ReadUint(metadata->id_size);
       if (!property_id) break;
 
-      if (utils::Contains(types, metadata->type)) {
+      if (std::ranges::contains(types, metadata->type)) {
         props.emplace_back(PropertyId::FromUint(*property_id));
       }
 
@@ -2914,7 +2912,7 @@ std::optional<PropertyValue> PropertyStore::GetPropertyOfTypes(PropertyId proper
       // found property
       if (*property_id == property.AsUint()) {
         // check its the type we are looking for
-        if (!utils::Contains(types, metadata->type)) {
+        if (!std::ranges::contains(types, metadata->type)) {
           return std::nullopt;
         }
         if (!DecodePropertyValue(&reader, metadata->type, metadata->payload_size, value)) {

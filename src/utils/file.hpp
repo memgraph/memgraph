@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,16 +17,23 @@
  */
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
+
+using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
+
+auto CreateUniqueDownloadFile(std::filesystem::path const &base_path)
+    -> std::pair<std::filesystem::path, FileUniquePtr>;
 
 /// Get the path of the current executable.
 ///
@@ -52,6 +59,8 @@ bool DirExists(const std::filesystem::path &dir);
 
 /// Deletes everything from the given directory including the directory.
 bool DeleteDir(const std::filesystem::path &dir) noexcept;
+
+auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::filesystem::path>;
 
 /// Deletes just the specified file. Symlinks are not followed.
 bool DeleteFile(const std::filesystem::path &file) noexcept;
@@ -81,7 +90,7 @@ inline constexpr size_t kFileBufferSize = 262144;
 /// level system calls used for file manipulation.
 class InputFile {
  public:
-  enum class Position {
+  enum class Position : uint8_t {
     SET,
     RELATIVE_TO_CURRENT,
     RELATIVE_TO_END,
@@ -118,7 +127,7 @@ class InputFile {
   bool Peek(uint8_t *data, size_t size);
 
   /// This method gets the size of the file.
-  size_t GetSize();
+  size_t GetSize() const;
 
   /// This method gets the current absolute position in the file.
   size_t GetPosition();
@@ -140,7 +149,7 @@ class InputFile {
   size_t file_size_{0};
   size_t file_position_{0};
 
-  uint8_t buffer_[kFileBufferSize];
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
   std::optional<size_t> buffer_start_;
   size_t buffer_size_{0};
   size_t buffer_position_{0};
@@ -174,12 +183,12 @@ class InputFile {
 /// 'EnableFlushing' method!
 class OutputFile {
  public:
-  enum class Mode {
+  enum class Mode : uint8_t {
     OVERWRITE_EXISTING,
     APPEND_TO_EXISTING,
   };
 
-  enum class Position {
+  enum class Position : uint8_t {
     SET,
     RELATIVE_TO_CURRENT,
     RELATIVE_TO_END,
@@ -267,13 +276,13 @@ class OutputFile {
   size_t SeekFile(Position position, ssize_t offset);
 
   // put flush lock on its own cacheline
-  alignas(64) utils::RWSpinLock flush_lock_{};
+  alignas(64) utils::RWSpinLock flush_lock_;
 
   // ensure the rest start on a new cacheline
   alignas(64) int fd_{-1};
   std::atomic<size_t> buffer_position_{0};
   size_t written_since_last_sync_{0};
-  uint8_t buffer_[kFileBufferSize];
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
   // Path should be cold data
   std::filesystem::path path_;
@@ -282,12 +291,12 @@ class OutputFile {
 // Like OutputFile but without concurrent access to its buffer
 class NonConcurrentOutputFile {
  public:
-  enum class Mode {
+  enum class Mode : uint8_t {
     OVERWRITE_EXISTING,
     APPEND_TO_EXISTING,
   };
 
-  enum class Position {
+  enum class Position : uint8_t {
     SET,
     RELATIVE_TO_CURRENT,
     RELATIVE_TO_END,
@@ -298,6 +307,9 @@ class NonConcurrentOutputFile {
 
   NonConcurrentOutputFile(const NonConcurrentOutputFile &) = delete;
   NonConcurrentOutputFile &operator=(const NonConcurrentOutputFile &) = delete;
+
+  NonConcurrentOutputFile(NonConcurrentOutputFile &&) = delete;
+  NonConcurrentOutputFile &operator=(NonConcurrentOutputFile &&) = delete;
 
   /// This method opens a new file used for writing. If the file doesn't exist
   /// it is created. The `mode` flags controls whether data is appended to the
@@ -363,7 +375,7 @@ class NonConcurrentOutputFile {
   int fd_{-1};
   size_t buffer_position_{0};
   size_t written_since_last_sync_{0};
-  uint8_t buffer_[kFileBufferSize];
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
   // Path should be cold data
   std::filesystem::path path_;

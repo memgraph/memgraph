@@ -23,6 +23,9 @@ CMakeUserPresets.json
 *.swn
 *.swo
 *.swp
+*.d
+*.slo
+*.obj
 *~
 .DS_Store
 .gdb_history
@@ -79,3 +82,53 @@ src/transactions/distributed/engine_rpc_messages.hpp
 .vscode/
 src/query/frontend/opencypher/grammar/.antlr/*
 tests/jepsen/src/memgraph/mtenancy/datasets/
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.app
+
+### Python ###
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# packaging
+mage/scripts/package/debian/.debhelper/
+mage/scripts/package/debian/memgraph-mage/
+mage/scripts/package/debian/memgraph-mage.substvars
+mage/scripts/package/debian/files
+mage/scripts/package/debian/debhelper-build-stamp
+
+**/.cache
+**/__pycache__
+**/*.pyc
+**/build
+*htmlcov
+*.coverage
+
+mage/python/mage/link_prediction/context/*
+mg_data/
+mage/python/mage/link_prediction/hyperparameter_tuning.py
+mage/python/mage/link_prediction/results.txt
+mage/python/mage/link_prediction/random_customer_results.txt
+mage/python/mage/link_prediction/cora_results.txt
+mage/python/mage/link_prediction/random_features_services_results.txt
+mage/python/mage/link_prediction/issue.py
+mage/python/mage/link_prediction/issue2.py
+
+mgcxx/include/
+mgcxx/lib/
+mgcxx/src/
+mgcxx/text_search/target/
+mgcxx/tmp/

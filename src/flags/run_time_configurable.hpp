@@ -14,6 +14,7 @@
 #include <string>
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/settings.hpp"
 
 namespace memgraph::flags::run_time {
 
@@ -21,7 +22,7 @@ namespace memgraph::flags::run_time {
  * @brief Initialize the run-time flags (must be done before run-time flags are used).
  *
  */
-void Initialize();
+void Initialize(utils::Settings &settings);
 
 /**
  * @brief Get the bolt server name value
@@ -102,6 +103,12 @@ auto GetAwsSecretKey() -> std::string;
  * @return std::string
  */
 auto GetAwsEndpointUrl() -> std::string;
+
+/**
+ * @brief Get the file_download_timeout run-time config value
+ * @return uint64_t
+ */
+auto GetFileDownloadConnTimeoutSec() -> uint64_t;
 
 /**
  * @brief Attach observer to the global snapshor period variable

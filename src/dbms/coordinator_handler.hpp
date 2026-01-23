@@ -58,6 +58,9 @@ class CoordinatorHandler {
 
   auto RemoveCoordinatorInstance(int32_t coordinator_id) -> coordination::RemoveCoordinatorInstanceStatus;
 
+  auto UpdateConfig(std::variant<int32_t, std::string> const &instance, io::network::Endpoint const &bolt_endpoint)
+      -> coordination::UpdateConfigStatus;
+
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
   auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>;

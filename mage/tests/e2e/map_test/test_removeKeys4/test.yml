@@ -1,0 +1,6 @@
+query: >
+  RETURN map.remove_keys({a:{b:{c:{d:"pas"}}}},["d"]) AS result;
+
+
+output:
+  - result : {"a": {"b": {"c": {"d": "pas"}}}}

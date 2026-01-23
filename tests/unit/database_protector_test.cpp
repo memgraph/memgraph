@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,14 +64,14 @@ struct AsyncIndexerNotifier {
 // Helper function to check if a specific index is ready by checking indices info
 bool IsIndexReady(memgraph::storage::InMemoryStorage *storage, memgraph::storage::LabelId label) {
   try {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto indices_info = acc->ListAllIndices();
 
     // Check if the label exists in the ready indices
     for (const auto &index_label : indices_info.label) {
       if (index_label == label) {
         auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-        return !commit_result.HasError();
+        return commit_result.has_value();
       }
     }
 
@@ -130,30 +130,30 @@ bool WaitForAsyncIndexerStopped(memgraph::storage::InMemoryStorage *storage,
 // Helper function to create vertices with a label to trigger auto index creation
 void CreateVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgraph::storage::LabelId label,
                              int vertex_count) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   for (int i = 0; i < vertex_count; ++i) {
     auto vertex = acc->CreateVertex();
     auto add_label = vertex.AddLabel(label);
-    if (add_label.HasError()) {
+    if (!add_label) {
       throw std::runtime_error("Failed to add label to vertex");
     }
   }
   auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  if (commit_result.HasError()) {
+  if (!commit_result) {
     throw std::runtime_error("Failed to commit vertex creation transaction");
   }
 }
 
 // Helper function to verify vertex count for a given label
 size_t CountVerticesWithLabel(memgraph::storage::InMemoryStorage *storage, memgraph::storage::LabelId label) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(memgraph::storage::WRITE);
   size_t count = 0;
   for (auto vertex : acc->Vertices(label, memgraph::storage::View::NEW)) {
     (void)vertex;
     ++count;
   }
   auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-  if (commit_result.HasError()) {
+  if (!commit_result) {
     return 0;  // Error in transaction
   }
   return count;
@@ -213,11 +213,11 @@ TEST_F(DatabaseProtectorTest, FactoryHandlesNullProtector) {
 
   // Test that basic storage operations still work even when factory returns nullptr
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     ASSERT_TRUE(vertex.IsVisible(memgraph::storage::View::NEW)) << "Created vertex should be visible";
     auto commit_result = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-    EXPECT_FALSE(commit_result.HasError()) << "Basic operations should still work";
+    EXPECT_FALSE(!commit_result.has_value()) << "Basic operations should still work";
   }
 }
 

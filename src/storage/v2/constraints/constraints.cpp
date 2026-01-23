@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,21 +28,17 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
       case StorageMode::ON_DISK_TRANSACTIONAL:
         unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
         break;
-    };
+      case StorageMode::N:
+        __builtin_unreachable();
+    }
   });
 }
 
-void Constraints::AbortEntries(std::span<Vertex const *const> const vertices,
-                               uint64_t const exact_start_timestamp) const {
-  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->AbortEntries(vertices, exact_start_timestamp);
-}
-
 void Constraints::DropGraphClearConstraints() const {
+  // DROP GRAPH can only happen for IN_MEMORY so it safe to assume this cast
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
   existence_constraints_->DropGraphClearConstraints();
   type_constraints_->DropGraphClearConstraints();
 }
-
-bool Constraints::HasTypeConstraints() const { return !type_constraints_->empty(); }
 
 }  // namespace memgraph::storage

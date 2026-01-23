@@ -39,9 +39,29 @@ PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
+# --- save images as tarballs ---
+# save each image as tarball in the current directory because
+# `minikube load image` is very flaky with loading images directly from Docker.
+LAST_TARBALL="memgraph-${LAST_TAG}.tar"
+NEXT_TARBALL="memgraph-${NEXT_TAG}.tar"
+echo -e "${GREEN}Saving ${LAST_TAG} as ${LAST_TARBALL}"
+docker save memgraph/memgraph:${LAST_TAG} -o ${LAST_TARBALL}
+echo -e "${GREEN}Saving ${NEXT_TAG} as ${NEXT_TARBALL}"
+docker save memgraph/memgraph:${NEXT_TAG} -o ${NEXT_TARBALL}
+echo -e "${GREEN}Saved ${LAST_TAG} as ${LAST_TARBALL} and ${NEXT_TAG} as ${NEXT_TARBALL}"
+
 # Defaults for flags/env overrides
 TEST_ROUTING=${TEST_ROUTING:-false}
 DEBUG=${DEBUG:-false}
+
+# clear the minikube image cache
+if [[ "$(arch)" == "aarch64" ]]; then
+  ARCH="arm64"
+else
+  ARCH="amd64"
+fi
+echo "Clearing minikube image cache for ${ARCH} in ${HOME}/.minikube/cache/images/${ARCH}/memgraph"
+rm -rfv "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
 
 # --- Parse flags ---
 while [ "$#" -gt 0 ]; do
@@ -199,6 +219,9 @@ cleanup() {
     echo -e "${YELLOW}--debug=false → leaving StorageClass & Minikube cluster running${NC}"
   fi
 
+  # remove the tar.gz files
+  rm -vf ${LAST_TARBALL} ${NEXT_TARBALL} || true
+
   echo -e "${GREEN}Cleanup finished.${NC}"
 }
 
@@ -271,8 +294,23 @@ minikube_has_image() {
   fi
 }
 
+minikube_image_load_safe() {
+  local image="$1"
+  local tar_file="$2"
+  local attempts=${3:-3}
+  for attempt in $(seq 1 $attempts); do
+    if minikube -p "$PROFILE" image load "$tar_file"; then
+      return 0
+    fi
+    echo "minikube image load failed (attempt $attempt) — purging cache and retrying..."
+    rm -rf "${HOME}/.minikube/cache/images/${ARCH}/$(cut -d/ -f1 <<<"$image")"
+  done
+  return 1
+}
+
 load_into_minikube_if_missing() {
   local image="$1"
+  local tar_file="$2"
 
   if minikube_has_image "${image}"; then
     echo -e "${GREEN}Minikube already has ${image}${NC}"
@@ -282,7 +320,7 @@ load_into_minikube_if_missing() {
   # Not in Minikube; try to load from local Docker
   if docker image inspect "${image}" >/dev/null 2>&1; then
     echo -e "${GREEN}Loading ${image} into Minikube...${NC}"
-    minikube image load "${image}"
+    minikube_image_load_safe "${image}" "${tar_file}"
     if minikube_has_image "${image}"; then
       echo "✅ Loaded ${image} into Minikube."
     else
@@ -294,8 +332,8 @@ load_into_minikube_if_missing() {
 }
 
 echo -e "${GREEN}Ensuring images exist in Minikube...${NC}"
-load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}"
-load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}"
+load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}" "${LAST_TARBALL}"
+load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}" "${NEXT_TARBALL}"
 
 kubectl apply -f sc.yaml
 echo "Created $SC_NAME storage class"

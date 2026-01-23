@@ -34,9 +34,6 @@ def test_indexed_join_with_indices(memgraph):
     for res in results:
         assert res["c"].prop == 1
 
-    memgraph.execute("DROP INDEX ON :A(prop);")
-    memgraph.execute("DROP INDEX ON :B(prop);")
-
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

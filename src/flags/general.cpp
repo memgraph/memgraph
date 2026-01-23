@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "general.hpp"
+#include <spdlog/spdlog.h>
 
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
@@ -137,6 +138,19 @@ DEFINE_bool(storage_enable_edges_metadata, false,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_delta_on_identical_property_update, true,
             "Controls whether updating a property with the same value should create a delta object.");
+
+DEFINE_bool(storage_backup_dir_enabled, true,
+            "Controls whether .old dir will be used to store latest snapshot and WAL files.");
+
+// RocksDB flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
+              "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
+              "FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_rocksdb_enable_thread_tracking, false,
+            "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. "
+            "Enable when debugging disk storage performance issues (provides GetThreadList API).");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(schema_info_enabled, false, "Set to true to enable run-time schema info tracking.");

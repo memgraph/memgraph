@@ -36,6 +36,9 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
   TOOLCHAIN: v7
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   core:
@@ -71,7 +74,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -149,7 +155,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   integration:
     if: ${{ inputs.run_integration == 'true' }}
@@ -184,7 +190,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -217,4 +226,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

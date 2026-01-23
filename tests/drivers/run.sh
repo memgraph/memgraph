@@ -38,12 +38,12 @@ pid=$!
 wait_for_server 7687
 
 # Run all available tests
+DISABLE_NODE=${DISABLE_NODE:-false}
 code_test=0
 for i in *; do
     if [ ! -d $i ]; then continue; fi
 
-    # Skip Node.js driver tests in CI
-    if [ "$i" = "node" ] || [ "$i" = "javascript" ]; then
+    if [[ ("$i" = "node" || "$i" = "javascript") && "$DISABLE_NODE" = "true" ]]; then
         echo "Skipping Node.js driver tests in CI"
         continue
     fi

@@ -74,7 +74,7 @@ struct DropAuthDataReq {
   static void Save(const DropAuthDataReq &self, memgraph::slk::Builder *builder);
   DropAuthDataReq() = default;
 
-  enum class DataType : uint8_t { USER, ROLE, PROFILE };
+  enum class DataType : uint8_t { USER, ROLE, PROFILE, /* Leave at end */ N };
 
   DropAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, DataType const type,
                   std::string_view const name)

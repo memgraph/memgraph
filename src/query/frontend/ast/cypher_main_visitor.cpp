@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,7 +117,8 @@ std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
 std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &visitor,
                                               MemgraphCypher::SymbolicNameWithDotsAndMinusContext &ctx) {
   return JoinTokens(
-      ctx.symbolicNameWithMinus(), [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
+      ctx.symbolicNameWithMinus(),
+      [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
       ".");
 }
 }  // namespace
@@ -427,9 +428,9 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   std::vector<PropertyIxPath> sorted_properties = index_query->properties_;
   std::ranges::sort(sorted_properties);
   auto cmp = [](PropertyIxPath const &lhs, PropertyIxPath const &rhs) {
-    auto min_length = std::min(lhs.path.size(), rhs.path.size());
-    return std::ranges::equal(lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(),
-                              rhs.path.cbegin() + min_length);
+    auto const min_length = static_cast<std::ptrdiff_t>(std::min(lhs.path.size(), rhs.path.size()));
+    return std::ranges::equal(
+        lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(), rhs.path.cbegin() + min_length);
   };
   if (std::ranges::adjacent_find(sorted_properties, cmp) != sorted_properties.end()) {
     throw SemanticException("Properties cannot be repeated in a composite index.");
@@ -754,6 +755,22 @@ antlrcpp::Any CypherMainVisitor::visitRemoveCoordinatorInstance(MemgraphCypher::
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitUpdateConfig(MemgraphCypher::UpdateConfigContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::UPDATE_CONFIG;
+  // Instance name is used when updating the config for the replication instance
+  if (ctx->instanceName()) {
+    coordinator_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
+  } else {
+    // coordinator id is used when updating the config for the coordinator instance
+    coordinator_query->coordinator_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+  }
+  coordinator_query->configs_ =
+      std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
@@ -876,9 +893,9 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   // handle header options
   // Don't have to check for ctx->HEADER(), as it's a mandatory token.
-  // Just need to check if ctx->WITH() is not nullptr - otherwise, we have a
-  // ctx->NO() and ctx->HEADER() present.
-  load_csv->with_header_ = ctx->WITH() != nullptr;
+  // Just need to check if ctx->WITH(0) is not nullptr
+  // Index 0 is needed because there are 2 WITH clauses
+  load_csv->with_header_ = ctx->WITH(0) != nullptr;
 
   // handle skip bad row option
   load_csv->ignore_bad_ = ctx->IGNORE() && ctx->BAD();
@@ -904,6 +921,10 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
     } else {
       throw SemanticException("Quote should be a string literal");
     }
+  }
+
+  if (ctx->configsMap) {
+    load_csv->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
   }
 
   // handle row variable
@@ -954,6 +975,10 @@ antlrcpp::Any CypherMainVisitor::visitLoadJsonl(MemgraphCypher::LoadJsonlContext
   load_jsonl->row_var_ =
       storage_->Create<Identifier>(std::any_cast<std::string>(ctx->rowVar()->variable()->accept(this)));
 
+  if (ctx->configsMap) {
+    load_jsonl->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  }
+
   return load_jsonl;
 }
 
@@ -974,6 +999,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::CREATE_TRIGGER;
   trigger_query->trigger_name_ = std::any_cast<std::string>(ctx->triggerName()->symbolicName()->accept(this));
+  trigger_query->privilege_context_ =
+      ctx->INVOKER() ? TriggerPrivilegeContext::INVOKER : TriggerPrivilegeContext::DEFINER;  // definer is default
 
   auto *statement = ctx->triggerStatement();
   antlr4::misc::Interval interval{statement->start->getStartIndex(), statement->stop->getStopIndex()};
@@ -1091,6 +1118,11 @@ antlrcpp::Any CypherMainVisitor::visitRecoverSnapshotQuery(MemgraphCypher::Recov
   }
   recover_snapshot->snapshot_ = std::any_cast<Expression *>(ctx->path->accept(this));
 
+  if (ctx->configsMap) {
+    recover_snapshot->configs_ =
+        std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  }
+
   recover_snapshot->force_ = ctx->FORCE();
   query_ = recover_snapshot;
   return query_;
@@ -1127,8 +1159,9 @@ std::vector<std::string> TopicNamesFromSymbols(
   MG_ASSERT(!topic_name_symbols.empty());
   std::vector<std::string> topic_names;
   topic_names.reserve(topic_name_symbols.size());
-  std::transform(topic_name_symbols.begin(), topic_name_symbols.end(), std::back_inserter(topic_names),
-                 [&visitor](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name); });
+  std::ranges::transform(topic_name_symbols, std::back_inserter(topic_names), [&visitor](auto *topic_name) {
+    return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name);
+  });
   return topic_names;
 }
 
@@ -1234,10 +1267,10 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
   MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
   MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
   MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
-  MapConfig<false, std::unordered_map<Expression *, Expression *>>(memory_, KafkaConfigKey::CONFIGS,
-                                                                   stream_query->configs_);
-  MapConfig<false, std::unordered_map<Expression *, Expression *>>(memory_, KafkaConfigKey::CREDENTIALS,
-                                                                   stream_query->credentials_);
+  MapConfig<false, std::unordered_map<Expression *, Expression *>>(
+      memory_, KafkaConfigKey::CONFIGS, stream_query->configs_);
+  MapConfig<false, std::unordered_map<Expression *, Expression *>>(
+      memory_, KafkaConfigKey::CREDENTIALS, stream_query->credentials_);
 
   MapCommonStreamConfigs(memory_, *stream_query);
 
@@ -1701,7 +1734,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   for (auto **identifier : anonymous_identifiers) {
     while (true) {
       std::string id_name = kAnonPrefix + std::to_string(id++);
-      if (users_identifiers.find(id_name) == users_identifiers.end()) {
+      if (!users_identifiers.contains(id_name)) {
         *identifier = storage_->Create<Identifier>(id_name, false);
         break;
       }
@@ -3151,14 +3184,14 @@ antlrcpp::Any CypherMainVisitor::visitPartialComparisonExpression(
 
 // Addition and subtraction.
 antlrcpp::Any CypherMainVisitor::visitExpression7(MemgraphCypher::Expression7Context *ctx) {
-  return LeftAssociativeOperatorExpression(ctx->expression6(), ctx->children,
-                                           {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
+  return LeftAssociativeOperatorExpression(
+      ctx->expression6(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
 }
 
 // Multiplication, division, modding.
 antlrcpp::Any CypherMainVisitor::visitExpression6(MemgraphCypher::Expression6Context *ctx) {
-  return LeftAssociativeOperatorExpression(ctx->expression5(), ctx->children,
-                                           {MemgraphCypher::ASTERISK, MemgraphCypher::SLASH, MemgraphCypher::PERCENT});
+  return LeftAssociativeOperatorExpression(
+      ctx->expression5(), ctx->children, {MemgraphCypher::ASTERISK, MemgraphCypher::SLASH, MemgraphCypher::PERCENT});
 }
 
 // Exponentiation.
@@ -3210,6 +3243,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
   }
   return expression;
 }
+
 antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(MemgraphCypher::StringAndNullOperatorsContext *) {
   DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
@@ -3385,7 +3419,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
       // ParameterLookup, so that the AST can be cached. This allows for
       // varying literals, which are then looked up in the parameters table
       // (even though they are not user provided). Note, that NULL always
-      // generates a PrimitiveLiteral.
+      // generates a PrimitiveLiteral.=
       return static_cast<Expression *>(storage_->Create<ParameterLookup>(token_position));
     } else if (ctx->StringLiteral()) {
       return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
@@ -4144,8 +4178,7 @@ auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> 
   for (auto *child : all_children) {
     antlr4::tree::TerminalNode *operator_node = nullptr;
     if ((operator_node = dynamic_cast<antlr4::tree::TerminalNode *>(child))) {
-      if (std::find(allowed_operators.begin(), allowed_operators.end(), operator_node->getSymbol()->getType()) !=
-          allowed_operators.end()) {
+      if (std::ranges::contains(allowed_operators, operator_node->getSymbol()->getType())) {
         operators.push_back(operator_node->getSymbol()->getType());
       }
     }

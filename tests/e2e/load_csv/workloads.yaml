@@ -57,6 +57,11 @@ workloads:
     args: ["load_csv/load_csv.py"]
     <<: *load_csv_in_memory_cluster
 
+  - name: "LOAD S3 CSV"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_csv/load_s3_csv.py"]
+    <<: *load_csv_in_memory_cluster
+
   - name: "MATCH + LOAD CSV on disk"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["load_csv/load_csv.py"]

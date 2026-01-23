@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <cstdint>
+#include <memory>
 
 #include "license/license.hpp"
 #include "utils/settings.hpp"
@@ -18,13 +19,12 @@
 class LicenseTest : public ::testing::Test {
  public:
   void SetUp() override {
-    settings.emplace();
-    settings->Initialize(settings_directory);
+    settings = std::make_shared<memgraph::utils::Settings>(settings_directory);
 
     license_checker.emplace();
     memgraph::license::RegisterLicenseSettings(*license_checker, *settings);
 
-    license_checker->StartBackgroundLicenseChecker(*settings);
+    license_checker->StartBackgroundLicenseChecker(settings);
   }
 
   void TearDown() override { std::filesystem::remove_all(test_directory); }
@@ -34,11 +34,11 @@ class LicenseTest : public ::testing::Test {
   const std::filesystem::path settings_directory{test_directory / "settings"};
 
   void CheckLicenseValidity(const bool expected_valid) {
-    ASSERT_EQ(!license_checker->IsEnterpriseValid(*settings).HasError(), expected_valid);
+    ASSERT_EQ(license_checker->IsEnterpriseValid(*settings).has_value(), expected_valid);
     ASSERT_EQ(license_checker->IsEnterpriseValidFast(), expected_valid);
   }
 
-  std::optional<memgraph::utils::Settings> settings;
+  std::shared_ptr<memgraph::utils::Settings> settings;
   std::optional<memgraph::license::LicenseChecker> license_checker;
 };
 
@@ -100,7 +100,7 @@ TEST_F(LicenseTest, Expiration) {
     CheckLicenseValidity(true);
 
     std::this_thread::sleep_for(delta + std::chrono::seconds(1));
-    ASSERT_TRUE(license_checker->IsEnterpriseValid(*settings).HasError());
+    ASSERT_FALSE(license_checker->IsEnterpriseValid(*settings).has_value());
     // We can't check fast checker because it has unknown refresh rate
   }
   {

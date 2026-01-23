@@ -1,0 +1,7 @@
+query: >
+  MATCH (m {id: 0})
+  CALL union_find.connected(m, 1, "pairwise") YIELD *
+  RETURN node1, node2, connected;
+
+exception: >
+  Invalid type of second argument

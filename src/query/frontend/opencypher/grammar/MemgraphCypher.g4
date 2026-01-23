@@ -57,6 +57,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DATABASES
                       | DATE
+                      | DEFINER
                       | DELIMITER
                       | DEMOTE
                       | DENY
@@ -68,8 +69,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
-                      | EDGES
                       | EDGE_TYPES
+                      | EDGES
                       | ENABLE
                       | ENUM
                       | ENUMS
@@ -94,14 +95,15 @@ memgraphCypherKeyword : cypherKeyword
                       | IF
                       | IGNORE
                       | IMPERSONATE_USER
-                      | INDEXES
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
                       | INACTIVE
+                      | INDEXES
                       | INSTANCE
                       | INSTANCES
                       | INTEGER
+                      | INVOKER
                       | ISOLATION
                       | JSONL
                       | KAFKA
@@ -161,6 +163,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | ROWS
                       | SCHEMA
+                      | SECURITY
                       | SERVER
                       | SERVICE_URL
                       | SESSION
@@ -188,8 +191,8 @@ memgraphCypherKeyword : cypherKeyword
                       | TOPICS
                       | TRACE
                       | TRANSACTION
-                      | TRANSACTIONS
                       | TRANSACTION_MANAGEMENT
+                      | TRANSACTIONS
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
@@ -200,10 +203,10 @@ memgraphCypherKeyword : cypherKeyword
                       | UNLOCK
                       | UNREGISTER
                       | UPDATE
+                      | USAGE
                       | USE
                       | USER
                       | USERS
-                      | USAGE
                       | USING
                       | VALUE
                       | VALUES
@@ -323,6 +326,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setCoordinatorSetting
                  | showCoordinatorSettings
                  | showReplicationLag
+                 | updateConfig
                  ;
 
 triggerQuery : createTrigger
@@ -400,7 +404,9 @@ showTransactions : SHOW TRANSACTIONS ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
-loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+loadCsv : LOAD CSV FROM csvFile
+         ( WITH CONFIG configsMap=configMap ) ?
+         ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
@@ -409,7 +415,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
 
 loadParquet : LOAD PARQUET FROM parquetFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
-loadJsonl : LOAD JSONL FROM jsonlFile AS rowVar ;
+loadJsonl : LOAD JSONL FROM jsonlFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
 
 csvFile : literal | parameter ;
 
@@ -590,6 +596,8 @@ addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configs
 
 removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
 
+updateConfig : UPDATE CONFIG FOR ( INSTANCE instanceName | COORDINATOR coordinatorServerId ) configsMap=configMap ;
+
 dropReplica : DROP REPLICA instanceName ;
 
 showReplicas : SHOW REPLICAS ;
@@ -606,7 +614,7 @@ emptyVertex : '(' ')' ;
 
 emptyEdge : dash dash rightArrowHead ;
 
-createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
+createTrigger : CREATE TRIGGER triggerName ( SECURITY ( DEFINER | INVOKER ) ) ? ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
               ( AFTER | BEFORE ) COMMIT EXECUTE triggerStatement ;
 
 dropTrigger : DROP TRIGGER triggerName ;
@@ -625,7 +633,7 @@ storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 
-recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
+recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( WITH CONFIG configsMap=configMap ) ? ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
 

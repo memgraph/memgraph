@@ -1,0 +1,9 @@
+query: >
+    CALL graph_util.topological_sort() YIELD sorted_nodes
+    UNWIND sorted_nodes AS node
+    RETURN node.id AS id;
+
+output:
+    - id: 1
+    - id: 2
+    - id: 3

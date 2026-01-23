@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -149,8 +149,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create enum.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create enum property value after enum is registered
@@ -158,46 +158,46 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // alter enum.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->EnumAlterAdd("enum1", "v3").HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->EnumAlterAdd("enum1", "v3").has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(acc->CreateIndex(label_unindexed).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(label_unindexed).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_unindexed, memgraph::storage::LabelIndexStats{1, 2});
       ASSERT_TRUE(acc->GetIndexStats(label_unindexed));
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index.
 
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_id}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(label_indexed, {property_id}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}},
                          memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+properties index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+properties index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(
           label_indexed,
           std::array{memgraph::storage::PropertyPath{property_b}, memgraph::storage::PropertyPath{property_a},
@@ -206,80 +206,81 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_b},
                                                                memgraph::storage::PropertyPath{property_a},
                                                                memgraph::storage::PropertyPath{property_c}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create nested index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(
-          acc->CreateIndex(label_indexed, {{nested1_property, nested2_property, nested3_property}}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !acc->CreateIndex(label_indexed, {{nested1_property, nested2_property, nested3_property}}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create nested index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(
           label_indexed,
           std::array{memgraph::storage::PropertyPath{nested1_property, nested2_property, nested3_property}},
           memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{
                                                         nested1_property, nested2_property, nested3_property}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create point index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreatePointIndex(label_indexed, property_point).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreatePointIndex(label_indexed, property_point).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create vector index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateVectorIndex(vector_index_spec).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateVectorIndex(vector_index_spec).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create text index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc
-                       ->CreateTextIndex(
-                           memgraph::storage::TextIndexSpec{"text_index", label_indexed, std::vector{property_text}})
-                       .HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc
+                      ->CreateTextIndex(
+                          memgraph::storage::TextIndexSpec{"text_index", label_indexed, std::vector{property_text}})
+                      .has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create existence constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateExistenceConstraint(label_unindexed, property_id).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create unique constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create type constraint.
-      auto unique_acc = store->UniqueAccess();
+      auto read_only_access = store->ReadOnlyAccess();
       ASSERT_FALSE(
-          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
-              .HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+          !read_only_access
+               ->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
+               .has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       base_vertex_gids_[i] = vertex.Gid();
       if (i < kNumBaseVertices / 2) {
-        ASSERT_TRUE(vertex.AddLabel(label_indexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_indexed).has_value());
       } else {
-        ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_unindexed).has_value());
       }
 
       // every 44th has a point value
@@ -288,22 +289,22 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           using enum memgraph::storage::CoordinateReferenceSystem;
           case 0: {
             auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(Cartesian_2d, i, 2.0));
-            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).has_value());
             break;
           }
           case 1: {
             auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(Cartesian_3d, i, 2.0, 3.0));
-            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).has_value());
             break;
           }
           case 2: {
             auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(WGS84_2d, i, 2.0));
-            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).has_value());
             break;
           }
           case 3: {
             auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(WGS84_3d, i, 2.0, 3.0));
-            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).has_value());
             break;
           }
         }
@@ -311,18 +312,18 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // first 5 have vector values
       if (i < 5) {
-        ASSERT_TRUE(vertex.SetProperty(property_vector, vector_property_value).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_vector, vector_property_value).has_value());
       }
 
       // lower 1/3 and top 1/2 have ids
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
         // some are enums
         if (i % 5 == 0) {
-          ASSERT_TRUE(vertex.SetProperty(property_id, enum_property_value).HasValue());
+          ASSERT_TRUE(vertex.SetProperty(property_id, enum_property_value).has_value());
         } else {
           // rest are ints
           ASSERT_TRUE(
-              vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+              vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).has_value());
         }
       }
 
@@ -331,20 +332,20 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         memgraph::storage::PropertyValue::map_t map_value{
             {nested2_property, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
                                    {nested3_property, memgraph::storage::PropertyValue(1)}})}};
-        ASSERT_TRUE(vertex.SetProperty(nested1_property, memgraph::storage::PropertyValue(map_value)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(nested1_property, memgraph::storage::PropertyValue(map_value)).has_value());
       }
 
       // one node will have text property
       if (i == 0) {
-        ASSERT_TRUE(vertex.SetProperty(property_text, text_property_value).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_text, text_property_value).has_value());
       }
 
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError()) << i;
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) << i;
     }
 
     // Create edges.
     for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       auto vertex1 = acc->FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex1);
       auto vertex2 = acc->FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], memgraph::storage::View::OLD);
@@ -356,26 +357,26 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         et = et2;
       }
       auto edgeRes = acc->CreateEdge(&*vertex1, &*vertex2, et);
-      ASSERT_TRUE(edgeRes.HasValue());
-      auto edge = edgeRes.GetValue();
+      ASSERT_TRUE(edgeRes.has_value());
+      auto edge = edgeRes.value();
       base_edge_gids_[i] = edge.Gid();
       if (properties_on_edges) {
         ASSERT_TRUE(
-            edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+            edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).has_value());
         // For the first 5 edges of et1, set a vector property for the vector edge index
         if (i < 5) {
-          ASSERT_TRUE(edge.SetProperty(property_vector, vector_property_value).HasValue());
+          ASSERT_TRUE(edge.SetProperty(property_vector, vector_property_value).has_value());
         }
         if (i == 5) {
           // one edge will have property text
-          ASSERT_TRUE(edge.SetProperty(property_text, text_property_value).HasValue());
+          ASSERT_TRUE(edge.SetProperty(property_text, text_property_value).has_value());
         }
       } else {
         auto ret = edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
-        ASSERT_TRUE(ret.HasError());
-        ASSERT_EQ(ret.GetError(), memgraph::storage::Error::PROPERTIES_DISABLED);
+        ASSERT_FALSE(ret.has_value());
+        ASSERT_EQ(ret.error(), memgraph::storage::Error::PROPERTIES_DISABLED);
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -389,67 +390,67 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(acc->CreateIndex(label_unused).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(label_unused).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_unused, memgraph::storage::LabelIndexStats{123, 9.87});
       ASSERT_TRUE(acc->GetIndexStats(label_unused));
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_count}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(label_indexed, {property_count}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       // Create label+property index statistics.
-      auto acc = store->Access();
+      auto acc = store->Access(memgraph::storage::WRITE);
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}},
                          memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create existence constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unused, property_count).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateExistenceConstraint(label_unused, property_count).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     {
       // Create unique constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->CreateUniqueConstraint(label_unused, {property_count}).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Storage accessor.
     std::unique_ptr<memgraph::storage::Storage::Accessor> acc;
-    if (single_transaction) acc = store->Access();
+    if (single_transaction) acc = store->Access(memgraph::storage::WRITE);
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumExtendedVertices; ++i) {
-      if (!single_transaction) acc = store->Access();
+      if (!single_transaction) acc = store->Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       extended_vertex_gids_[i] = vertex.Gid();
       if (i < kNumExtendedVertices / 2) {
-        ASSERT_TRUE(vertex.AddLabel(label_indexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_indexed).has_value());
       }
       if (i < kNumExtendedVertices / 3 || i >= kNumExtendedVertices / 2) {
-        ASSERT_TRUE(vertex.SetProperty(property_count, memgraph::storage::PropertyValue("nandare")).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_count, memgraph::storage::PropertyValue("nandare")).has_value());
       }
       if (!single_transaction)
-        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Create edges.
     for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
-      if (!single_transaction) acc = store->Access();
+      if (!single_transaction) acc = store->Access(memgraph::storage::WRITE);
       auto vertex1 =
           acc->FindVertex(extended_vertex_gids_[(i / 5) % kNumExtendedVertices], memgraph::storage::View::NEW);
       ASSERT_TRUE(vertex1);
@@ -463,22 +464,24 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         et = et4;
       }
       auto edgeRes = acc->CreateEdge(&*vertex1, &*vertex2, et);
-      ASSERT_TRUE(edgeRes.HasValue());
-      auto edge = edgeRes.GetValue();
+      ASSERT_TRUE(edgeRes.has_value());
+      auto edge = edgeRes.value();
       extended_edge_gids_[i] = edge.Gid();
       if (!single_transaction)
-        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
-    if (single_transaction) ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    if (single_transaction) {
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
   }
 
   void CreateEdgeIndex(memgraph::storage::Storage *store, memgraph::storage::EdgeTypeId edge_type) {
     {
       // Create edge-type index.
       auto read_only_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(read_only_acc->CreateIndex(edge_type).HasError());
-      ASSERT_FALSE(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(read_only_acc->CreateIndex(edge_type).has_value());
+      ASSERT_TRUE(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -487,8 +490,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create edge-type index.
       auto acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(acc->CreateIndex(edge_type, prop).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->CreateIndex(edge_type, prop).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -511,8 +514,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create edge-type vector index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateVectorEdgeIndex(vector_edge_index_spec).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateVectorEdgeIndex(vector_edge_index_spec).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -520,11 +523,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                            memgraph::storage::PropertyId prop) {
     const auto text_edge_index_name = "text_edge_index"s;
     auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(unique_acc
-                     ->CreateTextEdgeIndex(
-                         memgraph::storage::TextEdgeIndexSpec{text_edge_index_name, edge_type, std::vector{prop}})
-                     .HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(unique_acc
+                    ->CreateTextEdgeIndex(
+                        memgraph::storage::TextEdgeIndexSpec{text_edge_index_name, edge_type, std::vector{prop}})
+                    .has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   void VerifyDataset(memgraph::storage::Storage *store, DatasetType type, bool properties_on_edges,
@@ -577,14 +580,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                                vector_index_dim,       vector_index_resize_coefficient,
                                                vector_index_capacity,  vector_index_scalar_kind};
 
-    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
-    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
-    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v3").HasValue());
-    ASSERT_FALSE(store->enum_store_.ToEnum("enum1", "v4").HasValue());
-    ASSERT_FALSE(store->enum_store_.ToEnum("enum2", "v1").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").has_value());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").has_value());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v3").has_value());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum1", "v4").has_value());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum2", "v1").has_value());
 
     // Create storage accessor.
-    auto acc = store->Access();
+    auto acc = store->Access(memgraph::storage::WRITE);
 
     // Verify indices info.
     {
@@ -819,14 +822,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         auto vertex = acc->FindVertex(base_vertex_gids_[i], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
         auto labels = vertex->Labels(memgraph::storage::View::OLD);
-        ASSERT_TRUE(labels.HasValue());
+        ASSERT_TRUE(labels.has_value());
         if (i < kNumBaseVertices / 2) {
           ASSERT_THAT(*labels, UnorderedElementsAre(base_label_indexed));
         } else {
           ASSERT_THAT(*labels, UnorderedElementsAre(base_label_unindexed));
         }
         auto properties = vertex->Properties(memgraph::storage::View::OLD);
-        ASSERT_TRUE(properties.HasValue());
+        ASSERT_TRUE(properties.has_value());
 
         auto has_property_point = i % (11 * 4) == 0;
         if (has_property_point) {
@@ -932,7 +935,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         auto vertex1 = acc->FindVertex(base_vertex_gids_[vertex_idx], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex1);
         auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);  // Single call per vertex instead of per edge
-        ASSERT_TRUE(out_edges.HasValue());
+        ASSERT_TRUE(out_edges.has_value());
 
         // Process all edges from this vertex in one batch
         for (uint64_t i : edge_indices) {
@@ -946,7 +949,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             ASSERT_EQ(edge1->EdgeType(), et2);
           }
           auto properties = edge1->Properties(memgraph::storage::View::OLD);
-          ASSERT_TRUE(properties.HasValue());
+          ASSERT_TRUE(properties.has_value());
           if (properties_on_edges) {
             ASSERT_EQ(properties->size(), 1 + (has_vector_property ? 1 : 0) + (has_text_property ? 1 : 0));
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
@@ -961,7 +964,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         auto vertex2 = acc->FindVertex(base_vertex_gids_[vertex_idx], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex2);
         auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);  // Single call per vertex instead of per edge
-        ASSERT_TRUE(in_edges.HasValue());
+        ASSERT_TRUE(in_edges.has_value());
 
         // Process all edges to this vertex in one batch
         for (uint64_t i : edge_indices) {
@@ -975,7 +978,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             ASSERT_EQ(edge2->EdgeType(), et2);
           }
           auto properties = edge2->Properties(memgraph::storage::View::OLD);
-          ASSERT_TRUE(properties.HasValue());
+          ASSERT_TRUE(properties.has_value());
           if (properties_on_edges) {
             ASSERT_EQ(properties->size(), 1 + (has_vector_property ? 1 : 0) + (has_text_property ? 1 : 0));
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
@@ -1053,12 +1056,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         auto vertex = acc->FindVertex(extended_vertex_gids_[i], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
         auto labels = vertex->Labels(memgraph::storage::View::OLD);
-        ASSERT_TRUE(labels.HasValue());
+        ASSERT_TRUE(labels.has_value());
         if (i < kNumExtendedVertices / 2) {
           ASSERT_THAT(*labels, UnorderedElementsAre(extended_label_indexed));
         }
         auto properties = vertex->Properties(memgraph::storage::View::OLD);
-        ASSERT_TRUE(properties.HasValue());
+        ASSERT_TRUE(properties.has_value());
         if (i < kNumExtendedVertices / 3 || i >= kNumExtendedVertices / 2) {
           ASSERT_EQ(properties->size(), 1);
           ASSERT_EQ((*properties)[property_count], memgraph::storage::PropertyValue("nandare"));
@@ -1083,7 +1086,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               acc->FindVertex(extended_vertex_gids_[(i / 5) % kNumExtendedVertices], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex1);
           auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);
-          ASSERT_TRUE(out_edges.HasValue());
+          ASSERT_TRUE(out_edges.has_value());
           auto edge1 = find_edge(out_edges->edges);
           ASSERT_TRUE(edge1);
           if (i < kNumExtendedEdges / 4) {
@@ -1092,7 +1095,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             ASSERT_EQ(edge1->EdgeType(), et4);
           }
           auto properties = edge1->Properties(memgraph::storage::View::OLD);
-          ASSERT_TRUE(properties.HasValue());
+          ASSERT_TRUE(properties.has_value());
           ASSERT_EQ(properties->size(), 0);
         }
 
@@ -1101,7 +1104,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               acc->FindVertex(extended_vertex_gids_[(i / 6) % kNumExtendedVertices], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex2);
           auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);
-          ASSERT_TRUE(in_edges.HasValue());
+          ASSERT_TRUE(in_edges.has_value());
           auto edge2 = find_edge(in_edges->edges);
           ASSERT_TRUE(edge2);
           if (i < kNumExtendedEdges / 4) {
@@ -1110,7 +1113,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             ASSERT_EQ(edge2->EdgeType(), et4);
           }
           auto properties = edge2->Properties(memgraph::storage::View::OLD);
-          ASSERT_TRUE(properties.HasValue());
+          ASSERT_TRUE(properties.has_value());
           ASSERT_EQ(properties->size(), 0);
         }
       }
@@ -1433,11 +1436,11 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1476,11 +1479,11 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1554,11 +1557,11 @@ TEST_P(DurabilityTest, SnapshotFallback) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1574,11 +1577,11 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1667,11 +1670,11 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }  // Snapshot made on exit
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
@@ -1735,11 +1738,11 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1821,11 +1824,11 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1840,11 +1843,11 @@ TEST_P(DurabilityTest, SnapshotBackup) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1911,11 +1914,11 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1979,30 +1982,30 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, true, false);
     // Remove properties from edges.
     {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
         auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
-        ASSERT_TRUE(in_edges.HasValue());
+        ASSERT_TRUE(in_edges.has_value());
         for (auto &edge : in_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
-          ASSERT_TRUE(props.HasValue());
+          ASSERT_TRUE(props.has_value());
           for (const auto &prop : *props) {
-            ASSERT_TRUE(edge.SetProperty(prop.first, memgraph::storage::PropertyValue()).HasValue());
+            ASSERT_TRUE(edge.SetProperty(prop.first, memgraph::storage::PropertyValue()).has_value());
           }
         }
         auto out_edges = vertex.InEdges(memgraph::storage::View::OLD);
-        ASSERT_TRUE(out_edges.HasValue());
+        ASSERT_TRUE(out_edges.has_value());
         for (auto &edge : out_edges->edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
           auto props = edge.Properties(memgraph::storage::View::NEW);
-          ASSERT_TRUE(props.HasValue());
+          ASSERT_TRUE(props.has_value());
           for (const auto &prop : *props) {
-            ASSERT_TRUE(edge.SetProperty(prop.first, memgraph::storage::PropertyValue()).HasValue());
+            ASSERT_TRUE(edge.SetProperty(prop.first, memgraph::storage::PropertyValue()).has_value());
           }
         }
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -2023,11 +2026,11 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2068,11 +2071,11 @@ TEST_P(DurabilityTest, WalBasic) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2093,11 +2096,11 @@ TEST_P(DurabilityTest, WalBackup) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2198,11 +2201,11 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2225,29 +2228,29 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();
     gid_v1 = v1.Gid();
     auto v2 = acc->CreateVertex();
     gid_v2 = v2.Gid();
     auto e1Res = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("e1"));
-    ASSERT_TRUE(e1Res.HasValue());
-    auto e1 = std::move(e1Res.GetValue());
+    ASSERT_TRUE(e1Res.has_value());
+    auto e1 = std::move(e1Res.value());
     gid_e1 = e1.Gid();
-    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l11")).HasValue());
-    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l12")).HasValue());
-    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l13")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l11")).has_value());
+    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l12")).has_value());
+    ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l13")).has_value());
     if (GetParam()) {
-      ASSERT_TRUE(
-          e1.SetProperty(db.storage()->NameToProperty("test"), memgraph::storage::PropertyValue("nandare")).HasValue());
+      ASSERT_TRUE(e1.SetProperty(db.storage()->NameToProperty("test"), memgraph::storage::PropertyValue("nandare"))
+                      .has_value());
     }
-    ASSERT_TRUE(v2.AddLabel(db.storage()->NameToLabel("l21")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(db.storage()->NameToLabel("l21")).has_value());
     ASSERT_TRUE(
-        v2.SetProperty(db.storage()->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
+        v2.SetProperty(db.storage()->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).has_value());
     auto v3 = acc->CreateVertex();
     gid_v3 = v3.Gid();
-    ASSERT_TRUE(v3.SetProperty(db.storage()->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(v3.SetProperty(db.storage()->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2264,7 +2267,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
 
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
@@ -2276,22 +2279,22 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto v1 = acc->FindVertex(gid_v1, memgraph::storage::View::OLD);
       ASSERT_TRUE(v1);
       auto labels = v1->Labels(memgraph::storage::View::OLD);
-      ASSERT_TRUE(labels.HasValue());
+      ASSERT_TRUE(labels.has_value());
       ASSERT_THAT(*labels, UnorderedElementsAre(db.storage()->NameToLabel("l11"), db.storage()->NameToLabel("l12"),
                                                 db.storage()->NameToLabel("l13")));
       auto props = v1->Properties(memgraph::storage::View::OLD);
-      ASSERT_TRUE(props.HasValue());
+      ASSERT_TRUE(props.has_value());
       ASSERT_EQ(props->size(), 0);
       auto in_edges = v1->InEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(in_edges.HasValue());
+      ASSERT_TRUE(in_edges.has_value());
       ASSERT_EQ(in_edges->edges.size(), 0);
       auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(out_edges.HasValue());
+      ASSERT_TRUE(out_edges.has_value());
       ASSERT_EQ(out_edges->edges.size(), 1);
       const auto &edge = out_edges->edges[0];
       ASSERT_EQ(edge.Gid(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
-      ASSERT_TRUE(edge_props.HasValue());
+      ASSERT_TRUE(edge_props.has_value());
       if (GetParam()) {
         ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
                                                                      memgraph::storage::PropertyValue("nandare"))));
@@ -2303,19 +2306,19 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto v2 = acc->FindVertex(gid_v2, memgraph::storage::View::OLD);
       ASSERT_TRUE(v2);
       auto labels = v2->Labels(memgraph::storage::View::OLD);
-      ASSERT_TRUE(labels.HasValue());
+      ASSERT_TRUE(labels.has_value());
       ASSERT_THAT(*labels, UnorderedElementsAre(db.storage()->NameToLabel("l21")));
       auto props = v2->Properties(memgraph::storage::View::OLD);
-      ASSERT_TRUE(props.HasValue());
+      ASSERT_TRUE(props.has_value());
       ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("hello"),
                                                               memgraph::storage::PropertyValue("world"))));
       auto in_edges = v2->InEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(in_edges.HasValue());
+      ASSERT_TRUE(in_edges.has_value());
       ASSERT_EQ(in_edges->edges.size(), 1);
       const auto &edge = in_edges->edges[0];
       ASSERT_EQ(edge.Gid(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
-      ASSERT_TRUE(edge_props.HasValue());
+      ASSERT_TRUE(edge_props.has_value());
       if (GetParam()) {
         ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
                                                                      memgraph::storage::PropertyValue("nandare"))));
@@ -2323,35 +2326,35 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
         ASSERT_EQ(edge_props->size(), 0);
       }
       auto out_edges = v2->OutEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(out_edges.HasValue());
+      ASSERT_TRUE(out_edges.has_value());
       ASSERT_EQ(out_edges->edges.size(), 0);
     }
     {
       auto v3 = acc->FindVertex(gid_v3, memgraph::storage::View::OLD);
       ASSERT_TRUE(v3);
       auto labels = v3->Labels(memgraph::storage::View::OLD);
-      ASSERT_TRUE(labels.HasValue());
+      ASSERT_TRUE(labels.has_value());
       ASSERT_EQ(labels->size(), 0);
       auto props = v3->Properties(memgraph::storage::View::OLD);
-      ASSERT_TRUE(props.HasValue());
+      ASSERT_TRUE(props.has_value());
       ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("v3"),
                                                               memgraph::storage::PropertyValue(42))));
       auto in_edges = v3->InEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(in_edges.HasValue());
+      ASSERT_TRUE(in_edges.has_value());
       ASSERT_EQ(in_edges->edges.size(), 0);
       auto out_edges = v3->OutEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(out_edges.HasValue());
+      ASSERT_TRUE(out_edges.has_value());
       ASSERT_EQ(out_edges->edges.size(), 0);
     }
   }
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2374,43 +2377,43 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
     auto indices = [&] {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto res = acc->ListAllIndices();
       (void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
       auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
-      ASSERT_FALSE(acc->DropIndex(index).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->DropIndex(index).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (const auto &[label, properties] : indices.label_properties) {
       auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
-      ASSERT_FALSE(acc->DropIndex(label, std::vector(properties)).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->DropIndex(label, std::vector(properties)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     auto constraints = [&] {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto res = acc->ListAllConstraints();
       (void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
       return res;
     }();  // iile
     for (const auto &constraint : constraints.existence) {
-      auto unique_acc = db.UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      auto read_only_access = db.ReadOnlyAccess();
+      ASSERT_TRUE(read_only_access->DropExistenceConstraint(constraint.first, constraint.second).has_value());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (const auto &constraint : constraints.unique) {
-      auto unique_acc = db.UniqueAccess();
-      ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
+      auto read_only_access = db.ReadOnlyAccess();
+      ASSERT_EQ(read_only_access->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
-      ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).HasValue());
+      ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2427,7 +2430,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
     ASSERT_EQ(indices.label_properties.size(), 0);
@@ -2444,11 +2447,11 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2474,25 +2477,25 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc1 = db.Access();
-    auto acc2 = db.Access();
+    auto acc1 = db.Access(memgraph::storage::WRITE);
+    auto acc2 = db.Access(memgraph::storage::WRITE);
 
     // Create vertex in transaction 2.
     {
       auto vertex2 = acc2->CreateVertex();
       gid2 = vertex2.Gid();
       ASSERT_TRUE(
-          vertex2.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(2)).HasValue());
+          vertex2.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(2)).has_value());
     }
 
-    auto acc3 = db.Access();
+    auto acc3 = db.Access(memgraph::storage::WRITE);
 
     // Create vertex in transaction 3.
     {
       auto vertex3 = acc3->CreateVertex();
       gid3 = vertex3.Gid();
       ASSERT_TRUE(
-          vertex3.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(3)).HasValue());
+          vertex3.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(3)).has_value());
     }
 
     // Create vertex in transaction 1.
@@ -2500,13 +2503,13 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
       auto vertex1 = acc1->CreateVertex();
       gid1 = vertex1.Gid();
       ASSERT_TRUE(
-          vertex1.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(1)).HasValue());
+          vertex1.SetProperty(db.storage()->NameToProperty("id"), memgraph::storage::PropertyValue(1)).has_value());
     }
 
     // Commit transaction 3, then 1, then 2.
-    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2572,15 +2575,15 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (auto [gid, id] : std::vector<std::pair<memgraph::storage::Gid, int64_t>>{{gid1, 1}, {gid2, 2}, {gid3, 3}}) {
       auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       auto labels = vertex->Labels(memgraph::storage::View::OLD);
-      ASSERT_TRUE(labels.HasValue());
+      ASSERT_TRUE(labels.has_value());
       ASSERT_EQ(labels->size(), 0);
       auto props = vertex->Properties(memgraph::storage::View::OLD);
-      ASSERT_TRUE(props.HasValue());
+      ASSERT_TRUE(props.has_value());
       ASSERT_EQ(props->size(), 1);
       ASSERT_EQ(props->at(db.storage()->NameToProperty("id")), memgraph::storage::PropertyValue(id));
     }
@@ -2588,11 +2591,11 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2616,15 +2619,15 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
     CreateExtendedDataset(db.storage());
     auto label_indexed = db.storage()->NameToLabel("base_indexed");
     auto label_unindexed = db.storage()->NameToLabel("base_unindexed");
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
       auto has_indexed = vertex.HasLabel(label_indexed, memgraph::storage::View::OLD);
-      ASSERT_TRUE(has_indexed.HasValue());
+      ASSERT_TRUE(has_indexed.has_value());
       auto has_unindexed = vertex.HasLabel(label_unindexed, memgraph::storage::View::OLD);
       if (!*has_indexed && !*has_unindexed) continue;
-      ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).HasValue());
+      ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2645,16 +2648,19 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalDeathResilience) {
+#if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
+  GTEST_SKIP() << "fork() with TSAN is not supported when other threads are running";
+#endif
   pid_t pid = fork();
   if (pid == 0) {
     // Create WALs.
@@ -2673,9 +2679,9 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       memgraph::dbms::Database db{config, repl_state};
       // Create one million vertices.
       for (uint64_t i = 0; i < 1000000; ++i) {
-        auto acc = db.Access();
+        auto acc = db.Access(memgraph::storage::WRITE);
         acc->CreateVertex();
-        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError(),
+        MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
                   "Couldn't commit transaction!");
       }
     }
@@ -2716,7 +2722,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto iterable = acc->Vertices(memgraph::storage::View::OLD);
       for (auto it = iterable.begin(); it != iterable.end(); ++it) {
         ++count;
@@ -2725,11 +2731,11 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     }
 
     {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       for (uint64_t i = 0; i < kExtraItems; ++i) {
         acc->CreateVertex();
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -2748,7 +2754,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   memgraph::dbms::Database db{config, repl_state};
   {
     uint64_t current = 0;
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {
       ++current;
@@ -2758,11 +2764,11 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -2783,11 +2789,11 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2816,19 +2822,19 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_TRUE(
           vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
-              .HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+              .has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -2886,11 +2892,11 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2919,19 +2925,19 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     std::vector<memgraph::storage::Gid> gids;
     gids.reserve(kNumVertices);
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_TRUE(
           vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
-              .HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+              .has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -3021,11 +3027,11 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3046,39 +3052,40 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
-    ASSERT_TRUE(vertex1.AddLabel(acc->NameToLabel("nandare")).HasValue());
-    ASSERT_TRUE(vertex2.SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue(42)).HasValue());
-    ASSERT_TRUE(vertex1.RemoveLabel(acc->NameToLabel("nandare")).HasValue());
+    ASSERT_TRUE(vertex1.AddLabel(acc->NameToLabel("nandare")).has_value());
+    ASSERT_TRUE(vertex2.SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(vertex1.RemoveLabel(acc->NameToLabel("nandare")).has_value());
     auto edge1Res = acc->CreateEdge(&vertex1, &vertex2, acc->NameToEdgeType("et1"));
-    ASSERT_TRUE(edge1Res.HasValue());
-    auto edge1 = std::move(edge1Res.GetValue());
+    ASSERT_TRUE(edge1Res.has_value());
+    auto edge1 = std::move(edge1Res.value());
 
-    ASSERT_TRUE(vertex2.SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue()).HasValue());
+    ASSERT_TRUE(vertex2.SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue()).has_value());
     auto vertex3 = acc->CreateVertex();
     auto edge2Res = acc->CreateEdge(&vertex3, &vertex3, acc->NameToEdgeType("et2"));
-    ASSERT_TRUE(edge2Res.HasValue());
-    auto edge2 = std::move(edge2Res.GetValue());
+    ASSERT_TRUE(edge2Res.has_value());
+    auto edge2 = std::move(edge2Res.value());
     if (GetParam()) {
-      ASSERT_TRUE(edge2.SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue(true)).HasValue());
       ASSERT_TRUE(
-          edge1.SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
-      ASSERT_TRUE(edge2.SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue()).HasValue());
+          edge2.SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue(true)).has_value());
+      ASSERT_TRUE(
+          edge1.SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).has_value());
+      ASSERT_TRUE(edge2.SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue()).has_value());
     }
-    ASSERT_TRUE(vertex3.AddLabel(acc->NameToLabel("test")).HasValue());
-    ASSERT_TRUE(vertex3.SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue(-1)).HasValue());
-    ASSERT_TRUE(vertex3.SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue()).HasValue());
+    ASSERT_TRUE(vertex3.AddLabel(acc->NameToLabel("test")).has_value());
+    ASSERT_TRUE(vertex3.SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue(-1)).has_value());
+    ASSERT_TRUE(vertex3.SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue()).has_value());
     if (GetParam()) {
-      ASSERT_TRUE(edge1.SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue()).HasValue());
+      ASSERT_TRUE(edge1.SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue()).has_value());
     }
-    ASSERT_TRUE(vertex3.RemoveLabel(acc->NameToLabel("test")).HasValue());
-    ASSERT_TRUE(acc->DetachDeleteVertex(&vertex1).HasValue());
-    ASSERT_TRUE(acc->DeleteEdge(&edge2).HasValue());
-    ASSERT_TRUE(acc->DeleteVertex(&vertex2).HasValue());
-    ASSERT_TRUE(acc->DeleteVertex(&vertex3).HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(vertex3.RemoveLabel(acc->NameToLabel("test")).has_value());
+    ASSERT_TRUE(acc->DetachDeleteVertex(&vertex1).has_value());
+    ASSERT_TRUE(acc->DeleteEdge(&edge2).has_value());
+    ASSERT_TRUE(acc->DeleteVertex(&vertex2).has_value());
+    ASSERT_TRUE(acc->DeleteVertex(&vertex3).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -3095,7 +3102,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     uint64_t count = 0;
     auto iterable = acc->Vertices(memgraph::storage::View::OLD);
     for (auto it = iterable.begin(); it != iterable.end(); ++it) {
@@ -3106,11 +3113,11 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3155,11 +3162,11 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3230,11 +3237,11 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3315,14 +3322,14 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     vertex_gid = vertex.Gid();
     if (GetParam()) {
-      ASSERT_TRUE(
-          vertex.SetProperty(db.storage()->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
+      ASSERT_TRUE(vertex.SetProperty(db.storage()->NameToProperty("meaning"), memgraph::storage::PropertyValue(42))
+                      .has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -3342,14 +3349,14 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                 /* ignoring schema after recovery */ false,
                 /* verify_info = */ false);
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->FindVertex(vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
     auto labels = vertex->Labels(memgraph::storage::View::OLD);
-    ASSERT_TRUE(labels.HasValue());
+    ASSERT_TRUE(labels.has_value());
     ASSERT_EQ(labels->size(), 0);
     auto props = vertex->Properties(memgraph::storage::View::OLD);
-    ASSERT_TRUE(props.HasValue());
+    ASSERT_TRUE(props.has_value());
     if (GetParam()) {
       ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("meaning"),
                                                               memgraph::storage::PropertyValue(42))));
@@ -3360,11 +3367,11 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3385,11 +3392,11 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -3421,9 +3428,9 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     memgraph::utils::Timer timer;
     // Allow at least 6 snapshots to be created.
     while (timer.Elapsed().count() < 13.0) {
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       acc->CreateVertex();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ++items_created;
     }
   }
@@ -3449,7 +3456,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
           memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
-      auto acc = db.Access();
+      auto acc = db.Access(memgraph::storage::WRITE);
       for (uint64_t j = 0; j < items_created; ++j) {
         auto vertex = acc->FindVertex(memgraph::storage::Gid::FromUint(j), memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
@@ -3494,11 +3501,11 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
@@ -3550,11 +3557,11 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3666,7 +3673,7 @@ TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     // Manually create database in the middle
-    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
     CreateExtendedDataset(db.storage());
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -3808,11 +3815,11 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3857,11 +3864,11 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3903,11 +3910,11 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
 
   // Try to use the storage.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3943,7 +3950,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
 
   // Check if data has been loaded correctly.
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
 
     for (auto i{0U}; i < kNumBaseEdges; ++i) {
       auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
@@ -3955,12 +3962,12 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
 
     auto vertex = acc->CreateVertex();
     auto new_edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(new_edge.HasValue());
+    ASSERT_TRUE(new_edge.has_value());
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = db.Access();
+    auto acc = db.Access(memgraph::storage::WRITE);
 
     auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges), memgraph::storage::View::OLD);
     ASSERT_TRUE(edge.has_value());
@@ -3968,7 +3975,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges + 1), memgraph::storage::View::OLD);
     ASSERT_FALSE(edge.has_value());
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -3993,7 +4000,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config);
       acc->StartTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Verify TTL is configured correctly
@@ -4044,7 +4051,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config);
       acc->StartTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Verify TTL is configured correctly
@@ -4068,7 +4075,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     {
       auto acc = db.UniqueAccess();
       acc->DisableTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
 
     // Verify TTL is disabled
@@ -4097,7 +4104,7 @@ TEST_F(DurabilityTest, TtlDurability) {
 
       // Start with TTL disabled
       acc->DisableTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
@@ -4110,21 +4117,21 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config1);
       acc->StartTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
 
       // Stop TTL
       acc->StopTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
 
       // Re-enable TTL
       acc->StartTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
       auto acc = db.UniqueAccess();
@@ -4137,7 +4144,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config3);
       acc->StartTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -4191,7 +4198,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       };
       acc->ConfigureTtl(ttl_config);
       acc->StartTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ASSERT_TRUE(db.storage()->ttl_.Running());
       ASSERT_FALSE(db.storage()->ttl_.Paused());
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
@@ -4200,7 +4207,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       auto acc = db.UniqueAccess();
       // Stop TTL
       acc->StopTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ASSERT_TRUE(db.storage()->ttl_.Running());
       ASSERT_TRUE(db.storage()->ttl_.Paused());
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
@@ -4250,7 +4257,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
     }
 
-    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
   }
 
   {
@@ -4279,7 +4286,7 @@ TEST_F(DurabilityTest, TtlDurability) {
     {
       auto acc = db.UniqueAccess();
       acc->StartTtl();
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       ASSERT_TRUE(db.storage()->ttl_.Running());
       ASSERT_FALSE(db.storage()->ttl_.Paused());
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
@@ -4309,7 +4316,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
     }
 
-    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).has_value());
   }
   // Only snapshot
   {
@@ -4355,17 +4362,17 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
 
   // Create some data to ensure snapshot has content
   {
-    auto acc = mem_storage->Access();
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
     (void)acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test CreateSnapshot returns path on success
   auto result = mem_storage->CreateSnapshot();
 
-  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
+  ASSERT_TRUE(result.has_value()) << "CreateSnapshot should succeed with some data";
 
-  auto snapshot_path = result.GetValue();
+  auto snapshot_path = result.value();
   ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
   ASSERT_TRUE(std::filesystem::is_regular_file(snapshot_path)) << "Snapshot should be a regular file";
 
@@ -4395,5 +4402,5 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
   auto result = mem_storage->CreateSnapshot();
 
-  ASSERT_FALSE(result.HasError());
+  ASSERT_TRUE(result.has_value());
 }

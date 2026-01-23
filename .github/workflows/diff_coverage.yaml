@@ -36,6 +36,9 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
   TOOLCHAIN: v7
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   core:
@@ -63,7 +66,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          --no-conan-cache \
           run
 
       # This is also needed if we want do to comparison against other branches
@@ -87,7 +89,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
-          build-memgraph --init-only
+          build-memgraph --init-only \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Run python code analysis
         run: |
@@ -107,7 +112,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
-          build-memgraph --coverage --asan --ubsan
+          build-memgraph --coverage --asan --ubsan \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -158,7 +166,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -203,7 +211,19 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
-          build-memgraph --cmake-only --community
+          build-memgraph --cmake-only --community \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Configure mage
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --no-ccache \
+          build-mage --config-only
 
       - name: Run clang-tidy
         run: |
@@ -229,7 +249,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -274,7 +294,19 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
-          build-memgraph --cmake-only
+          build-memgraph --cmake-only \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Configure mage
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --no-ccache \
+          build-mage --config-only
 
       - name: Run clang-tidy
         run: |
@@ -300,4 +332,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

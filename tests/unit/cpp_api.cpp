@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,22 @@ struct CppApiTestFixture : public ::testing::Test {
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
       return this->storage->Access(memgraph::storage::StorageAccessType::READ);
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
+  auto CreateConstraintAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
+  auto DropConstraintAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->ReadOnlyAccess();
     } else {
       return this->storage->UniqueAccess();
     }
@@ -1080,7 +1096,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     ASSERT_TRUE(mgp::CreateLabelIndex(&raw_graph, "Person"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
@@ -1096,7 +1112,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelIndex(&raw_graph, "Person"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -1110,7 +1126,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelIndex(&raw_graph, "NonExistentLabel"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1120,7 +1136,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -1137,7 +1153,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -1151,7 +1167,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1165,7 +1181,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -1181,7 +1197,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -1194,45 +1210,93 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  // Create the constraint in one transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::CreateExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(mgp::CreateExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint exists in a new transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto constraints = mgp::ListAllExistenceConstraints(&raw_graph);
-  ASSERT_EQ(constraints.Size(), 1);
-  ASSERT_EQ(constraints[0].ValueString(), "User:email");
+    auto constraints = mgp::ListAllExistenceConstraints(&raw_graph);
+    ASSERT_EQ(constraints.Size(), 1);
+    ASSERT_EQ(constraints[0].ValueString(), "User:email");
+  }
+  // Drop the constraint
+  {
+    auto drop_acc = this->DropConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(drop_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::DropExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(mgp::DropExistenceConstraint(&raw_graph, "User", "email"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint is gone
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto updated_constraints = mgp::ListAllExistenceConstraints(&raw_graph);
-  ASSERT_EQ(updated_constraints.Size(), 0);
+    auto updated_constraints = mgp::ListAllExistenceConstraints(&raw_graph);
+    ASSERT_EQ(updated_constraints.Size(), 0);
 
-  ASSERT_FALSE(mgp::DropExistenceConstraint(&raw_graph, "User", "nonexistent"));
+    ASSERT_FALSE(mgp::DropExistenceConstraint(&raw_graph, "User", "nonexistent"));
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestUniqueConstraint) {
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  // Create the constraint in one transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  // Prepare the properties list: ["username"]
-  mgp_list list_props({mgp_value("username", this->memory.impl)}, this->memory.impl);
-  ASSERT_TRUE(mgp::CreateUniqueConstraint(&raw_graph, "Account", &list_props));
-  auto constraints = mgp::ListAllUniqueConstraints(&raw_graph);
-  ASSERT_EQ(constraints.Size(), 1);
-  ASSERT_EQ(constraints[0].ValueList().Size(), 2);
-  ASSERT_EQ(constraints[0].ValueList()[0].ValueString(), "Account");
-  ASSERT_EQ(constraints[0].ValueList()[1].ValueString(), "username");
+    // Prepare the properties list: ["username"]
+    mgp_list list_props({mgp_value("username", this->memory.impl)}, this->memory.impl);
+    ASSERT_TRUE(mgp::CreateUniqueConstraint(&raw_graph, "Account", &list_props));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint exists in a new transaction
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::DropUniqueConstraint(&raw_graph, "Account", &list_props));
+    auto constraints = mgp::ListAllUniqueConstraints(&raw_graph);
+    ASSERT_EQ(constraints.Size(), 1);
+    ASSERT_EQ(constraints[0].ValueList().Size(), 2);
+    ASSERT_EQ(constraints[0].ValueList()[0].ValueString(), "Account");
+    ASSERT_EQ(constraints[0].ValueList()[1].ValueString(), "username");
+  }
+  // Drop the constraint
+  {
+    auto drop_acc = this->DropConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(drop_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto updated_constraints = mgp::ListAllUniqueConstraints(&raw_graph);
-  ASSERT_EQ(updated_constraints.Size(), 0);
+    mgp_list list_props({mgp_value("username", this->memory.impl)}, this->memory.impl);
+    ASSERT_TRUE(mgp::DropUniqueConstraint(&raw_graph, "Account", &list_props));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Verify constraint is gone
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(constraint_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  mgp_list fake_props({mgp_value("nonexistent", this->memory.impl)}, this->memory.impl);
-  ASSERT_FALSE(mgp::DropUniqueConstraint(&raw_graph, "Account", &fake_props));
+    auto updated_constraints = mgp::ListAllUniqueConstraints(&raw_graph);
+    ASSERT_EQ(updated_constraints.Size(), 0);
+
+    mgp_list fake_props({mgp_value("nonexistent", this->memory.impl)}, this->memory.impl);
+    ASSERT_FALSE(mgp::DropUniqueConstraint(&raw_graph, "Account", &fake_props));
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
@@ -1259,8 +1323,8 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorIndexSpec{index_name,         label,        property,   metric, dimension,
                                                    resize_coefficient, max_elements, scalar_kind};
-    ASSERT_FALSE(db_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->CreateVectorIndex(spec).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
@@ -1314,8 +1378,8 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorEdgeIndexSpec{index_name,         edge,         property,   metric, dimension,
                                                        resize_coefficient, max_elements, scalar_kind};
-    ASSERT_FALSE(db_acc->CreateVectorEdgeIndex(spec).HasError());
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
@@ -1359,8 +1423,8 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
     auto property = db_acc->NameToProperty(property_name);
     auto text_index_spec =
         memgraph::storage::TextIndexSpec{.index_name = index_name, .label = label, .properties = {property}};
-    ASSERT_FALSE(db_acc->CreateTextIndex(text_index_spec).HasError());
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->CreateTextIndex(text_index_spec).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create nodes with text content and test search
@@ -1375,7 +1439,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
     node1.AddLabel(label_name);
     node1.SetProperty(property_name, mgp::Value("This is a test document"));
 
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test text index search
@@ -1394,8 +1458,8 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
   {
     auto storage_acc = this->storage->UniqueAccess();
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-    ASSERT_FALSE(db_acc->DropTextIndex(index_name).HasError());
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->DropTextIndex(index_name).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
 
@@ -1416,8 +1480,8 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
     auto property = db_acc->NameToProperty(property_name);
     auto text_edge_index_spec = memgraph::storage::TextEdgeIndexSpec{
         .index_name = index_name, .edge_type = edge_type_id, .properties = {property}};
-    ASSERT_FALSE(db_acc->CreateTextEdgeIndex(text_edge_index_spec).HasError());
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->CreateTextEdgeIndex(text_edge_index_spec).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create edges with text content and test search
@@ -1433,7 +1497,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
 
     auto edge1 = graph.CreateRelationship(node1, node2, edge_type);
     edge1.SetProperty(property_name, mgp::Value("This edge contains important information about data structures"));
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test text edge index search
@@ -1452,7 +1516,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
   {
     auto storage_acc = this->storage->UniqueAccess();
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-    ASSERT_FALSE(db_acc->DropTextIndex(index_name).HasError());
-    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(db_acc->DropTextIndex(index_name).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }

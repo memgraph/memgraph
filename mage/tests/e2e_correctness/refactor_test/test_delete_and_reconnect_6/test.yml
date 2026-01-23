@@ -1,0 +1,7 @@
+memgraph_query: >
+  MATCH p=(a:Node)-->(b:Node)-->(c:Node)-->(d:Node)-->(e:Node)
+  WITH p, [b,d] as l CALL refactor.delete_and_reconnect(p, l, {relationshipSelectionStrategy: "merge", properties: "combine"}) YIELD nodes, relationships RETURN nodes, relationships;
+
+neo4j_query: >
+  MATCH p=(a:Node)-->(b:Node)-->(c:Node)-->(d:Node)-->(e:Node)
+  WITH p, [b,d] as l CALL apoc.refactor.deleteAndReconnect(p, l, {relationshipSelectionStrategy: "merge", properties: "combine"}) YIELD nodes, relationships RETURN nodes, relationships;

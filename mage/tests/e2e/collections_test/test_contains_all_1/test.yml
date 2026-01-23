@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.contains_all([1, 2, 3, "pero"], [1, 1, 1, 1, 2, 3])
+  AS contained;
+output:
+  - contained: true

@@ -210,7 +210,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   auto PopulateIndex(EdgeTypeId insert_function, utils::SkipList<Vertex>::Accessor vertices,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
-      -> utils::BasicResult<IndexPopulateError>;
+      -> std::expected<void, IndexPopulateError>;
 
   bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
 

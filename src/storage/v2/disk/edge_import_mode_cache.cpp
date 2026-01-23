@@ -15,7 +15,6 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
-#include "utils/algorithm.hpp"
 
 namespace memgraph::storage {
 
@@ -62,11 +61,11 @@ bool EdgeImportModeCache::CreateIndex(
 }
 
 bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const {
-  return VerticesWithLabelScanned(label) || utils::Contains(scanned_label_properties_, std::make_pair(label, property));
+  return VerticesWithLabelScanned(label) || scanned_label_properties_.contains(std::make_pair(label, property));
 }
 
 bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
-  return AllVerticesScanned() || utils::Contains(scanned_labels_, label);
+  return AllVerticesScanned() || scanned_labels_.contains(label);
 }
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }

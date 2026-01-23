@@ -1,0 +1,10 @@
+memgraph_query: >
+  MATCH (p:Person {name: "Cillian Murphy"})
+  MATCH (m:Movie {title: "Oppenheimer"})
+  CALL create.relationship(p, "HAPPY", {id: 0}, m)
+  YIELD relationship;
+neo4j_query: >
+  MATCH (p:Person {name: "Cillian Murphy"})
+  MATCH (m:Movie {title: "Oppenheimer"})
+  CALL apoc.create.relationship(p, "HAPPY", {id: 0}, m)
+  YIELD rel return rel;

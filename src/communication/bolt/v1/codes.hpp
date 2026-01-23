@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,12 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace memgraph::communication::bolt {
 
-inline constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
+inline constexpr auto kPreamble = std::array<uint8_t, 4>{0x60, 0x60, 0xB0, 0x17};
 
 enum class Signature : uint8_t {
   Noop = 0x00,
@@ -104,8 +105,8 @@ enum class Marker : uint8_t {
 };
 
 inline constexpr uint8_t MarkerString = 0, MarkerList = 1, MarkerMap = 2;
-inline constexpr Marker MarkerTiny[3] = {Marker::TinyString, Marker::TinyList, Marker::TinyMap};
-inline constexpr Marker Marker8[3] = {Marker::String8, Marker::List8, Marker::Map8};
-inline constexpr Marker Marker16[3] = {Marker::String16, Marker::List16, Marker::Map16};
-inline constexpr Marker Marker32[3] = {Marker::String32, Marker::List32, Marker::Map32};
+inline constexpr auto MarkerTiny = std::array{Marker::TinyString, Marker::TinyList, Marker::TinyMap};
+inline constexpr auto Marker8 = std::array{Marker::String8, Marker::List8, Marker::Map8};
+inline constexpr auto Marker16 = std::array{Marker::String16, Marker::List16, Marker::Map16};
+inline constexpr auto Marker32 = std::array{Marker::String32, Marker::List32, Marker::Map32};
 }  // namespace memgraph::communication::bolt

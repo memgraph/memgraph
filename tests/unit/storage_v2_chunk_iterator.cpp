@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -118,37 +118,37 @@ class StorageV2ChunkIteratorTest : public ::testing::Test {
       auto unique_acc = storage_->UniqueAccess();
       label_id_ = unique_acc->NameToLabel("label");
       property_id_ = unique_acc->NameToProperty("property");
-      ASSERT_FALSE(unique_acc->CreateIndex(label_id_).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(label_id_).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {  // Label property index
       auto unique_acc = storage_->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_id_, {property_id_}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(label_id_, {property_id_}).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {  // Edge property index
       auto unique_acc = storage_->UniqueAccess();
       edge_type_id_ = unique_acc->NameToEdgeType("EdgeType");
       ASSERT_EQ(property_id_, unique_acc->NameToProperty("property"));
-      ASSERT_FALSE(unique_acc->CreateGlobalEdgeIndex(property_id_).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateGlobalEdgeIndex(property_id_).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {  // Edge type index
       auto unique_acc = storage_->UniqueAccess();
       edge_type_id1_ = unique_acc->NameToEdgeType("EdgeType1");
       edge_type_id2_ = unique_acc->NameToEdgeType("EdgeType2");
-      ASSERT_FALSE(unique_acc->CreateIndex(edge_type_id1_).HasError());
-      ASSERT_FALSE(unique_acc->CreateIndex(edge_type_id2_).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(edge_type_id1_).has_value());
+      ASSERT_TRUE(unique_acc->CreateIndex(edge_type_id2_).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {  // Edge type property index
       auto unique_acc = storage_->UniqueAccess();
       ASSERT_EQ(edge_type_id1_, unique_acc->NameToEdgeType("EdgeType1"));
       ASSERT_EQ(edge_type_id2_, unique_acc->NameToEdgeType("EdgeType2"));
       ASSERT_EQ(property_id_, unique_acc->NameToProperty("property"));
-      ASSERT_FALSE(unique_acc->CreateIndex(edge_type_id1_, property_id_).HasError());
-      ASSERT_FALSE(unique_acc->CreateIndex(edge_type_id2_, property_id_).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(unique_acc->CreateIndex(edge_type_id1_, property_id_).has_value());
+      ASSERT_TRUE(unique_acc->CreateIndex(edge_type_id2_, property_id_).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -169,13 +169,13 @@ class StorageV2ChunkIteratorTest : public ::testing::Test {
 
 TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorBasic) {
   // Create vertices with different labels
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   std::vector<Gid> vertex_gids;
 
   // Create 100 vertices with the test label
   for (int i = 0; i < 100; ++i) {
     auto vertex = acc->CreateVertex();
-    ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+    ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
     vertex_gids.push_back(vertex.Gid());
   }
 
@@ -185,7 +185,7 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorBasic) {
     vertex_gids.push_back(vertex.Gid());
   }
 
-  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
   // Test chunking for all vertices
   auto vertices = acc->ChunkedVertices(View::OLD, 4);
@@ -209,7 +209,7 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorEdgeCases) {
 
   // Empty storage
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
     auto chunk = vertices.get_chunk(0);
@@ -218,10 +218,10 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorEdgeCases) {
 
   // Single vertex
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     vertex_gids.push_back(vertex.Gid());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     auto vertices = acc->ChunkedVertices(View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
@@ -231,12 +231,12 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorEdgeCases) {
 
   // Fewer vertices than chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2; ++i) {  // add 2 new vertices
       auto vertex = acc->CreateVertex();
       vertex_gids.push_back(vertex.Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     auto vertices = acc->ChunkedVertices(View::OLD, 4);
     ASSERT_EQ(vertices.size(), 3);
@@ -246,14 +246,14 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorEdgeCases) {
 
   // Exact number of vertices and chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Add one more vertex
     auto vertex = acc->CreateVertex();
     vertex_gids.push_back(vertex.Gid());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
     auto read_gids = ProcessChunksInParallel(vertices);
@@ -262,7 +262,7 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorEdgeCases) {
 
   // Test with very large chunk size (more than total vertices)
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(View::OLD, 1000);
     ASSERT_EQ(vertices.size(), vertex_gids.size());
     auto read_gids = ProcessChunksInParallel(vertices);
@@ -271,7 +271,7 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorEdgeCases) {
 
   // Test with chunk size of 1
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(View::OLD, 1);
     ASSERT_EQ(vertices.size(), 1);
     auto read_gids = ProcessChunksInParallel(vertices);
@@ -283,16 +283,16 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorBigDataset) {
   // Create a large number of vertices
   std::vector<Gid> vertex_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100,000 vertices
     for (int i = 0; i < 100'000; ++i) {
       auto vertex = acc->CreateVertex();
       vertex_gids.push_back(vertex.Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking with 16 chunks for better distribution
   auto vertices = acc->ChunkedVertices(View::OLD, 16);
 
@@ -316,29 +316,29 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorConcurrentOperations)
   // Create initial vertices
   std::vector<Gid> vertex_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 1000 vertices
     for (int i = 0; i < 1000; ++i) {
       auto vertex = acc->CreateVertex();
       vertex_gids.push_back(vertex.Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Take the access before modifing threads start
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   std::atomic<bool> run{true};
 
   // Start a thread that continuously modifies vertices
   std::thread modify_thread([&]() {
     while (run.load()) {
-      auto modify_acc = storage_->Access();
+      auto modify_acc = storage_->Access(memgraph::storage::WRITE);
       // Create some new vertices
       for (int i = 0; i < 10; ++i) {
         auto vertex = modify_acc->CreateVertex();
         vertex_gids.push_back(vertex.Gid());
       }
-      ASSERT_FALSE(modify_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(modify_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
   });
@@ -375,21 +375,21 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorBasic) {
 
   // Create 200 vertices with the test label
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
         labeled_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for labeled vertices
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
 
   ASSERT_GT(vertices.size(), 0);
@@ -409,36 +409,36 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorMultipleEntriesEdgeCas
   Gid vertex_gid;
 
   auto add_vertex = [&]() {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertex = acc->CreateVertex();
     vertex_gid = vertex.Gid();
-    ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-    ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue{0}).HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+    ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue{0}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
   auto update_vertex = [&]() {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertex = acc->FindVertex(vertex_gid, View::OLD);
     ASSERT_TRUE(vertex);
-    ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
-    ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
+    ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
+    ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
     auto prop = vertex->GetProperty(property_id_, View::OLD);
-    ASSERT_TRUE(prop.HasValue());
+    ASSERT_TRUE(prop.has_value());
     ASSERT_TRUE(prop->IsInt());
-    ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{prop->ValueInt() + 1}).HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{prop->ValueInt() + 1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
 
   // Create 4 elements in the index and accessors with different timestamps
-  auto acc0 = storage_->Access();
+  auto acc0 = storage_->Access(memgraph::storage::WRITE);
   add_vertex();
-  auto acc1 = storage_->Access();
+  auto acc1 = storage_->Access(memgraph::storage::WRITE);
   update_vertex();
-  auto acc2 = storage_->Access();
+  auto acc2 = storage_->Access(memgraph::storage::WRITE);
   update_vertex();
-  auto acc3 = storage_->Access();
+  auto acc3 = storage_->Access(memgraph::storage::WRITE);
   update_vertex();
-  auto acc4 = storage_->Access();
+  auto acc4 = storage_->Access(memgraph::storage::WRITE);
 
   auto read_count = [](auto &chunks) {
     int count = 0;
@@ -459,12 +459,12 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorMultipleEntriesEdgeCas
       for (const auto &entry : chunk) {
         if (prop.has_value()) return -1;
         auto v_prop = entry.GetProperty(property_id_, View::OLD);
-        if (!v_prop.HasValue()) return -1;
+        if (!v_prop) return -1;
         if (!v_prop->IsInt()) return -1;
         prop = v_prop->ValueInt();
       }
     }
-    if (!prop.has_value()) return -1;
+    if (!prop) return -1;
     return *prop;
   };
 
@@ -506,41 +506,41 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorMultipleEntries) {
 
   // Create 200 vertices with the test label
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
         labeled_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify labeled vertices to have multiple entries
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : labeled_vertex_gids) {
       auto vertex = acc->FindVertex(gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
+      ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : labeled_vertex_gids) {
       auto vertex = acc->FindVertex(gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
+      ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for labeled vertices
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
 
   ASSERT_GT(vertices.size(), 0);
@@ -565,40 +565,40 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorDynamic) {
 
   // Create 200 vertices with the test label
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
         labeled_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for labeled vertices
-  auto acc = storage_->Access();  // Get access before starting the modify thread
+  auto acc = storage_->Access(memgraph::storage::WRITE);  // Get access before starting the modify thread
 
   std::atomic_bool run = true;
   auto modify_thread = std::jthread([&]() {
     while (run) {
       int i = 0;
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       for (const auto gid : vertex_gids) {
         auto vertex = acc->FindVertex(gid, View::OLD);
         if (!vertex) continue;
         ++i;
         if (i % 2 == 0) {
-          ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
+          ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
         } else if (i % 3 == 0) {
-          ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
+          ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
         } else if (i % 5 == 0) {
-          ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
+          ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
         }
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       storage_->FreeMemory();  // Run storage and skiplist gc
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
@@ -632,39 +632,39 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorManyEntries) {
 
   // Create 200 vertices with the test label
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
         labeled_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify labeled vertices to have multiple entries
   auto modified_gid = labeled_vertex_gids[50];
   for (int i = 0; i < 100; ++i) {
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(modified_gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(modified_gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
   // Test chunking for labeled vertices
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
 
   ASSERT_GT(vertices.size(), 0);
@@ -691,7 +691,7 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorEdgeCases) {
   // Empty index
   {
     // Test chunking for labeled vertices
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 1);
     auto chunk = vertices.get_chunk(0);
@@ -702,33 +702,33 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorEdgeCases) {
 
   // Fewer vertices than chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2; ++i) {
       auto vertex = acc->CreateVertex();
-      ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+      ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
       labeled_vertex_gids.push_back(vertex.Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 2);
   }
 
   // Exact number of vertices and chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2 * 3; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
         labeled_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
     ASSERT_EQ(labeled_vertex_gids.size(), 4);
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
     auto read_gids = ProcessChunksInParallel(vertices);
@@ -739,14 +739,14 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorEdgeCases) {
   {
     const auto first_gid = labeled_vertex_gids[0];
     for (int i = 0; i < 100; ++i) {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(first_gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
-      ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
+      ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
     // NOTE This is an edge case where we need to skip whole chunks because of duplicates in the index.
     // ASSERT_EQ(vertices.size(), 4);
@@ -758,14 +758,14 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorEdgeCases) {
   {
     const auto last_gid = labeled_vertex_gids.back();
     for (int i = 0; i < 200; ++i) {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(last_gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
-      ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
+      ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto vertices = acc->ChunkedVertices(label_id_, View::OLD, 4);
     // NOTE This is an edge case where we need to skip whole chunks because of duplicates in the index.
     // ASSERT_EQ(vertices.size(), 4);
@@ -785,22 +785,22 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasic) {
 
   // Create 200 vertices with the test label and property
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).has_value());
         labeled_property_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for labeled vertices with property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   std::vector<PropertyPath> properties = {{property_id_}};
   std::vector<PropertyValueRange> property_ranges = {};
   auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -827,42 +827,42 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorMultipleEntrie
 
   // Create 200 vertices with the test label and property
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).has_value());
         labeled_property_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify labeled vertices to have multiple entries
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : labeled_property_vertex_gids) {
       auto vertex = acc->FindVertex(gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
+      ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : labeled_property_vertex_gids) {
       auto vertex = acc->FindVertex(gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
+      ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for labeled vertices with property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   std::vector<PropertyPath> properties = {{property_id_}};
   std::vector<PropertyValueRange> property_ranges = {};
   auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -889,42 +889,42 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorDynamic) {
 
   // Create 200 vertices with the test label and property
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).has_value());
         labeled_property_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for labeled vertices with property
-  auto acc = storage_->Access();  // Get access before starting the modify thread
+  auto acc = storage_->Access(memgraph::storage::WRITE);  // Get access before starting the modify thread
 
   std::atomic_bool run = true;
   auto modify_thread = std::jthread([&]() {
     while (run) {
       int i = 0;
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       for (const auto gid : vertex_gids) {
         auto vertex = acc->FindVertex(gid, View::OLD);
         if (!vertex) continue;
         ++i;
         if (i % 2 == 0) {
-          ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
+          ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
         } else if (i % 3 == 0) {
-          ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
-          ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue(i)).HasValue());
+          ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
+          ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue(i)).has_value());
         } else if (i % 5 == 0) {
-          ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
+          ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
         }
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       storage_->FreeMemory();  // Run storage and skiplist gc
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
@@ -960,40 +960,40 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorManyEntries) {
 
   // Create 200 vertices with the test label and property
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).has_value());
         labeled_property_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify labeled vertices to have multiple entries
   auto modified_gid = labeled_property_vertex_gids[50];
   for (int i = 0; i < 100; ++i) {
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(modified_gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto vertex = acc->FindVertex(modified_gid, View::OLD);
       ASSERT_TRUE(vertex);
-      ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{i}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{i}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
   // Test chunking for labeled vertices with property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   std::vector<PropertyPath> properties = {{property_id_}};
   std::vector<PropertyValueRange> property_ranges = {};
   auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -1022,7 +1022,7 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorEdgeCases) {
   // Empty index
   {
     // Test chunking for labeled vertices with property
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -1035,14 +1035,14 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorEdgeCases) {
 
   // Fewer vertices than chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2; ++i) {
       auto vertex = acc->CreateVertex();
-      ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-      ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+      ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).has_value());
       labeled_property_vertex_gids.push_back(vertex.Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -1051,21 +1051,21 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorEdgeCases) {
 
   // Exact number of vertices and chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2 * 3; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).has_value());
         labeled_property_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
     ASSERT_EQ(labeled_property_vertex_gids.size(), 4);
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -1083,23 +1083,23 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorEdgeCases) {
     const auto first_gid = labeled_property_vertex_gids[0];
     for (int i = 0; i < 100; ++i) {
       {
-        auto acc = storage_->Access();
+        auto acc = storage_->Access(memgraph::storage::WRITE);
         auto vertex = acc->FindVertex(first_gid, View::OLD);
         ASSERT_TRUE(vertex);
-        ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
-        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
       {
-        auto acc = storage_->Access();
+        auto acc = storage_->Access(memgraph::storage::WRITE);
         auto vertex = acc->FindVertex(first_gid, View::OLD);
         ASSERT_TRUE(vertex);
-        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{}).HasValue());
-        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{i}).HasValue());
-        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{}).has_value());
+        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{i}).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -1114,23 +1114,23 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorEdgeCases) {
     const auto last_gid = labeled_property_vertex_gids.back();
     for (int i = 0; i < 200; ++i) {
       {
-        auto acc = storage_->Access();
+        auto acc = storage_->Access(memgraph::storage::WRITE);
         auto vertex = acc->FindVertex(last_gid, View::OLD);
         ASSERT_TRUE(vertex);
-        ASSERT_TRUE(vertex->RemoveLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex->AddLabel(label_id_).HasValue());
-        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        ASSERT_TRUE(vertex->RemoveLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex->AddLabel(label_id_).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
       {
-        auto acc = storage_->Access();
+        auto acc = storage_->Access(memgraph::storage::WRITE);
         auto vertex = acc->FindVertex(last_gid, View::OLD);
         ASSERT_TRUE(vertex);
-        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{}).HasValue());
-        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{i}).HasValue());
-        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{}).has_value());
+        ASSERT_TRUE(vertex->SetProperty(property_id_, PropertyValue{i}).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
@@ -1148,87 +1148,87 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
 
   // Create 200 vertices with the test label and property
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex = acc->CreateVertex();
       if (i % 3 == 0) {
-        ASSERT_TRUE(vertex.AddLabel(label_id_).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_id_).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_id_, PropertyValue(i)).has_value());
         labeled_property_vertex_gids.push_back(vertex.Gid());
       }
       vertex_gids.push_back(vertex.Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Checking lower bound
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
     auto first_chunk = vertices.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
     auto first_chunk = vertices.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 135);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 135);
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_GT(vertices.size(), 0);
     auto first_chunk = vertices.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(-1)), std::nullopt)};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
     auto first_chunk = vertices.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt)};
@@ -1240,23 +1240,23 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
 
   // Checking upper bound
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(143)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
     auto first_chunk = vertices.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(141)))};
@@ -1265,12 +1265,12 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 138);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(141)))};
@@ -1279,28 +1279,28 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(210)))};
     auto vertices = acc->ChunkedVertices(label_id_, properties, property_ranges, View::OLD, 4);
     ASSERT_EQ(vertices.size(), 4);
     auto first_chunk = vertices.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = vertices.get_chunk(vertices.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(-10)))};
@@ -1311,7 +1311,7 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
   }
 
   // Test chunking for labeled vertices with property range
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   std::vector<PropertyPath> properties = {{property_id_}};
   std::vector<PropertyValueRange> property_ranges = {PropertyValueRange::Bounded(
       memgraph::utils::MakeBoundExclusive(PropertyValue(10)), memgraph::utils::MakeBoundExclusive(PropertyValue(160)))};
@@ -1324,9 +1324,9 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
       vertices,
       [this](const auto &vertex, std::vector<PropertyValue> &props) {
         const auto prop = vertex.GetProperty(property_id_, View::OLD);
-        ASSERT_TRUE(prop.HasValue());
+        ASSERT_TRUE(prop.has_value());
         ASSERT_TRUE(prop->IsInt());
-        props.push_back(prop.GetValue());
+        props.push_back(prop.value());
       },
       [](int local_count) {
         ASSERT_GT(local_count, 0);
@@ -1344,7 +1344,7 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
   // Edges cases where both bounds are set
   {
     // Non existing value
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
@@ -1356,7 +1356,7 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
   }
   {
     // Exact match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
@@ -1366,13 +1366,13 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
     auto chunk = vertices.get_chunk(0);
     auto it = chunk.begin();
     ASSERT_TRUE(it != chunk.end());
-    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     ++it;
     ASSERT_TRUE(it == chunk.end());
   }
   {
     // Missed match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
@@ -1384,7 +1384,7 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
   }
   {
     // One match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
@@ -1394,13 +1394,13 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasicRange) {
     auto chunk = vertices.get_chunk(0);
     auto it = chunk.begin();
     ASSERT_TRUE(it != chunk.end());
-    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     ++it;
     ASSERT_TRUE(it == chunk.end());
   }
   {
     // Upper bound lower than lower bound
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     std::vector<PropertyPath> properties = {{property_id_}};
     std::vector<PropertyValueRange> property_ranges = {
         PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
@@ -1420,21 +1420,21 @@ TEST_F(StorageV2ChunkIteratorTest, BasicEdgePropertyIndexChunking) {
   // Create edges with different property values
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100 edges with property values from 0 to 99
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for edges with property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
@@ -1455,20 +1455,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithRange) {
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 200 edges with property values from 0 to 199
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property in range [50, 150]
   auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
                                  memgraph::utils::MakeBoundInclusive(PropertyValue(150)), View::OLD, 4);
@@ -1481,7 +1481,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithRange) {
       [this](const auto &edge) {
         // Verify property value is in range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 50);
         ASSERT_LE(property_value->ValueInt(), 150);
       },
@@ -1497,20 +1497,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithLowerBound) {
   // Create edges with property values
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100 edges with property values from 0 to 99
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property >= 30
   auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(30)), std::nullopt,
                                  View::OLD, 4);
@@ -1524,7 +1524,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithLowerBound) {
       [this](const auto &edge) {
         // Verify property value is >= 30
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 30);
       },
       [&total_count](int local_count) {
@@ -1540,19 +1540,19 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithUpperBound) {
   // Create edges with property values
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100 edges with property values from 0 to 99
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property <= 70
   auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(70)),
                                  View::OLD, 4);
@@ -1566,7 +1566,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithUpperBound) {
       [this](const auto &edge) {
         // Verify property value is <= 70
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_LE(property_value->ValueInt(), 70);
       },
       [&total_count](int local_count) {
@@ -1582,22 +1582,22 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingEdgeCases) {
   // Create edges with property values
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 50 edges with property values from 0 to 49
     for (int i = 0; i < 50; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test 1: Empty range (lower > upper)
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto empty_edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
                                          memgraph::utils::MakeBoundInclusive(PropertyValue(50)), View::OLD, 4);
     ASSERT_EQ(empty_edges.size(), 0);
@@ -1605,7 +1605,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingEdgeCases) {
 
   // Test 2: Single element range
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto single_edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(25)),
                                           memgraph::utils::MakeBoundInclusive(PropertyValue(25)), View::OLD, 4);
     ASSERT_GT(single_edges.size(), 0);
@@ -1616,7 +1616,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingEdgeCases) {
       for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         single_count++;
         auto property_value = (*it).GetProperty(property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_EQ(property_value->ValueInt(), 25);
       }
     }
@@ -1624,7 +1624,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingEdgeCases) {
   }
   // Test 3: Range with no elements (outside existing range)
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto no_elements_edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
                                                memgraph::utils::MakeBoundInclusive(PropertyValue(200)), View::OLD, 4);
     ASSERT_GT(no_elements_edges.size(), 0);
@@ -1644,19 +1644,19 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBigDataset) {
   // Create edges with property values
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100'000 edges with property values from 0 to 99'999
     for (int i = 0; i < 100'000; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property in range [200, 800]
   auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(20'000)),
                                  memgraph::utils::MakeBoundInclusive(PropertyValue(80'000)), View::OLD, 8);
@@ -1670,7 +1670,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBigDataset) {
       [this](const auto &edge) {
         // Verify property value is in range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 20'000);
         ASSERT_LE(property_value->ValueInt(), 80'000);
       },
@@ -1688,20 +1688,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingConcurrentOperations
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 500 edges with property values from 0 to 499
     for (int i = 0; i < 500; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property in range [100, 400]
   auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
                                  memgraph::utils::MakeBoundInclusive(PropertyValue(400)), View::OLD, 6);
@@ -1715,13 +1715,13 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingConcurrentOperations
   std::vector<std::jthread> insertion_threads;
   for (int t = 0; t < 4; ++t) {
     insertion_threads.emplace_back([&stop_insertions, &inserted_count, t, this]() {
-      auto thread_acc = storage_->Access();
+      auto thread_acc = storage_->Access(memgraph::storage::WRITE);
       int new_value = 1000 + (t * 100);
       while (!stop_insertions.load(std::memory_order_acquire)) {
         auto vertex_from = thread_acc->CreateVertex();
         auto vertex_to = thread_acc->CreateVertex();
         auto edge = thread_acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-        if (edge->SetProperty(this->property_id_, PropertyValue(new_value++)).HasValue()) {
+        if (edge->SetProperty(this->property_id_, PropertyValue(new_value++)).has_value()) {
           ++inserted_count;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(1));
@@ -1744,7 +1744,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingConcurrentOperations
         local_count++;
         // Verify property value is within the specified range
         auto property_value = (*it).GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 100);
         ASSERT_LE(property_value->ValueInt(), 400);
         if (local_count % 50 == 0) {
@@ -1780,43 +1780,43 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingMultipleEntries) {
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify edges to have multiple entries by updating properties
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : property_edge_gids) {
       auto edge = acc->FindEdge(gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : property_edge_gids) {
       auto edge = acc->FindEdge(gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{edge->Gid().AsInt()}).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{edge->Gid().AsInt()}).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for edges with property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
@@ -1839,42 +1839,42 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingDynamic) {
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for edges with property
-  auto acc = storage_->Access();  // Get access before starting the modify thread
+  auto acc = storage_->Access(memgraph::storage::WRITE);  // Get access before starting the modify thread
 
   std::atomic_bool run = true;
   auto modify_thread = std::jthread([&run, this, &edge_gids]() {
     while (run) {
       int i = 0;
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       for (const auto gid : edge_gids) {
         auto edge = acc->FindEdge(gid, View::OLD);
         if (!edge) continue;
         ++i;
         if (i % 2 == 0) {
-          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
+          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
         } else if (i % 3 == 0) {
-          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
+          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
         } else if (i % 5 == 0) {
-          ASSERT_TRUE(acc->DeleteEdge(&*edge).HasValue());
+          ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
         }
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       storage_->FreeMemory();  // Run storage and skiplist gc
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
@@ -1906,42 +1906,42 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingManyEntries) {
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify one edge to have many entries
   auto modified_gid = property_edge_gids[50];
   for (int i = 0; i < 100; ++i) {
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(modified_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(modified_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
   // Test chunking for edges with property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
@@ -1965,7 +1965,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingComprehensiveEdgeCas
   // Empty index
   {
     // Test chunking for edges with property
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
@@ -1974,37 +1974,37 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingComprehensiveEdgeCas
 
   // Fewer edges than chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       property_edge_gids.push_back(edge->Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 2);
   }
 
   // Exact number of edges and chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2 * 3; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
     ASSERT_EQ(property_edge_gids.size(), 4);
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto read_gids = ProcessChunksInParallel(edges);
@@ -2015,14 +2015,14 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingComprehensiveEdgeCas
   {
     const auto first_gid = property_edge_gids[0];
     for (int i = 0; i < 100; ++i) {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(first_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
     // NOTE This is an edge case where we need to skip whole chunks because of duplicates in the index.
     // ASSERT_EQ(edges.size(), 4);
@@ -2035,14 +2035,14 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingComprehensiveEdgeCas
   {
     const auto last_gid = property_edge_gids.back();
     for (int i = 0; i < 200; ++i) {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(last_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, View::OLD, 4);
     // NOTE This is an edge case where we need to skip whole chunks because of duplicates in the index.
     // ASSERT_EQ(edges.size(), 4);
@@ -2059,80 +2059,80 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Checking lower bound
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt,
                                    View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt,
                                    View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 135);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 135);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt,
                                    View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(-1)), std::nullopt,
                                    View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt,
                                    View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
@@ -2142,59 +2142,59 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
 
   // Checking upper bound
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(143)),
                                    View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(141)),
                                    View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 138);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(141)),
                                    View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(210)),
                                    View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(-10)),
                                    View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
@@ -2203,7 +2203,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
 
   // Test chunking for edges with property range
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(10)),
                                  memgraph::utils::MakeBoundExclusive(PropertyValue(160)), View::OLD, 4);
 
@@ -2217,10 +2217,10 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
       edges,
       [&read_props, this](const auto &edge) {
         const auto prop = edge.GetProperty(property_id_, View::OLD);
-        ASSERT_TRUE(prop.HasValue());
+        ASSERT_TRUE(prop.has_value());
         ASSERT_TRUE(prop->IsInt());
         auto locked_props = read_props.Lock();
-        locked_props->push_back(prop.GetValue());
+        locked_props->push_back(prop.value());
       },
       [&total_count](int local_count) {
         ASSERT_GT(local_count, 0);
@@ -2241,7 +2241,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   // Edges cases where both bounds are set
   {
     // Non existing value
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(130)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
@@ -2250,20 +2250,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     // Exact match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(132)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
     ASSERT_TRUE(it != chunk.end());
-    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     ++it;
     ASSERT_TRUE(it == chunk.end());
   }
   {
     // Missed match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
                                    memgraph::utils::MakeBoundExclusive(PropertyValue(132)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
@@ -2272,20 +2272,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     // One match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(133)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
     ASSERT_TRUE(it != chunk.end());
-    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     ++it;
     ASSERT_TRUE(it == chunk.end());
   }
   {
     // Upper bound lower than lower bound
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(120)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 0);
@@ -2301,7 +2301,7 @@ TEST_F(StorageV2ChunkIteratorTest, BasicEdgeTypeIndexChunking) {
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100 edges with edge_type_id1_
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
@@ -2310,10 +2310,10 @@ TEST_F(StorageV2ChunkIteratorTest, BasicEdgeTypeIndexChunking) {
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type
   auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 4);
 
@@ -2335,7 +2335,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingBigDataset) {
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 1000 edges with edge_type_id1_
     for (int i = 0; i < 100000; ++i) {
       auto vertex_from = acc->CreateVertex();
@@ -2344,14 +2344,14 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingBigDataset) {
         auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
         edge_gids.push_back(edge->Gid());
       } else {
-        ASSERT_FALSE(acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_).HasError());
+        ASSERT_TRUE(acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_).has_value());
       }
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type
   auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 8);
 
@@ -2366,7 +2366,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingConcurrentOperations) {
   // Create initial edges
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 500 edges with edge_type_id1_
     for (int i = 0; i < 500; ++i) {
       auto vertex_from = acc->CreateVertex();
@@ -2375,10 +2375,10 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingConcurrentOperations) {
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type
   auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 6);
 
@@ -2392,12 +2392,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingConcurrentOperations) {
   insertion_threads.reserve(4);
   for (int t = 0; t < 4; ++t) {
     insertion_threads.emplace_back([this, &stop_insertions, &inserted_count]() {
-      auto thread_acc = storage_->Access();
+      auto thread_acc = storage_->Access(memgraph::storage::WRITE);
       while (!stop_insertions.load(std::memory_order_acquire)) {
         auto vertex_from = thread_acc->CreateVertex();
         auto vertex_to = thread_acc->CreateVertex();
         auto edge = thread_acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-        if (edge.HasValue()) {
+        if (edge.has_value()) {
           ++inserted_count;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(1));
@@ -2414,9 +2414,9 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingConcurrentOperations) {
   ProcessChunksInParallel(
       edges,
       [&total_processed](const auto &edge) {
-        static int local_count = 0;
-        local_count++;
-        if (local_count % 50 == 0) {
+        static std::atomic<int> local_count{0};
+        local_count.fetch_add(1, std::memory_order_relaxed);
+        if (local_count.load(std::memory_order_relaxed) % 50 == 0) {
           // Make sure the iterator and insertions are interleaved
           std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
@@ -2439,7 +2439,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingMultipleEdgeTypes) {
   // Create edges with different edge types
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
 
     // Create 100 edges with edge_type_id1_
     for (int i = 0; i < 100; ++i) {
@@ -2457,10 +2457,10 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingMultipleEdgeTypes) {
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
 
   // Test chunking for edges with edge_type_id1_
   auto edges1 = acc->ChunkedEdges(edge_type_id1_, View::OLD, 4);
@@ -2497,7 +2497,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingEdgeCases) {
   // Create edges with edge types
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
 
     // Create 50 edges with edge_type_id1_
     for (int i = 0; i < 50; ++i) {
@@ -2507,10 +2507,10 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingEdgeCases) {
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test 1: Empty index (non-existent edge type)
   auto empty_edges = acc->ChunkedEdges(edge_type_id2_, View::OLD, 4);
   ASSERT_GT(empty_edges.size(), 0);
@@ -2542,7 +2542,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingDynamic) {
   // Create edges with edge types
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
 
     // Create 200 edges with edge_type_id1_
     for (int i = 0; i < 200; ++i) {
@@ -2552,27 +2552,27 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingDynamic) {
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type
-  auto acc2 = storage_->Access();  // Get access before starting the modify thread
+  auto acc2 = storage_->Access(memgraph::storage::WRITE);  // Get access before starting the modify thread
 
   std::atomic_bool run = true;
   auto modify_thread = std::jthread([&run, this, &edge_gids]() {
     while (run) {
       int i = 0;
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       for (const auto gid : edge_gids) {
         auto edge = acc->FindEdge(gid, View::OLD);
         if (!edge) continue;
         ++i;
         if (i % 5 == 0) {
-          ASSERT_TRUE(acc->DeleteEdge(&*edge).HasValue());
+          ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
         }
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       storage_->FreeMemory();  // Run storage and skiplist gc
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
@@ -2605,7 +2605,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingComprehensiveEdgeCases) 
   // Empty index
   {
     // Test chunking for edges with edge type
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
@@ -2614,21 +2614,21 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingComprehensiveEdgeCases) 
 
   // Fewer edges than chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
       edge_gids.push_back(edge->Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 2);
   }
 
   // Exact number of edges and chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 4; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
@@ -2639,10 +2639,10 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingComprehensiveEdgeCases) 
         auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
       }
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto read_gids = ProcessChunksInParallel(edges);
@@ -2659,20 +2659,20 @@ TEST_F(StorageV2ChunkIteratorTest, BasicEdgeTypePropertyIndexChunking) {
   // Create edges with different property values
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100 edges with property values from 0 to 99
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
 
@@ -2694,20 +2694,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithRange) {
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 200 edges with property values from 0 to 199
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property in range [50, 150]
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
                                  memgraph::utils::MakeBoundInclusive(PropertyValue(150)), View::OLD, 4);
@@ -2720,7 +2720,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithRange) {
       [this](const auto &edge) {
         // Verify property value is in range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 50);
         ASSERT_LE(property_value->ValueInt(), 150);
       },
@@ -2737,20 +2737,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithLowerBound) 
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100 edges with property values from 0 to 99
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property >= 30
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(30)),
                                  std::nullopt, View::OLD, 4);
@@ -2763,7 +2763,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithLowerBound) 
       [this](const auto &edge) {
         // Verify property value is >= 30
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 30);
       },
       [](int local_count) {
@@ -2780,19 +2780,19 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithUpperBound) 
 
   // Create 100 edges with property values from 0 to 99
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property <= 70
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
                                  memgraph::utils::MakeBoundInclusive(PropertyValue(70)), View::OLD, 4);
@@ -2805,7 +2805,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithUpperBound) 
       [this](const auto &edge) {
         // Verify property value is <= 70
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_LE(property_value->ValueInt(), 70);
       },
       [](int local_count) {
@@ -2820,19 +2820,19 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingEdgeCases) {
   // Create edges with property values
   std::vector<Gid> edge_gids;
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 50 edges with property values from 0 to 49
     for (int i = 0; i < 50; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test 1: Empty range (lower > upper)
   auto empty_edges =
       acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
@@ -2860,7 +2860,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingEdgeCases) {
     for (auto it = chunk.begin(); it != chunk.end(); ++it) {
       single_count++;
       auto property_value = (*it).GetProperty(this->property_id_, View::OLD);
-      ASSERT_TRUE(property_value.HasValue());
+      ASSERT_TRUE(property_value.has_value());
       ASSERT_EQ(property_value->ValueInt(), 25);
     }
   }
@@ -2887,20 +2887,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBigDataset) {
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 1000 edges with property values from 0 to 999
     for (int i = 0; i < 100000; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property in range [200, 800]
   auto edges =
       acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(20'000)),
@@ -2916,7 +2916,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBigDataset) {
         total_count.fetch_add(1, std::memory_order_relaxed);
         // Verify property value is in range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 20'000);
         ASSERT_LE(property_value->ValueInt(), 80'000);
       },
@@ -2935,20 +2935,20 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingConcurrentOperat
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 500 edges with property values from 0 to 499
     for (int i = 0; i < 500; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property in range [100, 400]
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
                                  memgraph::utils::MakeBoundInclusive(PropertyValue(400)), View::OLD, 6);
@@ -2962,13 +2962,13 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingConcurrentOperat
   std::vector<std::jthread> insertion_threads;
   for (int t = 0; t < 4; ++t) {
     insertion_threads.emplace_back([this, &stop_insertions, &inserted_count, t]() {
-      auto thread_acc = storage_->Access();
+      auto thread_acc = storage_->Access(memgraph::storage::WRITE);
       int new_value = 1000 + t * 100;
       while (!stop_insertions.load(std::memory_order_acquire)) {
         auto vertex_from = thread_acc->CreateVertex();
         auto vertex_to = thread_acc->CreateVertex();
         auto edge = thread_acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-        if (edge->SetProperty(property_id_, PropertyValue(new_value++)).HasValue()) {
+        if (edge->SetProperty(property_id_, PropertyValue(new_value++)).has_value()) {
           ++inserted_count;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(1));
@@ -2985,11 +2985,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingConcurrentOperat
   ProcessChunksInParallel(
       edges,
       [&total_processed, this](const auto &edge) {
-        static int local_count = 0;
-        local_count++;
+        static std::atomic<int> local_count{0};
+        local_count.fetch_add(1, std::memory_order_relaxed);
         // Verify property value is within the specified range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 100);
         ASSERT_LE(property_value->ValueInt(), 400);
         if (local_count % 50 == 0) {
@@ -3018,13 +3018,13 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEdgeType
   std::vector<Gid> edge_gids;
 
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 100 edges with edge_type_id1_ and property values from 0 to 99
     for (int i = 0; i < 100; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
@@ -3033,14 +3033,14 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEdgeType
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id2_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge_type_id1_ and property in range [20, 80]
   auto edges1 = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(20)),
                                   memgraph::utils::MakeBoundInclusive(PropertyValue(80)), View::OLD, 4);
@@ -3055,7 +3055,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEdgeType
         total_count1.fetch_add(1, std::memory_order_relaxed);
         // Verify property value is in range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 20);
         ASSERT_LE(property_value->ValueInt(), 80);
       },
@@ -3078,7 +3078,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEdgeType
         total_count2.fetch_add(1, std::memory_order_relaxed);
         // Verify property value is in range
         auto property_value = edge.GetProperty(this->property_id_, View::OLD);
-        ASSERT_TRUE(property_value.HasValue());
+        ASSERT_TRUE(property_value.has_value());
         ASSERT_GE(property_value->ValueInt(), 10);
         ASSERT_LE(property_value->ValueInt(), 40);
       },
@@ -3099,43 +3099,43 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEntries)
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify edges to have multiple entries by updating properties
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : property_edge_gids) {
       auto edge = acc->FindEdge(gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (const auto gid : property_edge_gids) {
       auto edge = acc->FindEdge(gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{edge->Gid().AsInt()}).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{edge->Gid().AsInt()}).has_value());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for edges with edge type and property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
@@ -3166,42 +3166,42 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingDynamic) {
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test chunking for edges with edge type and property
-  auto acc = storage_->Access();  // Get access before starting the modify thread
+  auto acc = storage_->Access(memgraph::storage::WRITE);  // Get access before starting the modify thread
 
   std::atomic_bool run = true;
   auto modify_thread = std::jthread([&run, this, &edge_gids]() {
     while (run) {
       int i = 0;
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       for (const auto gid : edge_gids) {
         auto edge = acc->FindEdge(gid, View::OLD);
         if (!edge) continue;
         ++i;
         if (i % 2 == 0) {
-          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
+          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
         } else if (i % 3 == 0) {
-          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
+          ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
         } else if (i % 5 == 0) {
-          ASSERT_TRUE(acc->DeleteEdge(&*edge).HasValue());
+          ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
         }
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       storage_->FreeMemory();  // Run storage and skiplist gc
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
@@ -3242,42 +3242,42 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingManyEntries) {
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Modify one edge to have many entries
   auto modified_gid = property_edge_gids[50];
   for (int i = 0; i < 100; ++i) {
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(modified_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(modified_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
   // Test chunking for edges with edge type and property
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
@@ -3310,7 +3310,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingComprehensiveEdg
   // Empty index
   {
     // Test chunking for edges with edge type and property
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
@@ -3319,37 +3319,37 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingComprehensiveEdg
 
   // Fewer edges than chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
       property_edge_gids.push_back(edge->Gid());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 2);
   }
 
   // Exact number of edges and chunks
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 2 * 3; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
     ASSERT_EQ(property_edge_gids.size(), 4);
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto read_gids = ProcessChunksInParallel(edges);
@@ -3364,14 +3364,14 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingComprehensiveEdg
   {
     const auto first_gid = property_edge_gids[0];
     for (int i = 0; i < 100; ++i) {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(first_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
     // NOTE This is an edge case where we need to skip whole chunks because of duplicates in the index.
     // ASSERT_EQ(edges.size(), 4);
@@ -3387,14 +3387,14 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingComprehensiveEdg
   {
     const auto last_gid = property_edge_gids.back();
     for (int i = 0; i < 200; ++i) {
-      auto acc = storage_->Access();
+      auto acc = storage_->Access(memgraph::storage::WRITE);
       auto edge = acc->FindEdge(last_gid, View::OLD);
       ASSERT_TRUE(edge);
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).HasValue());
-      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{}).has_value());
+      ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue{i}).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, View::OLD, 4);
     // NOTE This is an edge case where we need to skip whole chunks because of duplicates in the index.
     // ASSERT_EQ(edges.size(), 4);
@@ -3414,80 +3414,80 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
 
   // Create 200 edges with property values
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 200; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
       if (i % 3 == 0) {
-        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).HasValue());
+        ASSERT_TRUE(edge->SetProperty(property_id_, PropertyValue(i)).has_value());
         property_edge_gids.push_back(edge->Gid());
       }
       edge_gids.push_back(edge->Gid());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Checking lower bound
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
                                    memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt, View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
                                    memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt, View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 135);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 135);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt, View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(-1)),
                                    std::nullopt, View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt, View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
@@ -3497,59 +3497,59 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
 
   // Checking upper bound
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
                                    memgraph::utils::MakeBoundExclusive(PropertyValue(143)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
                                    memgraph::utils::MakeBoundExclusive(PropertyValue(141)), View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 138);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(141)), View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 141);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(210)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
-    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 0);
+    ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
     for (auto it = last_chunk.begin(); it != last_chunk.end(); ++it) {
-      last_pv = (*it).GetProperty(property_id_, View::OLD).GetValue();
+      last_pv = (*it).GetProperty(property_id_, View::OLD).value();
     }
     ASSERT_EQ(last_pv.ValueInt(), 198);
   }
   {
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
                                    memgraph::utils::MakeBoundInclusive(PropertyValue(-10)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
@@ -3558,7 +3558,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
 
   // Test chunking for edges with edge type and property range
-  auto acc = storage_->Access();
+  auto acc = storage_->Access(memgraph::storage::WRITE);
   auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(10)),
                                  memgraph::utils::MakeBoundExclusive(PropertyValue(160)), View::OLD, 4);
 
@@ -3569,9 +3569,9 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
       edges,
       [this](const auto &edge, std::vector<PropertyValue> &props) {
         const auto prop = edge.GetProperty(property_id_, View::OLD);
-        ASSERT_TRUE(prop.HasValue());
+        ASSERT_TRUE(prop.has_value());
         ASSERT_TRUE(prop->IsInt());
-        props.push_back(prop.GetValue());
+        props.push_back(prop.value());
       },
       [](int local_count) {
         ASSERT_GT(local_count, 0);
@@ -3589,7 +3589,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   // Edges cases where both bounds are set
   {
     // Non existing value
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges =
         acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
                           memgraph::utils::MakeBoundInclusive(PropertyValue(130)), View::OLD, 4);
@@ -3599,7 +3599,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     // Exact match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges =
         acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
                           memgraph::utils::MakeBoundInclusive(PropertyValue(132)), View::OLD, 4);
@@ -3607,13 +3607,13 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
     ASSERT_TRUE(it != chunk.end());
-    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     ++it;
     ASSERT_TRUE(it == chunk.end());
   }
   {
     // Missed match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges =
         acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
                           memgraph::utils::MakeBoundExclusive(PropertyValue(132)), View::OLD, 4);
@@ -3623,7 +3623,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     // One match
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges =
         acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
                           memgraph::utils::MakeBoundInclusive(PropertyValue(133)), View::OLD, 4);
@@ -3631,13 +3631,13 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
     ASSERT_TRUE(it != chunk.end());
-    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).GetValue().ValueInt(), 132);
+    ASSERT_EQ((*it).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
     ++it;
     ASSERT_TRUE(it == chunk.end());
   }
   {
     // Upper bound lower than lower bound
-    auto acc = storage_->Access();
+    auto acc = storage_->Access(memgraph::storage::WRITE);
     auto edges =
         acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
                           memgraph::utils::MakeBoundInclusive(PropertyValue(120)), View::OLD, 4);

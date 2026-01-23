@@ -29,6 +29,14 @@ on:
       malloc_build:
         type: boolean
         default: true
+      mage:
+        type: string
+        default: 'amd,arm,cuda'
+        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "Run the mgcxx tests."
   workflow_call:
     inputs:
       community_core:
@@ -54,6 +62,14 @@ on:
       malloc_build:
         type: boolean
         default: true
+      mage:
+        type: string
+        default: 'amd,arm,cuda'
+        description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "Run the mgcxx tests."
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -76,6 +92,10 @@ jobs:
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
       run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
       run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
+      run_mage_amd: ${{ steps.setup.outputs.run_mage_amd }}
+      run_mage_arm: ${{ steps.setup.outputs.run_mage_arm }}
+      run_mage_cuda: ${{ steps.setup.outputs.run_mage_cuda }}
+      run_mgcxx_unit: ${{ steps.setup.outputs.run_mgcxx_unit }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -89,7 +109,7 @@ jobs:
         run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
       - name: Set up diff execution
         id: setup
-        run: ./tools/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+        run: ./tools/ci/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
 
   Community:
     needs: DiffSetup
@@ -154,3 +174,54 @@ jobs:
       os: 'ubuntu-24.04'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
     secrets: inherit
+
+  Mage:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_mage.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      os: 'ubuntu-24.04'
+      run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
+      run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
+      run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
+    secrets: inherit
+
+  MGCXX:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_mgcxx.yml
+    with:
+      run_test: ${{ needs.DiffSetup.outputs.run_mgcxx_unit == 'true' }}
+      ref: ${{ inputs.ref || github.ref }}
+    secrets: inherit
+
+  DiffResult:
+    if: always()
+    name: "Diff Result"
+    needs: [Community, Coverage, Debug, Jepsen, Release, Malloc, Mage, MGCXX]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Success/Skip Jobs
+        run: |
+          echo "Community: ${{ needs.Community.result }}"
+          echo "Coverage: ${{ needs.Coverage.result }}"
+          echo "Debug: ${{ needs.Debug.result }}"
+          echo "Jepsen: ${{ needs.Jepsen.result }}"
+          echo "Release: ${{ needs.Release.result }}"
+          echo "Malloc: ${{ needs.Malloc.result }}"
+          echo "Mage: ${{ needs.Mage.result }}"
+          community=${{ needs.Community.result == 'success' || needs.Community.result == 'skipped' }}
+          coverage=${{ needs.Coverage.result == 'success' || needs.Coverage.result == 'skipped' }}
+          debug=${{ needs.Debug.result == 'success' || needs.Debug.result == 'skipped' }}
+          jepsen=${{ needs.Jepsen.result == 'success' || needs.Jepsen.result == 'skipped' }}
+          release=${{ needs.Release.result == 'success' || needs.Release.result == 'skipped' }}
+          malloc=${{ needs.Malloc.result == 'success' || needs.Malloc.result == 'skipped' }}
+          mage=${{ needs.Mage.result == 'success' || needs.Mage.result == 'skipped' }}
+          mgcxx=${{ needs.MGCXX.result == 'success' || needs.MGCXX.result == 'skipped' }}
+
+          if [ $community == false ] || [ $coverage == false ] || [ $debug == false ] || [ $jepsen == false ] || [ $release == false ] || [ $malloc == false ] || [ $mage == false ] || [ $mgcxx == false ]; then
+            echo "Diff workflow failed"
+            exit 1
+          fi
+
+          echo "Diff workflow completed successfully"
+          exit 0

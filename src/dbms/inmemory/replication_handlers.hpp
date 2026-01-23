@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,15 @@ struct TwoPCCache {
 class InMemoryReplicationHandlers {
  public:
   static void Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data);
+
+  // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
+  // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long
+  // preventing therefore processing of CurrentWalRpc, WalFilesRpc, SnapshotRpc.
+  // It should also be invoked during the promote
+  static void AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage);
+
+  // Destroys repl accessor needed for 2PC
+  static void DestroyReplAccessor();
 
  private:
   struct LoadWalStatus {
@@ -66,11 +75,6 @@ class InMemoryReplicationHandlers {
 
   static LoadWalStatus LoadWal(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
                                slk::Builder *res_builder, uint32_t start_batch_counter = 0);
-
-  // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
-  // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long
-  // preventing therefore processing of CurrentWalRpc.
-  static void AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage);
 
   static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
 

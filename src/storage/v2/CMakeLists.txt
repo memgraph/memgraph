@@ -5,14 +5,15 @@ target_sources(mg-storage-v2
         PRIVATE
         all_vertices_iterable.cpp
         async_indexer.cpp
-        commit_log.cpp
         commit_args.cpp
+        commit_log.cpp
         config.cpp
         constraint_verification_info.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp
         constraints/type_constraints_validator.cpp
+        constraints/unique_constraints.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_property_index.cpp

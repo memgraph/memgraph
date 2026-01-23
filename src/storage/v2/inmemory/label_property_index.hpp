@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,6 @@
 namespace memgraph::storage {
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
- private:
   struct Entry {
     IndexOrderedPropertyValues values;
     Vertex *vertex;
@@ -110,7 +109,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
-      -> utils::BasicResult<IndexPopulateError>;
+      -> std::expected<void, IndexPopulateError>;
 
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
 

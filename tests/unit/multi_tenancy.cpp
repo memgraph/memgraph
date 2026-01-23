@@ -17,7 +17,6 @@
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
-#include "csv/parsing.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -43,6 +42,8 @@
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
+
+import memgraph.csv.parsing;
 
 namespace {
 std::set<std::string> GetDirs(auto path) {
@@ -108,10 +109,12 @@ class MultiTenantTest : public ::testing::Test {
 
   struct MinMemgraph {
     explicit MinMemgraph(const memgraph::storage::Config &conf)
-        : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+        : settings{conf.durability.storage_directory / "settings"},
+          auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
           repl_state{ReplicationStateRootPath(conf)},
           dbms{conf, repl_state, auth, true},
           interpreter_context{{},
+                              &settings,
                               &dbms,
                               repl_state,
                               system
@@ -121,17 +124,14 @@ class MultiTenantTest : public ::testing::Test {
                               nullptr
 #endif
           } {
-      memgraph::utils::global_settings.Initialize(conf.durability.storage_directory / "settings");
-      memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
-                                                 memgraph::utils::global_settings);
-      memgraph::flags::run_time::Initialize();
+      memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, settings);
+      memgraph::flags::run_time::Initialize(settings);
       memgraph::license::global_license_checker.CheckEnvLicense();
     }
 
-    ~MinMemgraph() { memgraph::utils::global_settings.Finalize(); }
-
     auto NewInterpreter() { return InterpreterFaker{&interpreter_context, dbms.Get()}; }
 
+    memgraph::utils::Settings settings;
     memgraph::auth::SynchedAuth auth;
     memgraph::system::System system;
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
@@ -228,19 +228,19 @@ TEST_F(MultiTenantTest, DbmsNewTryDelete) {
 
   // 2
   auto &dbms = DBMS();
-  ASSERT_FALSE(dbms.New("db1").HasError());
-  ASSERT_FALSE(dbms.New("db2").HasError());
-  ASSERT_FALSE(dbms.New("db3").HasError());
-  ASSERT_FALSE(dbms.New("db4").HasError());
+  ASSERT_TRUE(dbms.New("db1").has_value());
+  ASSERT_TRUE(dbms.New("db2").has_value());
+  ASSERT_TRUE(dbms.New("db3").has_value());
+  ASSERT_TRUE(dbms.New("db4").has_value());
 
   // 3
   UseDatabase(interpreter2, "db2", "Using db2");
   UseDatabase(interpreter1, "db4", "Using db4");
 
-  ASSERT_FALSE(dbms.TryDelete("db1").HasError());
-  ASSERT_TRUE(dbms.TryDelete("db2").HasError());
-  ASSERT_FALSE(dbms.TryDelete("db3").HasError());
-  ASSERT_TRUE(dbms.TryDelete("db4").HasError());
+  ASSERT_TRUE(dbms.TryDelete("db1").has_value());
+  ASSERT_FALSE(dbms.TryDelete("db2").has_value());
+  ASSERT_TRUE(dbms.TryDelete("db3").has_value());
+  ASSERT_FALSE(dbms.TryDelete("db4").has_value());
 }
 
 TEST_F(MultiTenantTest, DbmsUpdate) {
@@ -257,9 +257,9 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   const memgraph::utils::UUID new_uuid{/* random */};
   const memgraph::storage::SalientConfig &config{.name = "memgraph", .uuid = new_uuid};
   auto new_default = dbms.Update(config);
-  ASSERT_TRUE(new_default.HasValue());
+  ASSERT_TRUE(new_default.has_value());
   ASSERT_NE(new_uuid, old_uuid);
-  ASSERT_EQ(default_db->storage(), new_default.GetValue()->storage());
+  ASSERT_EQ(default_db->storage(), new_default.value()->storage());
 
   // Add node to default
   RunQuery(interpreter1, "CREATE (:Node)");
@@ -267,20 +267,20 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   // Fail to update dirty default db
   const memgraph::storage::SalientConfig &failing_config{.name = "memgraph", .uuid = {}};
   auto failed_update = dbms.Update(failing_config);
-  ASSERT_TRUE(failed_update.HasError());
+  ASSERT_FALSE(failed_update.has_value());
 
   // Succeed when updating with the same config
   auto same_update = dbms.Update(config);
-  ASSERT_TRUE(same_update.HasValue());
-  ASSERT_EQ(new_default.GetValue()->storage(), same_update.GetValue()->storage());
+  ASSERT_TRUE(same_update.has_value());
+  ASSERT_EQ(new_default.value()->storage(), same_update.value()->storage());
 
   // Create new db
   auto db1 = dbms.New("db1");
-  ASSERT_FALSE(db1.HasError());
+  ASSERT_TRUE(db1.has_value());
   RunMtQuery(interpreter1, "USE DATABASE db1", "Using db1");
   RunQuery(interpreter1, "CREATE (:NewNode)");
   RunQuery(interpreter1, "CREATE (:NewNode)");
-  const auto db1_config_old = db1.GetValue()->config();
+  const auto db1_config_old = db1.value()->config();
 
   // Begin a transaction on db1
   auto interpreter2 = this->NewInterpreter();
@@ -292,7 +292,7 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   auto interpreter3 = this->NewInterpreter();
   const memgraph::storage::SalientConfig &db1_config_new{.name = "db1", .uuid = {}};
   auto new_db1 = dbms.Update(db1_config_new);
-  ASSERT_TRUE(new_db1.HasValue());
+  ASSERT_TRUE(new_db1.has_value());
   ASSERT_NE(db1_config_new.uuid, db1_config_old.salient.uuid);
   RunMtQuery(interpreter3, "USE DATABASE db1", "Using db1");
   ASSERT_EQ(RunQuery(interpreter3, "MATCH(n) RETURN count(*)")[0][0].ValueInt(), 0);
@@ -320,10 +320,10 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
 
   // 2
   auto &dbms = DBMS();
-  ASSERT_FALSE(dbms.New("db1").HasError());
-  ASSERT_FALSE(dbms.New("db2").HasError());
-  ASSERT_FALSE(dbms.New("db3").HasError());
-  ASSERT_FALSE(dbms.New("db4").HasError());
+  ASSERT_TRUE(dbms.New("db1").has_value());
+  ASSERT_TRUE(dbms.New("db2").has_value());
+  ASSERT_TRUE(dbms.New("db3").has_value());
+  ASSERT_TRUE(dbms.New("db4").has_value());
 
   // 3
   UseDatabase(interpreter2, "db2", "Using db2");
@@ -336,10 +336,10 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
   RunQuery(interpreter2, "CREATE (:Node{on:\"db2\"})");
   RunQuery(interpreter2, "CREATE (:Node{on:\"db2\"})");
 
-  ASSERT_FALSE(dbms.Delete("db1").HasError());
-  ASSERT_FALSE(dbms.Delete("db2").HasError());
-  ASSERT_FALSE(dbms.Delete("db3").HasError());
-  ASSERT_FALSE(dbms.Delete("db4").HasError());
+  ASSERT_TRUE(dbms.Delete("db1").has_value());
+  ASSERT_TRUE(dbms.Delete("db2").has_value());
+  ASSERT_TRUE(dbms.Delete("db3").has_value());
+  ASSERT_TRUE(dbms.Delete("db4").has_value());
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
@@ -376,10 +376,10 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
 
   // 2
   auto &dbms = DBMS();
-  ASSERT_FALSE(dbms.New("db1").HasError());
-  ASSERT_FALSE(dbms.New("db2").HasError());
-  ASSERT_FALSE(dbms.New("db3").HasError());
-  ASSERT_FALSE(dbms.New("db4").HasError());
+  ASSERT_TRUE(dbms.New("db1").has_value());
+  ASSERT_TRUE(dbms.New("db2").has_value());
+  ASSERT_TRUE(dbms.New("db3").has_value());
+  ASSERT_TRUE(dbms.New("db4").has_value());
 
   // 3
   UseDatabase(interpreter2, "db2", "Using db2");
@@ -395,10 +395,10 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   RunQuery(interpreter1, "BEGIN");
   RunQuery(interpreter2, "BEGIN");
 
-  ASSERT_FALSE(dbms.Delete("db1").HasError());
-  ASSERT_FALSE(dbms.Delete("db2").HasError());
-  ASSERT_FALSE(dbms.Delete("db3").HasError());
-  ASSERT_FALSE(dbms.Delete("db4").HasError());
+  ASSERT_TRUE(dbms.Delete("db1").has_value());
+  ASSERT_TRUE(dbms.Delete("db2").has_value());
+  ASSERT_TRUE(dbms.Delete("db3").has_value());
+  ASSERT_TRUE(dbms.Delete("db4").has_value());
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
@@ -507,8 +507,8 @@ TEST_F(MultiTenantTest, ForceDropDatabaseWithActiveTransactions) {
 
   // 2
   auto &dbms = DBMS();
-  ASSERT_FALSE(dbms.New("db1").HasError());
-  ASSERT_FALSE(dbms.New("db2").HasError());
+  ASSERT_TRUE(dbms.New("db1").has_value());
+  ASSERT_TRUE(dbms.New("db2").has_value());
 
   UseDatabase(interpreter1, "db1", "Using db1");
   UseDatabase(interpreter2, "db2", "Using db2");

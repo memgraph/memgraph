@@ -213,7 +213,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
 
   // Handle global grants
   auto const global_permission = permissions.GetGlobalPermission();
-  if (global_permission.has_value()) {
+  if (global_permission) {
     auto const level =
         global_permission.value() == 0 ? memgraph::auth::PermissionLevel::DENY : memgraph::auth::PermissionLevel::GRANT;
     add_permission(fmt::format("ALL {}S", permission_type), global_permission.value(), level, true);
@@ -683,7 +683,7 @@ std::vector<std::string> AuthQueryHandler::GetRolenamesForUser(const std::string
     std::vector<std::string> rolenames;
     auto roles = user->roles().GetRoles();
 #ifdef MG_ENTERPRISE
-    if (db_name.has_value()) {
+    if (db_name) {
       // Get roles filtered by database
       roles = user->GetMultiTenantRoles(db_name.value());
     }
@@ -1197,7 +1197,7 @@ query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view 
   // Fill missing/unlimited limits
   for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
     const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
-    if (profile->limits.find(limit) == profile->limits.end()) {
+    if (!profile->limits.contains(limit)) {
       profile->limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
     }
   }

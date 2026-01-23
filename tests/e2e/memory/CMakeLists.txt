@@ -9,9 +9,11 @@ target_link_libraries(memgraph__e2e__memory__control gflags mgclient::mgclient m
 
 add_executable(memgraph__e2e__memory__limit_global_alloc memory_limit_global_alloc.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_global_alloc gflags mgclient::mgclient mg-utils mg-io Threads::Threads)
+add_dependencies(memgraph__e2e__memory__limit_global_alloc global_memory_limit)
 
 add_executable(memgraph__e2e__memory__limit_global_alloc_proc memory_limit_global_alloc_proc.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_global_alloc_proc gflags mgclient::mgclient mg-utils mg-io Threads::Threads)
+add_dependencies(memgraph__e2e__memory__limit_global_alloc_proc global_memory_limit_proc)
 
 add_executable(memgraph__e2e__memory__limit_delete memory_limit_delete.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_delete gflags mgclient::mgclient mg-utils mg-io)
@@ -24,17 +26,20 @@ target_link_libraries(memgraph__e2e__memory__limit_edge_create gflags mgclient::
 
 add_executable(memgraph__e2e__memory_limit_global_thread_alloc_proc memory_limit_global_thread_alloc_proc.cpp)
 target_link_libraries(memgraph__e2e__memory_limit_global_thread_alloc_proc gflags mgclient::mgclient mg-utils mg-io)
+add_dependencies(memgraph__e2e__memory_limit_global_thread_alloc_proc global_memory_limit_thread_proc)
 
 # Query memory limit tests
 
 add_executable(memgraph__e2e__memory__limit_query_alloc_proc_multi_thread query_memory_limit_proc_multi_thread.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_proc_multi_thread gflags mgclient::mgclient mg-utils mg-io Threads::Threads)
+add_dependencies(memgraph__e2e__memory__limit_query_alloc_proc_multi_thread query_memory_limit_proc_multi_thread)
 
 add_executable(memgraph__e2e__memory__limit_query_alloc_create query_memory_limit_create.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_create gflags mgclient::mgclient mg-utils mg-io)
 
 add_executable(memgraph__e2e__memory__limit_query_alloc_proc query_memory_limit_proc.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_proc gflags mgclient::mgclient mg-utils mg-io)
+add_dependencies(memgraph__e2e__memory__limit_query_alloc_proc query_memory_limit_proc)
 
 add_executable(memgraph__e2e__memory__limit_query_alloc_create_multi_thread query_memory_limit_multi_thread.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_create_multi_thread gflags mgclient::mgclient mg-utils mg-io Threads::Threads)
@@ -43,9 +48,11 @@ target_link_libraries(memgraph__e2e__memory__limit_query_alloc_create_multi_thre
 
 add_executable(memgraph__e2e__procedure_memory_limit procedure_memory_limit.cpp)
 target_link_libraries(memgraph__e2e__procedure_memory_limit gflags mgclient::mgclient mg-utils mg-io)
+add_dependencies(memgraph__e2e__procedure_memory_limit proc_memory_limit)
 
 add_executable(memgraph__e2e__procedure_memory_limit_multi_proc procedure_memory_limit_multi_proc.cpp)
 target_link_libraries(memgraph__e2e__procedure_memory_limit_multi_proc gflags mgclient::mgclient mg-utils mg-io)
+add_dependencies(memgraph__e2e__procedure_memory_limit_multi_proc proc_memory_limit)
 
 # User profiles
 
@@ -55,6 +62,5 @@ copy_e2e_python_files(memory user_limits.py)
 copy_e2e_python_files_from_parent_folder(memory ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(memory ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(memory ".." mg_utils.py)
-
 
 copy_e2e_files(memory workloads.yaml)

@@ -1,23 +1,24 @@
 import sys
+
 import mgp
+
 try:
     import networkx as nx
 except ImportError as import_error:
     sys.stderr.write(
-        '\n'
-        'NOTE: Please install networkx to be able to use wcc module.\n'
-        'Using Python:\n'
-        + sys.version +
-        '\n')
+        "\n" "NOTE: Please install networkx to be able to use wcc module.\n" "Using Python:\n" + sys.version + "\n"
+    )
     raise import_error
+
+# Import nxalg to use its implementation
+from nxalg import weakly_connected_components_subgraph  # noqa E402
 
 
 @mgp.read_proc
-def get_components(vertices: mgp.List[mgp.Vertex],
-                   edges: mgp.List[mgp.Edge]
-                   ) -> mgp.Record(n_components=int,
-                                   components=mgp.List[mgp.List[mgp.Vertex]]):
-    '''
+def get_components(
+    vertices: mgp.List[mgp.Vertex], edges: mgp.List[mgp.Edge]
+) -> mgp.Record(n_components=int, components=mgp.List[mgp.List[mgp.Vertex]]):
+    """
     This procedure finds weakly connected components of a given subgraph of a
     directed graph.
 
@@ -41,11 +42,10 @@ def get_components(vertices: mgp.List[mgp.Vertex],
     WITH collect(n) AS nodes, collect(e) AS edges
     CALL wcc.get_components(nodes, edges) YIELD *
     RETURN n_components, components;
-    '''
-    g = nx.DiGraph()
-    g.add_nodes_from(vertices)
-    g.add_edges_from([(edge.from_vertex, edge.to_vertex) for edge in edges])
 
-    components = [list(wcc) for wcc in nx.weakly_connected_components(g)]
-
-    return mgp.Record(n_components=len(components), components=components)
+    NOTE: This is a compatibility shim. The functionality has been moved to
+    nxalg.weakly_connected_components_subgraph(). Consider using the new
+    procedure name for better compatibility with NetworkX algorithms.
+    """
+    # Call the implementation from nxalg
+    return weakly_connected_components_subgraph(vertices, edges)

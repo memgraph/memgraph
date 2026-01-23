@@ -63,6 +63,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
                                                           nullptr,
+                                                          nullptr,
                                                           repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE
@@ -83,16 +84,16 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(TransactionQueueSimpleTest, StorageTypes);
 
 TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
-  bool started = false;
+  std::atomic<bool> started{false};
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
         this->running_interpreter.Interpret("BEGIN");
-        started = true;
+        started.store(true, std::memory_order_release);
       },
       0);
 
   {
-    while (!started) {
+    while (!started.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     this->main_interpreter.Interpret("CREATE (:Person {prop: 1})");

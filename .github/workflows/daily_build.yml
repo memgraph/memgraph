@@ -9,10 +9,6 @@ on:
     - cron: "0 22 * * *" #UTC
   workflow_dispatch:
     inputs:
-      trigger_mage:
-        type: boolean
-        description: "Trigger MAGE build"
-        default: true
       build_date:
         type: string
         description: "Specify build date (YYYYMMDD)"
@@ -29,9 +25,20 @@ on:
         type: boolean
         description: "Skip ISSU tests"
         default: false
+      skip_mage:
+        type: boolean
+        description: "Skip MAGE build"
+      skip_stress_tests:
+        type: boolean
+        description: "Skip stress tests"
+        default: false
       mock:
         type: boolean
         description: "Mock build"
+        default: true
+      run_cve_scan:
+        type: boolean
+        description: "Run CVE scan"
         default: true
 jobs:
   # this job is used to get the current date at the time when the job is first triggered
@@ -41,6 +48,7 @@ jobs:
     runs-on: [ubuntu-latest]
     outputs:
       current_date: ${{ steps.set_date.outputs.current_date }}
+      is_sunday: ${{ steps.sunday.outputs.IS_SUNDAY }}
     steps:
       - name: Get current date
         id: set_date
@@ -53,6 +61,17 @@ jobs:
           echo "Current date is: $current_date"
           echo "current_date=$current_date" >> $GITHUB_OUTPUT
 
+      - name: Is today Sunday? 🤔
+        id: sunday
+        run: |
+          day="$(date -u +%A)"
+          if [[ "$day" == "Sunday" ]]; then
+            echo "IS_SUNDAY=true" >> $GITHUB_OUTPUT
+          else
+            echo "IS_SUNDAY=false" >> $GITHUB_OUTPUT
+          fi
+
+
   TestBuild:
     if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests) }}
     uses: ./.github/workflows/reusable_release_tests.yaml
@@ -64,7 +83,6 @@ jobs:
       run_release_tests: 'true'
       run_stress_large: 'true'
     secrets: inherit
-
 
   DailyPackageArtifact:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
@@ -168,12 +186,12 @@ jobs:
 
       - name: Aggregate Test Results and Builds
         env:
-          TEST_INDIVIDUAL_RESULT: ${{ needs.TestBuild.outputs.test_status }}
+          TEST_RESULT: ${{ needs.TestBuild.outputs.test_status }}
           CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
         run: |
-          echo "TEST_INDIVIDUAL_RESULT: $TEST_INDIVIDUAL_RESULT"
+          echo "TEST_RESULT: $TEST_RESULT"
           echo "Package Date: $CURRENT_BUILD_DATE"
-          echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
+          echo "BUILD_TEST_RESULTS=$(python3 tools/ci/aggregate_build_tests.py 'memgraph')" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
         env:
@@ -188,9 +206,51 @@ jobs:
             https://api.github.com/repos/memgraph/daily-builds/dispatches \
             -d "$payload"
 
-  TriggerMageDailyBuild:
-    if: ${{ github.event_name == 'schedule' && always() }}
-    needs: [CurrentDateJob,DailyPackageArtifact]
+  BuildAndTestMAGE:
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    name: Build and Test MAGE
+    needs: [CurrentDateJob]
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: ["Release", "RelWithDebInfo"]
+        build_arch: ["amd", "arm"]
+        malloc: [false]
+        cuda: [false]
+        include:
+          - build_type: "Release"
+            build_arch: "amd"
+            malloc: true
+            cuda: false
+          - build_type: "RelWithDebInfo"
+            build_arch: "amd"
+            cuda: true
+            malloc: false
+          - build_type: "RelWithDebInfo"
+            build_arch: "amd"
+            cuda: false
+            malloc: true
+          - build_type: "RelWithDebInfo"
+            build_arch: "arm"
+            cuda: false
+            malloc: true
+    with:
+      arch: ${{ matrix.build_arch }}
+      build_type: ${{ matrix.build_type }}
+      s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
+      cuda: ${{ matrix.cuda }}
+      push_to_s3: true
+      malloc: ${{ matrix.malloc }}
+      run_smoke_tests: true
+      run_tests: true
+      package_deb: "default"
+      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
+    secrets: inherit
+
+  AggregateMAGEBuildTests:
+    if: always()
+    needs: [CurrentDateJob,BuildAndTestMAGE]
     runs-on: [self-hosted]
     steps:
       - name: Set up repository
@@ -198,57 +258,40 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build Request Payload
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Aggregate Test Results and Builds
         env:
+          TEST_RESULT: ${{ needs.BuildAndTestMAGE.result == 'success' && 'pass' || 'fail' }}
           CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
         run: |
-          echo "MAGE_PAYLOAD=$(python3 tools/trigger_mage_payload.py)" >> $GITHUB_ENV
+          echo "TEST_RESULT: $TEST_RESULT"
+          echo "Package Date: $CURRENT_BUILD_DATE"
+          echo "BUILD_TEST_RESULTS=$(python3 tools/ci/aggregate_build_tests.py 'mage')" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.mock) }}
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
-          # Send the dispatch request to trigger MAGE daily build
+          payload="${BUILD_TEST_RESULTS}"
+          echo "Payload: $payload"
+          # Send the dispatch request
           curl -X POST \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token $GITHUB_TOKEN" \
-            https://api.github.com/repos/memgraph/mage/dispatches \
-            -d "${MAGE_PAYLOAD}"
+            https://api.github.com/repos/memgraph/daily-builds/dispatches \
+            -d "$payload"
 
-  ManualTriggerMageDailyBuild:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.trigger_mage && !inputs.mock }}
-    runs-on: [self-hosted]
-    steps:
-      - name: Build Request Payload
-        run: |
-          # Check if the 'date' input is empty; if so, compute today's date in YYYYMMDD format.
-          if [ -z "${{ github.event.inputs.build_date }}" ]; then
-            build_date=$(date -u +'%Y%m%d')
-          else
-            build_date="${{ github.event.inputs.build_date }}"
-          fi
-          export CURRENT_BUILD_DATE="${build_date}"
-
-          # now reformat it as JSON
-          payload=$(python3 tools/trigger_mage_payload.py)
-          echo "MAGE_PAYLOAD=${payload}" >> $GITHUB_ENV
-
-      - name: Trigger Daily Builds Page Update
-        env:
-          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
-        run: |
-          # Send the dispatch request to trigger MAGE daily build
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            https://api.github.com/repos/memgraph/mage/dispatches \
-            -d "${MAGE_PAYLOAD}"
-
-
-  SetupISSUTestInputs:
-    name: Setup ISSU Test Inputs
+  SetupDailyBuildImageOutputs:
+    name: Setup Daily Build Image Outputs
     needs: [CurrentDateJob, DailyDockerArtifact]
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests) }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
@@ -274,7 +317,7 @@ jobs:
         run: |
           echo "Setting next image URLs"
           export CURRENT_BUILD_DATE=${{ needs.CurrentDateJob.outputs.current_date }}
-          read amd_image_url arm_image_url < <(python3 tools/get_daily_issu_images.py)
+          read amd_image_url arm_image_url < <(python3 tools/ci/get_daily_build_images.py)
           echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
           echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
           echo "AMD Image URL: $amd_image_url"
@@ -284,24 +327,61 @@ jobs:
         id: set_last_image_version
         run: |
           echo "Setting last image version"
-          last_image_version=$(./tools/get_latest_tag.sh)
+          last_image_version=$(./tools/ci/get_latest_tag.sh)
           echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
 
   RunISSUTest:
     name: Run ISSU Tests
-    needs: [SetupISSUTestInputs]
-    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupISSUTestInputs.result == 'success' }}
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ (github.event_name == 'schedule' && always() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd
-            next_image: ${{ needs.SetupISSUTestInputs.outputs.amd_image_url }}
+            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
           - arch: arm
-            next_image: ${{ needs.SetupISSUTestInputs.outputs.arm_image_url }}
+            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.arm_image_url }}
     with:
-      last_image: ${{ needs.SetupISSUTestInputs.outputs.last_image_version }}
+      last_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.last_image_version }}
       next_image: ${{ matrix.next_image }}
       arch: ${{ matrix.arch }}
+    secrets: inherit
+
+  TriggerCVEScan:
+    name: Trigger CVE Scan
+    needs: [CurrentDateJob, DailyDockerArtifact, BuildAndTestMAGE]
+    if: ${{ needs.CurrentDateJob.outputs.is_sunday == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_cve_scan)) }}
+    uses: ./.github/workflows/cve_scan.yml
+    with:
+      date: "${{ needs.CurrentDateJob.outputs.current_date }}"
+    secrets: inherit
+
+  StressTestsNativeStandalone:
+    name: "Stress Tests Native Standalone"
+    needs: [DailyPackageArtifact]
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: native_standalone
+    secrets: inherit
+
+  StressTestsNativeHA:
+    name: "Stress Tests Native HA"
+    needs: [DailyPackageArtifact]
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: native_ha
+    secrets: inherit
+
+  StressTestsDockerHA:
+    name: "Stress Tests Docker HA"
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: docker_ha
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
     secrets: inherit

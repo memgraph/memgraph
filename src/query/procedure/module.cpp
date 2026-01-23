@@ -439,8 +439,8 @@ std::optional<std::string> ReadFile(const auto &path) {
 }
 
 // Return the module directory that contains the `path`
-utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(const ModuleRegistry &module_registry,
-                                                                              const std::filesystem::path &path) {
+std::expected<std::filesystem::path, const char *> ParentModuleDirectory(const ModuleRegistry &module_registry,
+                                                                         const std::filesystem::path &path) {
   const auto &module_directories = module_registry.GetModulesDirectory();
 
   auto longest_parent_directory = module_directories.end();
@@ -456,7 +456,7 @@ utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(co
   }
 
   if (longest_parent_directory == module_directories.end()) {
-    return "The specified file isn't contained in any of the module directories.";
+    return std::unexpected("The specified file isn't contained in any of the module directories.");
   }
 
   return *longest_parent_directory;
@@ -538,8 +538,8 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
       return;
     }
 
-    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); maybe_error_msg.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.GetError()));
+    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); !maybe_error_msg.has_value()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.error()));
       return;
     }
 
@@ -573,10 +573,10 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
 }
 
 namespace {
-utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, const std::string_view content) {
+std::expected<void, std::string> WriteToFile(const std::filesystem::path &file, const std::string_view content) {
   std::ofstream output_file{file};
   if (!output_file.is_open()) {
-    return fmt::format("Failed to open the file at location {}", file);
+    return std::unexpected(fmt::format("Failed to open the file at location {}", file));
   }
   output_file.write(content.data(), static_cast<std::streamsize>(content.size()));
   output_file.flush();
@@ -623,8 +623,8 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, BuiltinModule *
       return;
     }
 
-    if (auto maybe_error = WriteToFile(file_path, {content_str, std::strlen(content_str)}); maybe_error.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error.GetError().c_str()));
+    if (auto maybe_error = WriteToFile(file_path, {content_str, std::strlen(content_str)}); !maybe_error.has_value()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error.error().c_str()));
       return;
     }
 
@@ -683,8 +683,8 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, BuiltinModule *
       return;
     }
 
-    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); maybe_error_msg.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.GetError()));
+    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); !maybe_error_msg.has_value()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.error()));
       return;
     }
 
@@ -695,8 +695,8 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, BuiltinModule *
       return;
     }
 
-    if (auto maybe_error = WriteToFile(path, {content_str, std::strlen(content_str)}); maybe_error.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error.GetError().c_str()));
+    if (auto maybe_error = WriteToFile(path, {content_str, std::strlen(content_str)}); !maybe_error.has_value()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error.error().c_str()));
       return;
     }
 
@@ -740,8 +740,8 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, BuiltinModule *
     }
 
     const auto parent_module_directory = ParentModuleDirectory(*module_registry, path);
-    if (parent_module_directory.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, parent_module_directory.GetError()));
+    if (!parent_module_directory) {
+      static_cast<void>(mgp_result_set_error_msg(result, parent_module_directory.error()));
       return;
     }
 
@@ -1153,7 +1153,7 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 #ifdef MG_ENTERPRISE
   const auto name = path.stem().string();
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() &&
-      std::find(kEnterpriseModuleList.begin(), kEnterpriseModuleList.end(), name) != kEnterpriseModuleList.end()) {
+      std::ranges::contains(kEnterpriseModuleList, name)) {
     spdlog::warn(fmt::format("Failed to load query module {} because it requires a valid enterprise license.", path));
     return nullptr;
   }
@@ -1207,7 +1207,7 @@ bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr
     spdlog::error(utils::MessageWithLink("Unable to overwrite a builtin module {}.", name, "https://memgr.ph/modules"));
     return false;
   }
-  if (modules_.find(name) != modules_.end()) {
+  if (modules_.contains(name)) {
     spdlog::error(
         utils::MessageWithLink("Unable to overwrite an already loaded module {}.", name, "https://memgr.ph/modules"));
     return false;
@@ -1369,8 +1369,8 @@ template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
-auto MakePairIfPropFound(const ModuleRegistry &module_registry,
-                         std::string_view fully_qualified_name) -> find_result<T> {
+auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view fully_qualified_name)
+    -> find_result<T> {
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
@@ -1411,18 +1411,18 @@ auto MakePairIfPropFound(const ModuleRegistry &module_registry,
 }
 
 }  // namespace
-auto FindProcedure(const ModuleRegistry &module_registry,
-                   std::string_view fully_qualified_procedure_name) -> find_result<mgp_proc> {
+auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name)
+    -> find_result<mgp_proc> {
   return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
 }
 
-auto FindTransformation(const ModuleRegistry &module_registry,
-                        std::string_view fully_qualified_transformation_name) -> find_result<mgp_trans> {
+auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)
+    -> find_result<mgp_trans> {
   return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name);
 }
 
-auto FindFunction(const ModuleRegistry &module_registry,
-                  std::string_view fully_qualified_function_name) -> find_result<mgp_func> {
+auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name)
+    -> find_result<mgp_func> {
   return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name);
 }
 void ConstructArguments(std::span<TypedValue const> args, mgp_func const &callable, mgp_list &args_list,

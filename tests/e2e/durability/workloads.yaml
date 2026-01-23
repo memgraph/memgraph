@@ -14,3 +14,6 @@ workloads:
   - name: "Durability with text index"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/durability_with_text_index.py"]
+  - name: "Indices not persisted in analytical mode"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/indices_not_persisted_analytical.py"]

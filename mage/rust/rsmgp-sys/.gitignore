@@ -1,0 +1,5 @@
+# Cargo.lock has to be ignored in the libraries
+# https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
+Cargo.lock
+target/
+tarpaulin-report.html

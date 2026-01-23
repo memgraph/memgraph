@@ -14,7 +14,6 @@
 #include <atomic>
 #include <optional>
 #include <string>
-#include <type_traits>
 #include <utility>
 
 #include "utils/exceptions.hpp"
@@ -25,19 +24,23 @@ struct MemoryTrackerStatus {
   enum Type { kQuery, kGlobal, kUser };
 
   struct data {
-    int64_t size;
-    int64_t will_be;
-    int64_t hard_limit;
+    int64_t size{0};
+    int64_t will_be{0};
+    int64_t hard_limit{0};
     Type type{kQuery};
   };
 
   // DEVNOTE: Do not call from within allocator, will cause another allocation
   auto msg() -> std::optional<std::string>;
 
-  void set(data d) { data_ = d; }
+  void set(data d) {
+    data_ = d;
+    has_data_ = true;
+  }
 
  private:
-  std::optional<data> data_;
+  data data_{};
+  bool has_data_{false};
 };
 
 auto MemoryErrorStatus() -> MemoryTrackerStatus &;
@@ -106,7 +109,7 @@ class MemoryTracker final {
     static bool CanThrow() { return counter_ > 0; };
 
    private:
-    static thread_local uint64_t counter_;
+    static thread_local uint64_t counter_ [[gnu::tls_model("initial-exec")]];
   };
 
   // By creating an object of this class, we negate the effect of every OutOfMemoryExceptionEnabler
@@ -125,7 +128,7 @@ class MemoryTracker final {
     static bool IsBlocked() { return counter_ > 0; };
 
    private:
-    static thread_local uint64_t counter_;
+    static thread_local uint64_t counter_ [[gnu::tls_model("initial-exec")]];
   };
 
  private:
@@ -141,7 +144,7 @@ class MemoryTracker final {
 };
 
 // Global memory tracker which tracks every allocation in the application.
-extern MemoryTracker total_memory_tracker;
+extern constinit MemoryTracker total_memory_tracker;
 
 // Prevent memory tracker for throwing during the stack unwinding
 inline bool MemoryTrackerCanThrow() {

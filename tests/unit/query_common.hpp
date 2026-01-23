@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 ///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros
 ///     // rely on a DbAccessor *reference* named dba.
 ///     database::GraphDb db;
-///     auto dba_ptr = db.Access();
+///     auto dba_ptr = db.Access(memgraph::storage::WRITE);
 ///     auto &dba = *dba_ptr;
 ///
 ///     QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
@@ -72,7 +72,7 @@ auto ToIntMap(const TypedValue &t) {
 std::string ToString(Expression *expr) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
-  auto storage_acc = store->Access();
+  auto storage_acc = store->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_acc.get());
 
   std::ostringstream ss;
@@ -83,7 +83,7 @@ std::string ToString(Expression *expr) {
 std::string ToString(NamedExpression *expr) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
-  auto storage_acc = store->Access();
+  auto storage_acc = store->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_acc.get());
 
   std::ostringstream ss;
@@ -431,6 +431,7 @@ void FillReturnBody(AstStorage &, ReturnBody &body, Expression *expr, NamedExpre
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
 }
 void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &name, NamedExpression *named_expr) {
@@ -439,7 +440,9 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
 }
 template <class... T>
 void FillReturnBody(AstStorage &storage, ReturnBody &body, Expression *expr, NamedExpression *named_expr, T... rest) {
+  // This overload supports `RETURN(expr, AS(name), ...)`
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }

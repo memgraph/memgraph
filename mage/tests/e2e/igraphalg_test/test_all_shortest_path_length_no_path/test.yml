@@ -1,0 +1,82 @@
+query: >
+  CALL igraphalg.all_shortest_path_lengths("weight")
+  YIELD src_node,dest_node,length
+  RETURN src_node.id as src_node_id, dest_node.id as dest_node_id, toString(length) as length
+  ORDER BY src_node_id ASC, dest_node_id ASC;
+
+output:
+  - dest_node_id: 0
+    length: '0'
+    src_node_id: 0
+  - dest_node_id: 1
+    length: '6'
+    src_node_id: 0
+  - dest_node_id: 3
+    length: '11'
+    src_node_id: 0
+  - dest_node_id: 4
+    length: inf
+    src_node_id: 0
+  - dest_node_id: 5
+    length: inf
+    src_node_id: 0
+  - dest_node_id: 0
+    length: '6'
+    src_node_id: 1
+  - dest_node_id: 1
+    length: '0'
+    src_node_id: 1
+  - dest_node_id: 3
+    length: '5'
+    src_node_id: 1
+  - dest_node_id: 4
+    length: inf
+    src_node_id: 1
+  - dest_node_id: 5
+    length: inf
+    src_node_id: 1
+  - dest_node_id: 0
+    length: '11'
+    src_node_id: 3
+  - dest_node_id: 1
+    length: '5'
+    src_node_id: 3
+  - dest_node_id: 3
+    length: '0'
+    src_node_id: 3
+  - dest_node_id: 4
+    length: inf
+    src_node_id: 3
+  - dest_node_id: 5
+    length: inf
+    src_node_id: 3
+  - dest_node_id: 0
+    length: inf
+    src_node_id: 4
+  - dest_node_id: 1
+    length: inf
+    src_node_id: 4
+  - dest_node_id: 3
+    length: inf
+    src_node_id: 4
+  - dest_node_id: 4
+    length: '0'
+    src_node_id: 4
+  - dest_node_id: 5
+    length: '7'
+    src_node_id: 4
+  - dest_node_id: 0
+    length: inf
+    src_node_id: 5
+  - dest_node_id: 1
+    length: inf
+    src_node_id: 5
+  - dest_node_id: 3
+    length: inf
+    src_node_id: 5
+  - dest_node_id: 4
+    length: '7'
+    src_node_id: 5
+  - dest_node_id: 5
+    length: '0'
+    src_node_id: 5

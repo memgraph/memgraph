@@ -217,6 +217,7 @@ find_package(asio REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Snappy REQUIRED)
 find_package(Arrow REQUIRED)
+find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
 
 # Now load mgclient which depends on OpenSSL
 find_package(OpenSSL REQUIRED)
@@ -408,7 +409,7 @@ if (ASAN)
 endif()
 
 if (TSAN)
-  message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
+  message(WARNING "Disabling jemalloc as it doesn't work well with TSAN")
   set(ENABLE_JEMALLOC OFF)
   # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
   # If some code (e.g. dynamic libraries) is not compiled with the flag, it can
@@ -478,7 +479,7 @@ endif()
 # NOTE: The rest of the generated code should already under toolchain.
 add_custom_target(generated_code DEPENDS
   generate_opencypher_parser
-  mgcxx-proj
+  mgcxx_text_search
 )
 
 install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole

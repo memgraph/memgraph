@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_pairs([["a", 2, 3], ["b", 3], ["c", "c"]]) AS map;
+
+exception: >
+  Pairs must consist of 2 elements exactly.

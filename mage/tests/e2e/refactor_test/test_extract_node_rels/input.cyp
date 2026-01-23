@@ -1,0 +1,1 @@
+CREATE (Node1:Label {id: 1, name: 'Node1'}) CREATE (Node2:Label {id: 2, name: 'Node2'}) CREATE (Node3:Label {id: 3, name: 'Node3'}) CREATE (Node4:Label {id: 4, name: 'Node4'}) CREATE (Node5:Label {id: 5, name: 'Node5'}) CREATE (Node1)-[:Rel1 {id: 1}]->(Node2) CREATE (Node2)-[:Rel2 {id: 2}]->(Node3) CREATE (Node3)-[:Rel3 {id: 3}]->(Node4) CREATE (Node4)-[:Rel4 {id: 4}]->(Node5)

@@ -1,0 +1,8 @@
+memgraph_query: >
+  MATCH (d:Dog)-[r]-(h:Human)
+  WITH collect(distinct(r)) AS rels
+  CALL refactor.rename_type_property("speed","velocity", rels) YIELD relationships_changed RETURN relationships_changed;
+neo4j_query: >
+  MATCH (d:Dog)-[r]-(h:Human)
+  WITH collect(distinct(r)) AS rels
+  CALL apoc.refactor.rename.typeProperty("speed","velocity",rels) YIELD total RETURN total;

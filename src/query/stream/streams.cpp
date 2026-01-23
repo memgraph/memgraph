@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -200,8 +200,8 @@ void Streams::RegisterKafkaProcedures() {
       std::visit(utils::Overloaded{[&](StreamData<KafkaStream> &kafka_stream) {
                                      auto stream_source_ptr = kafka_stream.stream_source->Lock();
                                      const auto error = stream_source_ptr->SetStreamOffset(offset);
-                                     if (error.HasError()) {
-                                       MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) ==
+                                     if (!error) {
+                                       MG_ASSERT(mgp_result_set_error_msg(result, error.error().c_str()) ==
                                                      mgp_error::MGP_ERROR_NO_ERROR,
                                                  "Unable to set procedure error message of procedure: {}", proc_name);
                                      }
@@ -522,7 +522,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
-    auto accessor = interpreter->current_db_.db_acc_->get()->Access();
+    auto accessor = interpreter->current_db_.db_acc_->get()->Access(memgraph::storage::WRITE);
     const auto &db_name = interpreter->current_db_.db_acc_->get()->name();
     // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
@@ -831,7 +831,7 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
 
         auto consumer_function = [&db_acc, memory_resource, &stream_name, &transformation_name = transformation_name,
                                   &result, &test_result]<typename T>(const std::vector<T> &messages) mutable {
-          auto accessor = db_acc->Access();
+          auto accessor = db_acc->Access(memgraph::storage::WRITE);
           CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
           auto result_row = std::vector<TypedValue>();

@@ -68,11 +68,12 @@ function(add_unit_test exec_name)
         if(test_properties)
             gtest_discover_tests(${target_name}
                 TEST_PREFIX "${target_name}."
-                PROPERTIES ${test_properties}
+                PROPERTIES ${test_properties} LABELS "unit"
             )
         else()
             gtest_discover_tests(${target_name}
                 TEST_PREFIX "${target_name}."
+                PROPERTIES LABELS "unit"
             )
         endif()
     else()
@@ -83,7 +84,9 @@ function(add_unit_test exec_name)
 
         add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
         if(test_properties)
-            set_tests_properties(${target_name} PROPERTIES ${test_properties})
+            set_tests_properties(${target_name} PROPERTIES ${test_properties} LABELS "unit")
+        else()
+            set_tests_properties(${target_name} PROPERTIES LABELS "unit")
         endif()
     endif()
 

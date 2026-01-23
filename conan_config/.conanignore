@@ -1,0 +1,7 @@
+# Ignore all files
+*
+
+# But copy these
+!settings_user.yml
+!profiles/*
+!global.conf

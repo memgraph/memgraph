@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,10 @@ namespace mg_graph {
 /// Interface provides methods for fetching graph data.
 /// There are two methods for changing variables on the edges:
 /// SetVariableState and SetVariableValue
+// NOLINTBEGIN(portability-template-virtual-member-function)
+// This is a template interface class with virtual functions. The warning about portability
+// is overly cautious - this is a standard C++ pattern and virtual function instantiation
+// is consistent across modern compilers for this use case.
 template <typename TSize = std::uint64_t>
 class GraphView {
   static_assert(std::is_unsigned_v<TSize>,
@@ -163,6 +167,7 @@ class GraphView {
   ///
   virtual bool IsWeighted() const = 0;
 };
+// NOLINTEND(portability-template-virtual-member-function)
 
 template <typename TSize>
 inline GraphView<TSize>::~GraphView() {}

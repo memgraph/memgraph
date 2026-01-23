@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,7 +59,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
@@ -82,16 +82,16 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     vertex_count++;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_labels.HasValue());
+    ASSERT_TRUE(maybe_labels.has_value());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
     EXPECT_EQ(*labels.begin(), label);
     auto maybe_properties = vertex.Properties(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_properties.HasValue());
+    ASSERT_TRUE(maybe_properties.has_value());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), 1);
     auto maybe_prop = vertex.GetProperty(memgraph::storage::View::OLD, property.second);
-    ASSERT_TRUE(maybe_prop.HasValue());
+    ASSERT_TRUE(maybe_prop.has_value());
     auto prop_eq = TypedValue(*maybe_prop, dba.GetStorageAccessor()->GetNameIdMapper()) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
     EXPECT_TRUE(prop_eq.ValueBool());
@@ -103,7 +103,7 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
 TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(memgraph::storage::WRITE);
   DbAccessor execution_dba(dba.get());
   const auto label = dba->NameToLabel("label1");
   const auto property = memgraph::storage::PropertyId::FromInt(1);
@@ -143,7 +143,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
 
 TYPED_TEST(QueryPlanTest, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
@@ -183,7 +183,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
   memgraph::license::global_license_checker.EnableTesting();
 
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   const auto label = dba.NameToLabel("label");
@@ -238,7 +238,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
 #endif
 
 TYPED_TEST(QueryPlanTest, CreateExpand) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
@@ -286,7 +286,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
-    MG_ASSERT(maybe_labels.HasValue());
+    MG_ASSERT(maybe_labels.has_value());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
     memgraph::storage::LabelId label = labels[0];
@@ -303,7 +303,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-      MG_ASSERT(maybe_edges.HasValue());
+      MG_ASSERT(maybe_edges.has_value());
       for (auto edge : maybe_edges->edges) {
         EXPECT_EQ(edge.EdgeType(), edge_type);
         EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 3);
@@ -316,7 +316,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 template <typename StorageType>
 class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -443,7 +443,7 @@ TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithCycleWithEverythingGrant
 }
 
 TYPED_TEST(QueryPlanTest, MatchCreateNode) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
@@ -471,7 +471,7 @@ TYPED_TEST(QueryPlanTest, MatchCreateNode) {
 template <typename StorageType>
 class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -482,9 +482,9 @@ class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
     memgraph::query::VertexAccessor v1{dba.InsertVertex()};
     memgraph::query::VertexAccessor v2{dba.InsertVertex()};
     memgraph::query::VertexAccessor v3{dba.InsertVertex()};
-    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
-    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
-    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).has_value());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).has_value());
+    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).has_value());
     dba.AdvanceCommand();
   }
 
@@ -551,7 +551,7 @@ TYPED_TEST(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) 
 #endif
 
 TYPED_TEST(QueryPlanTest, MatchCreateExpand) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
@@ -599,7 +599,7 @@ TYPED_TEST(QueryPlanTest, MatchCreateExpand) {
 template <typename StorageType>
 class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -610,9 +610,9 @@ class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
     memgraph::query::VertexAccessor v1{dba.InsertVertex()};
     memgraph::query::VertexAccessor v2{dba.InsertVertex()};
     memgraph::query::VertexAccessor v3{dba.InsertVertex()};
-    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
-    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
-    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).has_value());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).has_value());
+    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).has_value());
 
     dba.AdvanceCommand();
   }
@@ -742,7 +742,7 @@ TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesW
 #endif
 
 TYPED_TEST(QueryPlanTest, Delete) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
@@ -750,7 +750,7 @@ TYPED_TEST(QueryPlanTest, Delete) {
   for (int i = 0; i < 4; ++i) vertices.push_back(dba.InsertVertex());
   auto type = dba.NameToEdgeType("type");
   for (int j = 0; j < 4; ++j)
-    for (int k = j + 1; k < 4; ++k) ASSERT_TRUE(dba.InsertEdge(&vertices[j], &vertices[k], type).HasValue());
+    for (int k = j + 1; k < 4; ++k) ASSERT_TRUE(dba.InsertEdge(&vertices[j], &vertices[k], type).has_value());
 
   dba.AdvanceCommand();
   EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -814,7 +814,7 @@ TYPED_TEST(QueryPlanTest, Delete) {
 template <typename StorageType>
 class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -825,13 +825,13 @@ class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
     for (int i = 0; i < 4; ++i) {
       memgraph::query::VertexAccessor v{dba.InsertVertex()};
       auto label = "l" + std::to_string(i);
-      ASSERT_TRUE(v.AddLabel(dba.NameToLabel(label)).HasValue());
+      ASSERT_TRUE(v.AddLabel(dba.NameToLabel(label)).has_value());
       vertices.push_back(v);
     }
     for (int j = 0; j < 4; ++j) {
       auto edge_type = "type" + std::to_string(j);
       auto type = dba.NameToEdgeType(edge_type);
-      for (int k = j + 1; k < 4; ++k) ASSERT_TRUE(dba.InsertEdge(&vertices[j], &vertices[k], type).HasValue());
+      for (int k = j + 1; k < 4; ++k) ASSERT_TRUE(dba.InsertEdge(&vertices[j], &vertices[k], type).has_value());
     }
 
     dba.AdvanceCommand();
@@ -978,12 +978,12 @@ TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
   auto test_delete = [this](bool detach) {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
 
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
-    ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).HasValue());
+    ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).has_value());
     dba.AdvanceCommand();
     EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(1, CountEdges(&dba, memgraph::storage::View::OLD));
@@ -1013,14 +1013,14 @@ TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
 
 TYPED_TEST(QueryPlanTest, DeleteReturn) {
   // MATCH (n) DETACH DELETE n RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices
   auto prop = PROPERTY_PAIR(dba, "property");
   for (int i = 0; i < 4; ++i) {
     auto va = dba.InsertVertex();
-    ASSERT_TRUE(va.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).has_value());
   }
 
   dba.AdvanceCommand();
@@ -1047,7 +1047,7 @@ TYPED_TEST(QueryPlanTest, DeleteReturn) {
 
 TYPED_TEST(QueryPlanTest, DeleteNull) {
   // test (simplified) WITH Null as x delete x
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -1071,7 +1071,7 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
   auto advance = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, true);
   auto res_sym = symbol_table.CreateSymbol("res", true);
   {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
@@ -1080,7 +1080,7 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
     EXPECT_EQ(1, PullAll(*produce, &context));
   }
   {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
@@ -1092,7 +1092,7 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
 }
 
 TYPED_TEST(QueryPlanTest, SetProperty) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
@@ -1103,8 +1103,8 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
   auto v3 = dba.InsertVertex();
   auto v4 = dba.InsertVertex();
   auto edge_type = dba.NameToEdgeType("edge_type");
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -1130,7 +1130,7 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_edges.HasValue());
+    ASSERT_TRUE(maybe_edges.has_value());
     for (auto edge : maybe_edges->edges) {
       ASSERT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
                 memgraph::storage::PropertyValue::Type::Int);
@@ -1148,7 +1148,7 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
 
 TYPED_TEST(QueryPlanTest, SetProperties) {
   auto test_set_properties = [this](bool update) {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
@@ -1158,9 +1158,9 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
     auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("R"));
-    ASSERT_TRUE(v1.SetProperty(prop_a, memgraph::storage::PropertyValue(0)).HasValue());
-    ASSERT_TRUE(e->SetProperty(prop_b, memgraph::storage::PropertyValue(1)).HasValue());
-    ASSERT_TRUE(v2.SetProperty(prop_c, memgraph::storage::PropertyValue(2)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(prop_a, memgraph::storage::PropertyValue(0)).has_value());
+    ASSERT_TRUE(e->SetProperty(prop_b, memgraph::storage::PropertyValue(1)).has_value());
+    ASSERT_TRUE(v2.SetProperty(prop_c, memgraph::storage::PropertyValue(2)).has_value());
     dba.AdvanceCommand();
 
     SymbolTable symbol_table;
@@ -1184,7 +1184,7 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
     EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 1);
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-      ASSERT_TRUE(maybe_edges.HasValue());
+      ASSERT_TRUE(maybe_edges.has_value());
       for (auto edge : maybe_edges->edges) {
         auto from = edge.From();
         EXPECT_EQ(from.Properties(memgraph::storage::View::OLD)->size(), update ? 2 : 1);
@@ -1221,14 +1221,14 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
 }
 
 TYPED_TEST(QueryPlanTest, SetLabels) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
   auto label3 = dba.NameToLabel("label3");
-  ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).has_value());
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).has_value());
   dba.AdvanceCommand();
   std::vector<StorageLabelType> labels;
   labels.emplace_back(label2);
@@ -1253,8 +1253,8 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
   memgraph::license::global_license_checker.EnableTesting();
   auto set_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                         std::vector<memgraph::storage::LabelId> labels) {
-    ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).has_value());
+    ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).has_value());
     dba.AdvanceCommand();
     std::vector<StorageLabelType> labels_variant;
     labels_variant.emplace_back(labels[1]);
@@ -1274,7 +1274,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1293,7 +1293,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
     user.fine_grained_access_handler().label_permissions().GrantGlobal(
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1310,7 +1310,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
                                                                  memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant({"label3"}, memgraph::auth::kAllPermissions);
 
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1322,7 +1322,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
 #endif
 
 TYPED_TEST(QueryPlanTest, RemoveProperty) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
@@ -1336,16 +1336,16 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
   auto edge_type = dba.NameToEdgeType("edge_type");
   {
     auto e = dba.InsertEdge(&v1, &v3, edge_type);
-    ASSERT_TRUE(e.HasValue());
-    ASSERT_TRUE(e->SetProperty(prop1, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(e.has_value());
+    ASSERT_TRUE(e->SetProperty(prop1, memgraph::storage::PropertyValue(42)).has_value());
   }
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
-  ASSERT_TRUE(v2.SetProperty(prop1, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v3.SetProperty(prop1, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v4.SetProperty(prop1, memgraph::storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).has_value());
+  ASSERT_TRUE(v2.SetProperty(prop1, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(v3.SetProperty(prop1, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(v4.SetProperty(prop1, memgraph::storage::PropertyValue(42)).has_value());
   auto prop2 = dba.NameToProperty("prop2");
-  ASSERT_TRUE(v1.SetProperty(prop2, memgraph::storage::PropertyValue(0)).HasValue());
-  ASSERT_TRUE(v2.SetProperty(prop2, memgraph::storage::PropertyValue(0)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop2, memgraph::storage::PropertyValue(0)).has_value());
+  ASSERT_TRUE(v2.SetProperty(prop2, memgraph::storage::PropertyValue(0)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -1367,7 +1367,7 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
-    ASSERT_TRUE(maybe_edges.HasValue());
+    ASSERT_TRUE(maybe_edges.has_value());
     for (auto edge : maybe_edges->edges) {
       EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
                 memgraph::storage::PropertyValue::Type::Null);
@@ -1384,19 +1384,19 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
 }
 
 TYPED_TEST(QueryPlanTest, RemoveLabels) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
   auto label3 = dba.NameToLabel("label3");
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(label1).HasValue());
-  ASSERT_TRUE(v1.AddLabel(label2).HasValue());
-  ASSERT_TRUE(v1.AddLabel(label3).HasValue());
+  ASSERT_TRUE(v1.AddLabel(label1).has_value());
+  ASSERT_TRUE(v1.AddLabel(label2).has_value());
+  ASSERT_TRUE(v1.AddLabel(label3).has_value());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.AddLabel(label1).HasValue());
-  ASSERT_TRUE(v2.AddLabel(label3).HasValue());
+  ASSERT_TRUE(v2.AddLabel(label1).has_value());
+  ASSERT_TRUE(v2.AddLabel(label3).has_value());
   dba.AdvanceCommand();
   std::vector<StorageLabelType> labels;
   labels.emplace_back(label1);
@@ -1422,12 +1422,12 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
   auto remove_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                            std::vector<memgraph::storage::LabelId> labels) {
     auto v1 = dba.InsertVertex();
-    ASSERT_TRUE(v1.AddLabel(labels[0]).HasValue());
-    ASSERT_TRUE(v1.AddLabel(labels[1]).HasValue());
-    ASSERT_TRUE(v1.AddLabel(labels[2]).HasValue());
+    ASSERT_TRUE(v1.AddLabel(labels[0]).has_value());
+    ASSERT_TRUE(v1.AddLabel(labels[1]).has_value());
+    ASSERT_TRUE(v1.AddLabel(labels[2]).has_value());
     auto v2 = dba.InsertVertex();
-    ASSERT_TRUE(v2.AddLabel(labels[0]).HasValue());
-    ASSERT_TRUE(v2.AddLabel(labels[2]).HasValue());
+    ASSERT_TRUE(v2.AddLabel(labels[0]).has_value());
+    ASSERT_TRUE(v2.AddLabel(labels[2]).has_value());
     dba.AdvanceCommand();
     std::vector<StorageLabelType> labels_variant;
     labels_variant.emplace_back(labels[0]);
@@ -1448,7 +1448,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1467,7 +1467,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().GrantGlobal(
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1484,7 +1484,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
                                                                  memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant({"label3"}, memgraph::auth::kAllPermissions);
 
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1496,17 +1496,17 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
 #endif
 
 TYPED_TEST(QueryPlanTest, NodeFilterSet) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR(dba, "property");
-  ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).has_value());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto edge_type = dba.NameToEdgeType("Edge");
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).has_value());
   dba.AdvanceCommand();
   // Create operations which match (v1 {prop: 42}) -- (v) and increment the
   // v1.prop. The expected result is two incremenentations, since v1 is matched
@@ -1535,17 +1535,17 @@ TYPED_TEST(QueryPlanTest, NodeFilterSet) {
 }
 
 TYPED_TEST(QueryPlanTest, FilterRemove) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR(dba, "property");
-  ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).has_value());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto edge_type = dba.NameToEdgeType("Edge");
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).has_value());
   dba.AdvanceCommand();
   // Create operations which match (v1 {prop: 42}) -- (v) and remove v1.prop.
   // The expected result is two matches, for each edge of v1.
@@ -1569,7 +1569,7 @@ TYPED_TEST(QueryPlanTest, FilterRemove) {
 }
 
 TYPED_TEST(QueryPlanTest, SetRemove) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v = dba.InsertVertex();
   auto label1 = dba.NameToLabel("label1");
@@ -1599,11 +1599,11 @@ TYPED_TEST(QueryPlanTest, Merge) {
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("Type")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("Type")).has_value());
   auto v3 = dba.InsertVertex();
   dba.AdvanceCommand();
 
@@ -1641,7 +1641,7 @@ TYPED_TEST(QueryPlanTest, Merge) {
 TYPED_TEST(QueryPlanTest, MergeNoInput) {
   // merge with no input, creates a single node
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -1659,7 +1659,7 @@ TYPED_TEST(QueryPlanTest, MergeNoInput) {
 
 TYPED_TEST(QueryPlanTest, SetPropertyWithCaching) {
   // SET (Null).prop = 42
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR(dba, "property");
@@ -1674,7 +1674,7 @@ TYPED_TEST(QueryPlanTest, SetPropertyWithCaching) {
 
 TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
   // SET (Null).prop = 42
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR(dba, "property");
@@ -1689,7 +1689,7 @@ TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
 
 TYPED_TEST(QueryPlanTest, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
@@ -1702,12 +1702,12 @@ TYPED_TEST(QueryPlanTest, SetPropertiesOnNull) {
 }
 
 TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex. ( {property: 43})
   auto vertex_accessor = dba.InsertVertex();
   auto old_value = vertex_accessor.SetProperty(dba.NameToProperty("property"), memgraph::storage::PropertyValue{43});
-  EXPECT_EQ(old_value.HasError(), false);
+  EXPECT_EQ(!old_value.has_value(), false);
   EXPECT_EQ(*old_value, memgraph::storage::PropertyValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -1732,19 +1732,19 @@ TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
   std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> expected_properties;
   expected_properties.emplace(dba.NameToProperty("property"), memgraph::storage::PropertyValue("updated"));
   expected_properties.emplace(dba.NameToProperty("new_property"), memgraph::storage::PropertyValue("a"));
-  EXPECT_EQ(new_properties.HasError(), false);
+  EXPECT_EQ(!new_properties.has_value(), false);
   EXPECT_EQ(*new_properties, expected_properties);
 }
 
 TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // Add a single vertex. ({prop1: 43, prop2: 44})
   auto vertex_accessor = dba.InsertVertex();
   auto old_value = vertex_accessor.SetProperty(dba.NameToProperty("prop1"), memgraph::storage::PropertyValue{43});
   old_value = vertex_accessor.SetProperty(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue{44});
-  EXPECT_EQ(old_value.HasError(), false);
+  EXPECT_EQ(!old_value.has_value(), false);
   EXPECT_EQ(*old_value, memgraph::storage::PropertyValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -1771,13 +1771,13 @@ TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
   expected_properties.emplace(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue(44));
   expected_properties.emplace(dba.NameToProperty("new_prop1"), memgraph::storage::PropertyValue(43));
   expected_properties.emplace(dba.NameToProperty("new_prop2"), memgraph::storage::PropertyValue(44));
-  EXPECT_EQ(new_properties.HasError(), false);
+  EXPECT_EQ(!new_properties.has_value(), false);
   EXPECT_EQ(*new_properties, expected_properties);
 }
 
 TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   std::vector<StorageLabelType> labels;
@@ -1793,7 +1793,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
 
 TYPED_TEST(QueryPlanTest, RemovePropertyOnNull) {
   // REMOVE (Null).prop
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR(dba, "property");
@@ -1807,7 +1807,7 @@ TYPED_TEST(QueryPlanTest, RemovePropertyOnNull) {
 
 TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
   // OPTIONAL MATCH (n) REMOVE n :label
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   std::vector<StorageLabelType> labels;
@@ -1823,7 +1823,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
 
 TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
   // MATCH (n) DELETE n SET n.property = 42 RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1849,7 +1849,7 @@ TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
 TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
   // MATCH (n) DELETE n SET n = {property: 42} return n
   // MATCH (n) DELETE n SET n += {property: 42} return n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1877,12 +1877,12 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
 
 TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
   // MATCH (n) DELETE n SET n = n RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(dba.NameToProperty("property"), memgraph::storage::PropertyValue(1)).HasValue());
+    ASSERT_TRUE(v.SetProperty(dba.NameToProperty("property"), memgraph::storage::PropertyValue(1)).has_value());
   }
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -1906,7 +1906,7 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
 
 TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
   // MATCH (n) DELETE n REMOVE n :label return n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1931,7 +1931,7 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
 
 TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
   // MATCH (n) DELETE n REMOVE n.property RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1961,7 +1961,7 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
 template <typename StorageType>
 class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -2115,8 +2115,8 @@ TYPED_TEST_SUITE(UpdatePropertiesWithAuthFixture, StorageTypes);
 TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   // Add a single vertex
   auto v = this->dba.InsertVertex();
-  ASSERT_TRUE(v.AddLabel(this->vertex_label).HasValue());
-  ASSERT_TRUE(v.SetProperty(this->entity_prop, this->entity_prop_value).HasValue());
+  ASSERT_TRUE(v.AddLabel(this->vertex_label).has_value());
+  ASSERT_TRUE(v.SetProperty(this->entity_prop, this->entity_prop_value).has_value());
   this->dba.AdvanceCommand();
 
   EXPECT_EQ(1, CountIterable(this->dba.Vertices(memgraph::storage::View::OLD)));
@@ -2124,18 +2124,18 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   auto test_hypothesis = [&](int expected_property_value) {
     auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
-    ASSERT_TRUE(maybe_properties.HasValue());
+    ASSERT_TRUE(maybe_properties.has_value());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), 1);
     auto maybe_prop = vertex.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
-    ASSERT_TRUE(maybe_prop.HasValue());
+    ASSERT_TRUE(maybe_prop.has_value());
     ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
   };
 
   auto test_remove_hypothesis = [&](int properties_size) {
     auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
-    ASSERT_TRUE(maybe_properties.HasValue());
+    ASSERT_TRUE(maybe_properties.has_value());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), properties_size);
   };
@@ -2343,32 +2343,32 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
 TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   // Add a single vertex
   auto v1 = this->dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(this->label_1).HasValue());
+  ASSERT_TRUE(v1.AddLabel(this->label_1).has_value());
 
   auto v2 = this->dba.InsertVertex();
-  ASSERT_TRUE(v2.AddLabel(this->label_2).HasValue());
+  ASSERT_TRUE(v2.AddLabel(this->label_2).has_value());
 
   auto edge_type_name = "edge_type";
   auto edge_type_id = this->dba.NameToEdgeType(edge_type_name);
   auto edge = this->dba.InsertEdge(&v1, &v2, edge_type_id);
-  ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(this->entity_prop, this->entity_prop_value).HasValue());
+  ASSERT_TRUE(edge.has_value());
+  ASSERT_TRUE(edge->SetProperty(this->entity_prop, this->entity_prop_value).has_value());
   this->dba.AdvanceCommand();
 
   EXPECT_EQ(2, CountIterable(this->dba.Vertices(memgraph::storage::View::OLD)));
 
   auto test_hypothesis = [&](int expected_property_value) {
     for (auto vertex : this->dba.Vertices(memgraph::storage::View::NEW)) {
-      if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
+      if (vertex.OutEdges(memgraph::storage::View::NEW).has_value()) {
         auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
         for (auto edge : maybe_edges->edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
-          ASSERT_TRUE(maybe_properties.HasValue());
+          ASSERT_TRUE(maybe_properties.has_value());
           const auto &properties = *maybe_properties;
           EXPECT_EQ(properties.size(), 1);
           auto maybe_prop = edge.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
-          ASSERT_TRUE(maybe_prop.HasValue());
+          ASSERT_TRUE(maybe_prop.has_value());
           ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
         }
       }
@@ -2377,12 +2377,12 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
 
   auto test_remove_hypothesis = [&](int properties_size) {
     for (auto vertex : this->dba.Vertices(memgraph::storage::View::NEW)) {
-      if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
+      if (vertex.OutEdges(memgraph::storage::View::NEW).has_value()) {
         auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
         for (auto edge : maybe_edges->edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
-          ASSERT_TRUE(maybe_properties.HasValue());
+          ASSERT_TRUE(maybe_properties.has_value());
           const auto &properties = *maybe_properties;
           EXPECT_EQ(properties.size(), properties_size);
         }
@@ -2397,15 +2397,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
         memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
@@ -2417,15 +2417,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant({edge_type_name},
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
@@ -2438,15 +2438,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2460,15 +2460,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2484,15 +2484,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
         memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2504,15 +2504,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant({edge_type_name},
                                                                      memgraph::auth::FineGrainedPermission::READ);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
@@ -2523,15 +2523,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     ASSERT_THROW(this->ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
@@ -2546,15 +2546,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
         static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
                                                            memgraph::auth::FineGrainedPermission::READ));
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
@@ -2567,15 +2567,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
         memgraph::auth::FineGrainedPermission::NOTHING);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
@@ -2588,15 +2588,15 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    this->SetEdgeProperty(edge.GetValue());
+    this->SetEdgeProperty(edge.value());
     this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
@@ -2609,7 +2609,7 @@ class DynamicExpandFixture : public testing::Test {
   const std::string testSuite = "query_plan_create_set_remove_delete_dynamic_expand";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
   AstStorage storage;
@@ -2630,11 +2630,11 @@ class DynamicExpandFixture : public testing::Test {
   memgraph::storage::LabelId supernode_label{dba.NameToLabel("Supernode")};
 
   void SetUp() override {
-    ASSERT_TRUE(v1.AddLabel(node_label).HasValue());
-    ASSERT_TRUE(v2.AddLabel(node_label).HasValue());
-    ASSERT_TRUE(v3.AddLabel(node_label).HasValue());
-    ASSERT_TRUE(v4.AddLabel(node_label).HasValue());
-    ASSERT_TRUE(v5.AddLabel(supernode_label).HasValue());
+    ASSERT_TRUE(v1.AddLabel(node_label).has_value());
+    ASSERT_TRUE(v2.AddLabel(node_label).has_value());
+    ASSERT_TRUE(v3.AddLabel(node_label).has_value());
+    ASSERT_TRUE(v4.AddLabel(node_label).has_value());
+    ASSERT_TRUE(v5.AddLabel(supernode_label).has_value());
     memgraph::license::global_license_checker.EnableTesting();
 
     dba.AdvanceCommand();

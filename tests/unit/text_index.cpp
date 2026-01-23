@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@
 using namespace memgraph::storage;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
 static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
@@ -47,15 +47,15 @@ class TextIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     const auto label = unique_acc->NameToLabel(test_label.data());
 
-    EXPECT_FALSE(unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).HasError());
+    EXPECT_FALSE(!unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   static VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view title, std::string_view content) {
     VertexAccessor vertex = accessor->CreateVertex();
-    MG_ASSERT(!vertex.AddLabel(accessor->NameToLabel(test_label)).HasError());
-    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty("title"), PropertyValue(title)).HasError());
-    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty("content"), PropertyValue(content)).HasError());
+    MG_ASSERT(vertex.AddLabel(accessor->NameToLabel(test_label)).has_value());
+    MG_ASSERT(vertex.SetProperty(accessor->NameToProperty("title"), PropertyValue(title)).has_value());
+    MG_ASSERT(vertex.SetProperty(accessor->NameToProperty("content"), PropertyValue(content)).has_value());
 
     return vertex;
   }
@@ -70,7 +70,7 @@ class TextIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     for (int i = 0; i < max_retries; ++i) {
       auto status = unique_acc->DropTextIndex(test_index.data());
-      if (!status.HasError()) {
+      if (status.has_value()) {
         return;  // Successfully cleared the index
       }
       std::this_thread::sleep_for(retry_delay);
@@ -82,7 +82,7 @@ class TextIndexTest : public testing::Test {
 TEST_F(TextIndexTest, SimpleAbortTest) {
   this->CreateIndex();
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     static constexpr auto index_size = 10;
 
     // Create multiple nodes within a transaction that will be aborted
@@ -104,7 +104,7 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   PropertyValue null_value;
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex = TextIndexTest_DeletePropertyTest_Test::CreateVertex(acc.get(), "Test Title", "Test content");
     vertex_gid = vertex.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -112,7 +112,7 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
 
   // Verify vertex is found before property deletion
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES,
                                        default_limit);
     EXPECT_EQ(result.size(), 1);
@@ -120,15 +120,15 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
 
   // Remove title property and commit
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty("title"), null_value).HasError());
+    MG_ASSERT(vertex.SetProperty(acc->NameToProperty("title"), null_value).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   // Expect the vertex to not be found when searching for title, as the property was removed
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES,
                                        default_limit);
     EXPECT_EQ(result.size(), 0);
@@ -149,7 +149,7 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
     threads.reserve(index_size);
     for (int i = 0; i < index_size; i++) {
       threads.emplace_back([this, i](std::stop_token) {
-        auto acc = this->storage->Access();
+        auto acc = this->storage->Access(memgraph::storage::WRITE);
         [[maybe_unused]] const auto vertex = TextIndexTest_ConcurrencyTest_Test::CreateVertex(
             acc.get(), "Title" + std::to_string(i), "Content for document " + std::to_string(i));
         ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -158,7 +158,7 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
   }
 
   // Check that all entries ended up in the index by searching
-  auto acc = this->storage->Access();
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
   EXPECT_EQ(results.size(), index_size);
 }
@@ -169,7 +169,7 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
 
   // Step 1: Commit one node to the index
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto vertex =
         TextIndexTest_ConcurrentDeleteAddAbortTest_Test::CreateVertex(acc.get(), "Initial Title", "Initial content");
     initial_vertex_gid = vertex.Gid();
@@ -178,21 +178,21 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
 
   // Verify initial node is in the index
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES,
                                        default_limit);
     EXPECT_EQ(result.size(), 1);
   }
 
   // Transaction 1: Delete the initial node (but don't commit yet)
-  auto delete_acc = this->storage->Access();
+  auto delete_acc = this->storage->Access(memgraph::storage::WRITE);
   {
     auto vertex = delete_acc->FindVertex(initial_vertex_gid, View::OLD).value();
     ASSERT_NO_ERROR(delete_acc->DetachDeleteVertex(&vertex));
   }
 
   // Transaction 2: Add two new nodes and commit immediately
-  auto add_acc = this->storage->Access();
+  auto add_acc = this->storage->Access(memgraph::storage::WRITE);
   {
     [[maybe_unused]] auto vertex1 =
         TextIndexTest_ConcurrentDeleteAddAbortTest_Test::CreateVertex(add_acc.get(), "New Title 1", "New content 1");
@@ -206,7 +206,7 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
 
   // Step 4: Verify final state - original node should still exist, plus the two new nodes
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
 
     // Original node should still be there (delete was aborted)
     auto initial_result = acc->TextIndexSearch(test_index.data(), "data.title:Initial",

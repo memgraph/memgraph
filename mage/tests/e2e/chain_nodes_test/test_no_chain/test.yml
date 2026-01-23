@@ -1,0 +1,8 @@
+query: >
+    MATCH (a)
+    WITH collect(a) as nodes
+    CALL graph_util.chain_nodes(nodes, "CONNECTED_TO") YIELD connections
+    RETURN size(connections) AS size;
+
+output:
+    - size: 0

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -146,7 +146,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
     } catch (const RecoveryFailure &e) {
-      spdlog::error("Couldn't read snapshot info in GetSnapshotFiles: {}", e.what());
+      spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
     }
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
@@ -323,7 +323,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     for (const auto &index_info : index_metadata) {
       try {
         // TODO: parallel execution
-        text_index.RecoverIndex(index_info, snapshot_info);
+        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, snapshot_info);
       } catch (...) {
         throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
       }
@@ -355,9 +355,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_indices) {
-      if (!indices->vector_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
-        throw RecoveryFailure("The vector index must be created here!");
-      }
+      indices->vector_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(spec.label_id.AsUint()), name_id_mapper->IdToName(spec.property.AsUint()));
     }
@@ -368,9 +366,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_edge_indices) {
-      if (!indices->vector_edge_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
-        throw RecoveryFailure("The vector edge index must be created here!");
-      }
+      indices->vector_edge_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
       spdlog::info("Vector edge index on :{}({}) is recreated from metadata",
                    name_id_mapper->IdToName(spec.edge_type_id.AsUint()),
                    name_id_mapper->IdToName(spec.property.AsUint()));
@@ -388,17 +384,20 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
                                  std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
   for (const auto &[label, property] : constraints_metadata.existence) {
-    if (constraints->existence_constraints_->ConstraintExists(label, property)) {
+    // Register creates the constraint entry in the map
+    if (!constraints->existence_constraints_->RegisterConstraint(label, property)) {
       throw RecoveryFailure("The existence constraint already exists!");
     }
 
-    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
-                                                                            parallel_exec_info, snapshot_info);
-        violation.has_value()) {
+    if (auto validation_result = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
+                                                                                    parallel_exec_info, snapshot_info);
+        !validation_result.has_value()) [[unlikely]] {
+      constraints->existence_constraints_->DropConstraint(label, property);
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
 
-    constraints->existence_constraints_->InsertConstraint(label, property);
+    // Use kTimestampInitialId to make constraint visible to all transactions during recovery
+    constraints->existence_constraints_->PublishConstraint(label, property, kTimestampInitialId);
     spdlog::info("Existence constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                  name_id_mapper->IdToName(property.AsUint()));
   }
@@ -415,8 +414,11 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
     auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info,
                                                         snapshot_info);
-    if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+    if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
+
+    // Use kTimestampInitialId to make constraint visible to all transactions during recovery
+    mem_unique_constraints->PublishConstraint(label, properties, kTimestampInitialId);
 
     std::vector<std::string> property_names;
     property_names.reserve(properties.size());
@@ -438,16 +440,19 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
-    if (!constraints->type_constraints_->InsertConstraint(label, property, type)) {
-      throw RecoveryFailure("The type constraint already exists!");
+    if (!constraints->type_constraints_->RegisterConstraint(label, property, type)) {
+      throw RecoveryFailure("Failed to register type constraint!");
     }
   }
 
-  if (constraints->HasTypeConstraints()) {
-    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
-        violation.has_value()) {
-      throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
-    }
+  if (auto validation_result = constraints->type_constraints_->ValidateAllVertices(vertices->access(), snapshot_info);
+      !validation_result.has_value()) {
+    throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
+  }
+
+  for (const auto &[label, property, type] : constraints_metadata.type) {
+    // Use kTimestampInitialId to make constraint visible to all transactions during recovery
+    constraints->type_constraints_->PublishConstraint(label, property, type, kTimestampInitialId);
   }
 
   spdlog::info("Type constraints are recreated from metadata.");
@@ -574,7 +579,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     }
 
     // sort by path
-    std::sort(wal_files.begin(), wal_files.end());
+    std::ranges::sort(wal_files);
 
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
@@ -627,7 +632,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
-        if (info.has_value()) {
+        if (info) {
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);

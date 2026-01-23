@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@ class TestSymbolGenerator : public ::testing::Test {
   const std::string testSuite = "query_semantic";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
 
@@ -941,10 +941,10 @@ TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   EXPECT_EQ(symbol_table.max_position(), 7);
   // All symbols except `AS res` are anonymously generated.
   for (const auto &symbol : symbol_table.table()) {
-    if (symbol.second.name() == "res") {
-      EXPECT_TRUE(symbol.second.user_declared());
+    if (symbol.name() == "res") {
+      EXPECT_TRUE(symbol.user_declared());
     } else {
-      EXPECT_FALSE(symbol.second.user_declared());
+      EXPECT_FALSE(symbol.user_declared());
     }
   }
 }
@@ -1135,16 +1135,16 @@ TYPED_TEST(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
 TEST(TestSymbolTable, CreateAnonymousSymbols) {
   SymbolTable symbol_table;
   auto anon1 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon1.name_, "anon1");
+  ASSERT_EQ(anon1.name(), "anon1");
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TEST(TestSymbolTable, CreateAnonymousSymbolWithExistingUserSymbolCalledAnon) {
   SymbolTable symbol_table;
   symbol_table.CreateSymbol("anon1", false);
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TYPED_TEST(TestSymbolGenerator, PredefinedIdentifiers) {
@@ -1258,7 +1258,7 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
     ASSERT_EQ(collector.symbols_.size(), 1);
 
     auto symbol = *collector.symbols_.begin();
-    ASSERT_EQ(symbol.name_, "n");
+    ASSERT_EQ(symbol.name(), "n");
   }
 
   {
@@ -1280,7 +1280,7 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
     ASSERT_EQ(collector.symbols_.size(), 1);
 
     auto symbol = *collector.symbols_.begin();
-    ASSERT_EQ(symbol.name_, "n");
+    ASSERT_EQ(symbol.name(), "n");
   }
 }
 
@@ -1289,6 +1289,12 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
   // Yields exception because n in subquery is referenced in outer scope
   auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // WITH 1 AS x CALL { RETURN 2 AS x } RETURN x
+  // Yields exception because aliased return in subquery conflicts with outer scope variable
+  subquery = QUERY(SINGLE_QUERY(RETURN(LITERAL(2), AS("x"))));
+  query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), CALL_SUBQUERY(subquery), RETURN("x")));
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
 
   // MATCH (n) CALL { MATCH (m) RETURN m.prop } RETURN n

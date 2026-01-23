@@ -1,0 +1,68 @@
+name: Update CVE Database
+on:
+  # NOTE: disabled for now, will be re-enabled when cve-bin-tool is re-enabled by default
+  # schedule:
+  #   # Run at 1 AM UTC on Saturday
+  #   - cron: '0 1 * * 6'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  update-cve-db:
+    runs-on: [self-hosted, Ubuntu24.04]
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Scan Directory
+        run: |
+          CVE_DIR="$(pwd)/cve-scan"
+          mkdir -p "$CVE_DIR"
+          echo "CVE_DIR=$CVE_DIR" >> $GITHUB_ENV
+
+      - name: Create Python Environment
+        run: |
+          python3 -m venv "${{ env.CVE_DIR }}/env"
+          source "${{ env.CVE_DIR }}/env/bin/activate"
+          python -m pip install --upgrade pip
+
+          # pip install cve-bin-tool==3.4
+          # Install my personal fork of cve-bin-tool with fix to the OSV issue
+          # TODO: Once version 3.4.1 is released, check if https://github.com/intel/cve-bin-tool/pull/5240 is merged
+          pip install git+https://github.com/mattkjames7/cve-bin-tool.git@fix-osv-update
+
+      - name: Update CVE database
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 40
+          max_attempts: 3
+          retry_wait_seconds: 300
+          command: |
+            source "${{ env.CVE_DIR }}/env/bin/activate"
+
+            # cve-bin-tool returns a non-zero exit code if it is not given anything to scan
+            cve-bin-tool -u now || true
+
+            # Wait for the update to complete and compress the database
+            cd ~/.cache/cve-bin-tool
+            tar czf cve-bin-tool-cve.db.tar.gz cve.db
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Upload to S3
+        run: |
+          # Upload the compressed database to S3
+          aws s3 cp ~/.cache/cve-bin-tool/cve-bin-tool-cve.db.tar.gz s3://deps.memgraph.io/CVE-database/cve-bin-tool-cve.db.tar.gz
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ${{ env.CVE_DIR }}

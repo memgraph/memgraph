@@ -1,0 +1,64 @@
+query: >
+  MATCH (club:Club) OPTIONAL MATCH (club)-[inLeague:IN_LEAGUE]->(league)
+  OPTIONAL MATCH (league)-[inCountry:IN_COUNTRY]->(country) OPTIONAL MATCH
+  (country)-[inConfederation:IN_CONFEDERATION]->(confederation) CALL
+  path.create(club, {rel: [inLeague, inCountry, inConfederation]}) yield path
+  return path;
+output:
+  - path:
+      nodes:
+        - labels:
+            - Club
+          properties:
+            name: Manchester City
+        - labels:
+            - League
+          properties:
+            name: Premier League
+        - labels:
+            - Country
+          properties:
+            name: England
+        - labels:
+            - Confederation
+          properties:
+            name: UEFA
+      relationships:
+        - label: IN_LEAGUE
+          properties: {}
+        - label: IN_COUNTRY
+          properties: {}
+        - label: IN_CONFEDERATION
+          properties: {}
+  - path:
+      nodes:
+        - labels:
+            - Club
+          properties:
+            name: Napoli
+        - labels:
+            - League
+          properties:
+            name: Serie A
+      relationships:
+        - label: IN_LEAGUE
+          properties: {}
+  - path:
+      nodes:
+        - labels:
+            - Club
+          properties:
+            name: Real Madrid
+        - labels:
+            - League
+          properties:
+            name: La Liga
+        - labels:
+            - Country
+          properties:
+            name: Spain
+      relationships:
+        - label: IN_LEAGUE
+          properties: {}
+        - label: IN_COUNTRY
+          properties: {}

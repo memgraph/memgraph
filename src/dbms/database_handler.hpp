@@ -47,7 +47,15 @@ class DatabaseHandler : public Handler<Database> {
 
   ~DatabaseHandler() override {
     for (auto &db : *this) {
-      db.second.access().value()->StopAllBackgroundTasks();
+      try {
+        if (auto db_acc = db.second.access()) {
+          (*db_acc)->StopAllBackgroundTasks();
+        }
+      } catch (std::exception const &e) {
+        spdlog::error("Exception in DatabaseHandler destructor: {}", e.what());
+      } catch (...) {
+        spdlog::error("Unknown exception in DatabaseHandler destructor");
+      }
     }
   }
 
@@ -67,7 +75,7 @@ class DatabaseHandler : public Handler<Database> {
           return db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;
         })) {
       spdlog::info("Tried to generate new storage using a claimed directory.");
-      return NewError::EXISTS;
+      return std::unexpected{NewError::EXISTS};
     }
 
     // Create database protector factory that can look up this specific database by name

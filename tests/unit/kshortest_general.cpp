@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,7 +40,9 @@ class VertexDb : public Database {
     }
   }
 
-  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
+  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override {
+    return db_->Access(memgraph::storage::WRITE);
+  }
 
   std::unique_ptr<LogicalOperator> MakeKShortestOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                          EdgeAtom::Direction direction,
@@ -64,8 +66,8 @@ class VertexDb : public Database {
       auto vertex = dba->InsertVertex();
       MG_ASSERT(
           vertex.SetProperty(dba->NameToProperty("id"), memgraph::storage::PropertyValue(static_cast<int64_t>(id)))
-              .HasValue());
-      MG_ASSERT(vertex.AddLabel(dba->NameToLabel(std::to_string(id))).HasValue());
+              .has_value());
+      MG_ASSERT(vertex.AddLabel(dba->NameToLabel(std::to_string(id))).has_value());
       vertex_addr.push_back(vertex);
     }
 
@@ -76,8 +78,8 @@ class VertexDb : public Database {
       auto &from = vertex_addr[u];
       auto &to = vertex_addr[v];
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).HasValue());
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).has_value());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).has_value());
       edge_addr.push_back(*edge);
     }
 

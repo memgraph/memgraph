@@ -1,0 +1,8 @@
+# When specified target_edge_type, everything should work
+- query: >-
+    CALL link_prediction.train()
+    YIELD training_results, validation_results
+    RETURN count(training_results) as check;
+
+  output:
+    - check: 1

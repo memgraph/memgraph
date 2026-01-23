@@ -1,0 +1,19 @@
+query: >
+  CALL cugraph.louvain.get()
+  YIELD node, partition
+  RETURN node.id AS node_id, partition
+  ORDER BY node_id ASC;
+
+output:
+  - node_id: 0
+    partition: 0
+  - node_id: 1
+    partition: 0
+  - node_id: 2
+    partition: 0
+  - node_id: 3
+    partition: 0
+  - node_id: 4
+    partition: 1
+  - node_id: 5
+    partition: 1

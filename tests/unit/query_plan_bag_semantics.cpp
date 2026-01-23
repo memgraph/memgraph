@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,7 +54,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, Skip) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -82,7 +82,7 @@ TYPED_TEST(QueryPlanTest, Skip) {
 }
 
 TYPED_TEST(QueryPlanTest, Limit) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -113,7 +113,7 @@ TYPED_TEST(QueryPlanTest, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   dba.InsertVertex();
   dba.InsertVertex();
@@ -134,7 +134,7 @@ TYPED_TEST(QueryPlanTest, CreateLimit) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderBy) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
@@ -169,7 +169,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     for (const auto &v : order_value_pair.second) values.emplace_back(v, storage_dba->GetNameIdMapper());
     // empty database
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).has_value());
     dba.AdvanceCommand();
     ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
@@ -191,7 +191,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     // create the vertices
     for (const auto &value : shuffled)
       ASSERT_TRUE(
-          dba.InsertVertex().SetProperty(prop, value.ToPropertyValue(storage_dba->GetNameIdMapper())).HasValue());
+          dba.InsertVertex().SetProperty(prop, value.ToPropertyValue(storage_dba->GetNameIdMapper())).has_value());
     dba.AdvanceCommand();
 
     // order by and collect results
@@ -209,7 +209,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderByMultiple) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -230,8 +230,8 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
   std::shuffle(prop_values.begin(), prop_values.end(), g);
   for (const auto &pair : prop_values) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(p1, memgraph::storage::PropertyValue(pair.first)).HasValue());
-    ASSERT_TRUE(v.SetProperty(p2, memgraph::storage::PropertyValue(pair.second)).HasValue());
+    ASSERT_TRUE(v.SetProperty(p1, memgraph::storage::PropertyValue(pair.first)).has_value());
+    ASSERT_TRUE(v.SetProperty(p2, memgraph::storage::PropertyValue(pair.second)).has_value());
   }
   dba.AdvanceCommand();
 
@@ -265,7 +265,7 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderByExceptions) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
@@ -294,17 +294,17 @@ TYPED_TEST(QueryPlanTest, OrderByExceptions) {
   for (const auto &pair : exception_pairs) {
     // empty database
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).has_value());
     dba.AdvanceCommand();
     ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
     // make two vertices, and set values
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.first).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.second).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.first).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.second).has_value());
     dba.AdvanceCommand();
     ASSERT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     for (const auto &va : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).GetValue().type(),
+      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).value().type(),
                 memgraph::storage::PropertyValue::Type::Null);
 
     // order by and expect an exception

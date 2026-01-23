@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH ()-[rel]->() CALL refactor.normalize_as_boolean(rel, 'property', ['YES'], ['NO']);
+neo4j_query: >
+  MATCH ()-[rel]->() CALL apoc.refactor.normalizeAsBoolean(rel, 'property', ['YES'], ['NO']);

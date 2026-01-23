@@ -82,6 +82,11 @@ startup_config_dict = {
         "true",
         "Controls whether the database recovers persisted data on startup.",
     ),
+    "file_download_conn_timeout_sec": (
+        "10",
+        "10",
+        "Define a timeout for establishing a connection with a remote server during a file download.",
+    ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
         "SNAPSHOT_ISOLATION",
@@ -187,6 +192,11 @@ startup_config_dict = {
         "true",
         "true",
         "Controls whether updating a property with the same value should create a delta object.",
+    ),
+    "storage_backup_dir_enabled": (
+        "true",
+        "true",
+        "Controls whether .old dir will be used to store latest snapshot and WAL files.",
     ),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
@@ -295,5 +305,15 @@ startup_config_dict = {
     ),
     "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
+    "storage_rocksdb_enable_thread_tracking": (
+        "false",
+        "false",
+        "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. Enable when debugging disk storage performance issues (provides GetThreadList API).",
+    ),
+    "storage_rocksdb_info_log_level": (
+        "INFO_LEVEL",
+        "INFO_LEVEL",
+        "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.",
+    ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }

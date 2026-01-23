@@ -8,6 +8,7 @@ endfunction()
 
 copy_load_jsonl_e2e_python_files(common.py)
 copy_load_jsonl_e2e_python_files(load_jsonl.py)
+copy_load_jsonl_e2e_python_files(load_jsonl_s3.py)
 copy_load_jsonl_e2e_python_files(test_types.jsonl)
 copy_load_jsonl_e2e_python_files(null.jsonl)
 copy_load_jsonl_e2e_python_files(invalid.jsonl)

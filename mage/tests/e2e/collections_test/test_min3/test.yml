@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.min(["cc","dd","aa"]) AS min;
+
+output:
+  - min: aa

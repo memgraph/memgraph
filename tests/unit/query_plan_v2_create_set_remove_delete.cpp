@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(QueryPlan, StorageTypes);
 
 TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(memgraph::storage::WRITE);
 
   auto label = memgraph::storage::LabelId::FromInt(42);
   auto property = memgraph::storage::PropertyId::FromInt(1);
@@ -77,7 +77,7 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
 TYPED_TEST(QueryPlan, ScanAllEmpty) {
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(memgraph::storage::WRITE);
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   {
@@ -102,13 +102,13 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
 
 TYPED_TEST(QueryPlan, ScanAll) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 42; ++i) dba->CreateVertex();
-    EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    EXPECT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(memgraph::storage::WRITE);
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol);
@@ -124,21 +124,21 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
     auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(memgraph::storage::WRITE);
     // Add some unlabeled vertices
     for (int i = 0; i < 12; ++i) dba->CreateVertex();
     // Add labeled vertices
     for (int i = 0; i < 42; ++i) {
       auto v = dba->CreateVertex();
-      ASSERT_TRUE(v.AddLabel(label).HasValue());
+      ASSERT_TRUE(v.AddLabel(label).has_value());
     }
-    EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    EXPECT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   auto node_symbol = symbol_table.CreateSymbol("n", true);

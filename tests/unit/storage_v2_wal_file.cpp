@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,9 @@
 #include <optional>
 
 #include "storage/v2/access_type.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
+#include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -26,6 +29,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -48,14 +52,18 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, false, false,
-                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
+                       gen->storage_mode_, false, memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
                        memgraph::storage::ActiveIndices{
                            std::make_unique<memgraph::storage::InMemoryLabelIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypeIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>(),
+                       },
+                       memgraph::storage::ActiveConstraints{
+                           std::make_unique<memgraph::storage::ExistenceConstraints::ActiveConstraints>(),
+                           std::make_unique<memgraph::storage::InMemoryUniqueConstraints::ActiveConstraints>(),
+                           std::make_unique<memgraph::storage::TypeConstraints::ActiveConstraints>(),
                        }) {}
 
    public:
@@ -246,14 +254,14 @@ class DeltaGenerator final {
     std::optional<memgraph::storage::EnumTypeId> enum_type_id;
     if (!enum_type.empty()) {
       auto result = enum_store_.ToEnumType(enum_type);
-      ASSERT_TRUE(result.HasValue());
+      ASSERT_TRUE(result.has_value());
       enum_type_id = *result;
     }
 
     std::optional<memgraph::storage::Enum> enum_id;
     if (!enum_val.empty()) {
       auto result = enum_store_.ToEnum(enum_val);
-      ASSERT_TRUE(result.HasValue());
+      ASSERT_TRUE(result.has_value());
       enum_id = *result;
     }
 

@@ -190,3 +190,9 @@ TEST(String, DoubleToString) {
   EXPECT_EQ(DoubleToString(0.000000000000001), "0.000000000000001");
   EXPECT_EQ(DoubleToString(0.0000000000000001), "0");
 }
+
+TEST(String, StringToUint64) {
+  EXPECT_EQ(1, ParseStringToUint64("1"));
+  EXPECT_EQ(0, ParseStringToUint64("0"));
+  EXPECT_THROW(ParseStringToUint64("-10"), ParseException);
+}

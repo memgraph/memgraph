@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,9 +46,10 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
   void TestVisibility(std::unique_ptr<memgraph::storage::Storage> &storage,
                       const memgraph::storage::IsolationLevel &default_isolation_level,
                       const memgraph::storage::IsolationLevel &override_isolation_level) {
-    auto creator = storage->Access();
-    auto default_isolation_level_reader = storage->Access();
-    auto override_isolation_level_reader = storage->Access(override_isolation_level);
+    auto creator = storage->Access(memgraph::storage::WRITE);
+    auto default_isolation_level_reader = storage->Access(memgraph::storage::WRITE);
+    auto override_isolation_level_reader =
+        storage->Access(memgraph::storage::StorageAccessType::WRITE, override_isolation_level, std::nullopt);
 
     ASSERT_EQ(VerticesCount(default_isolation_level_reader.get()), 0);
     ASSERT_EQ(VerticesCount(override_isolation_level_reader.get()), 0);
@@ -71,7 +72,7 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
       }
     }
 
-    ASSERT_FALSE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     {
       SCOPED_TRACE(fmt::format(
           "Visibility after the creator transaction is committed "
@@ -88,14 +89,14 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
     }
 
     ASSERT_FALSE(
-        default_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        !default_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     ASSERT_FALSE(
-        override_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        !override_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
-    auto verifier = storage->Access();
+    auto verifier = storage->Access(memgraph::storage::WRITE);
     ASSERT_EQ(VerticesCount(verifier.get()), iteration_count);
-    ASSERT_FALSE(verifier->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(verifier->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 };
 

@@ -1,0 +1,17 @@
+query: >
+        MATCH (m)
+        WHERE m.id = 3
+        WITH collect(m) as nodes1
+
+        MATCH (n)
+        WHERE n.id = 2
+        WITH collect(n) as nodes2, nodes1
+
+        CALL node_similarity.jaccard_pairwise(nodes1, nodes2) YIELD *
+
+        RETURN node1.id as node1, node2.id as node2, similarity
+
+output:
+    - node1: 3
+      node2: 2
+      similarity: 0.5

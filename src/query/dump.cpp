@@ -25,7 +25,9 @@
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
 #include "query/string_helpers.hpp"
+#include "query/trigger.hpp"
 #include "query/trigger_context.hpp"
+#include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -104,7 +106,7 @@ void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
 
 void DumpEnum(std::ostream &os, const storage::Enum &value, query::DbAccessor *dba) {
   auto const opt_str = dba->EnumToName(value);
-  if (opt_str.HasError()) throw query::QueryRuntimeException("Unexpected error when getting enum.");
+  if (!opt_str) throw query::QueryRuntimeException("Unexpected error when getting enum.");
   os << *opt_str;
 }
 
@@ -256,8 +258,8 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
+  if (!maybe_labels) {
+    switch (maybe_labels.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -273,8 +275,8 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   }
   *os << " ";
   auto maybe_props = vertex.Properties(storage::View::OLD);
-  if (maybe_props.HasError()) {
-    switch (maybe_props.GetError()) {
+  if (!maybe_props) {
+    switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -300,8 +302,8 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   *os << "CREATE (u)-[";
   *os << ":" << EscapeName(dba->EdgeTypeToName(edge.EdgeType()));
   auto maybe_props = edge.Properties(storage::View::OLD);
-  if (maybe_props.HasError()) {
-    switch (maybe_props.GetError()) {
+  if (!maybe_props) {
+    switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -1000,7 +1002,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
         maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;
-      MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_edges.has_value(), "Invalid database state!");
       auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->edges.begin();
       for (; current_edge_iter != maybe_edges->edges.end() && (!n || local_counter < *n); ++current_edge_iter) {
         std::ostringstream os;
@@ -1057,8 +1059,13 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
     for (const auto &trigger : triggers) {
       std::ostringstream os;
       auto trigger_statement_copy = trigger.statement;
-      std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
+      std::ranges::replace(trigger_statement_copy, '\n', ' ');
       os << "CREATE TRIGGER " << trigger.name;
+      if (trigger.privilege_context == TriggerPrivilegeContext::INVOKER) {
+        os << " SECURITY INVOKER";
+      } else {
+        os << " SECURITY DEFINER";
+      }
       if (trigger.event_type != TriggerEventType::ANY) {
         os << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type);
       }

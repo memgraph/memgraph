@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <tuple>
 #include <typeinfo>
@@ -752,6 +753,75 @@ TYPED_TEST(TestPlanner, MatchUnwindReturn) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectUnwind(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInUnwind) {
+  // Test UNWIND [()--() | 1] AS x RETURN x
+  // This tests that pattern comprehensions in UNWIND expressions are handled correctly.
+  // The pattern comprehension should be planned with RollUpApply before Unwind.
+  //
+  // Expected plan structure:
+  //   Produce {x}
+  //   Unwind
+  //   RollUpApply
+  //   |\
+  //   | Produce {anon1}
+  //   | Expand (anon1)-[anon2]-(anon3)
+  //   | ScanAll (anon1)
+  //   | Once
+  //   Once
+
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(pattern_comp, AS("x")), RETURN("x")));
+
+  // Build the expected RollUpApply structure
+  Checkers list_branch{ExpectOnce{}, ExpectScanAll{}, ExpectExpand{}, ExpectProduce{}};
+  Checkers input{ExpectOnce{}};
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply{std::move(input), std::move(list_branch)},
+                       ExpectUnwind{}, ExpectProduce{});
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInForeach) {
+  // Test FOREACH (x IN [()--() | 1] | CREATE ())
+  // This tests that pattern comprehensions in FOREACH list expressions are handled correctly.
+  // The pattern comprehension should be planned with RollUpApply before Foreach.
+  //
+  // Expected plan structure:
+  //   Foreach
+  //   |\
+  //   | CreateNode
+  //   | Once
+  //   RollUpApply
+  //   |\
+  //   | Produce {anon1}
+  //   | Expand (anon1)-[anon2]-(anon3)
+  //   | ScanAll (anon1)
+  //   | Once
+  //   Once
+
+  FakeDbAccessor dba;
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+
+  auto *foreach_clause = FOREACH(NEXPR("x", pattern_comp), {CREATE(PATTERN(NODE("m")))});
+
+  auto *query = QUERY(SINGLE_QUERY(foreach_clause));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify the plan has the right structure by walking it
+  // The plan should be: Once -> RollUpApply -> Foreach -> EmptyResult
+  auto &plan = planner.plan();
+  auto *empty_result = dynamic_cast<EmptyResult *>(&plan);
+  ASSERT_NE(empty_result, nullptr) << "Root should be EmptyResult, got: " << typeid(plan).name();
+  auto *foreach_op = dynamic_cast<Foreach *>(empty_result->input_.get());
+  ASSERT_NE(foreach_op, nullptr);
+  auto *rollup = dynamic_cast<RollUpApply *>(foreach_op->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should be before Foreach for pattern comprehension";
+  auto *once = dynamic_cast<Once *>(rollup->input_.get());
+  ASSERT_NE(once, nullptr);
 }
 
 TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
@@ -1874,10 +1944,10 @@ TYPED_TEST(TestPlanner, MatchExpandVariableTotalWeightSymbol) {
   std::transform(nes.begin(), nes.end(), names.begin(), [](const auto *ne) { return ne->name_; });
 
   EXPECT_TRUE(root->named_expressions_.size() == 4);
-  EXPECT_TRUE(memgraph::utils::Contains(names, "m"));
-  EXPECT_TRUE(memgraph::utils::Contains(names, "n"));
-  EXPECT_TRUE(memgraph::utils::Contains(names, "r"));
-  EXPECT_TRUE(memgraph::utils::Contains(names, "total_weight"));
+  EXPECT_TRUE(std::ranges::contains(names, "m"));
+  EXPECT_TRUE(std::ranges::contains(names, "n"));
+  EXPECT_TRUE(std::ranges::contains(names, "r"));
+  EXPECT_TRUE(std::ranges::contains(names, "total_weight"));
 }
 
 TYPED_TEST(TestPlanner, UnwindMatchVariable) {
@@ -1959,7 +2029,7 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   // We expect `*` expanded to `n`, `r` and `m`.
   EXPECT_EQ(outputs.size(), 3);
   for (const auto &name : {"n", "r", "m"}) {
-    EXPECT_TRUE(memgraph::utils::Contains(outputs, name));
+    EXPECT_TRUE(std::ranges::contains(outputs, name));
   }
 }
 
@@ -2496,6 +2566,38 @@ TYPED_TEST(TestPlanner, Subqueries) {
   }
 }
 
+TYPED_TEST(TestPlanner, SubqueryReturnAllIncludesSubquerySymbols) {
+  FakeDbAccessor dba;
+  // WITH 1 AS outer CALL { WITH 2 AS tmp RETURN tmp AS inner } RETURN *
+  auto *subquery = SINGLE_QUERY(WITH(LITERAL(2), AS("tmp")), RETURN(IDENT("tmp"), AS("inner")));
+  auto *query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("outer")), CALL_SUBQUERY(subquery), RETURN("*")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Check that the plan structure is correct: Produce -> Apply{Produce -> Produce} -> Once
+  std::list<BaseOpChecker *> subquery_plan{new ExpectProduce(), new ExpectProduce()};
+  CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(subquery_plan), ExpectProduce());
+  DeleteListContent(&subquery_plan);
+
+  // Verify the outer Produce has BOTH symbols (outer and inner)
+  // The fix ensures subquery output symbols are added to bound_symbols for RETURN *
+  auto &plan = planner.plan();
+  auto *outer_produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(outer_produce, nullptr);
+
+  // Extract the names from the named expressions
+  std::set<std::string> output_names;
+  for (const auto *named_expr : outer_produce->named_expressions_) {
+    output_names.insert(named_expr->name_);
+  }
+
+  // RETURN * should expand to both 'inner' (from subquery) and 'outer' (from WITH)
+  EXPECT_EQ(output_names.size(), 2);
+  EXPECT_TRUE(output_names.count("inner")) << "RETURN * should include 'inner' from subquery";
+  EXPECT_TRUE(output_names.count("outer")) << "RETURN * should include 'outer' from outer scope";
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionInReturn) {
   FakeDbAccessor dba;
   const auto prop = PROPERTY_PAIR(dba, "prop");
@@ -2548,6 +2650,337 @@ TYPED_TEST(TestPlanner, PatternComprehensionStandalonePattern) {
   auto list_collection_branch_ops = PlanFromTopDown<ExpectProduce, ExpectExpand, ExpectScanAll, ExpectOnce>();
 
   CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
+  // Test WITH 1 AS a WHERE [()--() | 1] = [] RETURN a
+  // This tests that pattern comprehensions in WHERE clauses of WITH statements are handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *where_expr = EQ(pattern_comp, LIST());
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
+
+  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> Filter (WHERE) -> Produce (RETURN)
+  // The RollUpApply evaluates the pattern comprehension in the WHERE clause
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
+  // Test WITH 1 AS a WHERE [()--() | 1] = [()--() | 1] RETURN *
+  // This tests that multiple pattern comprehensions in WHERE clauses are handled correctly
+  auto *pattern_comp1 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+
+  auto *pattern_comp2 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon4"), EDGE("anon5"), NODE("anon6")), nullptr, LITERAL(1));
+
+  auto *where_expr = EQ(pattern_comp1, pattern_comp2);
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
+
+  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce (WITH) -> Filter (WHERE) ->
+  // Produce (RETURN) First RollUpApply
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
+  input_ops1.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectProduce>());
+
+  // Second RollUpApply (input is the first RollUpApply)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops2;
+  input_ops2.push_back(std::make_unique<ExpectRollUpApply>(input_ops1, pattern_comp_branch_ops1));
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops2;
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(),
+                       ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, NestedPatternComprehensionInMatchWhere) {
+  // Test MATCH (n) WHERE [(n)--() | [(n)--() | 1]] = [] RETURN n
+  // This tests that nested pattern comprehensions in WHERE clauses are handled correctly.
+  // The inner pattern comprehension should be planned with its own RollUpApply.
+  //
+  // Expected plan structure (from EXPLAIN):
+  //   Produce {n}
+  //   Filter Generic {n}
+  //   |\
+  //   | RollUpApply (outer)
+  //   | |\
+  //   | | Produce {anon1}
+  //   | | RollUpApply (inner - for nested pattern comprehension)
+  //   | | |\
+  //   | | | Produce {anon4}
+  //   | | | Expand (n)-[anon4]-(anon5)
+  //   | | | Once
+  //   | | Expand (n)-[anon1]-(anon2)
+  //   | | Once
+  //   | Once
+  //   ScanAll (n)
+  //   Once
+
+  // Inner pattern comprehension: [(n)--() | 1]
+  // Note: First arg is the path variable (nullptr = no named path). The IDENT("n") in the pattern
+  // refers to the outer node n, not a path variable.
+  auto *inner_pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("anon4"), NODE("anon5")), nullptr, LITERAL(1));
+
+  // Outer pattern comprehension: [(n)--() | <inner>]
+  auto *outer_pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("anon1"), NODE("anon2")), nullptr, inner_pattern_comp);
+
+  auto *where_expr = EQ(outer_pattern_comp, LIST());
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(where_expr), RETURN("n")));
+
+  // Build the expected pattern filter structure using value semantics (Checkers)
+  // Inner RollUpApply's list collection branch: Once -> Expand -> Produce
+  Checkers inner_list_branch{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
+
+  // Inner RollUpApply's input: Once -> Expand (continues from outer's expansion)
+  Checkers inner_input{ExpectOnce{}, ExpectExpand{}};
+
+  // Outer RollUpApply's list collection branch: (inner_input) -> inner RollUpApply -> Produce
+  Checkers outer_list_branch{ExpectRollUpApply{std::move(inner_input), std::move(inner_list_branch)}, ExpectProduce{}};
+
+  // Outer RollUpApply's input: Once
+  Checkers outer_input{ExpectOnce{}};
+
+  // The pattern filter is the outer RollUpApply, wrapped in vector for ExpectFilter
+  std::vector<Checkers> pattern_filters{
+      Checkers{ExpectRollUpApply{std::move(outer_input), std::move(outer_list_branch)}}};
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectFilter{std::move(pattern_filters)},
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, SinglePatternComprehensionInWithNamedExpression) {
+  // Test WITH [()--() | 1] AS a RETURN a
+  // This tests that a single pattern comprehension in a WITH named expression is handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", pattern_comp)), RETURN("a")));
+
+  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> Produce (RETURN)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithNamedExpression) {
+  // Test WITH [()--() | 1] + [()--() | 1] AS a RETURN a
+  // This tests that multiple pattern comprehensions in a single named expression are handled correctly
+  auto *pattern_comp1 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *pattern_comp2 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon4"), EDGE("anon5"), NODE("anon6")), nullptr, LITERAL(1));
+  auto *add_expr = ADD(pattern_comp1, pattern_comp2);
+
+  auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", add_expr)), RETURN("a")));
+
+  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce (WITH) -> Produce (RETURN)
+  // First RollUpApply
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
+  input_ops1.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectProduce>());
+
+  // Second RollUpApply (input is the first RollUpApply)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops2;
+  input_ops2.push_back(std::make_unique<ExpectRollUpApply>(input_ops1, pattern_comp_branch_ops1));
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops2;
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(),
+                       ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, SinglePatternComprehensionInOrderBy) {
+  // Test RETURN 1 AS x ORDER BY length([()--() | 1])
+  // This tests that pattern comprehensions in ORDER BY clauses are handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *length_call = FN("length", pattern_comp);
+
+  auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
+
+  // Plan structure: Once -> RollUpApply -> Produce -> OrderBy
+  // The RollUpApply evaluates the pattern comprehension in the ORDER BY clause
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectOrderBy());
+}
+
+TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
+  // Test RETURN 1 AS x ORDER BY length([()--() | 1] + [()--() | 1])
+  // This tests that multiple pattern comprehensions in ORDER BY clauses are handled correctly
+  auto *pattern_comp1 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *pattern_comp2 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon4"), EDGE("anon5"), NODE("anon6")), nullptr, LITERAL(1));
+  auto *add_expr = ADD(pattern_comp1, pattern_comp2);
+  auto *length_call = FN("length", add_expr);
+
+  auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
+
+  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce -> OrderBy
+  // First RollUpApply
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
+  input_ops1.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectProduce>());
+
+  // Second RollUpApply (input is the first RollUpApply)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops2;
+  input_ops2.push_back(std::make_unique<ExpectRollUpApply>(input_ops1, pattern_comp_branch_ops1));
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops2;
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(),
+                       ExpectOrderBy());
+}
+
+// Note: Nested pattern comprehensions (e.g., RETURN [()--() | [()--() | 1]] AS x) are supported.
+// The functionality is tested via E2E tests. The plan structure for nested pattern comprehensions
+// involves nested RollUpApply operators which are complex to verify in unit tests.
+
+TYPED_TEST(TestPlanner, SinglePatternComprehensionInSkip) {
+  // Test RETURN 1 AS x SKIP size([()--() | 1])
+  // This tests that pattern comprehensions in SKIP clauses are handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *size_call = FN("size", pattern_comp);
+
+  auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), SKIP(size_call))));
+
+  // Plan structure: Once -> RollUpApply -> Produce -> Skip
+  // The RollUpApply evaluates the pattern comprehension in the SKIP clause
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectSkip());
+}
+
+TYPED_TEST(TestPlanner, SinglePatternComprehensionInLimit) {
+  // Test RETURN 1 AS x LIMIT size([()--() | 1])
+  // This tests that pattern comprehensions in LIMIT clauses are handled correctly
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *size_call = FN("size", pattern_comp);
+
+  auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), LIMIT(size_call))));
+
+  // Plan structure: Once -> RollUpApply -> Produce -> Limit
+  // The RollUpApply evaluates the pattern comprehension in the LIMIT clause
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+
+  // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(),
+                       ExpectLimit());
+}
+
+TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInSkip) {
+  // Test RETURN 1 AS x SKIP size([()--() | 1]) + size([()--() | 2])
+  // This tests that multiple pattern comprehensions in SKIP clause are handled correctly
+  auto *pattern_comp1 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon1"), EDGE("anon2"), NODE("anon3")), nullptr, LITERAL(1));
+  auto *pattern_comp2 =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("anon4"), EDGE("anon5"), NODE("anon6")), nullptr, LITERAL(2));
+  auto *add_expr = ADD(FN("size", pattern_comp1), FN("size", pattern_comp2));
+
+  auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), SKIP(add_expr))));
+
+  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce -> Skip
+  // First RollUpApply
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
+  input_ops1.push_back(std::make_unique<ExpectOnce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops1.push_back(std::make_unique<ExpectProduce>());
+
+  // Second RollUpApply (input is the first RollUpApply)
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops2;
+  input_ops2.push_back(std::make_unique<ExpectRollUpApply>(input_ops1, pattern_comp_branch_ops1));
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops2;
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectScanAll>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(),
+                       ExpectSkip());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
@@ -3631,7 +4064,7 @@ TYPED_TEST(TestPlanner, MatchGlobalEdgePropertyIndexWithEdgeTypeFilter) {
 
     if (expect_edge_type_filter) {
       CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgePropertyValue(property_pair, lit_1),
-                ExpectFilter({}, {{"A"}}), ExpectProduce());
+                ExpectFilter(std::vector<std::string>{"A"}), ExpectProduce());
     } else {
       CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgePropertyValue(property_pair, lit_1), ExpectProduce());
     }
@@ -3657,6 +4090,233 @@ TYPED_TEST(TestPlanner, MatchGlobalEdgePropertyIndexWithEdgeTypeFilter) {
         MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {}, false, prop_map), NODE("anon2"))), RETURN("e")));
     check_query_plan(query, false);
   }
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionWithNamedPath) {
+  // Test MATCH (n) RETURN [path = (n)-->() | length(path)] AS lengths
+  // This tests that named path variables in pattern comprehensions generate ConstructNamedPath in the plan.
+  //
+  // Expected plan structure:
+  //   Produce {lengths}
+  //   RollUpApply
+  //   |\
+  //   | Produce {anon_result}
+  //   | ConstructNamedPath
+  //   | Expand (n)-[anon_edge]->(anon_node)
+  //   | Once
+  //   ScanAll (n)
+  //   Once
+
+  FakeDbAccessor dba;
+
+  // Create the pattern comprehension with a named path variable
+  auto *path_var = IDENT("path");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      path_var, PATTERN(NODE("n"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")), nullptr,
+      FN("length", IDENT("path")));
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(NEXPR("lengths", pattern_comp))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify the plan structure
+  // Input branch: ScanAll
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+
+  // List collection branch: Once -> Expand -> ConstructNamedPath -> Produce
+  std::list<std::unique_ptr<BaseOpChecker>> list_collection_branch_ops;
+  list_collection_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectConstructNamedPath>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInForeachBodyWithExternalReference) {
+  // Test FOREACH (x IN [1, 2] | CREATE (n {prop: [(a)-->() WHERE a.id = x | 1]}))
+  // This tests that pattern comprehensions in FOREACH body can reference the loop variable.
+  // The RollUpApply should be INSIDE the Foreach since the pattern comprehension references x.
+  //
+  // Expected plan structure:
+  //   EmptyResult
+  //   Foreach
+  //   |\
+  //   | CreateNode
+  //   | RollUpApply
+  //   | |\
+  //   | | Produce {anon_result}
+  //   | | Expand (a)-[anon_edge]->(anon_node)
+  //   | | Filter {a.id = x}
+  //   | | ScanAll (a)
+  //   | | Once
+  //   | Once
+  //   Once
+
+  FakeDbAccessor dba;
+  auto prop_id = dba.Property("id");
+
+  // Create the pattern comprehension with WHERE clause referencing x
+  auto *where_expr = EQ(PROPERTY_LOOKUP(dba, "a", prop_id), IDENT("x"));
+  auto *pattern_comp =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("anon_edge", EdgeAtom::Direction::OUT), NODE("anon_node")),
+                            WHERE(where_expr), LITERAL(1));
+
+  // Create node with property containing pattern comprehension
+  auto *node_n = NODE("n");
+  std::get<0>(node_n->properties_)[this->storage.GetPropertyIx("prop")] = pattern_comp;
+
+  auto *foreach_clause = FOREACH(NEXPR("x", LIST(LITERAL(1), LITERAL(2))), {CREATE(PATTERN(node_n))});
+
+  auto *query = QUERY(SINGLE_QUERY(foreach_clause));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify the plan structure - RollUpApply should be inside Foreach
+  auto &plan = planner.plan();
+  auto *empty_result = dynamic_cast<EmptyResult *>(&plan);
+  ASSERT_NE(empty_result, nullptr) << "Root should be EmptyResult";
+
+  auto *foreach_op = dynamic_cast<Foreach *>(empty_result->input_.get());
+  ASSERT_NE(foreach_op, nullptr) << "Should have Foreach operator";
+
+  // The update branch of Foreach should contain RollUpApply -> CreateNode
+  auto *create_node = dynamic_cast<CreateNode *>(foreach_op->update_clauses_.get());
+  ASSERT_NE(create_node, nullptr) << "Foreach update branch should have CreateNode";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(create_node->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should be inside Foreach (before CreateNode) when pattern comprehension "
+                                "references the loop variable";
+
+  // The input to Foreach should be Once (the list is evaluated once)
+  auto *once = dynamic_cast<Once *>(foreach_op->input_.get());
+  ASSERT_NE(once, nullptr) << "Foreach input should be Once";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInsideCountAggregate) {
+  // Test MATCH (n) RETURN count([(n)-[e]->(m) | m]) AS c
+  // The pattern comprehension is inside count(), so RollUpApply must come BEFORE Aggregate.
+  //
+  // Expected plan structure (bottom-up):
+  //   Produce {c}
+  //   Aggregate {COUNT-1} {}  -- no group-by
+  //   RollUpApply
+  //   |\
+  //   | Produce {anon_result}
+  //   | Expand (n)-[e]->(m)
+  //   | Once
+  //   ScanAll (n)
+  //   Once
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, IDENT("m"));
+
+  auto *count_expr = COUNT(pattern_comp, false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(count_expr, AS("c"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Should have Aggregate operator";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should come BEFORE Aggregate when PC is inside aggregate expression";
+
+  auto *scan = dynamic_cast<ScanAll *>(rollup->input_.get());
+  ASSERT_NE(scan, nullptr) << "Input to RollUpApply should be ScanAll";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInsideSumSizeAggregate) {
+  // Test MATCH (n) RETURN sum(size([(n)-[e]->(m) | 1])) AS total
+  // The pattern comprehension is inside sum(size(...)), so RollUpApply must come BEFORE Aggregate.
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, LITERAL(1));
+
+  auto *size_expr = FN("size", pattern_comp);
+  auto *sum_expr = SUM(size_expr, false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum_expr, AS("total"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Should have Aggregate operator";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should come BEFORE Aggregate when PC is inside aggregate expression";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionNotInsideAggregate) {
+  // Test MATCH (n) RETURN [(n)-[e]->(m) | m] AS items, count(*) AS c
+  // The pattern comprehension is NOT inside an aggregate, but there is an aggregation.
+  // RollUpApply should still come BEFORE Aggregate because PC references 'n' which
+  // won't exist after aggregation.
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("e", EdgeAtom::Direction::OUT), NODE("m")), nullptr, IDENT("m"));
+
+  auto *count_star = COUNT(nullptr, false);  // COUNT(*)
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(pattern_comp, AS("items"), count_star, AS("c"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Should have Aggregate operator";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr)
+      << "RollUpApply should come BEFORE Aggregate when PC references symbols consumed by aggregation";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionNoExternalRefsStillGoesBeforeAggregate) {
+  // Test MATCH (n) RETURN count(*) AS c, [()--() | 1] AS edges
+  // Even though the pattern comprehension has no external references,
+  // it still goes BEFORE Aggregate for correctness (all PCs go before aggregate).
+
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("anon1"), EDGE("anon2", EdgeAtom::Direction::BOTH), NODE("anon3")), nullptr, LITERAL(1));
+
+  auto *count_star = COUNT(nullptr, false);  // COUNT(*)
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(count_star, AS("c"), pattern_comp, AS("edges"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Verify plan structure: Produce -> Aggregate -> RollUpApply -> ScanAll
+  // RollUpApply comes BEFORE Aggregate (all PCs go before aggregate when aggregations exist)
+  auto &plan = planner.plan();
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+
+  auto *aggregate = dynamic_cast<Aggregate *>(produce->input_.get());
+  ASSERT_NE(aggregate, nullptr) << "Aggregate should be directly under Produce";
+
+  auto *rollup = dynamic_cast<RollUpApply *>(aggregate->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should come BEFORE Aggregate";
 }
 
 }  // namespace

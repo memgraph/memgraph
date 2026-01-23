@@ -19,6 +19,9 @@
 #undef TRUE
 #undef FALSE
 
+#include <span>
+#include <string_view>
+
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/init.hpp"
@@ -113,7 +116,14 @@ class Client final {
   /**
    * This function writes data to the socket.
    */
-  bool Write(const std::string &str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
+  bool Write(std::span<const uint8_t> data, bool have_more = false, std::optional<int> timeout_ms = std::nullopt) {
+    return Write(data.data(), data.size(), have_more, timeout_ms);
+  }
+
+  /**
+   * This function writes data to the socket.
+   */
+  bool Write(std::string_view str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
 
   const io::network::Endpoint &endpoint() const;
 
@@ -166,7 +176,11 @@ class ClientOutputStream final {
 
   bool Write(const uint8_t *data, size_t len, bool have_more = false);
 
-  bool Write(const std::string &str, bool have_more = false);
+  bool Write(std::span<const uint8_t> data, bool have_more = false) {
+    return Write(data.data(), data.size(), have_more);
+  }
+
+  bool Write(std::string_view str, bool have_more = false);
 
  private:
   Client &client_;

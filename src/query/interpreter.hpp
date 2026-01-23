@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -169,6 +169,9 @@ class CoordinatorQueryHandler {
 
   virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
 
+  virtual void UpdateConfig(std::variant<int32_t, std::string> instance,
+                            io::network::Endpoint const &bolt_endpoint) = 0;
+
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
   virtual void ForceResetClusterState() = 0;
@@ -207,7 +210,7 @@ class AnalyzeGraphQueryHandler {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
+  std::move_only_function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
   utils::Priority priority{utils::Priority::HIGH};
@@ -294,7 +297,8 @@ class Interpreter final {
     std::string login_timestamp;
   };
 
-  std::shared_ptr<QueryUserOrRole> user_or_role_{};
+  std::shared_ptr<QueryUserOrRole>
+      user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif

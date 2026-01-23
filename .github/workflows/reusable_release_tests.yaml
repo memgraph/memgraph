@@ -47,6 +47,9 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   BUILD_TYPE: ${{ inputs.build_type }}
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   community_build:
@@ -84,7 +87,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph --community
+          build-memgraph --community \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -118,7 +124,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   coverage_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -159,7 +165,10 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           --no-ccache \
-          build-memgraph --coverage
+          build-memgraph --coverage \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -209,7 +218,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   debug_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -248,7 +257,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -321,7 +333,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   debug_integration_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -360,7 +372,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -394,7 +409,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
 
   malloc_build:
@@ -432,7 +447,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph --disable-jemalloc
+          build-memgraph --disable-jemalloc \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -499,7 +517,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   release_build:
     name: "Release build"
@@ -535,7 +553,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -609,7 +630,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   release_benchmark_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -646,7 +667,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -699,7 +723,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   release_e2e_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -736,7 +760,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -748,7 +775,7 @@ jobs:
 
       - name: Ensure localstack is up
         run: |
-          cd tests/e2e/load_parquet/localstack
+          cd tests/e2e/localstack
           docker compose --profile bridge up -d
 
       # This step will be skipped because the e2e stream tests have been disabled
@@ -773,7 +800,7 @@ jobs:
 
       - name: Ensure localstack is down
         run: |
-          cd tests/e2e/load_parquet/localstack
+          cd tests/e2e/localstack
           docker compose down
 
       # Same as two steps prior
@@ -798,7 +825,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   release_durability_stress_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -835,7 +862,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -915,7 +945,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   release_jepsen_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -960,7 +990,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Copy memgraph binary
         run: |
@@ -1034,7 +1067,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   stress_test_large:
     if: ${{ inputs.run_stress_large == 'true' }}
@@ -1071,7 +1104,10 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -1121,7 +1157,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   release_query_modules_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -1157,8 +1193,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          --threads $THREADS \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -1168,15 +1206,23 @@ jobs:
           --arch $ARCH \
           init-tests
 
+      - name: Run query modules unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            test-memgraph query_modules_unit
+
       - name: Run query modules e2e tests
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph query_modules_e2e
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph query_modules_e2e
 
       - name: Stop mgbuild container
         if: always()
@@ -1191,7 +1237,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   aggregate_results:
     name: "Aggregate Test Results"

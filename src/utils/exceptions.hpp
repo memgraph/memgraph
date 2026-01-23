@@ -42,7 +42,7 @@ namespace memgraph::utils {
 class BasicException : public std::exception {
  public:
   /**
-   * @brief Constructor (C++ STL strings_view).
+   * @brief Constructor (C++ STL string_view).
    *
    * @param message The error message.
    */

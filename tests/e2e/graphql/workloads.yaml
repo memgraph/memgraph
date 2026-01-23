@@ -32,7 +32,6 @@ workloads:
   - name: "GraphQL sorting"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
-    args: ["graphql/graphql_queries_and_aggregations.py"]
     args: ["graphql/graphql_sorting.py"]
     <<: *in_memory_cluster
 

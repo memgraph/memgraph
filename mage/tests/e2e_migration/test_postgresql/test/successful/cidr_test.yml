@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT cidr_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.cidr_col) AS cidr_col_type, row.cidr_col AS cidr_col
+
+output:
+  - cidr_col_type: 'STRING'
+    cidr_col: '192.168.1.0/24'

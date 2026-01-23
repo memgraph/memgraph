@@ -30,6 +30,7 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/module_fwd.hpp"
+#include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/property_value.hpp"
@@ -1891,7 +1892,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
   }
 
   std::vector<memgraph::query::Clause *> clauses_;
-  bool has_update{};
+  bool has_update{};  // used during antlr -> ast conversion for semantic analysis (unused after that)
 
   SingleQuery *Clone(AstStorage *storage) const override {
     SingleQuery *object = storage->Create<SingleQuery>();
@@ -3074,7 +3075,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action {
+  enum class Action : uint8_t {
     REGISTER_INSTANCE,
     UNREGISTER_INSTANCE,
     SET_INSTANCE_TO_MAIN,
@@ -3087,10 +3088,11 @@ class CoordinatorQuery : public memgraph::query::Query {
     YIELD_LEADERSHIP,
     SET_COORDINATOR_SETTING,
     SHOW_COORDINATOR_SETTINGS,
-    SHOW_REPLICATION_LAG
+    SHOW_REPLICATION_LAG,
+    UPDATE_CONFIG
   };
 
-  enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
+  enum class SyncMode : uint8_t { SYNC, ASYNC, STRICT_SYNC };
 
   CoordinatorQuery() = default;
 
@@ -3245,9 +3247,10 @@ class LoadCsv : public memgraph::query::Clause {
   memgraph::query::Expression *quote_{nullptr};
   memgraph::query::Expression *nullif_{nullptr};
   memgraph::query::Identifier *row_var_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
 
   LoadCsv *Clone(AstStorage *storage) const override {
-    LoadCsv *object = storage->Create<LoadCsv>();
+    auto *object = storage->Create<LoadCsv>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->with_header_ = with_header_;
     object->ignore_bad_ = ignore_bad_;
@@ -3255,6 +3258,9 @@ class LoadCsv : public memgraph::query::Clause {
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
     object->nullif_ = nullif_;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     return object;
   }
 
@@ -3328,11 +3334,15 @@ class LoadJsonl : public Clause {
 
   Expression *file_;
   Identifier *row_var_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
 
   LoadJsonl *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadJsonl>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     return object;
   }
 
@@ -3363,9 +3373,9 @@ class TriggerQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { CREATE_TRIGGER, DROP_TRIGGER, SHOW_TRIGGERS };
+  enum class Action : uint8_t { CREATE_TRIGGER, DROP_TRIGGER, SHOW_TRIGGERS };
 
-  enum class EventType {
+  enum class EventType : uint8_t {
     ANY,
     VERTEX_CREATE,
     EDGE_CREATE,
@@ -3382,11 +3392,12 @@ class TriggerQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::TriggerQuery::Action action_;
-  memgraph::query::TriggerQuery::EventType event_type_;
+  TriggerQuery::Action action_;
+  TriggerQuery::EventType event_type_;
   std::string trigger_name_;
   bool before_commit_;
   std::string statement_;
+  TriggerPrivilegeContext privilege_context_;
 
   TriggerQuery *Clone(AstStorage *storage) const override {
     TriggerQuery *object = storage->Create<TriggerQuery>();
@@ -3395,6 +3406,7 @@ class TriggerQuery : public memgraph::query::Query {
     object->trigger_name_ = trigger_name_;
     object->before_commit_ = before_commit_;
     object->statement_ = statement_;
+    object->privilege_context_ = privilege_context_;
     return object;
   }
 
@@ -3473,13 +3485,17 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   RecoverSnapshotQuery *Clone(AstStorage *storage) const override {
-    RecoverSnapshotQuery *object = storage->Create<RecoverSnapshotQuery>();
+    auto *object = storage->Create<RecoverSnapshotQuery>();
     object->snapshot_ = snapshot_ ? snapshot_->Clone(storage) : nullptr;
+    for (auto const &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     object->force_ = force_;
     return object;
   }
 
   Expression *snapshot_;
+  std::unordered_map<Expression *, Expression *> configs_;
   bool force_;
 };
 
