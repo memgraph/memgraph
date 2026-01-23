@@ -502,7 +502,7 @@ mgp::List Path::PathSubgraph::BFS() {
   std::queue<std::pair<mgp::Node, int64_t>> queue;
 
   for (const auto &node : path_data_.start_nodes_) {
-    queue.emplace({node, 0});
+    queue.emplace(node, 0);
     path_data_.visited_.insert(node.Id().AsInt());
   }
 
