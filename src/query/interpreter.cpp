@@ -241,7 +241,10 @@ struct QueryLogWrapper {
   std::string_view db_name;
 };
 
+// clang-format off
 #if FMT_VERSION > 90000
+// clang-format on
+
 template <>
 class fmt::formatter<QueryLogWrapper> : public fmt::ostream_formatter {};
 #endif
@@ -5636,6 +5639,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       std::vector<uint64_t> maybe_kill_transaction_ids;
+<<<<<<< HEAD
       std::ranges::transform(transaction_query->transaction_id_list_,
                              std::back_inserter(maybe_kill_transaction_ids),
                              [&evaluator](Expression *expression) {
@@ -5646,6 +5650,19 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                  return std::numeric_limits<uint64_t>::max();
                                }
                              });
+=======
+      std::transform(transaction_query->transaction_id_list_.begin(),
+                     transaction_query->transaction_id_list_.end(),
+                     std::back_inserter(maybe_kill_transaction_ids),
+                     [&evaluator](Expression *expression) {
+                       try {
+                         auto value = expression->Accept(evaluator);
+                         return std::stoul(value.ValueString().c_str());  // NOLINT
+                       } catch (std::exception & /* unused */) {
+                         return std::numeric_limits<uint64_t>::max();
+                       }
+                     });
+>>>>>>> 3cec3ff8c (fix: Destroy dbms handler after repl state)
       callback.header = {"transaction_id", "killed"};
       callback.fn = [interpreter_context,
                      maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
@@ -8293,10 +8310,17 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     // prepare is done, move system txn guard to be owned by interpreter
     system_transaction_ = std::move(system_transaction);
+<<<<<<< HEAD
     return {.headers = query_execution->prepared_query->header,
             .privileges = query_execution->prepared_query->privileges,
             .qid = qid,
             .db = query_execution->prepared_query->db};
+=======
+    return {query_execution->prepared_query->header,
+            query_execution->prepared_query->privileges,
+            qid,
+            query_execution->prepared_query->db};
+>>>>>>> 3cec3ff8c (fix: Destroy dbms handler after repl state)
   } catch (const utils::BasicException &e) {
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
@@ -8684,8 +8708,9 @@ void Interpreter::Commit() {
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
-  // if I was main with write txn which became replica, abort.
-  if (!is_main && !curr_txn->deltas.empty()) {
+  // if I was main with write txn which became replica and this is a write txn, abort.
+  // Abort also if I am main but unwriteable
+  if ((!is_main && !curr_txn->deltas.empty()) || (is_main && !(*locked_repl_state)->IsMainWriteable())) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
   auto maybe_commit_error =

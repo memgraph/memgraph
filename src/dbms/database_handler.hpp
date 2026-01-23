@@ -64,8 +64,7 @@ class DatabaseHandler : public Handler<Database> {
    * @param config Storage configuration
    * @return HandlerT::NewResult
    */
-  HandlerT::NewResult New(storage::Config config,
-                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state) {
+  HandlerT::NewResult New(storage::Config config) {
     // Control that no one is using the same data directory
     if (std::any_of(begin(), end(), [&](auto &elem) {
           auto db_acc = elem.second.access();
@@ -85,8 +84,7 @@ class DatabaseHandler : public Handler<Database> {
       return nullptr;
     };
 
-    return HandlerT::New(
-        std::piecewise_construct, *config.salient.name.str_view(), config, repl_state, database_protector_factory);
+    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, database_protector_factory);
   }
 
   /**

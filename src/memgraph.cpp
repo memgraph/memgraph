@@ -626,7 +626,16 @@ int main(int argc, char **argv) {
 
 #endif
 
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
+#ifdef MG_ENTERPRISE
+                                           ,
+                                           *auth_,
+                                           FLAGS_data_recovery_on_startup
+#endif
+  );
+
   // singleton replication state
+  // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       ReplicationStateRootPath(db_config)
 #ifdef MG_ENTERPRISE
@@ -634,15 +643,6 @@ int main(int argc, char **argv) {
       coordinator_state && coordinator_state->IsDataInstance()
 #endif
   };
-
-  memgraph::dbms::DbmsHandler dbms_handler(db_config,
-                                           repl_state
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           *auth_,
-                                           FLAGS_data_recovery_on_startup
-#endif
-  );
 
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)

@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -20,7 +19,6 @@ namespace memgraph::dbms {
 
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
-    const utils::Synchronized<::memgraph::replication::ReplicationState, utils::RWSpinLock> &repl_state,
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr) {
   const auto name = config.salient.name;
@@ -29,15 +27,8 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   auto storage = std::make_unique<storage::InMemoryStorage>(
       std::move(config), std::nullopt, std::move(invalidator), std::move(database_protector_factory));
 
-  // TODO: we want a better approach for controlling background works.
-  //       Idea:
-  //       During recovery - Should block these threads with a common `force_pause`
-  //       Here - Soft pause those threads if replica, release the force_pause
-  // Set the main instance check function on TTL based on replication state
-  storage->ttl_.SetUserCheck([&repl_state]() -> bool {
-    const auto locked_repl_state = repl_state.ReadLock();
-    return locked_repl_state->IsMainWriteable();
-  });
+  // TODO: (andi) Change this to a flag instead of a user function
+  storage->ttl_.SetUserCheck([]() -> bool { return true; });
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
