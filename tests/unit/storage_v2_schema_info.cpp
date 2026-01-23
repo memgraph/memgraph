@@ -2350,6 +2350,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto p1 = in_memory->NameToProperty("p1");
   auto e1 = in_memory->NameToEdgeType("E1");
   auto e2 = in_memory->NameToEdgeType("E2");
+  auto e3 = in_memory->NameToEdgeType("E3");
+  auto e4 = in_memory->NameToEdgeType("E4");
 
   // Empty
   {
@@ -2359,12 +2361,14 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   }
 
   // setup CREATE ()-[:E1]->();
-  // Running 5 threads: 4 write threads, 1 read thread
+  // Running 7 threads: 6 write threads, 1 read thread
   // t1 modify from and/or to labels
   // t2 modify E1 edge properties
   // t3 modify E1 edge properties and create/remove E1 edges
   // t4 create/remove E2 edges
-  // t5 read schema
+  // t5 create/remove E3 edges
+  // t6 create/remove E4 edges
+  // t7 read schema
 
   Gid from_gid;
   Gid to_gid;
@@ -2518,139 +2522,105 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
     }
   };
 
+  auto create_remove_e3_edges = [&]() {
+    uint8_t i = 0;
+    std::optional<Gid> e3_edge_gid;
+    while (running) {
+      ++i;
+      if (i % 3 == 0 && in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        auto acc = in_memory->Access(memgraph::storage::WRITE);
+        bool can_commit = true;
+
+        if (e3_edge_gid) {
+          // Try to delete E3 edge
+          auto edge = acc->FindEdge(*e3_edge_gid, View::NEW);
+          if (edge) {
+            can_commit = acc->DeleteEdge(&*edge).has_value();
+            if (can_commit) {
+              e3_edge_gid.reset();
+            }
+          }
+        } else {
+          // Try to create E3 edge
+          auto v1 = acc->FindVertex(from_gid, View::NEW);
+          auto v2 = acc->FindVertex(to_gid, View::NEW);
+          if (v1 && v2) {
+            auto edge = acc->CreateEdge(&*v1, &*v2, e3);
+            if (edge) {
+              e3_edge_gid = edge->Gid();
+            } else {
+              can_commit = false;
+            }
+          }
+        }
+        if (can_commit) ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  auto create_remove_e4_edges = [&]() {
+    uint8_t i = 0;
+    std::optional<Gid> e4_edge_gid;
+    while (running) {
+      ++i;
+      if (i % 7 == 0 && in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        auto acc = in_memory->Access(memgraph::storage::WRITE);
+        bool can_commit = true;
+
+        if (e4_edge_gid) {
+          // Try to delete E4 edge
+          auto edge = acc->FindEdge(*e4_edge_gid, View::NEW);
+          if (edge) {
+            can_commit = acc->DeleteEdge(&*edge).has_value();
+            if (can_commit) {
+              e4_edge_gid.reset();
+            }
+          }
+        } else {
+          // Try to create E4 edge
+          auto v1 = acc->FindVertex(from_gid, View::NEW);
+          auto v2 = acc->FindVertex(to_gid, View::NEW);
+          if (v1 && v2) {
+            auto edge = acc->CreateEdge(&*v1, &*v2, e4);
+            if (edge) {
+              e4_edge_gid = edge->Gid();
+            } else {
+              can_commit = false;
+            }
+          }
+        }
+        if (can_commit) ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
   auto read_schema = [&]() {
     auto stop = memgraph::utils::OnScopeExit{[&]() { running = false; }};
     uint16_t i = 0;
     while (i++ < 15'000) {
       const auto json = in_memory->schema_info_.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
 
-      // Define all possible schema combinations
-      // No edges
-      static const auto no_edges_no_labels =
-          nlohmann::json::parse(R"({"edges":[],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto no_edges_from_label = nlohmann::json::parse(
-          R"({"edges":[],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto no_edges_to_label = nlohmann::json::parse(
-          R"({"edges":[],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto no_edges_both_labels = nlohmann::json::parse(
-          R"({"edges":[],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      // Check consistency: each edge's label combinations must exist in nodes
+      for (const auto &edge : json["edges"]) {
+        auto start_labels = edge["start_node_labels"];
+        auto end_labels = edge["end_node_labels"];
+        auto edge_count = edge["count"].get<int>();
 
-      // E1 only (no props)
-      static const auto e1_no_labels_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto e1_from_label_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto e1_to_label_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto e1_both_labels_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+        // Verify positive counts
+        ASSERT_GT(edge_count, 0) << "Edge has non-positive count: " << edge.dump(2);
 
-      // E1 with String property
-      static const auto e1_no_labels_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto e1_from_label_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto e1_to_label_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto e1_both_labels_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+        // Find corresponding nodes
+        bool found_start = false, found_end = false;
+        for (const auto &node : json["nodes"]) {
+          if (node["labels"] == start_labels) found_start = true;
+          if (node["labels"] == end_labels) found_end = true;
+        }
 
-      // E1 with Integer property
-      static const auto e1_no_labels_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto e1_from_label_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto e1_to_label_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto e1_both_labels_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-
-      // E1 with Boolean property
-      static const auto e1_no_labels_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto e1_from_label_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto e1_to_label_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto e1_both_labels_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-
-      // E2 only
-      static const auto e2_no_labels = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto e2_from_label = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto e2_to_label = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto e2_both_labels = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-
-      // Both E1 and E2 (E1 no props)
-      static const auto both_no_labels_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto both_from_label_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto both_to_label_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_both_labels_no_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-
-      // Both E1 and E2 (E1 with String property)
-      static const auto both_no_labels_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto both_from_label_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto both_to_label_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_both_labels_w_prop = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"String"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-
-      // Both E1 and E2 (E1 with Integer property)
-      static const auto both_no_labels_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto both_from_label_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto both_to_label_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_both_labels_w_prop2 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Integer"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-
-      // Both E1 and E2 (E1 with Boolean property)
-      static const auto both_no_labels_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-      static const auto both_from_label_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-      static const auto both_to_label_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":[],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E2"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-      static const auto both_both_labels_w_prop3 = nlohmann::json::parse(
-          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count":1,"filling_factor":100.0,"key":"p1","types":[{"count":1,"type":"Boolean"}]}],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-
-      static const std::array<nlohmann::json, 40> possible_schemas = {
-          // No edges (4)
-          no_edges_no_labels, no_edges_from_label, no_edges_to_label, no_edges_both_labels,
-          // E1 only no props (4)
-          e1_no_labels_no_prop, e1_from_label_no_prop, e1_to_label_no_prop, e1_both_labels_no_prop,
-          // E1 with String (4)
-          e1_no_labels_w_prop, e1_from_label_w_prop, e1_to_label_w_prop, e1_both_labels_w_prop,
-          // E1 with Integer (4)
-          e1_no_labels_w_prop2, e1_from_label_w_prop2, e1_to_label_w_prop2, e1_both_labels_w_prop2,
-          // E1 with Boolean (4)
-          e1_no_labels_w_prop3, e1_from_label_w_prop3, e1_to_label_w_prop3, e1_both_labels_w_prop3,
-          // E2 only (4)
-          e2_no_labels, e2_from_label, e2_to_label, e2_both_labels,
-          // Both E1+E2 no props (4)
-          both_no_labels_no_prop, both_from_label_no_prop, both_to_label_no_prop, both_both_labels_no_prop,
-          // Both E1+E2 with String (4)
-          both_no_labels_w_prop, both_from_label_w_prop, both_to_label_w_prop, both_both_labels_w_prop,
-          // Both E1+E2 with Integer (4)
-          both_no_labels_w_prop2, both_from_label_w_prop2, both_to_label_w_prop2, both_both_labels_w_prop2,
-          // Both E1+E2 with Boolean (4)
-          both_no_labels_w_prop3, both_from_label_w_prop3, both_to_label_w_prop3, both_both_labels_w_prop3};
-
-      auto itr = std::find_if(possible_schemas.begin(), possible_schemas.end(),
-                              [&json](auto &in) { return ConfrontJSON(json, in); });
-
-      ASSERT_NE(itr, possible_schemas.end()) << "Unexpected schema: " << json.dump(2);
+        ASSERT_TRUE(found_start) << "Edge references non-existent start labels: " << edge.dump(2);
+        ASSERT_TRUE(found_end) << "Edge references non-existent end labels: " << edge.dump(2);
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   };
@@ -2659,199 +2629,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto t2 = std::jthread(modify_edge);
   auto t3 = std::jthread(modify_edge2);
   auto t4 = std::jthread(create_remove_e2_edges);
-  auto t5 = std::jthread(read_schema);
-}
-
-TYPED_TEST(SchemaInfoTestWEdgeProp, LabelChangeWithExistingEdgeThenNewEdgeCommits) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto e1 = in_memory->NameToEdgeType("E1");
-  auto e2 = in_memory->NameToEdgeType("E2");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices and E1 edge
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, e1).has_value());
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // T1: Add label L1 to v1 (uncommitted)
-  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_tx1.has_value());
-  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
-
-  // T2: Create E2 edge from v1 to v2
-  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
-  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
-  ASSERT_TRUE(tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e2).has_value());
-
-  // T2 commits first (E2 created, adds interleaved delta to v1)
-  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx2.reset();
-
-  // T1 commits (L1 added to v1)
-  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx1.reset();
-
-  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-  const auto expected = nlohmann::json::parse(
-      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"},{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E2"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":[],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
-}
-
-TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelCommit) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Transaction A: Add label L1 to v1 (uncommitted)
-  auto tx_a = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_a = tx_a->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_a.has_value());
-  ASSERT_TRUE(v1_a->AddLabel(l1).has_value());
-
-  // Transaction B: Create edge from v1 to v2
-  auto tx_b = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_b = tx_b->FindVertex(v1_gid, View::NEW);
-  auto v2_b = tx_b->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_b.has_value() && v2_b.has_value());
-  ASSERT_TRUE(tx_b->CreateEdge(&*v1_b, &*v2_b, e1).has_value());
-
-  // Transaction B commits (edge created WITH L1, but L1 is still uncommitted from tx_a)
-  ASSERT_TRUE(tx_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx_b.reset();
-
-  // Transaction A commits (L1 becomes committed)
-  ASSERT_TRUE(tx_a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx_a.reset();
-
-  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-  const auto expected = nlohmann::json::parse(
-      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":[],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be [L1]:[] after tx_a commits. Actual: " << json.dump(2);
-}
-
-TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCreatedWithUncommittedLabelAbort) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-
-  // Skip in analytical mode - abort doesn't work without deltas
-  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-    GTEST_SKIP() << "Abort not supported in analytical mode (no deltas)";
-  }
-
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Transaction A: Add label L1 to v1 (uncommitted)
-  auto tx_a = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_a = tx_a->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_a.has_value());
-  ASSERT_TRUE(v1_a->AddLabel(l1).has_value());
-
-  // Transaction B: Create edge from v1 to v2 (sees L1 in v1->labels)
-  auto tx_b = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_b = tx_b->FindVertex(v1_gid, View::NEW);
-  auto v2_b = tx_b->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_b.has_value() && v2_b.has_value());
-  ASSERT_TRUE(tx_b->CreateEdge(&*v1_b, &*v2_b, e1).has_value());
-
-  // Transaction B commits (edge created with L1)
-  ASSERT_TRUE(tx_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx_b.reset();
-
-  // Transaction A aborts (L1 is removed)
-  tx_a->Abort();
-  tx_a.reset();
-
-  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-  const auto expected = nlohmann::json::parse(
-      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Schema mismatch. Actual: " << json.dump(2);
-}
-
-TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCommitsFirst_LabelCommitsAfter) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Transaction T_l1: Add label L1 to v1 (uncommitted)
-  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_l1.has_value());
-  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
-
-  // Transaction T_ce: Create edge from v1 to v2 (sees L1 in v1->labels)
-  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
-  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
-  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
-
-  // T_ce commits first (edge created with L1, added to post_process)
-  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx_ce.reset();
-
-  // T_l1 commits (L1 becomes committed)
-  ASSERT_TRUE(tx_l1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx_l1.reset();
-
-  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-  const auto expected = nlohmann::json::parse(
-      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
+  auto t5 = std::jthread(create_remove_e3_edges);
+  auto t6 = std::jthread(create_remove_e4_edges);
+  auto t7 = std::jthread(read_schema);
 }
 
 TYPED_TEST(SchemaInfoTestWEdgeProp, LabelCommitsFirst_EdgeCommitsAfter) {
@@ -2897,58 +2677,6 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, LabelCommitsFirst_EdgeCommitsAfter) {
   const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
   const auto expected = nlohmann::json::parse(
       R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
-}
-
-TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeCommitsFirst_LabelAbortsAfter) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-
-  // Skip in analytical mode - abort doesn't work without deltas
-  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-    GTEST_SKIP() << "Abort not supported in analytical mode (no deltas)";
-  }
-
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Transaction T_l1: Add label L1 to v1 (uncommitted)
-  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_l1.has_value());
-  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
-
-  // Transaction T_ce: Create edge from v1 to v2 (sees L1 in v1->labels)
-  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
-  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
-  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
-
-  // T_ce commits first (edge created with L1, added to post_process)
-  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx_ce.reset();
-
-  // T_l1 aborts (L1 is removed)
-  tx_l1->Abort();
-  tx_l1.reset();
-
-  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-  const auto expected = nlohmann::json::parse(
-      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
   ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
 }
 
@@ -3443,55 +3171,6 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, InterleavedLabelChangesOnBothEndpoints) {
 }
 
 // Test: Edge created, then label added with interleaved transactions
-TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeExistsThenLabelAdded) {  // @TODO Rename
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // T2: Add L1 to v1 (while T1 uncommitted)
-  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_tx2.has_value());
-  ASSERT_TRUE(v1_tx2->AddLabel(l1).has_value());
-
-  // T1: Create edge (uncommitted)
-  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
-  auto v2_tx1 = tx1->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_tx1.has_value() && v2_tx1.has_value());
-  auto edge = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, e1);
-  ASSERT_TRUE(edge.has_value());
-
-  // T2 commits first
-  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx2.reset();
-
-  // T1 commits after
-  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx1.reset();
-
-  // Edge should be [L1]:[]
-  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-  const auto expected = nlohmann::json::parse(
-      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-  ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be updated with new label. Actual: " << json.dump(2);
-}
-
-// Test: Single transaction modifies labels on both endpoints
 TYPED_TEST(SchemaInfoTestWEdgeProp, BothEndpointsModifiedSameTransaction) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
@@ -3608,265 +3287,5 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
         R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
     ASSERT_TRUE(ConfrontJSON(json, expected))
         << "After T2 (delete/recreate), edge should be counted once. Actual: " << json.dump(2);
-  }
-}
-
-// Test: Label added/removed/added with interleaved edge creation
-TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAddedThenRemoved) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // T1: Add L1 to v1 (uncommitted)
-  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_tx1.has_value());
-  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
-
-  // T2: Create edge (while T1 uncommitted)
-  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
-  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
-  auto edge1 = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e1);
-  ASSERT_TRUE(edge1.has_value());
-
-  // T2 commits first
-  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx2.reset();
-
-  // T1 commits after
-  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx1.reset();
-
-  // Edge should be [L1]:[]
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected)) << "After add, edge should be [L1]:[] . Actual: " << json.dump(2);
-  }
-
-  // T3: Remove L1 (committed normally for simplicity)
-  {
-    auto tx = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = tx->FindVertex(v1_gid, View::NEW);
-    ASSERT_TRUE(v1.has_value());
-    ASSERT_TRUE(v1->RemoveLabel(l1).has_value());
-    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Edge should be []:[]
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected)) << "After remove, edge should be []:[] . Actual: " << json.dump(2);
-  }
-
-  // T4: Add L1 again (committed normally)
-  {
-    auto tx = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = tx->FindVertex(v1_gid, View::NEW);
-    ASSERT_TRUE(v1.has_value());
-    ASSERT_TRUE(v1->AddLabel(l1).has_value());
-    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Edge should be [L1]:[] again, not duplicated
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected))
-        << "After re-add, edge should be [L1]:[], not duplicated. Actual: " << json.dump(2);
-  }
-}
-
-// Test: Multiple labels on same vertex with interleaved transactions
-TYPED_TEST(SchemaInfoTestWEdgeProp, MultipleLabelsSameVertex) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto l2 = in_memory->NameToLabel("L2");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // T1: Add L1 to v1 (uncommitted)
-  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_tx1.has_value());
-  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
-
-  // T2: Create edge (while T1 uncommitted)
-  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
-  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
-  auto edge = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e1);
-  ASSERT_TRUE(edge.has_value());
-
-  // T2 commits first
-  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx2.reset();
-
-  // T1 commits after
-  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx1.reset();
-
-  // Add L2 to same vertex (interleaved with another operation)
-  {
-    auto tx = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = tx->FindVertex(v1_gid, View::NEW);
-    ASSERT_TRUE(v1.has_value());
-    ASSERT_TRUE(v1->AddLabel(l2).has_value());
-    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Edge should have both labels (sorted)
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1","L2"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1","L2"],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should have both labels. Actual: " << json.dump(2);
-  }
-
-  // Remove L1 (L2 remains)
-  {
-    auto tx = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = tx->FindVertex(v1_gid, View::NEW);
-    ASSERT_TRUE(v1.has_value());
-    ASSERT_TRUE(v1->RemoveLabel(l1).has_value());
-    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Edge should have only L2
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L2"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should have only L2. Actual: " << json.dump(2);
-  }
-}
-
-// Test: Alternating label changes on both endpoints with interleaved edge creation
-TYPED_TEST(SchemaInfoTestWEdgeProp, AlternatingLabelChanges) {
-  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
-  auto &schema_info = in_memory->schema_info_;
-
-  auto l1 = in_memory->NameToLabel("L1");
-  auto l2 = in_memory->NameToLabel("L2");
-  auto e1 = in_memory->NameToEdgeType("E1");
-
-  Gid v1_gid, v2_gid;
-
-  // Setup: Create two vertices with L1 on v1
-  {
-    auto acc = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    ASSERT_TRUE(v1.AddLabel(l1).has_value());
-    v1_gid = v1.Gid();
-    v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // T1: Remove L1 from v1 (uncommitted)
-  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
-  ASSERT_TRUE(v1_tx1.has_value());
-  ASSERT_TRUE(v1_tx1->RemoveLabel(l1).has_value());
-
-  // T2: Create edge (while T1 uncommitted)
-  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
-  auto v1_tx2 = tx2->FindVertex(v1_gid, View::NEW);
-  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
-  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
-  auto edge = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, e1);
-  ASSERT_TRUE(edge.has_value());
-
-  // T2 commits first
-  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx2.reset();
-
-  // T1 commits after
-  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  tx1.reset();
-
-  // Add L2 to v2
-  {
-    auto tx = in_memory->Access(memgraph::storage::WRITE);
-    auto v2 = tx->FindVertex(v2_gid, View::NEW);
-    ASSERT_TRUE(v2.has_value());
-    ASSERT_TRUE(v2->AddLabel(l2).has_value());
-    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Edge should be []:[L2]
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be []:[L2]. Actual: " << json.dump(2);
-  }
-
-  // Add L1 back to v1
-  {
-    auto tx = in_memory->Access(memgraph::storage::WRITE);
-    auto v1 = tx->FindVertex(v1_gid, View::NEW);
-    ASSERT_TRUE(v1.has_value());
-    ASSERT_TRUE(v1->AddLabel(l1).has_value());
-    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Edge should be [L1]:[L2], not duplicated
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be [L1]:[L2], not duplicated. Actual: " << json.dump(2);
-  }
-
-  // Remove L2 from v2
-  {
-    auto tx = in_memory->Access(memgraph::storage::WRITE);
-    auto v2 = tx->FindVertex(v2_gid, View::NEW);
-    ASSERT_TRUE(v2.has_value());
-    ASSERT_TRUE(v2->RemoveLabel(l2).has_value());
-    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  // Edge should be [L1]:[]
-  {
-    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    const auto expected = nlohmann::json::parse(
-        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
-    ASSERT_TRUE(ConfrontJSON(json, expected)) << "Edge should be [L1]:[]. Actual: " << json.dump(2);
   }
 }
