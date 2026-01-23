@@ -144,6 +144,7 @@ class DeltaGenerator final {
           LOG_FATAL("Invalid delta owner!");
         }
       }
+
       if (append_transaction_end) {
         gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
         if (gen_->valid_) {
@@ -672,6 +673,25 @@ TEST_P(WalFileTest, EmptyFile) {
   ASSERT_EQ(wal_files.size(), 0);
 }
 
+TEST_P(WalFileTest, WalWithoutData) {
+  // WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
+  //         SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
+  //         utils::FileRetainer *file_retainer);
+  using memgraph::storage::SalientConfig;
+  using memgraph::storage::durability::ReadWalInfo;
+  using memgraph::storage::durability::WalFile;
+  using memgraph::utils::UUID;
+
+  constexpr std::string_view epoch{"epoch_id"};
+  SalientConfig::Items items;
+  constexpr auto seq_num{0};
+
+  // For this test we don't need name_id_mapper and file_retainer, that's why they are nullptr
+  WalFile file{storage_directory, UUID{}, epoch, items, nullptr, seq_num, nullptr};
+
+  auto res = ReadWalInfo(file.Path());
+}
+
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_SIMPLE_TEST(name, ops)                                                        \
   TEST_P(WalFileTest, name) {                                                                  \
@@ -929,8 +949,12 @@ TEST_P(WalFileTest, InvalidMarker) {
 TEST_P(WalFileTest, PartialData) {
   std::vector<std::pair<uint64_t, memgraph::storage::durability::WalInfo>> infos;
 
+  // We need to remember this byte pos because we won't throw if WAL files doesn't containt data deltas but is
+  // valid apart from that
+  uint64_t before_first_txn_pos{0};
   {
     DeltaGenerator gen(storage_directory, GetParam(), 5);
+    before_first_txn_pos = gen.GetPosition();
     TRANSACTION(true, { tx.CreateVertex(); });
     infos.emplace_back(gen.GetPosition(), gen.GetInfo());
     TRANSACTION(true, {
@@ -966,7 +990,9 @@ TEST_P(WalFileTest, PartialData) {
 
   uint64_t pos = 0;
   for (size_t i = 0; i < infile.GetSize(); ++i) {
-    if (i < infos.front().first) {
+    if (i == before_first_txn_pos) {
+      ASSERT_EQ(memgraph::storage::durability::ReadWalInfo(current_file).num_deltas, 0);
+    } else if (i < infos.front().first) {
       ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file),
                    memgraph::storage::durability::RecoveryFailure);
     } else {

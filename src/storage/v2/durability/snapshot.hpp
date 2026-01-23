@@ -93,7 +93,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
                             utils::FileRetainer *file_retainer);
 
-void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
+void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *transaction,
                                   utils::FileRetainer *file_retainer);
 

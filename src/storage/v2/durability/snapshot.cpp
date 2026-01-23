@@ -2179,6 +2179,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
                                                    .statistic = *statistic,
                                                    .avg_group_size = *avg_group_size,
                                                    .avg_degree = *avg_degree}));
+
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -10063,7 +10064,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 
-void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
+void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer) {
   struct LoadWalInfo {
@@ -10083,9 +10084,10 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     if (!item.is_regular_file()) continue;
     try {
       auto const info = ReadWalInfo(item.path());
+      // It is unsafe to delete here a WAL file without deltas because it could be the current one
+      if (info.num_deltas == 0) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      // We want to find out what happened with the corrupted snapshot file, not delete it
       spdlog::warn("Found a corrupted WAL file {} because of: {}.", item.path(), e.what());
       if (FLAGS_storage_force_cleanup) {
         spdlog::trace("Corrupted file will be deleted.");
@@ -10180,9 +10182,18 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
 }
 
 auto SnapshotInfo::IsIncomplete() const -> bool {
-  return std::ranges::any_of(std::array{offset_edges, offset_vertices, offset_indices, offset_edge_indices,
-                                        offset_constraints, offset_mapper, offset_enums, offset_epoch_history,
-                                        offset_metadata, offset_edge_batches, offset_vertex_batches, offset_ttl},
+  return std::ranges::any_of(std::array{offset_edges,
+                                        offset_vertices,
+                                        offset_indices,
+                                        offset_edge_indices,
+                                        offset_constraints,
+                                        offset_mapper,
+                                        offset_enums,
+                                        offset_epoch_history,
+                                        offset_metadata,
+                                        offset_edge_batches,
+                                        offset_vertex_batches,
+                                        offset_ttl},
                              [](auto v) { return v == 0; });
 }
 
@@ -10970,7 +10981,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer);
+    EnsureNecessaryWalFilesExist(wal_directory, old_snapshot_files, transaction, file_retainer);
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other

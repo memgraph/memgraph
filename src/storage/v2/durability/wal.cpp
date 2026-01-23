@@ -688,6 +688,8 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
 }  // namespace
 
 // Function used to read information about the WAL file.
+// If num_deltas is 0, it is caller's responsibility on management
+// of such a file.
 WalInfo ReadWalInfo(const std::filesystem::path &path) {
   // Check magic and version.
   Decoder wal;
@@ -750,7 +752,13 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       return std::nullopt;
     }
   };
-  auto size = wal.GetSize();
+
+  // We don't want to throw if reading wal info from a file without deltas
+  if (wal.GetPosition() == wal.GetSize()) {
+    return info;
+  }
+
+  auto const size = wal.GetSize();
   std::optional<uint64_t> current_timestamp;
   uint64_t num_deltas_in_txn = 0;
   while (wal.GetPosition() != size) {
@@ -773,6 +781,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
   }
 
+  // It means something is wrong
   if (info.num_deltas == 0) throw RecoveryFailure(kInvalidWalErrorMessage);
 
   return info;

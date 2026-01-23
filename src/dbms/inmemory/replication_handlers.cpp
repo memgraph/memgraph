@@ -906,7 +906,13 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 
   std::optional<storage::durability::WalInfo> maybe_wal_info;
   try {
-    maybe_wal_info.emplace(storage::durability::ReadWalInfo(wal_path));
+    auto wal_info = storage::durability::ReadWalInfo(wal_path);
+    if (wal_info.num_deltas != 0) {
+      maybe_wal_info.emplace(std::move(wal_info));
+    } else {
+      spdlog::info("Received WAL file doesn't have deltas, nothing to load");
+      return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
+    }
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
