@@ -89,7 +89,7 @@ jobs:
           # else
           #   echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           # fi
-          echo "BRANCH_NAME=firebird-benchmark-env-48" >> $GITHUB_ENV
+          echo "BRANCH_NAME=firebird-benchmark-env-96" >> $GITHUB_ENV
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
