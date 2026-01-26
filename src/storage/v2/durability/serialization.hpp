@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,16 +72,20 @@ class Encoder final : public BaseEncoder {
   void Finalize();
 
   // Disable flushing of the internal buffer.
-  void DisableFlushing() requires std::same_as<FileType, utils::OutputFile>;
+  void DisableFlushing()
+    requires std::same_as<FileType, utils::OutputFile>;
   // Enable flushing of the internal buffer.
-  void EnableFlushing() requires std::same_as<FileType, utils::OutputFile>;
+  void EnableFlushing()
+    requires std::same_as<FileType, utils::OutputFile>;
   // Try flushing the internal buffer.
-  void TryFlushing() requires std::same_as<FileType, utils::OutputFile>;
+  void TryFlushing()
+    requires std::same_as<FileType, utils::OutputFile>;
   // Get the current internal buffer with its size.
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
 
   // Get the total size of the current file.
   size_t GetSize();
+
   auto GetPath() const { return file_.path(); }
 
   auto native_handle() const { return file_.fd(); }

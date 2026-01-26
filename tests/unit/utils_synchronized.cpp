@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,7 +50,9 @@ TEST(Synchronized, Constructors) {
     EXPECT_TRUE(data.empty());
     EXPECT_EQ(vec->size(), 3);
   }
-  { memgraph::utils::Synchronized<NoMoveNoCopy> object(3, 4); }
+  {
+    memgraph::utils::Synchronized<NoMoveNoCopy> object(3, 4);
+  }
 }
 
 bool test_lock_locked = false;
@@ -61,6 +63,7 @@ class TestLock {
     ASSERT_FALSE(test_lock_locked);
     test_lock_locked = true;
   }
+
   void unlock() {
     ASSERT_TRUE(test_lock_locked);
     test_lock_locked = false;
@@ -75,14 +78,17 @@ class TestSharedLock {
     ASSERT_FALSE(test_lock_locked);
     test_lock_locked = true;
   }
+
   void unlock() {
     ASSERT_TRUE(test_lock_locked);
     test_lock_locked = false;
   }
+
   void lock_shared() {
     ASSERT_FALSE(test_shared_lock_locked);
     test_shared_lock_locked = true;
   }
+
   void unlock_shared() {
     ASSERT_TRUE(test_shared_lock_locked);
     test_shared_lock_locked = false;

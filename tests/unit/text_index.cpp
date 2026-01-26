@@ -113,8 +113,8 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   // Verify vertex is found before property deletion
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES,
-                                       default_limit);
+    auto result = acc->TextIndexSearch(
+        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -129,13 +129,13 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   // Expect the vertex to not be found when searching for title, as the property was removed
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES,
-                                       default_limit);
+    auto result = acc->TextIndexSearch(
+        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(result.size(), 0);
 
     // But content should still be searchable
-    result = acc->TextIndexSearch(test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES,
-                                  default_limit);
+    result = acc->TextIndexSearch(
+        test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(result.size(), 1);
   }
 }
@@ -179,8 +179,8 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
   // Verify initial node is in the index
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES,
-                                       default_limit);
+    auto result = acc->TextIndexSearch(
+        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -209,18 +209,18 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
 
     // Original node should still be there (delete was aborted)
-    auto initial_result = acc->TextIndexSearch(test_index.data(), "data.title:Initial",
-                                               text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+    auto initial_result = acc->TextIndexSearch(
+        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(initial_result.size(), 1);
 
     // First new node should be there (add was committed)
-    auto new1_result = acc->TextIndexSearch(test_index.data(), "data.title:\"New Title 1\"",
-                                            text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+    auto new1_result = acc->TextIndexSearch(
+        test_index.data(), "data.title:\"New Title 1\"", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(new1_result.size(), 1);
 
     // Second new node should be there (add was committed)
-    auto new2_result = acc->TextIndexSearch(test_index.data(), "data.title:\"New Title 2\"",
-                                            text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+    auto new2_result = acc->TextIndexSearch(
+        test_index.data(), "data.title:\"New Title 2\"", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(new2_result.size(), 1);
 
     // Total should be 3 nodes (1 original + 2 new)

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,8 +14,7 @@
 size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, memgraph::storage::View view) {
   auto vertices = storage_accessor.Vertices(view);
   size_t count = 0U;
-  for (auto it = vertices.begin(); it != vertices.end(); ++it, ++count)
-    ;
+  for (auto it = vertices.begin(); it != vertices.end(); ++it, ++count);
   return count;
 }
 

@@ -71,11 +71,12 @@ TYPED_TEST(OperatorToStringTest, Once) {
 
 TYPED_TEST(OperatorToStringTest, CreateNode) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<CreateNode>(
-      nullptr, NodeCreationInfo{this->GetSymbol("node"),
-                                {this->dba.NameToLabel("Label1"), this->dba.NameToLabel("Label2")},
-                                {{this->dba.NameToProperty("prop1"), LITERAL(5)},
-                                 {this->dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}});
+  last_op =
+      std::make_shared<CreateNode>(nullptr,
+                                   NodeCreationInfo{this->GetSymbol("node"),
+                                                    {this->dba.NameToLabel("Label1"), this->dba.NameToLabel("Label2")},
+                                                    {{this->dba.NameToProperty("prop1"), LITERAL(5)},
+                                                     {this->dba.NameToProperty("prop2"), LITERAL("some cool stuff")}}});
 
   std::string expected_string{"CreateNode"};
   EXPECT_EQ(last_op->ToString(), expected_string);
@@ -93,7 +94,9 @@ TYPED_TEST(OperatorToStringTest, CreateExpand) {
                        {{this->dba.NameToProperty("weight"), LITERAL(5.32)}},
                        this->dba.NameToEdgeType("edge_type"),
                        EdgeAtom::Direction::OUT},
-      last_op, node1_sym, false);
+      last_op,
+      node1_sym,
+      false);
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"CreateExpand (node1)-[edge:edge_type]->(node2)"};
@@ -120,7 +123,9 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabel) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_OverARange) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      nullptr,
+      this->GetSymbol("node"),
+      this->dba.NameToLabel("Label"),
       std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
       std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
                                          memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
@@ -133,7 +138,9 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_OverARange) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_Value) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op =
-      std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::make_shared<ScanAllByLabelProperties>(nullptr,
+                                                 this->GetSymbol("node"),
+                                                 this->dba.NameToLabel("Label"),
                                                  std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
                                                  std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   last_op->dba_ = &this->dba;
@@ -144,7 +151,9 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_Value) {
 
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperty) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+  last_op = std::make_shared<ScanAllByLabelProperties>(nullptr,
+                                                       this->GetSymbol("node"),
+                                                       this->dba.NameToLabel("Label"),
                                                        std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
                                                        std::vector{ExpressionRange::IsNotNull()});
   last_op->dba_ = &this->dba;
@@ -156,7 +165,9 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperty) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperties_OverARange) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      nullptr,
+      this->GetSymbol("node"),
+      this->dba.NameToLabel("Label"),
       std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
                   ms::PropertyPath{this->dba.NameToProperty("second")},
                   ms::PropertyPath{this->dba.NameToProperty("third")}},
@@ -171,7 +182,9 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperties_OverARange) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperties_Value) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op =
-      std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::make_shared<ScanAllByLabelProperties>(nullptr,
+                                                 this->GetSymbol("node"),
+                                                 this->dba.NameToLabel("Label"),
                                                  std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
                                                              ms::PropertyPath{this->dba.NameToProperty("second")},
                                                              ms::PropertyPath{this->dba.NameToProperty("third")}},
@@ -184,7 +197,9 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperties_Value) {
 
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperty) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+  last_op = std::make_shared<ScanAllByLabelProperties>(nullptr,
+                                                       this->GetSymbol("node"),
+                                                       this->dba.NameToLabel("Label"),
                                                        std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
                                                                    ms::PropertyPath{this->dba.NameToProperty("second")},
                                                                    ms::PropertyPath{this->dba.NameToProperty("third")}},
@@ -198,9 +213,11 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperty) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperties_OverARange) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-      std::vector{ms::PropertyPath{this->dba.NameToProperty("first"), this->dba.NameToProperty("second"),
-                                   this->dba.NameToProperty("third")}},
+      nullptr,
+      this->GetSymbol("node"),
+      this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{
+          this->dba.NameToProperty("first"), this->dba.NameToProperty("second"), this->dba.NameToProperty("third")}},
       std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
                                          memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
   last_op->dba_ = &this->dba;
@@ -212,9 +229,11 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperties_OverARange) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperties_Value) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-      std::vector{ms::PropertyPath{this->dba.NameToProperty("first"), this->dba.NameToProperty("second"),
-                                   this->dba.NameToProperty("third")}},
+      nullptr,
+      this->GetSymbol("node"),
+      this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{
+          this->dba.NameToProperty("first"), this->dba.NameToProperty("second"), this->dba.NameToProperty("third")}},
       std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   last_op->dba_ = &this->dba;
 
@@ -225,9 +244,11 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperties_Value) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperty) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-      std::vector{ms::PropertyPath{this->dba.NameToProperty("first"), this->dba.NameToProperty("second"),
-                                   this->dba.NameToProperty("third")}},
+      nullptr,
+      this->GetSymbol("node"),
+      this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{
+          this->dba.NameToProperty("first"), this->dba.NameToProperty("second"), this->dba.NameToProperty("third")}},
       std::vector{ExpressionRange::IsNotNull()});
   last_op->dba_ = &this->dba;
 
@@ -247,11 +268,15 @@ TYPED_TEST(OperatorToStringTest, ScanAllById) {
 TYPED_TEST(OperatorToStringTest, Expand) {
   auto node1_sym = this->GetSymbol("node1");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
-  last_op = std::make_shared<Expand>(last_op, node1_sym, this->GetSymbol("node2"), this->GetSymbol("edge"),
+  last_op = std::make_shared<Expand>(last_op,
+                                     node1_sym,
+                                     this->GetSymbol("node2"),
+                                     this->GetSymbol("edge"),
                                      EdgeAtom::Direction::BOTH,
                                      std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
                                                                                 this->dba.NameToEdgeType("EdgeType2")},
-                                     false, memgraph::storage::View::OLD);
+                                     false,
+                                     memgraph::storage::View::OLD);
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"Expand (node1)-[edge:EdgeType1|:EdgeType2]-(node2)"};
@@ -262,14 +287,24 @@ TYPED_TEST(OperatorToStringTest, ExpandVariable) {
   auto node1_sym = this->GetSymbol("node1");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<ExpandVariable>(
-      last_op, node1_sym, this->GetSymbol("node2"), this->GetSymbol("edge"), EdgeAtom::Type::BREADTH_FIRST,
+      last_op,
+      node1_sym,
+      this->GetSymbol("node2"),
+      this->GetSymbol("edge"),
+      EdgeAtom::Type::BREADTH_FIRST,
       EdgeAtom::Direction::OUT,
       std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
                                                  this->dba.NameToEdgeType("EdgeType2")},
-      false, LITERAL(2), LITERAL(5), false,
-      ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
+      false,
+      LITERAL(2),
+      LITERAL(5),
+      false,
+      ExpansionLambda{this->GetSymbol("inner_node"),
+                      this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt, nullptr);
+      std::nullopt,
+      std::nullopt,
+      nullptr);
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"BFSExpand (node1)-[edge:EdgeType1|:EdgeType2]->(node2)"};
@@ -283,13 +318,24 @@ TYPED_TEST(OperatorToStringTest, KShortestExpand) {
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<ExpandVariable>(
-      last_op, node1_sym, node2_sym, edge_sym, EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT,
+      last_op,
+      node1_sym,
+      node2_sym,
+      edge_sym,
+      EdgeAtom::Type::KSHORTEST,
+      EdgeAtom::Direction::OUT,
       std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
                                                  this->dba.NameToEdgeType("EdgeType2")},
-      false, nullptr, nullptr, false,
-      ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
+      false,
+      nullptr,
+      nullptr,
+      false,
+      ExpansionLambda{this->GetSymbol("inner_node"),
+                      this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt, nullptr);
+      std::nullopt,
+      std::nullopt,
+      nullptr);
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"KShortest (node1)-[edge:EdgeType1|:EdgeType2]->(node2)"};
@@ -304,10 +350,22 @@ TYPED_TEST(OperatorToStringTest, ConstructNamedPath) {
   auto node3_sym = this->GetSymbol("node3");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
-  last_op = std::make_shared<Expand>(last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
-  last_op = std::make_shared<Expand>(last_op, node2_sym, node3_sym, edge2_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node1_sym,
+                                     node2_sym,
+                                     edge1_sym,
+                                     EdgeAtom::Direction::OUT,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node2_sym,
+                                     node3_sym,
+                                     edge2_sym,
+                                     EdgeAtom::Direction::OUT,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
   last_op = std::make_shared<ConstructNamedPath>(
       last_op, this->GetSymbol("path"), std::vector<Symbol>{node1_sym, edge1_sym, node2_sym, edge2_sym, node3_sym});
 
@@ -338,12 +396,18 @@ TYPED_TEST(OperatorToStringTest, Filter) {
   auto pattern_filter_info = FilterInfo{FilterInfo::Type::Pattern};
 
   Filters filters;
-  filters.SetFilters({generic_filter_info, id_filter_info, label_filter_info, label_filter_2_info, property_filter_info,
+  filters.SetFilters({generic_filter_info,
+                      id_filter_info,
+                      label_filter_info,
+                      label_filter_2_info,
+                      property_filter_info,
                       pattern_filter_info});
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                     EQ(PROPERTY_LOOKUP(this->dba, "person", property), LITERAL(5)), filters);
+  last_op = std::make_shared<Filter>(last_op,
+                                     std::vector<std::shared_ptr<LogicalOperator>>{},
+                                     EQ(PROPERTY_LOOKUP(this->dba, "person", property), LITERAL(5)),
+                                     filters);
 
   std::string expected_string{
       "Filter (:Customer:Visitor), (person :Customer:Visitor), Generic {person}, Pattern, id(person), {person.name}"};
@@ -362,8 +426,8 @@ TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels1) {
   filters.SetFilters({label_filter_info});
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                     LABELS_TEST(node_ident, labels), filters);
+  last_op = std::make_shared<Filter>(
+      last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, LABELS_TEST(node_ident, labels), filters);
 
   std::string expected_string{"Filter (person :Customer|Visitor)"};
   auto op_string = last_op->ToString();
@@ -427,8 +491,13 @@ TYPED_TEST(OperatorToStringTest, Produce) {
 TYPED_TEST(OperatorToStringTest, Delete) {
   auto node_sym = this->GetSymbol("node1");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<Expand>(last_op, node_sym, this->GetSymbol("node2"), this->GetSymbol("edge"),
-                                     EdgeAtom::Direction::BOTH, std::vector<memgraph::storage::EdgeTypeId>{}, false,
+  last_op = std::make_shared<Expand>(last_op,
+                                     node_sym,
+                                     this->GetSymbol("node2"),
+                                     this->GetSymbol("edge"),
+                                     EdgeAtom::Direction::BOTH,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
                                      memgraph::storage::View::OLD);
   last_op = std::make_shared<plan::Delete>(last_op, std::vector<Expression *>{IDENT("node2")}, true);
 
@@ -440,7 +509,9 @@ TYPED_TEST(OperatorToStringTest, SetProperty) {
   memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node"));
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+  last_op = std::make_shared<plan::SetProperty>(last_op,
+                                                prop,
+                                                PROPERTY_LOOKUP(this->dba, "node", prop),
                                                 ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
 
   std::string expected_string{"SetProperty"};
@@ -450,7 +521,8 @@ TYPED_TEST(OperatorToStringTest, SetProperty) {
 TYPED_TEST(OperatorToStringTest, SetProperties) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::SetProperties>(last_op, node_sym,
+  last_op = std::make_shared<plan::SetProperties>(last_op,
+                                                  node_sym,
                                                   MAP({{this->storage.GetPropertyIx("prop1"), LITERAL(1)},
                                                        {this->storage.GetPropertyIx("prop2"), LITERAL("propko")}}),
                                                   plan::SetProperties::Op::REPLACE);
@@ -503,11 +575,23 @@ TYPED_TEST(OperatorToStringTest, EdgeUniquenessFilter) {
   auto edge2_sym = this->GetSymbol("edge2");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
-  last_op = std::make_shared<Expand>(last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::IN,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node1_sym,
+                                     node2_sym,
+                                     edge1_sym,
+                                     EdgeAtom::Direction::IN,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
   last_op = std::make_shared<ScanAll>(last_op, node3_sym);
-  last_op = std::make_shared<Expand>(last_op, node3_sym, node4_sym, edge2_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node3_sym,
+                                     node4_sym,
+                                     edge2_sym,
+                                     EdgeAtom::Direction::OUT,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
   last_op = std::make_shared<EdgeUniquenessFilter>(last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
   std::string expected_string{"EdgeUniquenessFilter {edge1 : edge2}"};
@@ -518,7 +602,9 @@ TYPED_TEST(OperatorToStringTest, Accumulate) {
   memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+  last_op = std::make_shared<plan::SetProperty>(last_op,
+                                                prop,
+                                                PROPERTY_LOOKUP(this->dba, "node", prop),
                                                 ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
   last_op = std::make_shared<plan::Accumulate>(last_op, std::vector<Symbol>{node_sym}, true);
 
@@ -536,10 +622,13 @@ TYPED_TEST(OperatorToStringTest, Aggregate) {
       nullptr,
       std::vector<Aggregate::Element>{
           {PROPERTY_LOOKUP(this->dba, "node", value), nullptr, Aggregation::Op::SUM, this->GetSymbol("sum")},
-          {PROPERTY_LOOKUP(this->dba, "node", value), PROPERTY_LOOKUP(this->dba, "node", color),
-           Aggregation::Op::COLLECT_MAP, this->GetSymbol("map")},
+          {PROPERTY_LOOKUP(this->dba, "node", value),
+           PROPERTY_LOOKUP(this->dba, "node", color),
+           Aggregation::Op::COLLECT_MAP,
+           this->GetSymbol("map")},
           {nullptr, nullptr, Aggregation::Op::COUNT, this->GetSymbol("count")}},
-      std::vector<Expression *>{PROPERTY_LOOKUP(this->dba, "node", type)}, std::vector<Symbol>{node_sym});
+      std::vector<Expression *>{PROPERTY_LOOKUP(this->dba, "node", type)},
+      std::vector<Symbol>{node_sym});
 
   std::string expected_string{"Aggregate {sum, map, count} {node}"};
   EXPECT_EQ(last_op->ToString(), expected_string);
@@ -598,9 +687,14 @@ TYPED_TEST(OperatorToStringTest, Optional) {
 
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(nullptr, node1_sym);
 
-  std::shared_ptr<LogicalOperator> expand =
-      std::make_shared<Expand>(nullptr, node1_sym, node2_sym, edge_sym, EdgeAtom::Direction::OUT,
-                               std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+  std::shared_ptr<LogicalOperator> expand = std::make_shared<Expand>(nullptr,
+                                                                     node1_sym,
+                                                                     node2_sym,
+                                                                     edge_sym,
+                                                                     EdgeAtom::Direction::OUT,
+                                                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                                                     false,
+                                                                     memgraph::storage::View::OLD);
 
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<Optional>(input, expand, std::vector<Symbol>{node2_sym, edge_sym});
@@ -648,8 +742,11 @@ TYPED_TEST(OperatorToStringTest, CallProcedure) {
   call_op.procedure_name_ = "mg.procedures";
   call_op.arguments_ = {};
   call_op.result_fields_ = {"is_editable", "is_write", "name", "path", "signature"};
-  call_op.result_symbols_ = {this->GetSymbol("is_editable"), this->GetSymbol("is_write"), this->GetSymbol("name"),
-                             this->GetSymbol("path"), this->GetSymbol("signature")};
+  call_op.result_symbols_ = {this->GetSymbol("is_editable"),
+                             this->GetSymbol("is_write"),
+                             this->GetSymbol("name"),
+                             this->GetSymbol("path"),
+                             this->GetSymbol("signature")};
 
   std::string expected_string{"CallProcedure<mg.procedures> {is_editable, is_write, name, path, signature}"};
   EXPECT_EQ(call_op.ToString(), expected_string);

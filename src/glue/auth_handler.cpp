@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -195,8 +195,10 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     return fine_grained_permissions;
   }
 
-  auto add_permission = [&](const std::string &entity_name, uint64_t permission_bitmask,
-                            memgraph::auth::PermissionLevel grant_or_deny, bool is_global) {
+  auto add_permission = [&](const std::string &entity_name,
+                            uint64_t permission_bitmask,
+                            memgraph::auth::PermissionLevel grant_or_deny,
+                            bool is_global) {
     std::string permission_description;
     auto const *const level_str = grant_or_deny == memgraph::auth::PermissionLevel::DENY ? "DENIED" : "GRANTED";
 
@@ -271,7 +273,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
 
     auto const *effective = (permission.permission_level == 0) ? "DENY" : "GRANT";
 
-    grants.push_back({memgraph::query::TypedValue(combined_privilege), memgraph::query::TypedValue(effective),
+    grants.push_back({memgraph::query::TypedValue(combined_privilege),
+                      memgraph::query::TypedValue(effective),
                       memgraph::query::TypedValue(permission.description)});
   }
 
@@ -319,7 +322,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
   auto edge_type_fine_grained_permissions =
       GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE");
 
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(), edge_type_fine_grained_permissions.begin(),
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      edge_type_fine_grained_permissions.begin(),
                                       edge_type_fine_grained_permissions.end());
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
@@ -329,8 +333,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 memgraph::auth::UserProfiles::Limits name_to_limit(const auto &name) {
   auto it = std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name);
   if (it == memgraph::auth::UserProfiles::kLimits.end()) {
-    throw memgraph::query::QueryRuntimeException("Unknown limit '{}'. Currently implemented limits: {}", name,
-                                                 memgraph::auth::UserProfiles::AllLimits());
+    throw memgraph::query::QueryRuntimeException(
+        "Unknown limit '{}'. Currently implemented limits: {}", name, memgraph::auth::UserProfiles::AllLimits());
   }
   return static_cast<memgraph::auth::UserProfiles::Limits>(
       std::distance(memgraph::auth::UserProfiles::kLimits.begin(), it));
@@ -401,27 +405,22 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
           "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
           "first user as the superuser with full privileges and capabilities on the Memgraph database.",
           username);
-      GrantPrivilege(
-          username, memgraph::query::kPrivilegesAll
+      GrantPrivilege(username,
+                     memgraph::query::kPrivilegesAll
 #ifdef MG_ENTERPRISE
-          ,
-          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
-            {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
-            {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}},
-            {memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, {memgraph::query::kAsterisk}}}},
-          {memgraph::query::AuthQuery::LabelMatchingMode::ANY},
-          {
-            {
-              {memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
-                  {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
-                  {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}}, {
-                memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, { memgraph::query::kAsterisk }
-              }
-            }
-          }
+                     ,
+                     {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
+                       {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
+                       {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}},
+                       {memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, {memgraph::query::kAsterisk}}}},
+                     {memgraph::query::AuthQuery::LabelMatchingMode::ANY},
+                     {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
+                       {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
+                       {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}},
+                       {memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, {memgraph::query::kAsterisk}}}}
 #endif
-          ,
-          system_tx);
+                     ,
+                     system_tx);
 #ifdef MG_ENTERPRISE
       GrantDatabase(auth::kAllDatabases, username, system_tx);
       SetMainDatabase(dbms::kDefaultDB, username, system_tx);
@@ -559,8 +558,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     if (roles_obj) {
       return ShowDatabasePrivileges(roles_obj);
     }
-    throw memgraph::query::QueryRuntimeException("Missing user '{}' or one of role: {}.", user,
-                                                 memgraph::utils::JoinVector(roles, ", "));
+    throw memgraph::query::QueryRuntimeException(
+        "Missing user '{}' or one of role: {}.", user, memgraph::utils::JoinVector(roles, ", "));
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -871,9 +870,12 @@ void AuthQueryHandler::GrantPrivilege(
     ,
     system::Transaction *system_tx) {
   EditPermissions(
-      user_or_role, privileges,
+      user_or_role,
+      privileges,
 #ifdef MG_ENTERPRISE
-      label_privileges, label_matching_modes, edge_type_privileges,
+      label_privileges,
+      label_matching_modes,
+      edge_type_privileges,
 #endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
@@ -907,9 +909,12 @@ void AuthQueryHandler::DenyPrivilege(const std::string &user_or_role,
                                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                      system::Transaction *system_tx) {
   EditPermissions(
-      user_or_role, privileges,
+      user_or_role,
+      privileges,
 #ifdef MG_ENTERPRISE
-      {}, {}, {},
+      {},
+      {},
+      {},
 #endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
@@ -938,9 +943,12 @@ void AuthQueryHandler::RevokePrivilege(
     ,
     system::Transaction *system_tx) {
   EditPermissions(
-      user_or_role, privileges,
+      user_or_role,
+      privileges,
 #ifdef MG_ENTERPRISE
-      label_privileges, label_matching_modes, edge_type_privileges,
+      label_privileges,
+      label_matching_modes,
+      edge_type_privileges,
 #endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
@@ -1013,8 +1021,8 @@ void AuthQueryHandler::EditPermissions(
           const auto &matching_mode = (i < label_matching_modes.size())
                                           ? label_matching_modes[i]
                                           : memgraph::query::AuthQuery::LabelMatchingMode::ANY;
-          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
-                                            label_privilege_collection, matching_mode);
+          edit_fine_grained_permissions_fun(
+              user->fine_grained_access_handler().label_permissions(), label_privilege_collection, matching_mode);
         }
         for (const auto &edge_type_privilege_collection : edge_type_privileges) {
           // Edge types rules always use ANY mode as edges have only one type
@@ -1036,13 +1044,14 @@ void AuthQueryHandler::EditPermissions(
           const auto &matching_mode = (i < label_matching_modes.size())
                                           ? label_matching_modes[i]
                                           : memgraph::query::AuthQuery::LabelMatchingMode::ANY;
-          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().label_permissions(), label_privilege,
-                                            matching_mode);
+          edit_fine_grained_permissions_fun(
+              role->fine_grained_access_handler().label_permissions(), label_privilege, matching_mode);
         }
         for (const auto &edge_type_privilege : edge_type_privileges) {
           // Edge types rules always use ANY mode as edges have only one type
           edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
-                                            edge_type_privilege, memgraph::query::AuthQuery::LabelMatchingMode::ANY);
+                                            edge_type_privilege,
+                                            memgraph::query::AuthQuery::LabelMatchingMode::ANY);
         }
       }
 #endif

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,11 +53,15 @@ class Stacktrace {
   }
 
   auto begin() { return lines.begin(); }
+
   auto begin() const { return lines.begin(); }
+
   auto cbegin() const { return lines.cbegin(); }
 
   auto end() { return lines.end(); }
+
   auto end() const { return lines.end(); }
+
   auto cend() const { return lines.cend(); }
 
   const Line &operator[](size_t idx) const { return lines[idx]; }

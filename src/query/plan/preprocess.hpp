@@ -142,7 +142,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(PrimitiveLiteral &) override { return true; }
+
   bool Visit(ParameterLookup &) override { return true; }
+
   bool Visit(EnumValueAccess &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
@@ -238,8 +240,11 @@ class PatternComprehensionCollector : public HierarchicalTreeVisitor {
 
   // Leaf nodes - stop traversal (no children to visit)
   bool Visit(Identifier &) override { return true; }
+
   bool Visit(PrimitiveLiteral &) override { return true; }
+
   bool Visit(ParameterLookup &) override { return true; }
+
   bool Visit(EnumValueAccess &) override { return true; }
 
   std::vector<FilterMatching> getFilterMatchings();
@@ -324,12 +329,14 @@ struct PointFilter {
   Symbol symbol_;
   PropertyIx property_;
   Function function_;
+
   union {
     struct {
       Expression *cmp_value_ = nullptr;
       Expression *boundary_value_ = nullptr;
       PointDistanceCondition boundary_condition_;
     } distance_;
+
     struct {
       Expression *bottom_left_ = nullptr;
       Expression *top_right_ = nullptr;
@@ -408,8 +415,11 @@ class Filters final {
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
   auto begin() -> iterator { return all_filters_.begin(); }
+
   auto begin() const -> const_iterator { return all_filters_.begin(); }
+
   auto end() -> iterator { return all_filters_.end(); }
+
   auto end() const -> const_iterator { return all_filters_.end(); }
 
   auto empty() const -> bool { return all_filters_.empty(); }
@@ -521,10 +531,13 @@ struct FilterMatching : Matching {
 };
 
 inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
+
 inline auto Filters::erase(Filters::const_iterator pos) -> iterator { return all_filters_.erase(pos); }
+
 inline auto Filters::erase(Filters::iterator first, Filters::iterator last) -> iterator {
   return all_filters_.erase(first, last);
 }
+
 inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterator last) -> iterator {
   return all_filters_.erase(first, last);
 }

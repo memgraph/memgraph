@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,8 +27,8 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
                                Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
   if (!storage_) return;
-  MG_ASSERT(validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.",
-            name);
+  MG_ASSERT(
+      validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.", name);
 
   if (const auto maybe_value = storage_->Get(name); maybe_value) {
     SPDLOG_INFO("The setting with name {} already exists!", name);

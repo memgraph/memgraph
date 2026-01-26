@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,10 @@ void memgraph::logging::AssertFailed(std::source_location const loc, char const 
       "\nAssertion failed in file {} at line {}."
       "\n\tExpression: '{}'"
       "{}",
-      loc.file_name(), loc.line(), expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
+      loc.file_name(),
+      loc.line(),
+      expr,
+      !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
   std::terminate();
 }
 

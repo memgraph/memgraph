@@ -58,9 +58,10 @@ void RpcMessageDeliverer::Execute() {
   while (true) {
     auto const remaining_file_size = GetRemainingFileSize();
 
-    slk::StreamInfo const ret =
-        slk::CheckStreamStatus(input_stream_->data() + consumed_bytes, input_stream_->size() - consumed_bytes,
-                               remaining_file_size, consumed_bytes);
+    slk::StreamInfo const ret = slk::CheckStreamStatus(input_stream_->data() + consumed_bytes,
+                                                       input_stream_->size() - consumed_bytes,
+                                                       remaining_file_size,
+                                                       consumed_bytes);
 
     if (ret.status == slk::StreamStatus::INVALID) {
       input_stream_->Clear();

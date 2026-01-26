@@ -67,6 +67,7 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
   const char *Name() const override { return kClassName(); }
 
   void FindShortSuccessor(std::string * /*key*/) const override {}
+
   void FindShortestSeparator(std::string * /*start*/, const rocksdb::Slice & /*limit*/) const override {}
 
   int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override;

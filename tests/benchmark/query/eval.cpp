@@ -18,6 +18,7 @@
 #include "storage/v2/storage.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
+
 // The following classes are wrappers for memgraph::utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
 
@@ -50,8 +51,8 @@ static void MapLiteral(benchmark::State &state) {
   auto *expr = ast.Create<memgraph::query::MapLiteral>(elements);
   memgraph::query::EvaluationContext evaluation_context{memory.get()};
   evaluation_context.properties = memgraph::query::NamesToProperties(ast.properties_, &dba);
-  memgraph::query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, &dba,
-                                                 memgraph::storage::View::NEW);
+  memgraph::query::ExpressionEvaluator evaluator(
+      &frame, symbol_table, evaluation_context, &dba, memgraph::storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }
@@ -79,8 +80,8 @@ static void AdditionOperator(benchmark::State &state) {
     expr = ast.Create<memgraph::query::AdditionOperator>(expr, ast.Create<memgraph::query::PrimitiveLiteral>(i));
   }
   memgraph::query::EvaluationContext evaluation_context{memory.get()};
-  memgraph::query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, &dba,
-                                                 memgraph::storage::View::NEW);
+  memgraph::query::ExpressionEvaluator evaluator(
+      &frame, symbol_table, evaluation_context, &dba, memgraph::storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }

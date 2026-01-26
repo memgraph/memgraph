@@ -37,8 +37,8 @@ struct CppApiTestFixture : public ::testing::Test {
 
   mgp_graph CreateGraph(memgraph::query::DbAccessor *db_acc) {
     // the execution context can be null as it shouldn't be used in these tests
-    return mgp_graph{db_acc, memgraph::storage::View::NEW, ctx_.get(),
-                     memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+    return mgp_graph{
+        db_acc, memgraph::storage::View::NEW, ctx_.get(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   }
 
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
@@ -445,7 +445,13 @@ void test_TestLocalDateTime() {
   auto ldt_2 = mgp::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
 
   ASSERT_ANY_THROW(mgp::LocalDateTime(
-      2021, 10, 0, 14, 15, 0, 0,
+      2021,
+      10,
+      0,
+      14,
+      15,
+      0,
+      0,
       0));  // ...10, 0, 14... <- 0 is an illegal value for the `day` parameter; must throw an exception
 
   ASSERT_EQ(ldt_1.Year(), 2021);
@@ -506,10 +512,10 @@ TYPED_TEST(CppApiTestFixture, TestLocalDateTimeTZ) {
 
 TYPED_TEST(CppApiTestFixture, TestDuration) {
   auto duration_1 = mgp::Duration("PT2M2.33S");
-  auto duration_2 = mgp::Duration(1465355);
+  auto duration_2 = mgp::Duration(1'465'355);
   auto duration_3 = mgp::Duration(5, 14, 15, 0, 0, 0);
 
-  ASSERT_EQ(duration_2.Microseconds(), 1465355);
+  ASSERT_EQ(duration_2.Microseconds(), 1'465'355);
   ASSERT_NE(duration_1, duration_2);
   ASSERT_NE(duration_2, duration_3);
 
@@ -531,7 +537,14 @@ void test_TestZonedDateTime() {
   auto ldt_2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Etc/UTC");
 
   ASSERT_ANY_THROW(mgp::ZonedDateTime(
-      2021, 10, 0, 14, 15, 0, 0, 0,
+      2021,
+      10,
+      0,
+      14,
+      15,
+      0,
+      0,
+      0,
       0));  // ...10, 0, 14... <- 0 is an illegal value for the `day` parameter; must throw an exception
 
   // Disallow any named timezone that is not in the tz database
@@ -1321,8 +1334,8 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     auto label = db_acc->NameToLabel(label_name);
     auto property = db_acc->NameToProperty(property_name);
-    auto spec = memgraph::storage::VectorIndexSpec{index_name,         label,        property,   metric, dimension,
-                                                   resize_coefficient, max_elements, scalar_kind};
+    auto spec = memgraph::storage::VectorIndexSpec{
+        index_name, label, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1376,8 +1389,8 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     auto edge = db_acc->NameToEdgeType(edge_type);
     auto property = db_acc->NameToProperty(property_name);
-    auto spec = memgraph::storage::VectorEdgeIndexSpec{index_name,         edge,         property,   metric, dimension,
-                                                       resize_coefficient, max_elements, scalar_kind};
+    auto spec = memgraph::storage::VectorEdgeIndexSpec{
+        index_name, edge, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1449,8 +1462,8 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     // Test search functionality
-    auto search_results = mgp::SearchTextIndex(&raw_graph, index_name, "data.content:document",
-                                               text_search_mode::SPECIFIED_PROPERTIES, text_search_limit);
+    auto search_results = mgp::SearchTextIndex(
+        &raw_graph, index_name, "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, text_search_limit);
     ASSERT_GE(search_results.Size(), 1);
   }
 
@@ -1507,8 +1520,11 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     // Test search functionality
-    auto search_results = mgp::SearchTextEdgeIndex(&raw_graph, index_name, "data.description:information",
-                                                   text_search_mode::SPECIFIED_PROPERTIES, text_search_limit);
+    auto search_results = mgp::SearchTextEdgeIndex(&raw_graph,
+                                                   index_name,
+                                                   "data.description:information",
+                                                   text_search_mode::SPECIFIED_PROPERTIES,
+                                                   text_search_limit);
     ASSERT_GE(search_results.Size(), 1);
   }
 

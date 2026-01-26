@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,7 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   struct ActiveIndices : LabelIndex::ActiveIndices {
     explicit ActiveIndices(std::unordered_set<LabelId> index) : index_(std::move(index)) {}
+
     /// @throw std::bad_alloc
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 

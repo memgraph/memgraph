@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,10 +29,12 @@ PRE_VISIT(RemoveProperty)
 PRE_VISIT(RemoveLabels)
 
 PRE_VISIT(ScanAll)
+
 bool UsedIndexChecker::PreVisit(ScanAllByLabel &op) {
   required_indices_.label_.emplace_back(op.label_);
   return true;
 }
+
 bool UsedIndexChecker::PreVisit(ScanAllByLabelProperties &op) {
   required_indices_.label_properties_.emplace_back(op.label_, op.properties_);
   return true;

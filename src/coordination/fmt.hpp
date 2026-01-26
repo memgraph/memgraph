@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,10 +51,12 @@ inline std::string ToString(const nuraft::cmd_result_code &code) {
   }
   LOG_FATAL("ToString of a nuraft::cmd_result_code -> check missing switch case");
 }
+
 inline std::ostream &operator<<(std::ostream &os, const nuraft::cmd_result_code &code) {
   os << ToString(code);
   return os;
 }
+
 template <>
 class fmt::formatter<nuraft::cmd_result_code> : public fmt::ostream_formatter {};
 #endif

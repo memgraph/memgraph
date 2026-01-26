@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,11 +53,15 @@ class PreviousPtr {
 
   struct Pointer {
     Pointer() = default;
+
     explicit Pointer(Delta *delta) : type(Type::DELTA), delta(delta) {}
+
     explicit Pointer(Vertex *vertex) : type(Type::VERTEX), vertex(vertex) {}
+
     explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
 
     Type type{Type::NULL_PTR};
+
     union {
       Delta *delta = nullptr;
       Vertex *vertex;
@@ -158,16 +162,24 @@ struct Delta {
 
   // Used for both Vertex and Edge
   struct DeleteDeserializedObjectTag {};
+
   struct DeleteObjectTag {};
+
   struct RecreateObjectTag {};
+
   struct SetPropertyTag {};
 
   // Used only for Vertex
   struct AddLabelTag {};
+
   struct RemoveLabelTag {};
+
   struct AddInEdgeTag {};
+
   struct AddOutEdgeTag {};
+
   struct RemoveInEdgeTag {};
+
   struct RemoveOutEdgeTag {};
 
   // DELETE_DESERIALIZED_OBJECT is used to load data from disk committed by past txs.
@@ -247,20 +259,24 @@ struct Delta {
 
   union {
     Action action;
+
     struct {
       Action action = Action::DELETE_DESERIALIZED_OBJECT;
       opt_str value;
     } old_disk_key;
+
     struct {
       Action action;
       LabelId value;
     } label;
+
     struct {
       Action action;
       PropertyId key;
       storage::pmr::PropertyValue *value = nullptr;
       Vertex *out_vertex{nullptr};  // Used by edge's delta to easily rebuild the edge
     } property;
+
     struct {
       Action action;
       EdgeTypeId edge_type;

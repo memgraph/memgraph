@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,15 +39,16 @@ LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::str
       license_info_{license_info} {
   scheduler_.SetInterval(
       std::min(kFirstShotAfter, request_interval));  // use user-defined interval if shorter than first shot
-  scheduler_.Run("Telemetry", [this, final_interval = request_interval,
-                               update_interval = kFirstShotAfter < request_interval]() mutable {
-    SendData();
-    // First run after 60s; all subsequent runs at the user-defined interval
-    if (update_interval) {
-      update_interval = false;
-      scheduler_.SetInterval(final_interval);
-    }
-  });
+  scheduler_.Run(
+      "Telemetry",
+      [this, final_interval = request_interval, update_interval = kFirstShotAfter < request_interval]() mutable {
+        SendData();
+        // First run after 60s; all subsequent runs at the user-defined interval
+        if (update_interval) {
+          update_interval = false;
+          scheduler_.SetInterval(final_interval);
+        }
+      });
 }
 
 LicenseInfoSender::~LicenseInfoSender() { scheduler_.Stop(); }
@@ -78,7 +79,8 @@ void LicenseInfoSender::SendData() {
   if (data.empty()) {
     return;
   }
-  if (!requests::RequestPostJson(url_, data,
+  if (!requests::RequestPostJson(url_,
+                                 data,
                                  /* timeout_in_seconds = */ 2 * 60)) {
     spdlog::trace("Cannot send license information, enable {} availability!", url_);
   }

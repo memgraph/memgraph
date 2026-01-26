@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -174,7 +174,9 @@ void VectorSearch::CosineSimilarityFunction(mgp_list *args, mgp_func_context * /
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
-    AddProcedure(VectorSearch::Search, VectorSearch::kProcedureSearch, mgp::ProcedureType::Read,
+    AddProcedure(VectorSearch::Search,
+                 VectorSearch::kProcedureSearch,
+                 mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(VectorSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(VectorSearch::kParameterResultSetSize, mgp::Type::Int),
@@ -185,9 +187,13 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Return(VectorSearch::kReturnDistance, mgp::Type::Double),
                      mgp::Return(VectorSearch::kReturnSimilarity, mgp::Type::Double),
                  },
-                 module, memory);
+                 module,
+                 memory);
 
-    AddProcedure(VectorSearch::ShowIndexInfo, VectorSearch::kProcedureShowIndexInfo, mgp::ProcedureType::Read, {},
+    AddProcedure(VectorSearch::ShowIndexInfo,
+                 VectorSearch::kProcedureShowIndexInfo,
+                 mgp::ProcedureType::Read,
+                 {},
                  {
                      mgp::Return(VectorSearch::kReturnIndexName, mgp::Type::String),
                      mgp::Return(VectorSearch::kReturnLabel, mgp::Type::String),
@@ -199,9 +205,12 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Return(VectorSearch::kReturnScalarKind, mgp::Type::String),
                      mgp::Return(VectorSearch::kReturnIndexType, mgp::Type::String),
                  },
-                 module, memory);
+                 module,
+                 memory);
 
-    AddProcedure(VectorSearch::SearchEdges, VectorSearch::kProcedureSearchEdges, mgp::ProcedureType::Read,
+    AddProcedure(VectorSearch::SearchEdges,
+                 VectorSearch::kProcedureSearchEdges,
+                 mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(VectorSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(VectorSearch::kParameterResultSetSize, mgp::Type::Int),
@@ -212,14 +221,17 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Return(VectorSearch::kReturnDistance, mgp::Type::Double),
                      mgp::Return(VectorSearch::kReturnSimilarity, mgp::Type::Double),
                  },
-                 module, memory);
+                 module,
+                 memory);
 
-    mgp::AddFunction(VectorSearch::CosineSimilarityFunction, VectorSearch::kProcedureCosineSimilarity,
+    mgp::AddFunction(VectorSearch::CosineSimilarityFunction,
+                     VectorSearch::kProcedureCosineSimilarity,
                      {
                          mgp::Parameter(VectorSearch::kParameterVector1, {mgp::Type::List, mgp::Type::Any}),
                          mgp::Parameter(VectorSearch::kParameterVector2, {mgp::Type::List, mgp::Type::Any}),
                      },
-                     module, memory);
+                     module,
+                     memory);
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;

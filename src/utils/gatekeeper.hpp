@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,16 +23,19 @@
 namespace memgraph::utils {
 
 struct run_t {};
+
 struct not_run_t {};
 
 template <typename Ret>
 struct EvalResult;
+
 template <>
 struct EvalResult<void> {
   template <typename Func, typename T>
   EvalResult(run_t /* marker */, Func &&func, T &arg) : was_run{true} {
     std::invoke(std::forward<Func>(func), arg);
   }
+
   EvalResult(not_run_t /* marker */) : was_run{false} {}
 
   ~EvalResult() = default;
@@ -52,6 +55,7 @@ template <typename Ret>
 struct EvalResult {
   template <typename Func, typename T>
   EvalResult(run_t /* marker */, Func &&func, T &arg) : return_result{std::invoke(std::forward<Func>(func), arg)} {}
+
   EvalResult(not_run_t /* marker */) {}
 
   ~EvalResult() = default;
@@ -64,8 +68,11 @@ struct EvalResult {
   explicit operator bool() const { return return_result.has_value(); }
 
   constexpr const Ret &value() const & { return return_result.value(); }
+
   constexpr Ret &value() & { return return_result.value(); }
+
   constexpr Ret &&value() && { return return_result.value(); }
+
   constexpr const Ret &&value() const && { return return_result.value(); }
 
  private:
@@ -110,7 +117,9 @@ struct Gatekeeper {
         ++owner_->count_;
       }
     };
+
     Accessor(Accessor &&other) noexcept : owner_{std::exchange(other.owner_, nullptr)} {};
+
     Accessor &operator=(Accessor const &other) {
       // no change assignment
       if (owner_ == other.owner_) {
@@ -133,6 +142,7 @@ struct Gatekeeper {
       owner_ = other.owner_;
       return *this;
     };
+
     Accessor &operator=(Accessor &&other) noexcept {
       // self assignment
       if (&other == this) return *this;
@@ -162,14 +172,17 @@ struct Gatekeeper {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);
     }
+
     auto get() const -> const T * {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);
     }
+
     T *operator->() {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);
     }
+
     const T *operator->() const {
       if (owner_ == nullptr) return nullptr;
       return std::addressof(*owner_->value_);

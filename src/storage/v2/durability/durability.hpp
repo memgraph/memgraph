@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -136,6 +136,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                             utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.

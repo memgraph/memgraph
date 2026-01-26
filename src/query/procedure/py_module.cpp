@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -90,7 +90,7 @@ PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avo
 PyObject *gMgNotYetImplementedError{nullptr};    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 constexpr auto kMicrosecondsInMillisecond{1000};
-constexpr auto kMicrosecondsInSecond{1000000};
+constexpr auto kMicrosecondsInSecond{1'000'000};
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
@@ -197,6 +197,7 @@ struct PyGraph {
   mgp_graph *graph;
   mgp_memory *memory;
 };
+
 // clang-format on
 
 // clang-format off
@@ -205,6 +206,7 @@ struct PyVerticesIterator {
   mgp_vertices_iterator *it;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 PyObject *MakePyVertex(mgp_vertex &vertex, PyGraph *py_graph);
@@ -252,9 +254,13 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self, PyObject *Py_UNUSED(i
 
 static PyMethodDef PyVerticesIteratorMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"get", reinterpret_cast<PyCFunction>(PyVerticesIteratorGet), METH_NOARGS,
+    {"get",
+     reinterpret_cast<PyCFunction>(PyVerticesIteratorGet),
+     METH_NOARGS,
      "Get the current vertex pointed to by the iterator or return None."},
-    {"next", reinterpret_cast<PyCFunction>(PyVerticesIteratorNext), METH_NOARGS,
+    {"next",
+     reinterpret_cast<PyCFunction>(PyVerticesIteratorNext),
+     METH_NOARGS,
      "Advance the iterator to the next vertex and return it."},
     {nullptr, {}, {}, {}},
 };
@@ -277,6 +283,7 @@ struct PyEdgesIterator {
   mgp_edges_iterator *it;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 PyObject *MakePyEdge(mgp_edge &edge, PyGraph *py_graph);
@@ -324,9 +331,13 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored
 
 static PyMethodDef PyEdgesIteratorMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"get", reinterpret_cast<PyCFunction>(PyEdgesIteratorGet), METH_NOARGS,
+    {"get",
+     reinterpret_cast<PyCFunction>(PyEdgesIteratorGet),
+     METH_NOARGS,
      "Get the current edge pointed to by the iterator or return None."},
-    {"next", reinterpret_cast<PyCFunction>(PyEdgesIteratorNext), METH_NOARGS,
+    {"next",
+     reinterpret_cast<PyCFunction>(PyEdgesIteratorNext),
+     METH_NOARGS,
      "Advance the iterator to the next edge and return it."},
     {nullptr, {}, {}, {}},
 };
@@ -427,22 +438,34 @@ PyObject *PyGraphMustAbort(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 
 static PyMethodDef PyGraphMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"invalidate", reinterpret_cast<PyCFunction>(PyGraphInvalidate), METH_NOARGS,
+    {"invalidate",
+     reinterpret_cast<PyCFunction>(PyGraphInvalidate),
+     METH_NOARGS,
      "Invalidate the Graph context thus preventing the Graph from being used."},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyGraphIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyGraphIsValid),
+     METH_NOARGS,
      "Return True if Graph is in valid context and may be used."},
-    {"is_mutable", reinterpret_cast<PyCFunction>(PyGraphIsMutable), METH_NOARGS,
+    {"is_mutable",
+     reinterpret_cast<PyCFunction>(PyGraphIsMutable),
+     METH_NOARGS,
      "Return True if Graph is mutable and can be used to modify vertices and edges."},
-    {"get_vertex_by_id", reinterpret_cast<PyCFunction>(PyGraphGetVertexById), METH_VARARGS,
+    {"get_vertex_by_id",
+     reinterpret_cast<PyCFunction>(PyGraphGetVertexById),
+     METH_VARARGS,
      "Get the vertex or raise IndexError."},
     {"create_vertex", reinterpret_cast<PyCFunction>(PyGraphCreateVertex), METH_NOARGS, "Create a vertex."},
     {"create_edge", reinterpret_cast<PyCFunction>(PyGraphCreateEdge), METH_VARARGS, "Create an edge."},
     {"delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDeleteVertex), METH_VARARGS, "Delete a vertex."},
-    {"detach_delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDetachDeleteVertex), METH_VARARGS,
+    {"detach_delete_vertex",
+     reinterpret_cast<PyCFunction>(PyGraphDetachDeleteVertex),
+     METH_VARARGS,
      "Delete a vertex and all of its edges."},
     {"delete_edge", reinterpret_cast<PyCFunction>(PyGraphDeleteEdge), METH_VARARGS, "Delete an edge."},
     {"iter_vertices", reinterpret_cast<PyCFunction>(PyGraphIterVertices), METH_NOARGS, "Return _mgp.VerticesIterator."},
-    {"must_abort", reinterpret_cast<PyCFunction>(PyGraphMustAbort), METH_NOARGS,
+    {"must_abort",
+     reinterpret_cast<PyCFunction>(PyGraphMustAbort),
+     METH_NOARGS,
      "Check whether the running procedure should abort"},
     {nullptr, {}, {}, {}},
 };
@@ -472,6 +495,7 @@ struct PyCypherType {
   PyObject_HEAD
   mgp_type *type;
 };
+
 // clang-format on
 
 // clang-format off
@@ -497,6 +521,7 @@ struct PyQueryProc {
   PyObject_HEAD
   mgp_proc *callable;
 };
+
 // clang-format on
 
 // clang-format off
@@ -504,6 +529,7 @@ struct PyMagicFunc{
   PyObject_HEAD
   mgp_func *callable;
 };
+
 // clang-format on
 
 template <typename T>
@@ -590,13 +616,21 @@ PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
 
 static PyMethodDef PyQueryProcMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"add_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddArg), METH_VARARGS,
+    {"add_arg",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddArg),
+     METH_VARARGS,
      "Add a required argument to a procedure."},
-    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddOptArg), METH_VARARGS,
+    {"add_opt_arg",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddOptArg),
+     METH_VARARGS,
      "Add an optional argument with a default value to a procedure."},
-    {"add_result", reinterpret_cast<PyCFunction>(PyQueryProcAddResult), METH_VARARGS,
+    {"add_result",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddResult),
+     METH_VARARGS,
      "Add a result field to a procedure."},
-    {"add_deprecated_result", reinterpret_cast<PyCFunction>(PyQueryProcAddDeprecatedResult), METH_VARARGS,
+    {"add_deprecated_result",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddDeprecatedResult),
+     METH_VARARGS,
      "Add a result field to a procedure and mark it as deprecated."},
     {nullptr, {}, {}, {}},
 };
@@ -619,9 +653,13 @@ PyObject *PyMagicFuncAddOptArg(PyMagicFunc *self, PyObject *args) { return PyCal
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyMagicFuncMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"add_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddArg), METH_VARARGS,
+    {"add_arg",
+     reinterpret_cast<PyCFunction>(PyMagicFuncAddArg),
+     METH_VARARGS,
      "Add a required argument to a function."},
-    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg), METH_VARARGS,
+    {"add_opt_arg",
+     reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg),
+     METH_VARARGS,
      "Add an optional argument with a default value to a function."},
     {nullptr, {}, {}, {}},
 };
@@ -644,6 +682,7 @@ struct PyQueryModule {
   PyObject_HEAD
   mgp_module *module;
 };
+
 // clang-format on
 
 struct PyMessages {
@@ -767,7 +806,9 @@ PyObject *PyMessageGetOffset(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 // NOLINTNEXTLINE
 static PyMethodDef PyMessageMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyMessageIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyMessageIsValid),
+     METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
     {"source_type", reinterpret_cast<PyCFunction>(PyMessageGetSourceType), METH_NOARGS, "Get stream source type."},
     {"payload", reinterpret_cast<PyCFunction>(PyMessageGetPayload), METH_NOARGS, "Get payload"},
@@ -846,13 +887,21 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
 // NOLINTNEXTLINE
 static PyMethodDef PyMessagesMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"invalidate", reinterpret_cast<PyCFunction>(PyMessagesInvalidate), METH_NOARGS,
+    {"invalidate",
+     reinterpret_cast<PyCFunction>(PyMessagesInvalidate),
+     METH_NOARGS,
      "Invalidate the messages context thus preventing the messages from being used"},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyMessagesIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyMessagesIsValid),
+     METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
-    {"total_messages", reinterpret_cast<PyCFunction>(PyMessagesGetTotalMessages), METH_VARARGS,
+    {"total_messages",
+     reinterpret_cast<PyCFunction>(PyMessagesGetTotalMessages),
+     METH_VARARGS,
      "Get number of messages available"},
-    {"message_at", reinterpret_cast<PyCFunction>(PyMessagesGetMessageAt), METH_VARARGS,
+    {"message_at",
+     reinterpret_cast<PyCFunction>(PyMessagesGetMessageAt),
+     METH_VARARGS,
      "Get message at index idx from messages"},
     {nullptr, {}, {}, {}},
 };
@@ -1056,7 +1105,7 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   if (len == -1) return py::FetchError();
   result->rows.reserve(len);
   // This proved to be good enough constant not to lose performance on transformation
-  static constexpr auto del_cnt{100000};
+  static constexpr auto del_cnt{100'000};
   for (Py_ssize_t i = 0, curr_item = 0; i < len; ++i, ++curr_item) {
     py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_item));
     if (!py_record) return py::FetchError();
@@ -1336,7 +1385,8 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
                 [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
                   CallPythonProcedure(py_cb, args, graph, result, memory, false);
                 },
-                memory, {.is_write = is_write_procedure});
+                memory,
+                {.is_write = is_write_procedure});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
@@ -1381,7 +1431,9 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
       [py_initializer](mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
         CallPythonInitializer(py_initializer, args, graph, memory);
       },
-      [py_cleanup] { CallPythonCleanup(py_cleanup); }, memory, {.is_write = is_write_procedure, .is_batched = true});
+      [py_cleanup] { CallPythonCleanup(py_cleanup); },
+      memory,
+      {.is_write = is_write_procedure, .is_batched = true});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
@@ -1475,17 +1527,29 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
 
 static PyMethodDef PyQueryModuleMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
+    {"add_read_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure),
+     METH_O,
      "Register a read-only procedure with this module."},
-    {"add_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure), METH_O,
+    {"add_write_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure),
+     METH_O,
      "Register a writeable procedure with this module."},
-    {"add_batch_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure), METH_VARARGS,
+    {"add_batch_read_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure),
+     METH_VARARGS,
      "Register a read-only batch procedure with this module."},
-    {"add_batch_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure), METH_VARARGS,
+    {"add_batch_write_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure),
+     METH_VARARGS,
      "Register a writeable batched procedure with this module."},
-    {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
+    {"add_transformation",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation),
+     METH_O,
      "Register a transformation with this module."},
-    {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,
+    {"add_function",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction),
+     METH_O,
      "Register a function with this module."},
     {nullptr, {}, {}, {}},
 };
@@ -1561,7 +1625,9 @@ DEFINE_PY_MGP_MODULE_TYPE(LocalDateTime, local_date_time);
 DEFINE_PY_MGP_MODULE_TYPE(Duration, duration);
 
 static PyMethodDef PyMgpModuleMethods[] = {
-    {"type_nullable", PyMgpModuleTypeNullable, METH_O,
+    {"type_nullable",
+     PyMgpModuleTypeNullable,
+     METH_O,
      "Build a type representing either a `null` value or a value of given "
      "type."},
     {"type_list", PyMgpModuleTypeList, METH_O, "Build a type representing a list of values of given type."},
@@ -1573,9 +1639,13 @@ static PyMethodDef PyMgpModuleMethods[] = {
     {"type_number", PyMgpModuleTypeNumber, METH_NOARGS, "Get the type representing any number value."},
     {"type_map", PyMgpModuleTypeMap, METH_NOARGS, "Get the type representing map values."},
     {"type_node", PyMgpModuleTypeNode, METH_NOARGS, "Get the type representing graph node values."},
-    {"type_relationship", PyMgpModuleTypeRelationship, METH_NOARGS,
+    {"type_relationship",
+     PyMgpModuleTypeRelationship,
+     METH_NOARGS,
      "Get the type representing graph relationship values."},
-    {"type_path", PyMgpModuleTypePath, METH_NOARGS,
+    {"type_path",
+     PyMgpModuleTypePath,
+     METH_NOARGS,
      "Get the type representing a graph path (walk) from one node to another."},
     {"type_date", PyMgpModuleTypeDate, METH_NOARGS, "Get the type representing a Date."},
     {"type_local_time", PyMgpModuleTypeLocalTime, METH_NOARGS, "Get the type representing a LocalTime."},
@@ -1600,6 +1670,7 @@ struct PyPropertiesIterator {
   mgp_properties_iterator *it;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 void PyPropertiesIteratorDealloc(PyPropertiesIterator *self) {
@@ -1652,9 +1723,13 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
 }
 
 static PyMethodDef PyPropertiesIteratorMethods[] = {
-    {"get", reinterpret_cast<PyCFunction>(PyPropertiesIteratorGet), METH_NOARGS,
+    {"get",
+     reinterpret_cast<PyCFunction>(PyPropertiesIteratorGet),
+     METH_NOARGS,
      "Get the current proprety pointed to by the iterator or return None."},
-    {"next", reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext), METH_NOARGS,
+    {"next",
+     reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext),
+     METH_NOARGS,
      "Advance the iterator to the next property and return it."},
     {nullptr, {}, {}, {}},
 };
@@ -1677,6 +1752,7 @@ struct PyEdge {
   mgp_edge *edge;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 PyObject *PyEdgeGetTypeName(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -1852,23 +1928,36 @@ PyObject *PyEdgeSetProperties(PyEdge *self, PyObject *args) {
 
   Py_RETURN_NONE;
 }
+
 static PyMethodDef PyEdgeMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyEdgeIsValid),
+     METH_NOARGS,
      "Return True if the edge is in valid context and may be used."},
-    {"underlying_graph_is_mutable", reinterpret_cast<PyCFunction>(PyEdgeUnderlyingGraphIsMutable), METH_NOARGS,
+    {"underlying_graph_is_mutable",
+     reinterpret_cast<PyCFunction>(PyEdgeUnderlyingGraphIsMutable),
+     METH_NOARGS,
      "Return True if the edge is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyEdgeGetId), METH_NOARGS, "Return edge id."},
     {"get_type_name", reinterpret_cast<PyCFunction>(PyEdgeGetTypeName), METH_NOARGS, "Return the edge's type name."},
     {"from_vertex", reinterpret_cast<PyCFunction>(PyEdgeFromVertex), METH_NOARGS, "Return the edge's source vertex."},
     {"to_vertex", reinterpret_cast<PyCFunction>(PyEdgeToVertex), METH_NOARGS, "Return the edge's destination vertex."},
-    {"iter_properties", reinterpret_cast<PyCFunction>(PyEdgeIterProperties), METH_NOARGS,
+    {"iter_properties",
+     reinterpret_cast<PyCFunction>(PyEdgeIterProperties),
+     METH_NOARGS,
      "Return _mgp.PropertiesIterator for this edge."},
-    {"get_property", reinterpret_cast<PyCFunction>(PyEdgeGetProperty), METH_VARARGS,
+    {"get_property",
+     reinterpret_cast<PyCFunction>(PyEdgeGetProperty),
+     METH_VARARGS,
      "Return edge property with given name."},
-    {"set_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
+    {"set_property",
+     reinterpret_cast<PyCFunction>(PyEdgeSetProperty),
+     METH_VARARGS,
      "Set the value of the property on the edge."},
-    {"set_properties", reinterpret_cast<PyCFunction>(PyEdgeSetProperties), METH_VARARGS,
+    {"set_properties",
+     reinterpret_cast<PyCFunction>(PyEdgeSetProperties),
+     METH_VARARGS,
      "Set the values of the properties on the edge."},
     {nullptr, {}, {}, {}},
 };
@@ -1939,6 +2028,7 @@ struct PyVertex {
   mgp_vertex *vertex;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 void PyVertexDealloc(PyVertex *self) {
@@ -2191,29 +2281,51 @@ PyObject *PyVertexRemoveLabel(PyVertex *self, PyObject *args) {
 
 static PyMethodDef PyVertexMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyVertexIsValid),
+     METH_NOARGS,
      "Return True if the vertex is in valid context and may be used."},
-    {"underlying_graph_is_mutable", reinterpret_cast<PyCFunction>(PyVertexUnderlyingGraphIsMutable), METH_NOARGS,
+    {"underlying_graph_is_mutable",
+     reinterpret_cast<PyCFunction>(PyVertexUnderlyingGraphIsMutable),
+     METH_NOARGS,
      "Return True if the vertex is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS, "Return vertex id."},
-    {"labels_count", reinterpret_cast<PyCFunction>(PyVertexLabelsCount), METH_NOARGS,
+    {"labels_count",
+     reinterpret_cast<PyCFunction>(PyVertexLabelsCount),
+     METH_NOARGS,
      "Return number of lables of a vertex."},
-    {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
+    {"label_at",
+     reinterpret_cast<PyCFunction>(PyVertexLabelAt),
+     METH_VARARGS,
      "Return label of a vertex on a given index."},
     {"add_label", reinterpret_cast<PyCFunction>(PyVertexAddLabel), METH_VARARGS, "Add the label to the vertex."},
-    {"remove_label", reinterpret_cast<PyCFunction>(PyVertexRemoveLabel), METH_VARARGS,
+    {"remove_label",
+     reinterpret_cast<PyCFunction>(PyVertexRemoveLabel),
+     METH_VARARGS,
      "Remove the label from the vertex."},
-    {"iter_in_edges", reinterpret_cast<PyCFunction>(PyVertexIterInEdges), METH_NOARGS,
+    {"iter_in_edges",
+     reinterpret_cast<PyCFunction>(PyVertexIterInEdges),
+     METH_NOARGS,
      "Return _mgp.EdgesIterator for in edges."},
-    {"iter_out_edges", reinterpret_cast<PyCFunction>(PyVertexIterOutEdges), METH_NOARGS,
+    {"iter_out_edges",
+     reinterpret_cast<PyCFunction>(PyVertexIterOutEdges),
+     METH_NOARGS,
      "Return _mgp.EdgesIterator for out edges."},
-    {"iter_properties", reinterpret_cast<PyCFunction>(PyVertexIterProperties), METH_NOARGS,
+    {"iter_properties",
+     reinterpret_cast<PyCFunction>(PyVertexIterProperties),
+     METH_NOARGS,
      "Return _mgp.PropertiesIterator for this vertex."},
-    {"get_property", reinterpret_cast<PyCFunction>(PyVertexGetProperty), METH_VARARGS,
+    {"get_property",
+     reinterpret_cast<PyCFunction>(PyVertexGetProperty),
+     METH_VARARGS,
      "Return vertex property with given name."},
-    {"set_property", reinterpret_cast<PyCFunction>(PyVertexSetProperty), METH_VARARGS,
+    {"set_property",
+     reinterpret_cast<PyCFunction>(PyVertexSetProperty),
+     METH_VARARGS,
      "Set the value of the property on the vertex."},
-    {"set_properties", reinterpret_cast<PyCFunction>(PyVertexSetProperties), METH_VARARGS,
+    {"set_properties",
+     reinterpret_cast<PyCFunction>(PyVertexSetProperties),
+     METH_VARARGS,
      "Set the values of the properties on the vertex."},
     {nullptr, {}, {}, {}},
 };
@@ -2282,6 +2394,7 @@ struct PyPath {
   mgp_path *path;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 void PyPathDealloc(PyPath *self) {
@@ -2369,18 +2482,30 @@ PyObject *PyPathEdgeAt(PyPath *self, PyObject *args) {
 
 static PyMethodDef PyPathMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyPathIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyPathIsValid),
+     METH_NOARGS,
      "Return True if Path is in valid context and may be used."},
-    {"make_with_start", reinterpret_cast<PyCFunction>(PyPathMakeWithStart), METH_O | METH_CLASS,
+    {"make_with_start",
+     reinterpret_cast<PyCFunction>(PyPathMakeWithStart),
+     METH_O | METH_CLASS,
      "Create a path with a starting vertex."},
-    {"expand", reinterpret_cast<PyCFunction>(PyPathExpand), METH_O,
+    {"expand",
+     reinterpret_cast<PyCFunction>(PyPathExpand),
+     METH_O,
      "Append an edge continuing from the last vertex on the path."},
-    {"pop", reinterpret_cast<PyCFunction>(PyPathPop), METH_NOARGS,
+    {"pop",
+     reinterpret_cast<PyCFunction>(PyPathPop),
+     METH_NOARGS,
      "Remove the last node and the last relationship from the path."},
     {"size", reinterpret_cast<PyCFunction>(PyPathSize), METH_NOARGS, "Return the number of edges in a mgp_path."},
-    {"vertex_at", reinterpret_cast<PyCFunction>(PyPathVertexAt), METH_VARARGS,
+    {"vertex_at",
+     reinterpret_cast<PyCFunction>(PyPathVertexAt),
+     METH_VARARGS,
      "Return the vertex from a path at given index."},
-    {"edge_at", reinterpret_cast<PyCFunction>(PyPathEdgeAt), METH_VARARGS,
+    {"edge_at",
+     reinterpret_cast<PyCFunction>(PyPathEdgeAt),
+     METH_VARARGS,
      "Return the edge from a path at given index."},
     {nullptr, {}, {}, {}},
 };
@@ -2445,6 +2570,7 @@ PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex) {
 struct PyLogger {
   PyObject_HEAD
 };
+
 // clang-format on
 
 PyObject *PyLoggerLog(PyLogger *self, PyObject *args, const mgp_log_level level) {
@@ -2488,17 +2614,29 @@ PyObject *PyLoggerLogDebug(PyLogger *self, PyObject *args) {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyLoggerMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"info", reinterpret_cast<PyCFunction>(PyLoggerLogInfo), METH_VARARGS,
+    {"info",
+     reinterpret_cast<PyCFunction>(PyLoggerLogInfo),
+     METH_VARARGS,
      "Logs a message with level INFO on this logger."},
-    {"warning", reinterpret_cast<PyCFunction>(PyLoggerLogWarning), METH_VARARGS,
+    {"warning",
+     reinterpret_cast<PyCFunction>(PyLoggerLogWarning),
+     METH_VARARGS,
      "Logs a message with level WARNNING on this logger."},
-    {"error", reinterpret_cast<PyCFunction>(PyLoggerLogError), METH_VARARGS,
+    {"error",
+     reinterpret_cast<PyCFunction>(PyLoggerLogError),
+     METH_VARARGS,
      "Logs a message with level ERROR on this logger."},
-    {"critical", reinterpret_cast<PyCFunction>(PyLoggerLogCritical), METH_VARARGS,
+    {"critical",
+     reinterpret_cast<PyCFunction>(PyLoggerLogCritical),
+     METH_VARARGS,
      "Logs a message with level CRITICAL on this logger."},
-    {"trace", reinterpret_cast<PyCFunction>(PyLoggerLogTrace), METH_VARARGS,
+    {"trace",
+     reinterpret_cast<PyCFunction>(PyLoggerLogTrace),
+     METH_VARARGS,
      "Logs a message with level TRACE on this logger."},
-    {"debug", reinterpret_cast<PyCFunction>(PyLoggerLogDebug), METH_VARARGS,
+    {"debug",
+     reinterpret_cast<PyCFunction>(PyLoggerLogDebug),
+     METH_VARARGS,
      "Logs a message with level DEBUG on this logger."},
     {nullptr, {}, {}, {}},
 };
@@ -2523,7 +2661,9 @@ struct PyUtils {
 namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 PyMethodDef PyUtilsMethods[] = {  // NOSONAR
-    {"is_enterprise_valid", reinterpret_cast<PyCFunction>(MgpIsEnterpriseValid), METH_NOARGS | METH_STATIC,
+    {"is_enterprise_valid",
+     reinterpret_cast<PyCFunction>(MgpIsEnterpriseValid),
+     METH_NOARGS | METH_STATIC,
      "Check if enterprise license is valid."},
     {nullptr, {}, {}, {}}};
 
@@ -2759,22 +2899,29 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       const auto &local_time = value.local_time_v->local_time;
       py::Object py_local_time(
-          PyTime_FromTime(local_time.hour, local_time.minute, local_time.second,
-                          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
+          PyTime_FromTime(local_time.hour,
+                          local_time.minute,
+                          local_time.second,
+                          (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond));
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       const auto &local_time = value.local_date_time_v->local_date_time.local_time();
       const auto &date = value.local_date_time_v->local_date_time.date();
-      py::Object py_local_date_time(PyDateTime_FromDateAndTime(
-          date.year, date.month, date.day, local_time.hour, local_time.minute, local_time.second,
-          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
+      py::Object py_local_date_time(
+          PyDateTime_FromDateAndTime(date.year,
+                                     date.month,
+                                     date.day,
+                                     local_time.hour,
+                                     local_time.minute,
+                                     local_time.second,
+                                     (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond));
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {
       const auto &duration = value.duration_v->duration;
-      py::Object py_duration(PyDelta_FromDSU(0, duration.microseconds / kMicrosecondsInSecond,
-                                             duration.microseconds % kMicrosecondsInSecond));
+      py::Object py_duration(PyDelta_FromDSU(
+          0, duration.microseconds / kMicrosecondsInSecond, duration.microseconds % kMicrosecondsInSecond));
       return py_duration;
     }
     case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
@@ -2785,10 +2932,10 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
 
       // Python's `timedelta` cannot be constructed with -negative values,
       // so convert a negative second offset to a positive one.
-      int32_t days = offset_seconds / 86400;
-      int32_t seconds = offset_seconds % 86400;
+      int32_t days = offset_seconds / 86'400;
+      int32_t seconds = offset_seconds % 86'400;
       if (seconds < 0) {
-        seconds += 86400;
+        seconds += 86'400;
         --days;
       }
 
@@ -2800,9 +2947,17 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       py::Object const offset_delta{PyDelta_FromDSU(days, seconds, 0)};
       py::Object const tz{PyTimeZone_FromOffset(offset_delta.Ptr())};
 
-      py::Object py_zoned_date_time(PyObject_CallFunction(
-          datetime_class.Ptr(), "iiiiiiiO", date.year, date.month, date.day, local_time.hour, local_time.minute,
-          local_time.second, local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond, tz.Ptr()));
+      py::Object py_zoned_date_time(
+          PyObject_CallFunction(datetime_class.Ptr(),
+                                "iiiiiiiO",
+                                date.year,
+                                date.month,
+                                date.day,
+                                local_time.hour,
+                                local_time.minute,
+                                local_time.second,
+                                (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond,
+                                tz.Ptr()));
 
       return py_zoned_date_time;
     }
@@ -3066,7 +3221,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
         throw std::runtime_error{"Cannot read timezone offset"};
       }
 
-      constexpr int SECONDS_PER_DAY = 86400;
+      constexpr int SECONDS_PER_DAY = 86'400;
       constexpr int SECONDS_PER_MINUTE = 60;
       auto const offset_days = static_cast<int32_t>(PyDateTime_DELTA_GET_DAYS(offset.Ptr()));
       auto const offset_seconds = static_cast<int32_t>(PyDateTime_DELTA_GET_SECONDS(offset.Ptr()));
@@ -3163,8 +3318,13 @@ PyObject *PyGraphCreateEdge(PyGraph *self, PyObject *args) {
     return nullptr;
   }
   MgpUniquePtr<mgp_edge> new_edge{nullptr, mgp_edge_destroy};
-  if (RaiseExceptionFromErrorCode(CreateMgpObject(new_edge, mgp_graph_create_edge, self->graph, from->vertex,
-                                                  to->vertex, mgp_edge_type{edge_type}, self->memory))) {
+  if (RaiseExceptionFromErrorCode(CreateMgpObject(new_edge,
+                                                  mgp_graph_create_edge,
+                                                  self->graph,
+                                                  from->vertex,
+                                                  to->vertex,
+                                                  mgp_edge_type{edge_type},
+                                                  self->memory))) {
     return nullptr;
   }
   auto *py_edge = MakePyEdgeWithoutCopy(*new_edge, self);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -36,11 +36,13 @@ struct RoleWUsername : Roles {
   RoleWUsername(std::string_view username, const Roles &roles) : Roles(roles), username_{username} {}
 
   std::string username() { return username_; }
+
   const std::string &username() const { return username_; }
 
  private:
   std::string username_;
 };
+
 using UserOrRole = std::variant<User, RoleWUsername>;
 
 /**
@@ -54,6 +56,7 @@ class Auth final {
  public:
   struct Config {
     Config() {}
+
     Config(std::string name_regex, std::string password_regex, bool password_permit_null)
         : name_regex_str{std::move(name_regex)},
           password_regex_str{std::move(password_regex)},
@@ -77,9 +80,11 @@ class Auth final {
 
   struct Epoch {
     Epoch() : epoch_{0} {}
+
     Epoch(unsigned e) : epoch_{e} {}
 
     Epoch operator++() { return ++epoch_; }
+
     bool operator==(const Epoch &rhs) const = default;
 
    private:
@@ -484,7 +489,8 @@ class Auth final {
 
     if (!modules_.contains(scheme)) {
       spdlog::warn(utils::MessageWithLink("Couldn't authenticate user: no module is specified for the {} auth scheme.",
-                                          scheme, "https://memgr.ph/sso"));
+                                          scheme,
+                                          "https://memgr.ph/sso"));
       return false;
     }
 

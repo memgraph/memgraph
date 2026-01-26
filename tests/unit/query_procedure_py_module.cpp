@@ -138,8 +138,8 @@ TYPED_TEST(PyModule, PyVertex) {
   mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
   auto *vertex = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(vertex);
-  auto *vertex_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex,
-                                           EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertex_copy, vertex, &memory));
+  auto *vertex_value = EXPECT_MGP_NO_ERROR(
+      mgp_value *, mgp_value_make_vertex, EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertex_copy, vertex, &memory));
   mgp_vertex_destroy(vertex);
   // Initialize the Python graph object.
   auto gil = memgraph::py::EnsureGIL();
@@ -155,10 +155,11 @@ TYPED_TEST(PyModule, PyVertex) {
   ASSERT_TRUE(new_vertex_value);
   ASSERT_NE(new_vertex_value, vertex_value);  // Pointer compare.
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_vertex, new_vertex_value), 1);
-  ASSERT_EQ(
-      EXPECT_MGP_NO_ERROR(int, mgp_vertex_equal, EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, vertex_value),
-                          EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, new_vertex_value)),
-      1);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int,
+                                mgp_vertex_equal,
+                                EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, vertex_value),
+                                EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, new_vertex_value)),
+            1);
   // Clean up.
   mgp_value_destroy(new_vertex_value);
   mgp_value_destroy(vertex_value);
@@ -189,8 +190,8 @@ TYPED_TEST(PyModule, PyEdge) {
   ASSERT_TRUE(start_v);
   auto *edges_it = EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, start_v, &memory);
   ASSERT_TRUE(edges_it);
-  auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy,
-                                   EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), &memory);
+  auto *edge = EXPECT_MGP_NO_ERROR(
+      mgp_edge *, mgp_edge_copy, EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), &memory);
   auto *edge_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_edge, edge);
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_next, edges_it), nullptr);
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), nullptr);
@@ -210,7 +211,9 @@ TYPED_TEST(PyModule, PyEdge) {
   ASSERT_TRUE(new_edge_value);
   ASSERT_NE(new_edge_value, edge_value);  // Pointer compare.
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_edge, new_edge_value), 1);
-  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_equal, EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, edge_value),
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int,
+                                mgp_edge_equal,
+                                EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, edge_value),
                                 EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, new_edge_value)),
             1);
   // Clean up.
@@ -258,7 +261,9 @@ TYPED_TEST(PyModule, PyPath) {
   ASSERT_TRUE(new_path_value);
   ASSERT_NE(new_path_value, path_value);  // Pointer compare.
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_path, new_path_value), 1);
-  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_path_equal, EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, path_value),
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int,
+                                mgp_path_equal,
+                                EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, path_value),
                                 EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, new_path_value)),
             1);
   mgp_value_destroy(new_path_value);

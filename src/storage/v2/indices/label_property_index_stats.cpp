@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,8 +28,12 @@ bool FromJson(std::string const &json, LabelPropertyIndexStats &out) {
 
 std::string ToJson(LabelPropertyIndexStats const &in) {
   return fmt::format(
-      R"({{"count":{}, "distinct_values_count":{}, "statistic":{}, "avg_group_size":{} "avg_degree":{}}})", in.count,
-      in.distinct_values_count, in.statistic, in.avg_group_size, in.avg_degree);
+      R"({{"count":{}, "distinct_values_count":{}, "statistic":{}, "avg_group_size":{} "avg_degree":{}}})",
+      in.count,
+      in.distinct_values_count,
+      in.statistic,
+      in.avg_group_size,
+      in.avg_degree);
 }
 
 }  // namespace memgraph::storage

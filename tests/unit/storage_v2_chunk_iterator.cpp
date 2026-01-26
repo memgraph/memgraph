@@ -57,8 +57,8 @@ std::vector<Gid> ProcessChunksInParallel(ChunkedContainer &container, PerItemPro
       }
       chunk_validator(local_count);
       auto locked_gids = read_gids.Lock();
-      locked_gids->insert(locked_gids->end(), std::make_move_iterator(gids.begin()),
-                          std::make_move_iterator(gids.end()));
+      locked_gids->insert(
+          locked_gids->end(), std::make_move_iterator(gids.begin()), std::make_move_iterator(gids.end()));
     });
   }
 
@@ -74,8 +74,9 @@ std::vector<Gid> ProcessChunksInParallel(ChunkedContainer &container, PerItemPro
 template <typename ChunkedContainer>
 std::vector<Gid> ProcessChunksInParallel(ChunkedContainer &container) {
   return ProcessChunksInParallel(
-      container, [](const auto &) {},  // No per-item processing
-      [](int) {}                       // No chunk validation
+      container,
+      [](const auto &) {},  // No per-item processing
+      [](int) {}            // No chunk validation
   );
 }
 
@@ -97,8 +98,8 @@ std::vector<PropertyValue> ProcessChunksInParallelForPropertyValues(ChunkedConta
       }
       chunk_validator(local_count);
       auto locked_props = read_props.Lock();
-      locked_props->insert(locked_props->end(), std::make_move_iterator(props.begin()),
-                           std::make_move_iterator(props.end()));
+      locked_props->insert(
+          locked_props->end(), std::make_move_iterator(props.begin()), std::make_move_iterator(props.end()));
     });
   }
 
@@ -194,7 +195,8 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorBasic) {
 
   // Count total vertices across all chunks
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 150 / 4 * 2);
@@ -301,7 +303,8 @@ TEST_F(StorageV2ChunkIteratorTest, AllVerticesChunkIteratorBigDataset) {
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         EXPECT_GT(local_count, 0);
         EXPECT_LT(local_count, 100'000 / 16 * 3);  // Allow some variance
@@ -396,7 +399,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorBasic) {
 
   // Count total vertices across all chunks
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -548,7 +552,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorMultipleEntries) {
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -612,7 +617,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorDynamic) {
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -672,7 +678,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelIndexChunkIteratorManyEntries) {
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         // NOTE: We don't assert on the count here because we don't know how many same vertices are in the chunk.
         // ASSERT_GT(local_count, 0);
@@ -810,7 +817,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorBasic) {
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -872,7 +880,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorMultipleEntrie
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -940,7 +949,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorDynamic) {
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -1003,7 +1013,8 @@ TEST_F(StorageV2ChunkIteratorTest, LabelPropertyIndexChunkIteratorManyEntries) {
   // Count total vertices across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      vertices, [](const auto &) {},  // No additional per-item processing
+      vertices,
+      [](const auto &) {},  // No additional per-item processing
       [&total_count](int local_count) {
         // NOTE: We don't assert on the count here because we don't know how many same vertices are in the chunk.
         // ASSERT_GT(local_count, 0);
@@ -1441,7 +1452,8 @@ TEST_F(StorageV2ChunkIteratorTest, BasicEdgePropertyIndexChunking) {
 
   // Count total edges across all chunks
   auto read_gids = ProcessChunksInParallel(
-      edges, [](const auto &) {},  // No additional per-item processing
+      edges,
+      [](const auto &) {},  // No additional per-item processing
       [](int local_count) {
         EXPECT_GT(local_count, 0);
         EXPECT_LT(local_count, 100 / 4 * 2);
@@ -1470,8 +1482,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithRange) {
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property in range [50, 150]
-  auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
-                                 memgraph::utils::MakeBoundInclusive(PropertyValue(150)), View::OLD, 4);
+  auto edges = acc->ChunkedEdges(property_id_,
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(150)),
+                                 View::OLD,
+                                 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -1512,8 +1527,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithLowerBound) {
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property >= 30
-  auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(30)), std::nullopt,
-                                 View::OLD, 4);
+  auto edges = acc->ChunkedEdges(
+      property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(30)), std::nullopt, View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -1554,8 +1569,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingWithUpperBound) {
   }
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property <= 70
-  auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(70)),
-                                 View::OLD, 4);
+  auto edges = acc->ChunkedEdges(
+      property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(70)), View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -1598,16 +1613,22 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingEdgeCases) {
   // Test 1: Empty range (lower > upper)
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto empty_edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
-                                         memgraph::utils::MakeBoundInclusive(PropertyValue(50)), View::OLD, 4);
+    auto empty_edges = acc->ChunkedEdges(property_id_,
+                                         memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
+                                         memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
+                                         View::OLD,
+                                         4);
     ASSERT_EQ(empty_edges.size(), 0);
   }
 
   // Test 2: Single element range
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto single_edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(25)),
-                                          memgraph::utils::MakeBoundInclusive(PropertyValue(25)), View::OLD, 4);
+    auto single_edges = acc->ChunkedEdges(property_id_,
+                                          memgraph::utils::MakeBoundInclusive(PropertyValue(25)),
+                                          memgraph::utils::MakeBoundInclusive(PropertyValue(25)),
+                                          View::OLD,
+                                          4);
     ASSERT_GT(single_edges.size(), 0);
 
     int single_count = 0;
@@ -1625,8 +1646,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingEdgeCases) {
   // Test 3: Range with no elements (outside existing range)
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto no_elements_edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
-                                               memgraph::utils::MakeBoundInclusive(PropertyValue(200)), View::OLD, 4);
+    auto no_elements_edges = acc->ChunkedEdges(property_id_,
+                                               memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
+                                               memgraph::utils::MakeBoundInclusive(PropertyValue(200)),
+                                               View::OLD,
+                                               4);
     ASSERT_GT(no_elements_edges.size(), 0);
 
     int no_elements_count = 0;
@@ -1658,8 +1682,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBigDataset) {
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property in range [200, 800]
-  auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(20'000)),
-                                 memgraph::utils::MakeBoundInclusive(PropertyValue(80'000)), View::OLD, 8);
+  auto edges = acc->ChunkedEdges(property_id_,
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(20'000)),
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(80'000)),
+                                 View::OLD,
+                                 8);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -1703,8 +1730,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingConcurrentOperations
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with property in range [100, 400]
-  auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
-                                 memgraph::utils::MakeBoundInclusive(PropertyValue(400)), View::OLD, 6);
+  auto edges = acc->ChunkedEdges(property_id_,
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(400)),
+                                 View::OLD,
+                                 6);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -1823,7 +1853,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingMultipleEntries) {
 
   // Count total edges across all chunks using ProcessChunksInParallel
   auto read_gids_result = ProcessChunksInParallel(
-      edges, [](const auto &) {},
+      edges,
+      [](const auto &) {},
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -1887,7 +1918,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingDynamic) {
 
   // Count total edges across all chunks using ProcessChunksInParallel
   auto read_gids_result = ProcessChunksInParallel(
-      edges, [](const auto &edge) {},
+      edges,
+      [](const auto &edge) {},
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -1948,7 +1980,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingManyEntries) {
 
   // Count total edges across all chunks using ProcessChunksInParallel
   auto read_gids_result = ProcessChunksInParallel(
-      edges, [](const auto &) {},
+      edges,
+      [](const auto &) {},
       [](int local_count) {
         // NOTE: We don't assert on the count here because we don't know how many same edges are in the chunk. (Since
         // multiple copies of the same edge are in the chunk.)
@@ -2077,8 +2110,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   // Checking lower bound
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt,
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt, View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
@@ -2091,8 +2124,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt,
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt, View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 135);
@@ -2105,8 +2138,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt,
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt, View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
@@ -2119,8 +2152,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(-1)), std::nullopt,
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(-1)), std::nullopt, View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
@@ -2133,8 +2166,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt,
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt, View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -2143,8 +2176,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   // Checking upper bound
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(143)),
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(143)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
@@ -2157,8 +2190,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(141)),
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(141)), View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
@@ -2169,8 +2202,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(141)),
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(141)), View::OLD, 4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
@@ -2181,8 +2214,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(210)),
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(210)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
@@ -2195,8 +2228,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(-10)),
-                                   View::OLD, 4);
+    auto edges = acc->ChunkedEdges(
+        property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(-10)), View::OLD, 4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -2204,8 +2237,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
 
   // Test chunking for edges with property range
   auto acc = storage_->Access(memgraph::storage::WRITE);
-  auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(10)),
-                                 memgraph::utils::MakeBoundExclusive(PropertyValue(160)), View::OLD, 4);
+  auto edges = acc->ChunkedEdges(property_id_,
+                                 memgraph::utils::MakeBoundExclusive(PropertyValue(10)),
+                                 memgraph::utils::MakeBoundExclusive(PropertyValue(160)),
+                                 View::OLD,
+                                 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -2233,8 +2269,9 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
     ASSERT_EQ(locked_props->size(), 50);  // Every 3rd has the property
     std::sort(locked_props->begin(), locked_props->end());
     for (size_t i = 0; i < locked_props->size(); ++i) {
-      ASSERT_EQ((*locked_props)[i], PropertyValue{(static_cast<int>(i) * 3) +
-                                                  12});  // i*3 + 12 just because of the way we create the dataset
+      ASSERT_EQ(
+          (*locked_props)[i],
+          PropertyValue{(static_cast<int>(i) * 3) + 12});  // i*3 + 12 just because of the way we create the dataset
     }
   }
 
@@ -2242,8 +2279,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   {
     // Non existing value
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(130)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -2251,8 +2291,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   {
     // Exact match
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
@@ -2264,8 +2307,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   {
     // Missed match
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
-                                   memgraph::utils::MakeBoundExclusive(PropertyValue(132)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                   memgraph::utils::MakeBoundExclusive(PropertyValue(132)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -2273,8 +2319,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   {
     // One match
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(133)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(133)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
@@ -2286,8 +2335,11 @@ TEST_F(StorageV2ChunkIteratorTest, EdgePropertyIndexChunkingBasicRange) {
   {
     // Upper bound lower than lower bound
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(120)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(120)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 0);
   }
 }
@@ -2321,7 +2373,8 @@ TEST_F(StorageV2ChunkIteratorTest, BasicEdgeTypeIndexChunking) {
 
   // Count total edges across all chunks using ProcessChunksInParallel
   auto read_gids_result = ProcessChunksInParallel(
-      edges, [](const auto &) {},
+      edges,
+      [](const auto &) {},
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 100 / 4 * 2);
@@ -2337,7 +2390,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingBigDataset) {
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 1000 edges with edge_type_id1_
-    for (int i = 0; i < 100000; ++i) {
+    for (int i = 0; i < 100'000; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       if (i % 2 == 0) {
@@ -2469,7 +2522,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingMultipleEdgeTypes) {
 
   // Count total edges across all chunks for edge_type_id1_
   auto read_gids_result1 = ProcessChunksInParallel(
-      edges1, [](const auto &) {},
+      edges1,
+      [](const auto &) {},
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 100 / 4 * 2);
@@ -2482,7 +2536,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingMultipleEdgeTypes) {
 
   // Count total edges across all chunks for edge_type_id2_
   auto read_gids_result2 = ProcessChunksInParallel(
-      edges2, [](const auto &) {},
+      edges2,
+      [](const auto &) {},
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 50 / 4 * 2);
@@ -2585,7 +2640,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypeIndexChunkingDynamic) {
 
   // Count total edges across all chunks using ProcessChunksInParallel
   auto read_gids_result = ProcessChunksInParallel(
-      edges, [](const auto &) {},
+      edges,
+      [](const auto &) {},
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 200 / 4 * 2);
@@ -2680,7 +2736,8 @@ TEST_F(StorageV2ChunkIteratorTest, BasicEdgeTypePropertyIndexChunking) {
 
   // Count total edges across all chunks using ProcessChunksInParallel
   auto read_gids_result = ProcessChunksInParallel(
-      edges, [](const auto &) {},
+      edges,
+      [](const auto &) {},
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 100 / 4 * 2);
@@ -2709,8 +2766,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithRange) {
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property in range [50, 150]
-  auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
-                                 memgraph::utils::MakeBoundInclusive(PropertyValue(150)), View::OLD, 4);
+  auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                 property_id_,
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(150)),
+                                 View::OLD,
+                                 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -2752,8 +2813,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithLowerBound) 
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property >= 30
-  auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(30)),
-                                 std::nullopt, View::OLD, 4);
+  auto edges = acc->ChunkedEdges(
+      edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(30)), std::nullopt, View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -2794,8 +2855,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingWithUpperBound) 
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property <= 70
-  auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
-                                 memgraph::utils::MakeBoundInclusive(PropertyValue(70)), View::OLD, 4);
+  auto edges = acc->ChunkedEdges(
+      edge_type_id1_, property_id_, std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(70)), View::OLD, 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -2834,9 +2895,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingEdgeCases) {
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test 1: Empty range (lower > upper)
-  auto empty_edges =
-      acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
-                        memgraph::utils::MakeBoundInclusive(PropertyValue(50)), View::OLD, 4);
+  auto empty_edges = acc->ChunkedEdges(edge_type_id1_,
+                                       property_id_,
+                                       memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
+                                       memgraph::utils::MakeBoundInclusive(PropertyValue(50)),
+                                       View::OLD,
+                                       4);
   ASSERT_EQ(empty_edges.size(), 0);
 
   int empty_count = 0;
@@ -2849,9 +2913,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingEdgeCases) {
   ASSERT_EQ(empty_count, 0);
 
   // Test 2: Single element range
-  auto single_edges =
-      acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(25)),
-                        memgraph::utils::MakeBoundInclusive(PropertyValue(25)), View::OLD, 4);
+  auto single_edges = acc->ChunkedEdges(edge_type_id1_,
+                                        property_id_,
+                                        memgraph::utils::MakeBoundInclusive(PropertyValue(25)),
+                                        memgraph::utils::MakeBoundInclusive(PropertyValue(25)),
+                                        View::OLD,
+                                        4);
   ASSERT_GT(single_edges.size(), 0);
 
   int single_count = 0;
@@ -2867,9 +2934,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingEdgeCases) {
   ASSERT_EQ(single_count, 1);
 
   // Test 3: Range with no elements (outside existing range)
-  auto no_elements_edges =
-      acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
-                        memgraph::utils::MakeBoundInclusive(PropertyValue(200)), View::OLD, 4);
+  auto no_elements_edges = acc->ChunkedEdges(edge_type_id1_,
+                                             property_id_,
+                                             memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
+                                             memgraph::utils::MakeBoundInclusive(PropertyValue(200)),
+                                             View::OLD,
+                                             4);
   ASSERT_GT(no_elements_edges.size(), 0);
 
   int no_elements_count = 0;
@@ -2889,7 +2959,7 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBigDataset) {
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
     // Create 1000 edges with property values from 0 to 999
-    for (int i = 0; i < 100000; ++i) {
+    for (int i = 0; i < 100'000; ++i) {
       auto vertex_from = acc->CreateVertex();
       auto vertex_to = acc->CreateVertex();
       auto edge = acc->CreateEdge(&vertex_from, &vertex_to, edge_type_id1_);
@@ -2902,9 +2972,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBigDataset) {
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property in range [200, 800]
-  auto edges =
-      acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(20'000)),
-                        memgraph::utils::MakeBoundInclusive(PropertyValue(80'000)), View::OLD, 8);
+  auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                 property_id_,
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(20'000)),
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(80'000)),
+                                 View::OLD,
+                                 8);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -2950,8 +3023,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingConcurrentOperat
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge type and property in range [100, 400]
-  auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
-                                 memgraph::utils::MakeBoundInclusive(PropertyValue(400)), View::OLD, 6);
+  auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                 property_id_,
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(100)),
+                                 memgraph::utils::MakeBoundInclusive(PropertyValue(400)),
+                                 View::OLD,
+                                 6);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -3042,8 +3119,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEdgeType
 
   auto acc = storage_->Access(memgraph::storage::WRITE);
   // Test chunking for edges with edge_type_id1_ and property in range [20, 80]
-  auto edges1 = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(20)),
-                                  memgraph::utils::MakeBoundInclusive(PropertyValue(80)), View::OLD, 4);
+  auto edges1 = acc->ChunkedEdges(edge_type_id1_,
+                                  property_id_,
+                                  memgraph::utils::MakeBoundInclusive(PropertyValue(20)),
+                                  memgraph::utils::MakeBoundInclusive(PropertyValue(80)),
+                                  View::OLD,
+                                  4);
 
   ASSERT_GT(edges1.size(), 0);
 
@@ -3065,8 +3146,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEdgeType
       });
 
   // Test chunking for edges with edge_type_id2_ and property in range [10, 40]
-  auto edges2 = acc->ChunkedEdges(edge_type_id2_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(10)),
-                                  memgraph::utils::MakeBoundInclusive(PropertyValue(40)), View::OLD, 4);
+  auto edges2 = acc->ChunkedEdges(edge_type_id2_,
+                                  property_id_,
+                                  memgraph::utils::MakeBoundInclusive(PropertyValue(10)),
+                                  memgraph::utils::MakeBoundInclusive(PropertyValue(40)),
+                                  View::OLD,
+                                  4);
 
   ASSERT_GT(edges2.size(), 0);
 
@@ -3143,7 +3228,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingMultipleEntries)
   // Count total edges across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      edges, [&total_count](const auto &) { total_count.fetch_add(1, std::memory_order_relaxed); },
+      edges,
+      [&total_count](const auto &) { total_count.fetch_add(1, std::memory_order_relaxed); },
       [](int local_count) {
         ASSERT_GT(local_count, 0);
         ASSERT_LT(local_count, 67 / 4 * 2);
@@ -3285,7 +3371,8 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingManyEntries) {
   // Count total edges across all chunks
   std::atomic<int> total_count{0};
   auto read_gids = ProcessChunksInParallel(
-      edges, [&total_count](const auto &) { total_count.fetch_add(1, std::memory_order_relaxed); },
+      edges,
+      [&total_count](const auto &) { total_count.fetch_add(1, std::memory_order_relaxed); },
       [](int local_count) {
         // NOTE: We don't assert on the count here because we don't know how many same edges are in the chunk.
         // ASSERT_GT(local_count, 0);
@@ -3432,8 +3519,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   // Checking lower bound
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
-                                   memgraph::utils::MakeBoundExclusive(PropertyValue(131)), std::nullopt, View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundExclusive(PropertyValue(131)),
+                                   std::nullopt,
+                                   View::OLD,
+                                   4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
@@ -3446,8 +3537,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
-                                   memgraph::utils::MakeBoundExclusive(PropertyValue(132)), std::nullopt, View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundExclusive(PropertyValue(132)),
+                                   std::nullopt,
+                                   View::OLD,
+                                   4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 135);
@@ -3460,8 +3555,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)), std::nullopt, View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                   std::nullopt,
+                                   View::OLD,
+                                   4);
     ASSERT_GT(edges.size(), 0);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 132);
@@ -3474,8 +3573,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(-1)),
-                                   std::nullopt, View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(-1)),
+                                   std::nullopt,
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
@@ -3488,8 +3591,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_,
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(210)), std::nullopt, View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(210)),
+                                   std::nullopt,
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -3498,8 +3605,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   // Checking upper bound
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
-                                   memgraph::utils::MakeBoundExclusive(PropertyValue(143)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   std::nullopt,
+                                   memgraph::utils::MakeBoundExclusive(PropertyValue(143)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
@@ -3512,8 +3623,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
-                                   memgraph::utils::MakeBoundExclusive(PropertyValue(141)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   std::nullopt,
+                                   memgraph::utils::MakeBoundExclusive(PropertyValue(141)),
+                                   View::OLD,
+                                   4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
@@ -3524,8 +3639,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(141)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   std::nullopt,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(141)),
+                                   View::OLD,
+                                   4);
     ASSERT_GT(edges.size(), 0);
     auto last_chunk = edges.get_chunk(edges.size() - 1);
     PropertyValue last_pv;
@@ -3536,8 +3655,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(210)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   std::nullopt,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(210)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 4);
     auto first_chunk = edges.get_chunk(0);
     ASSERT_EQ((*first_chunk.begin()).GetProperty(property_id_, View::OLD).value().ValueInt(), 0);
@@ -3550,8 +3673,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   }
   {
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, std::nullopt,
-                                   memgraph::utils::MakeBoundInclusive(PropertyValue(-10)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   std::nullopt,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(-10)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -3559,8 +3686,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
 
   // Test chunking for edges with edge type and property range
   auto acc = storage_->Access(memgraph::storage::WRITE);
-  auto edges = acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundExclusive(PropertyValue(10)),
-                                 memgraph::utils::MakeBoundExclusive(PropertyValue(160)), View::OLD, 4);
+  auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                 property_id_,
+                                 memgraph::utils::MakeBoundExclusive(PropertyValue(10)),
+                                 memgraph::utils::MakeBoundExclusive(PropertyValue(160)),
+                                 View::OLD,
+                                 4);
 
   ASSERT_GT(edges.size(), 0);
 
@@ -3581,8 +3712,9 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   {
     ASSERT_EQ(read_props.size(), 50);  // Every 3rd has the property
     for (size_t i = 0; i < read_props.size(); ++i) {
-      ASSERT_EQ(read_props[i], PropertyValue{(static_cast<int>(i) * 3) +
-                                             12});  // i*3 + 12 just because of the way we create the dataset
+      ASSERT_EQ(
+          read_props[i],
+          PropertyValue{(static_cast<int>(i) * 3) + 12});  // i*3 + 12 just because of the way we create the dataset
     }
   }
 
@@ -3590,9 +3722,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   {
     // Non existing value
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges =
-        acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
-                          memgraph::utils::MakeBoundInclusive(PropertyValue(130)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -3600,9 +3735,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   {
     // Exact match
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges =
-        acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
-                          memgraph::utils::MakeBoundInclusive(PropertyValue(132)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
@@ -3614,9 +3752,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   {
     // Missed match
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges =
-        acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
-                          memgraph::utils::MakeBoundExclusive(PropertyValue(132)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(132)),
+                                   memgraph::utils::MakeBoundExclusive(PropertyValue(132)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     ASSERT_TRUE(chunk.begin() == chunk.end());
@@ -3624,9 +3765,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   {
     // One match
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges =
-        acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
-                          memgraph::utils::MakeBoundInclusive(PropertyValue(133)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(131)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(133)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 1);
     auto chunk = edges.get_chunk(0);
     auto it = chunk.begin();
@@ -3638,9 +3782,12 @@ TEST_F(StorageV2ChunkIteratorTest, EdgeTypePropertyIndexChunkingBasicRange) {
   {
     // Upper bound lower than lower bound
     auto acc = storage_->Access(memgraph::storage::WRITE);
-    auto edges =
-        acc->ChunkedEdges(edge_type_id1_, property_id_, memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
-                          memgraph::utils::MakeBoundInclusive(PropertyValue(120)), View::OLD, 4);
+    auto edges = acc->ChunkedEdges(edge_type_id1_,
+                                   property_id_,
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(130)),
+                                   memgraph::utils::MakeBoundInclusive(PropertyValue(120)),
+                                   View::OLD,
+                                   4);
     ASSERT_EQ(edges.size(), 0);
   }
 }

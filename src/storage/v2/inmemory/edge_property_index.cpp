@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -219,15 +219,15 @@ auto InMemoryEdgePropertyIndex::PopulateIndex(PropertyId property, utils::SkipLi
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgePropertyIndex(from_vertex, property, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgePropertyIndex(from_vertex, property, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
     DropIndex(property);
@@ -431,8 +431,16 @@ InMemoryEdgePropertyIndex::Iterable::Iterator &InMemoryEdgePropertyIndex::Iterab
 }
 
 void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  AdvanceUntilValid_(index_iterator_, self_->index_accessor_.end(), current_edge_, current_accessor_, self_->storage_,
-                     self_->transaction_, self_->view_, self_->property_, self_->lower_bound_, self_->upper_bound_);
+  AdvanceUntilValid_(index_iterator_,
+                     self_->index_accessor_.end(),
+                     current_edge_,
+                     current_accessor_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->property_,
+                     self_->lower_bound_,
+                     self_->upper_bound_);
 }
 
 void InMemoryEdgePropertyIndex::RunGC() {
@@ -556,8 +564,15 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
 void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(index_iterator_, utils::SkipList<Entry>::ChunkedIterator{}, current_edge_, current_edge_accessor_,
-                     self_->storage_, self_->transaction_, self_->view_, self_->property_, self_->lower_bound_,
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipList<Entry>::ChunkedIterator{},
+                     current_edge_,
+                     current_edge_accessor_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->property_,
+                     self_->lower_bound_,
                      self_->upper_bound_);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -70,8 +70,8 @@ std::expected<std::vector<Message>, std::string> GetBatch(TConsumer &consumer, c
         }
         break;
       default:
-        spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
-                                 info.consumer_name, result));
+        spdlog::warn(fmt::format(
+            "Unexpected error while consuming message from consumer {}, error: {}", info.consumer_name, result));
         return std::unexpected{pulsar_client::strResult(result)};
     }
 
@@ -143,6 +143,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
   }
 }
+
 Consumer::~Consumer() {
   StopIfRunning();
   consumer_.close();
@@ -294,7 +295,11 @@ void Consumer::StartConsuming() {
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
       try {
-        TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+        TryToConsumeBatch(consumer_,
+                          info_,
+                          consumer_function_,
+                          last_message_id_,
+                          batch,
                           [&](const Message &message) -> const pulsar_client::Message & { return message.message_; });
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
@@ -337,7 +342,11 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
 
     spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
-    TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+    TryToConsumeBatch(consumer_,
+                      info_,
+                      consumer_function_,
+                      last_message_id_,
+                      batch,
                       [](const Message &message) -> const pulsar_client::Message & { return message.message_; });
 
     spdlog::info("Pulsar consumer {} finished processing", info_.consumer_name);

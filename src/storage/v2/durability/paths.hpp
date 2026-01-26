@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,8 +48,10 @@ inline auto RemakeWalName(const std::filesystem::path &current_path, uint64_t co
                           uint64_t const to_timestamp) -> std::string {
   auto const current_filename = current_path.filename().string();
   // 8 is the size of _current
-  return fmt::format("{}/{}_from_{}_to_{}", current_path.parent_path().string(),
-                     current_filename.substr(0, current_filename.size() - 8), std::to_string(from_timestamp),
+  return fmt::format("{}/{}_from_{}_to_{}",
+                     current_path.parent_path().string(),
+                     current_filename.substr(0, current_filename.size() - 8),
+                     std::to_string(from_timestamp),
                      std::to_string(to_timestamp));
 }
 

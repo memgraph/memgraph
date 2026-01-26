@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -107,10 +107,10 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
 Notification::Notification(SeverityLevel level) : level{level} {};
 
 Notification::Notification(SeverityLevel level, NotificationCode code, std::string title, std::string description)
-    : level{level}, code{code}, title(std::move(title)), description(std::move(description)){};
+    : level{level}, code{code}, title(std::move(title)), description(std::move(description)) {};
 
 Notification::Notification(SeverityLevel level, NotificationCode code, std::string title)
-    : level{level}, code{code}, title(std::move(title)){};
+    : level{level}, code{code}, title(std::move(title)) {};
 
 std::map<std::string, TypedValue> Notification::ConvertToMap() const {
   return std::map<std::string, TypedValue>{{"severity", TypedValue(GetSeverityLevelString(level))},

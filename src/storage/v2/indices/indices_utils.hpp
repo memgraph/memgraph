@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,44 +72,46 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   if (!deleted && has_label) {
     return true;
   }
-  constexpr auto interesting =
-      details::ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
-                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta,
-                                                            [&has_label, &deleted, label](const Delta &delta) {
-                                                              switch (delta.action) {
-                                                                case Delta::Action::ADD_LABEL:
-                                                                  if (delta.label.value == label) {
-                                                                    MG_ASSERT(!has_label, "Invalid database state!");
-                                                                    has_label = true;
-                                                                  }
-                                                                  break;
-                                                                case Delta::Action::REMOVE_LABEL:
-                                                                  if (delta.label.value == label) {
-                                                                    MG_ASSERT(has_label, "Invalid database state!");
-                                                                    has_label = false;
-                                                                  }
-                                                                  break;
-                                                                case Delta::Action::RECREATE_OBJECT: {
-                                                                  MG_ASSERT(deleted, "Invalid database state!");
-                                                                  deleted = false;
-                                                                  break;
-                                                                }
-                                                                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                                                                case Delta::Action::DELETE_OBJECT: {
-                                                                  MG_ASSERT(!deleted, "Invalid database state!");
-                                                                  deleted = true;
-                                                                  break;
-                                                                }
-                                                                case Delta::Action::SET_PROPERTY:
-                                                                case Delta::Action::ADD_IN_EDGE:
-                                                                case Delta::Action::ADD_OUT_EDGE:
-                                                                case Delta::Action::REMOVE_IN_EDGE:
-                                                                case Delta::Action::REMOVE_OUT_EDGE:
-                                                                  break;
-                                                              }
-                                                              return !deleted && has_label;
-                                                            });
+  constexpr auto interesting = details::ActionSet<Delta::Action::ADD_LABEL,
+                                                  Delta::Action::REMOVE_LABEL,
+                                                  Delta::Action::RECREATE_OBJECT,
+                                                  Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                  Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(
+      timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_LABEL:
+            if (delta.label.value == label) {
+              MG_ASSERT(!has_label, "Invalid database state!");
+              has_label = true;
+            }
+            break;
+          case Delta::Action::REMOVE_LABEL:
+            if (delta.label.value == label) {
+              MG_ASSERT(has_label, "Invalid database state!");
+              has_label = false;
+            }
+            break;
+          case Delta::Action::RECREATE_OBJECT: {
+            MG_ASSERT(deleted, "Invalid database state!");
+            deleted = false;
+            break;
+          }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            MG_ASSERT(!deleted, "Invalid database state!");
+            deleted = true;
+            break;
+          }
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+        return !deleted && has_label;
+      });
 }
 
 inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
@@ -124,9 +126,9 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
     return true;
   }
 
-  constexpr auto interesting =
-      details::ActionSet<Delta::Action::RECREATE_OBJECT, Delta::Action::DELETE_DESERIALIZED_OBJECT,
-                         Delta::Action::DELETE_OBJECT>{};
+  constexpr auto interesting = details::ActionSet<Delta::Action::RECREATE_OBJECT,
+                                                  Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                  Delta::Action::DELETE_OBJECT>{};
   return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&deleted](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::RECREATE_OBJECT: {
@@ -172,9 +174,10 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
     return true;
   }
 
-  constexpr auto interesting =
-      details::ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  constexpr auto interesting = details::ActionSet<Delta::Action::SET_PROPERTY,
+                                                  Delta::Action::RECREATE_OBJECT,
+                                                  Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                  Delta::Action::DELETE_OBJECT>{};
   return details::AnyVersionSatisfiesPredicate<interesting>(
       timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
         switch (delta.action) {
@@ -318,11 +321,13 @@ inline void PopulateIndexDispatch(utils::SkipList<Vertex>::Accessor &vertices,
       };
 
   if (parallel_exec_info && parallel_exec_info->thread_count > 1) {
-    PopulateIndexOnMultipleThreads(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory),
-                                   checked_insert_function, *parallel_exec_info);
+    PopulateIndexOnMultipleThreads(vertices,
+                                   std::forward<TSkipListAccessorFactory>(accessor_factory),
+                                   checked_insert_function,
+                                   *parallel_exec_info);
   } else {
-    PopulateIndexOnSingleThread(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory),
-                                checked_insert_function);
+    PopulateIndexOnSingleThread(
+        vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), checked_insert_function);
   }
 }
 
@@ -446,6 +451,7 @@ inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bou
 
 using LowerAndUpperBounds =
     std::tuple<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>, bool>;
+
 inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUpperBounds {
   std::optional<utils::Bound<PropertyValue>> lower_bound;
   std::optional<utils::Bound<PropertyValue>> upper_bound;

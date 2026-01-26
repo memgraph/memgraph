@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,8 +35,10 @@ enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD
 
 struct RoleMainData {
   RoleMainData() = default;
+
   explicit RoleMainData(bool const writing_enabled, utils::UUID const uuid)
       : uuid_(uuid), writing_enabled_(writing_enabled) {}
+
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
@@ -81,7 +83,9 @@ struct ReplicationState {
                ? replication_coordination_glue::ReplicationRole::REPLICA
                : replication_coordination_glue::ReplicationRole::MAIN;
   }
+
   bool IsMain() const { return GetRole() == replication_coordination_glue::ReplicationRole::MAIN; }
+
   bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
 
   auto IsMainWriteable() const -> bool {
@@ -127,7 +131,9 @@ struct ReplicationState {
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
+
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
+
   std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);

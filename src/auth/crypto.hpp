@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -45,8 +45,10 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize;
 
 struct HashedPassword {
   HashedPassword() = default;
+
   HashedPassword(PasswordHashAlgorithm hash_algo, std::string password_hash)
       : hash_algo{hash_algo}, password_hash{std::move(password_hash)} {}
+
   HashedPassword(HashedPassword const &) = default;
   HashedPassword(HashedPassword &&) = default;
   HashedPassword &operator=(HashedPassword const &) = default;

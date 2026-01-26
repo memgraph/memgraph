@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,7 +57,8 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -107,7 +108,8 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -164,7 +166,8 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -263,19 +266,25 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::RenameDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }

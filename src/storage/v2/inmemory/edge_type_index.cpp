@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -134,15 +134,15 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
     DropIndex(edge_type);
@@ -342,8 +342,14 @@ InMemoryEdgeTypeIndex::Iterable::Iterator &InMemoryEdgeTypeIndex::Iterable::Iter
 }
 
 void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
-  AdvanceUntilValid_(index_iterator_, self_->index_accessor_.end(), current_edge_, current_accessor_,
-                     self_->transaction_, self_->view_, self_->edge_type_, self_->storage_);
+  AdvanceUntilValid_(index_iterator_,
+                     self_->index_accessor_.end(),
+                     current_edge_,
+                     current_accessor_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->edge_type_,
+                     self_->storage_);
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -437,8 +443,14 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::
 void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(index_iterator_, utils::SkipList<Entry>::ChunkedIterator{}, current_edge_, current_edge_accessor_,
-                     self_->transaction_, self_->view_, self_->edge_type_, self_->storage_);
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipList<Entry>::ChunkedIterator{},
+                     current_edge_,
+                     current_edge_accessor_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->edge_type_,
+                     self_->storage_);
 }
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2578,17 +2578,20 @@ TEST_F(AuthWithStorage, MultiTenantRoleAtDifferentDBs) {
   ASSERT_TRUE(user->HasAccess("db1"));
   ASSERT_TRUE(user->HasAccess("db2"));
 }
+
 TEST_F(AuthWithStorage, AddProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
-  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_FALSE(auth->CreateProfile("profile", {}));
 }
 
 TEST_F(AuthWithStorage, UpdateProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
-  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->UpdateProfile(
       "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->UpdateProfile("other_profile", {}));
@@ -2597,10 +2600,12 @@ TEST_F(AuthWithStorage, UpdateProfile) {
 
 TEST_F(AuthWithStorage, DropProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
-  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->DropProfile("profile"));
   ASSERT_TRUE(auth->DropProfile("other_profile"));
   ASSERT_FALSE(auth->DropProfile("non_profile"));
@@ -2609,8 +2614,9 @@ TEST_F(AuthWithStorage, DropProfile) {
 TEST_F(AuthWithStorage, GetProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   {
     const auto profile = auth->GetProfile("profile");
     ASSERT_TRUE(profile);
@@ -2633,8 +2639,9 @@ TEST_F(AuthWithStorage, GetProfile) {
 TEST_F(AuthWithStorage, AllProfiles) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   {
     const auto profiles = auth->AllProfiles();
     ASSERT_EQ(profiles.size(), 2);
@@ -2667,8 +2674,9 @@ TEST_F(AuthWithStorage, AllProfiles) {
 TEST_F(AuthWithStorage, SetProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
 
@@ -2695,8 +2703,9 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
   // In the new architecture, only users can have profiles, not roles
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{10UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{10UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
   ASSERT_TRUE(auth->AddRole("role"));
@@ -2745,8 +2754,9 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
 TEST_F(AuthWithStorage, RevokeProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
 
@@ -2770,8 +2780,9 @@ TEST_F(AuthWithStorage, RevokeProfileUserWRole) {
   ASSERT_TRUE(auth->CreateProfile(
       "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{10UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{10UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
   ASSERT_TRUE(auth->AddRole("role"));
@@ -2809,8 +2820,9 @@ TEST_F(AuthWithStorage, RevokeProfileUserWRole) {
 TEST_F(AuthWithStorage, GetUsersForProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user1"));
   ASSERT_TRUE(auth->AddUser("user2"));

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,16 +48,23 @@ struct Trigger {
                std::shared_ptr<QueryUserOrRole> triggering_user, const AuthChecker *auth_checker) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
+
   // NOLINTNEXTLINE (modernize-use-nullptr)
   bool operator<(const Trigger &other) const { return name_ < other.name_; }
+
   bool operator==(const std::string &other) const { return name_ == other; }
+
   // NOLINTNEXTLINE (modernize-use-nullptr)
   bool operator<(const std::string &other) const { return name_ < other; }
 
   const auto &Name() const noexcept { return name_; }
+
   const auto &OriginalStatement() const noexcept { return parsed_statements_.query_string; }
+
   const auto &Creator() const noexcept { return creator_; }
+
   auto EventType() const noexcept { return event_type_; }
+
   auto PrivilegeContext() const noexcept { return privilege_context_; }
 
  private:
@@ -69,6 +76,7 @@ struct Trigger {
     PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
+
   std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, std::string_view db_name,
                                        std::shared_ptr<QueryUserOrRole> triggering_user) const;
 
@@ -113,9 +121,11 @@ struct TriggerStore {
   std::vector<TriggerInfo> GetTriggerInfo() const;
 
   const auto &BeforeCommitTriggers() const noexcept { return before_commit_triggers_; }
+
   const auto &AfterCommitTriggers() const noexcept { return after_commit_triggers_; }
 
   bool HasTriggers() const noexcept { return before_commit_triggers_.size() > 0 || after_commit_triggers_.size() > 0; }
+
   std::unordered_set<TriggerEventType> GetEventTypes() const;
 
  private:

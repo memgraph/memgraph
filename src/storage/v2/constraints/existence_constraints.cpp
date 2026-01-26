@@ -44,11 +44,10 @@ std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstrai
     uint64_t start_timestamp) const {
   namespace r = std::ranges;
   namespace rv = std::views;
-  auto result = *container_ | rv::filter([start_timestamp](const auto &c) {
-    return c.second->status.IsVisible(start_timestamp);
-  }) | rv::transform([](const auto &c) {
-    return std::pair{c.first.label, c.first.property};
-  }) | r::to<std::vector<std::pair<LabelId, PropertyId>>>();
+  auto result = *container_ |
+                rv::filter([start_timestamp](const auto &c) { return c.second->status.IsVisible(start_timestamp); }) |
+                rv::transform([](const auto &c) { return std::pair{c.first.label, c.first.property}; }) |
+                r::to<std::vector<std::pair<LabelId, PropertyId>>>();
   std::ranges::sort(result);
   return result;
 }
@@ -213,8 +212,14 @@ std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsCo
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(
           [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, &snapshot_info]() {
-            do_per_thread_validation(maybe_error, ValidateVertexOnConstraint, vertex_batches, batch_counter, vertices,
-                                     snapshot_info, label, property);
+            do_per_thread_validation(maybe_error,
+                                     ValidateVertexOnConstraint,
+                                     vertex_batches,
+                                     batch_counter,
+                                     vertices,
+                                     snapshot_info,
+                                     label,
+                                     property);
           });
     }
   }

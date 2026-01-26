@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -235,9 +235,11 @@ struct delta_container {
   ~delta_container() { memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, size_); }
 
   auto begin() { return Flatten(deltas_).begin(); }
+
   auto end() { return Flatten(deltas_).end(); }
 
   auto begin() const { return ConstFlatten(deltas_).begin(); }
+
   auto end() const { return ConstFlatten(deltas_).end(); }
 
   template <typename... Args>

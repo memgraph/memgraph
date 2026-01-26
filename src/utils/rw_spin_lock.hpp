@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -102,6 +102,7 @@ struct RWSpinLock {
 
  private:
   using status_t = uint32_t;
+
   enum FLAGS : status_t {
     UNIQUE_LOCKED = 1,
     READER = 2,

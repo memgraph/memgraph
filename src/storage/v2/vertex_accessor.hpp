@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -130,6 +130,7 @@ class VertexAccessor final {
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
+
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
   Vertex *vertex_;

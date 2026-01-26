@@ -58,8 +58,10 @@ class Checker {
   template <typename T>
   struct Model : Concept {
     T checker;
+
     template <typename U>
     explicit Model(U &&c) : checker(std::forward<U>(c)) {}
+
     BaseOpChecker *get() override { return &checker; }
   };
 
@@ -139,11 +141,13 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     op.input()->Accept(*this);
     return false;
   }
+
   bool PreVisit(Optional &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
     return false;
   }
+
   PRE_VISIT(Unwind);
   PRE_VISIT(Distinct);
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,7 +64,9 @@ TEST(RpcTimeout, TimeoutNoFailure) {
 
   rpc_server.Register<Echo>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         EchoMessage req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -97,7 +99,9 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
 
   rpc_server.Register<Echo>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         EchoMessage req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -129,7 +133,9 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   }};
 
   rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                              uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                              uint64_t const request_version,
+                              auto *req_reader,
+                              auto *res_builder) {
     spdlog::trace("Received sum request.");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -141,7 +147,9 @@ TEST(RpcTimeout, TimeoutServerBusy) {
 
   rpc_server.Register<Echo>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         spdlog::trace("Received echo request");
         EchoMessage req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -183,7 +191,9 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
   rpc_server.Register<Echo>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         EchoMessage req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -206,7 +216,9 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 template <memgraph::rpc::IsRpc T>
 void RegisterRpcCallback(Server &rpc_server) {
   rpc_server.Register<T>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version, auto *req_reader, auto /* *res_builder */) {
+                            uint64_t const request_version,
+                            auto *req_reader,
+                            auto /* *res_builder */) {
     typename T::Request req;
     if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
       memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);

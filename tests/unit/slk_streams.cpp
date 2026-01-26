@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,8 @@ TEST(Builder, SingleSegment) {
   ASSERT_EQ(buffer.size(), input.size() + 2 * sizeof(memgraph::slk::SegmentSize));
 
   auto splits =
-      BufferToBinaryData(buffer.data(), buffer.size(),
+      BufferToBinaryData(buffer.data(),
+                         buffer.size(),
                          {sizeof(memgraph::slk::SegmentSize), input.size(), sizeof(memgraph::slk::SegmentSize)});
 
   auto header_expected = SizeToBinaryData(input.size());
@@ -57,13 +58,17 @@ TEST(Builder, MultipleSegments) {
 
   ASSERT_EQ(buffer.size(), input.size() + 3 * sizeof(memgraph::slk::SegmentSize));
 
-  auto splits = BufferToBinaryData(
-      buffer.data(), buffer.size(),
-      {sizeof(memgraph::slk::SegmentSize), memgraph::slk::kSegmentMaxDataSize, sizeof(memgraph::slk::SegmentSize),
-       input.size() - memgraph::slk::kSegmentMaxDataSize, sizeof(memgraph::slk::SegmentSize)});
+  auto splits = BufferToBinaryData(buffer.data(),
+                                   buffer.size(),
+                                   {sizeof(memgraph::slk::SegmentSize),
+                                    memgraph::slk::kSegmentMaxDataSize,
+                                    sizeof(memgraph::slk::SegmentSize),
+                                    input.size() - memgraph::slk::kSegmentMaxDataSize,
+                                    sizeof(memgraph::slk::SegmentSize)});
 
   auto datas =
-      BufferToBinaryData(input.data(), input.size(),
+      BufferToBinaryData(input.data(),
+                         input.size(),
                          {memgraph::slk::kSegmentMaxDataSize, input.size() - memgraph::slk::kSegmentMaxDataSize});
 
   auto header1_expected = SizeToBinaryData(memgraph::slk::kSegmentMaxDataSize);
@@ -104,8 +109,8 @@ TEST(Builder, PrepareForFileSending) {
   // Test footer at the end
   {
     memgraph::slk::SegmentSize footer;
-    memcpy(&footer, buffer.data() + input.size() + sizeof(memgraph::slk::SegmentSize),
-           sizeof(memgraph::slk::SegmentSize));
+    memcpy(
+        &footer, buffer.data() + input.size() + sizeof(memgraph::slk::SegmentSize), sizeof(memgraph::slk::SegmentSize));
     ASSERT_EQ(footer, memgraph::slk::kFooter);
   }
 }
@@ -131,8 +136,8 @@ TEST(Builder, FlushWithoutFile) {
   // Test footer at the end
   {
     memgraph::slk::SegmentSize footer;
-    memcpy(&footer, buffer.data() + input.size() + sizeof(memgraph::slk::SegmentSize),
-           sizeof(memgraph::slk::SegmentSize));
+    memcpy(
+        &footer, buffer.data() + input.size() + sizeof(memgraph::slk::SegmentSize), sizeof(memgraph::slk::SegmentSize));
     ASSERT_EQ(footer, memgraph::slk::kFooter);
   }
 }
@@ -370,26 +375,31 @@ TEST(CheckStreamStatus, MultipleSegments) {
     ASSERT_EQ(data_size, 0);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize);
-       i < sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize; ++i) {
+       i < sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize;
+       ++i) {
     auto [status, stream_size, data_size, pos] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize));
     ASSERT_EQ(data_size, 0);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize;
-       i < sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize; ++i) {
+       i < sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize;
+       ++i) {
     auto [status, stream_size, data_size, pos] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize +
-                               memgraph::slk::kSegmentMaxTotalSize);
+    ASSERT_EQ(
+        stream_size,
+        sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize + memgraph::slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, memgraph::slk::kSegmentMaxDataSize);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize;
-       i < sizeof(memgraph::slk::SegmentSize) * 2 + input.size(); ++i) {
+       i < sizeof(memgraph::slk::SegmentSize) * 2 + input.size();
+       ++i) {
     auto [status, stream_size, data_size, pos] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize +
-                               memgraph::slk::kSegmentMaxTotalSize);
+    ASSERT_EQ(stream_size,
+              sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize +
+                  memgraph::slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, memgraph::slk::kSegmentMaxDataSize);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize) * 2 + input.size(); i < buffer.size(); ++i) {

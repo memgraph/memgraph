@@ -148,6 +148,7 @@
   GenerateHARpcCounters(SwapMainUUIDRpc)                                                                               \
   GenerateHARpcCounters(GetDatabaseHistoriesRpc)
 // clang-format on
+
 namespace memgraph::metrics {
 
 // define every Event as an index in the array of counters
@@ -180,7 +181,9 @@ void EventCounters::Decrement(const Event event, Count const amount) {
 }
 
 void IncrementCounter(const Event event, Count const amount) { global_counters.Increment(event, amount); }
+
 void DecrementCounter(const Event event, Count const amount) { global_counters.Decrement(event, amount); }
+
 Count GetCounterValue(const Event event) { return global_counters.GetCount(event); }
 
 const char *GetCounterName(const Event event) {

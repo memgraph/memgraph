@@ -109,17 +109,25 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 
   switch (event_type) {
     case EventType::ANY:
-      return TagsToIdentifiers(
-          IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::CREATED_OBJECTS,
-          IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES, IdentifierTag::DELETED_OBJECTS,
-          IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
-          IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS, IdentifierTag::UPDATED_VERTICES,
-          IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES,
-          IdentifierTag::UPDATED_OBJECTS);
+      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES,
+                               IdentifierTag::CREATED_EDGES,
+                               IdentifierTag::CREATED_OBJECTS,
+                               IdentifierTag::DELETED_VERTICES,
+                               IdentifierTag::DELETED_EDGES,
+                               IdentifierTag::DELETED_OBJECTS,
+                               IdentifierTag::SET_VERTEX_PROPERTIES,
+                               IdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS,
+                               IdentifierTag::REMOVED_VERTEX_LABELS,
+                               IdentifierTag::UPDATED_VERTICES,
+                               IdentifierTag::SET_EDGE_PROPERTIES,
+                               IdentifierTag::REMOVED_EDGE_PROPERTIES,
+                               IdentifierTag::UPDATED_EDGES,
+                               IdentifierTag::UPDATED_OBJECTS);
 
     case EventType::CREATE:
-      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES,
-                               IdentifierTag::CREATED_OBJECTS);
+      return TagsToIdentifiers(
+          IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::CREATED_OBJECTS);
 
     case EventType::VERTEX_CREATE:
       return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES);
@@ -128,8 +136,8 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(IdentifierTag::CREATED_EDGES);
 
     case EventType::DELETE:
-      return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES,
-                               IdentifierTag::DELETED_OBJECTS);
+      return TagsToIdentifiers(
+          IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES, IdentifierTag::DELETED_OBJECTS);
 
     case EventType::VERTEX_DELETE:
       return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES);
@@ -138,20 +146,26 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(IdentifierTag::DELETED_EDGES);
 
     case EventType::UPDATE:
-      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
-                               IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS,
-                               IdentifierTag::UPDATED_VERTICES, IdentifierTag::SET_EDGE_PROPERTIES,
-                               IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES,
+      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES,
+                               IdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS,
+                               IdentifierTag::REMOVED_VERTEX_LABELS,
+                               IdentifierTag::UPDATED_VERTICES,
+                               IdentifierTag::SET_EDGE_PROPERTIES,
+                               IdentifierTag::REMOVED_EDGE_PROPERTIES,
+                               IdentifierTag::UPDATED_EDGES,
                                IdentifierTag::UPDATED_OBJECTS);
 
     case EventType::VERTEX_UPDATE:
-      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
-                               IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS,
+      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES,
+                               IdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS,
+                               IdentifierTag::REMOVED_VERTEX_LABELS,
                                IdentifierTag::UPDATED_VERTICES);
 
     case EventType::EDGE_UPDATE:
-      return TagsToIdentifiers(IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
-                               IdentifierTag::UPDATED_EDGES);
+      return TagsToIdentifiers(
+          IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES);
   }
 }
 }  // namespace
@@ -187,11 +201,14 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
 
     std::vector<Identifier *> predefined_identifiers;
     predefined_identifiers.reserve(identifiers.size());
-    std::ranges::transform(identifiers, std::back_inserter(predefined_identifiers),
-                           [](auto &identifier) { return &identifier.first; });
+    std::ranges::transform(
+        identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
 
-    auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
-                                        parsed_statements_.parameters, db_accessor, predefined_identifiers);
+    auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
+                                        utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                        parsed_statements_.parameters,
+                                        db_accessor,
+                                        predefined_identifiers);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
@@ -273,8 +290,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
     frame_writer.Write(plan.symbol_table().at(identifier), context.GetTypedValue(tag, dba));
   }
 
-  while (cursor->Pull(frame, ctx))
-    ;
+  while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
@@ -340,8 +356,8 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   }
   const auto version = json_trigger_data["version"].get<uint64_t>();
   if (version != kVersion && version != kDefinerOnlyVersion) {
-    spdlog::warn(get_failed_message(fmt::format("Invalid version of the trigger data. Expected {} or {}, got {}.",
-                                                kVersion, kDefinerOnlyVersion, version)));
+    spdlog::warn(get_failed_message(fmt::format(
+        "Invalid version of the trigger data. Expected {} or {}, got {}.", kVersion, kDefinerOnlyVersion, version)));
     return;
   }
 
@@ -417,8 +433,16 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
 
   std::optional<Trigger> trigger;
   try {
-    trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, user, std::string{db_name}, privilege_context);
+    trigger.emplace(std::string{trigger_name},
+                    statement,
+                    user_parameters,
+                    event_type,
+                    query_cache,
+                    db_accessor,
+                    query_config,
+                    user,
+                    std::string{db_name},
+                    privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -455,19 +479,30 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
 
   std::optional<Trigger> trigger;
   try {
-    trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, query_config,
-                    creator, db_name, privilege_context);
+    trigger.emplace(std::move(name),
+                    query,
+                    user_parameters,
+                    event_type,
+                    query_cache,
+                    db_accessor,
+                    query_config,
+                    creator,
+                    db_name,
+                    privilege_context);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
-    utils::PrintIterable(identifier_names_stream, identifiers, ", ",
-                         [](auto &stream, const auto &identifier) { stream << identifier.first.name_; });
+    utils::PrintIterable(identifier_names_stream, identifiers, ", ", [](auto &stream, const auto &identifier) {
+      stream << identifier.first.name_;
+    });
 
     throw utils::BasicException(
         "Failed creating the trigger.\nError message: '{}'\nThe error was mostly likely generated because of the wrong "
         "statement that this trigger executes.\nMake sure all predefined variables used are present for the specified "
         "event.\nAllowed variables for event '{}' are: {}",
-        e.what(), TriggerEventTypeToString(event_type), identifier_names_stream.str());
+        e.what(),
+        TriggerEventTypeToString(event_type),
+        identifier_names_stream.str());
   }
 
   // When the format of the persisted trigger is changed, update the kVersion
@@ -548,7 +583,11 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
     for (const auto &trigger : trigger_list.access()) {
       std::optional<std::string> owner_str{};
       if (const auto &owner = trigger.Creator(); owner && *owner) owner_str = owner->username();
-      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, std::move(owner_str),
+      info.push_back({trigger.Name(),
+                      trigger.OriginalStatement(),
+                      trigger.EventType(),
+                      phase,
+                      std::move(owner_str),
                       trigger.PrivilegeContext()});
     }
   };

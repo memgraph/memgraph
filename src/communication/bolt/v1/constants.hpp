@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ namespace memgraph::communication::bolt {
  * Sizes related to the chunk defined in Bolt protocol.
  */
 inline constexpr size_t kChunkHeaderSize = 2;
-inline constexpr size_t kChunkMaxDataSize = 65535;
+inline constexpr size_t kChunkMaxDataSize = 65'535;
 inline constexpr size_t kChunkWholeSize = kChunkHeaderSize + kChunkMaxDataSize;
 
 /**

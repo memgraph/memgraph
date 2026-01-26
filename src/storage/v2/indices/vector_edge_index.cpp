@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -99,6 +99,7 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
 }  // namespace
 
 VectorEdgeIndex::VectorEdgeIndex() : pimpl(std::make_unique<Impl>()) {}
+
 VectorEdgeIndex::~VectorEdgeIndex() = default;
 VectorEdgeIndex::VectorEdgeIndex(VectorEdgeIndex &&) noexcept = default;
 VectorEdgeIndex &VectorEdgeIndex::operator=(VectorEdgeIndex &&) noexcept = default;
@@ -147,8 +148,8 @@ void VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   auto mg_edge_index = mg_vector_edge_index_t::make(metric);
   if (!mg_edge_index) {
-    throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
-                                                   spec.index_name, mg_edge_index.error.what()));
+    throw query::VectorSearchException(fmt::format(
+        "Failed to create vector index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
   }
 
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
@@ -236,7 +237,8 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
   if (std::ranges::any_of(pimpl->edge_index_ | rv::keys | rv::filter(has_property),
                           [&](const auto &edge_type_prop) { return edge_type_prop.edge_type() == edge_type; })) {
     UpdateVectorIndex({.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge},
-                      EdgeTypePropKey{edge_type, property}, &value);
+                      EdgeTypePropKey{edge_type, property},
+                      &value);
   }
 }
 
@@ -246,10 +248,14 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const 
   for (const auto &[_, index_item] : pimpl->edge_index_) {
     const auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index->ReadLock();
-    result.emplace_back(spec.index_name, spec.edge_type_id, spec.property,
+    result.emplace_back(spec.index_name,
+                        spec.edge_type_id,
+                        spec.property,
                         NameFromMetric(locked_index->metric().metric_kind()),
-                        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(),
-                        locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind()));
+                        static_cast<std::uint16_t>(locked_index->dimensions()),
+                        locked_index->capacity(),
+                        locked_index->size(),
+                        NameFromScalar(locked_index->metric().scalar_kind()));
   }
   return result;
 }
@@ -257,8 +263,9 @@ std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const 
 std::vector<VectorEdgeIndexSpec> VectorEdgeIndex::ListIndices() const {
   std::vector<VectorEdgeIndexSpec> result;
   result.reserve(pimpl->edge_index_.size());
-  r::transform(pimpl->edge_index_, std::back_inserter(result),
-               [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
+  r::transform(pimpl->edge_index_, std::back_inserter(result), [](const auto &label_prop_index_item) {
+    return label_prop_index_item.second.spec;
+  });
   return result;
 }
 
@@ -294,7 +301,8 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &entry = static_cast<EdgeIndexEntry>(result_keys[i].member.key);
     result.emplace_back(
-        entry, static_cast<double>(result_keys[i].distance),
+        entry,
+        static_cast<double>(result_keys[i].distance),
         std::abs(SimilarityFromDistance(locked_index->metric().metric_kind(), result_keys[i].distance)));
   }
 
@@ -307,8 +315,8 @@ void VectorEdgeIndex::RestoreEntries(
   for (const auto &property_value_edge : prop_edges) {
     const auto &[property_value, edge_tuple] = property_value_edge;
     const auto &[from_vertex, to_vertex, edge] = edge_tuple;
-    UpdateVectorIndex({.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge}, edge_type_prop,
-                      &property_value);
+    UpdateVectorIndex(
+        {.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge}, edge_type_prop, &property_value);
   }
 }
 

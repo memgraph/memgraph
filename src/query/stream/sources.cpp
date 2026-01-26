@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,10 +44,13 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
 }
 
 void KafkaStream::Start() { consumer_->Start(); }
+
 void KafkaStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
 }
+
 void KafkaStream::Stop() { consumer_->Stop(); }
+
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
 
 void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
@@ -109,11 +112,15 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
 }
 
 void PulsarStream::Start() { consumer_->Start(); }
+
 void PulsarStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
 }
+
 void PulsarStream::Stop() { consumer_->Stop(); }
+
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
+
 void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
                          ConsumerFunction<Message> consumer_function) const {
   consumer_->Check(timeout, batch_limit, std::move(consumer_function));

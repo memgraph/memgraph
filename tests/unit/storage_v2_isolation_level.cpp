@@ -56,10 +56,11 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
 
     static constexpr auto iteration_count = 10;
     {
-      SCOPED_TRACE(fmt::format(
-          "Visibility while the creator transaction is active "
-          "(default isolation level = {}, override isolation level = {})",
-          IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
+      SCOPED_TRACE(
+          fmt::format("Visibility while the creator transaction is active "
+                      "(default isolation level = {}, override isolation level = {})",
+                      IsolationLevelToString(default_isolation_level),
+                      IsolationLevelToString(override_isolation_level)));
       for (size_t i = 1; i <= iteration_count; ++i) {
         creator->CreateVertex();
 
@@ -74,10 +75,11 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
 
     ASSERT_TRUE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     {
-      SCOPED_TRACE(fmt::format(
-          "Visibility after the creator transaction is committed "
-          "(default isolation level = {}, override isolation level = {})",
-          IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
+      SCOPED_TRACE(
+          fmt::format("Visibility after the creator transaction is committed "
+                      "(default isolation level = {}, override isolation level = {})",
+                      IsolationLevelToString(default_isolation_level),
+                      IsolationLevelToString(override_isolation_level)));
       const auto check_vertices_count = [](auto &accessor, const auto isolation_level) {
         const auto expected_count =
             isolation_level == memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION ? 0 : iteration_count;

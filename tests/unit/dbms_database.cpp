@@ -27,6 +27,7 @@ std::filesystem::path storage_directory{std::filesystem::temp_directory_path() /
 
 memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> generic_repl_state{
     std::nullopt};
+
 memgraph::storage::Config default_conf(std::string name = "") {
   return {.durability = {.storage_directory = storage_directory / name,
                          .snapshot_wal_mode =
@@ -52,7 +53,9 @@ class DBMS_Database : public ::testing::Test {
 #ifdef MG_ENTERPRISE
 TEST_F(DBMS_Database, New) {
   memgraph::dbms::DatabaseHandler db_handler;
-  { ASSERT_FALSE(db_handler.GetConfig("db1")); }
+  {
+    ASSERT_FALSE(db_handler.GetConfig("db1"));
+  }
   {  // With custom config
     memgraph::storage::Config db_config{
         .durability = {.storage_directory = storage_directory / "db2",
