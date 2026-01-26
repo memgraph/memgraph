@@ -130,6 +130,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void SetReceiveThreadId(std::thread::id thread_id) { receive_thread_id_ = thread_id; }
 
+  void SetEnqueueThreadId(std::thread::id thread_id) { enqueue_thread_id_ = thread_id; }
+
+  void SetDequeueThreadId(std::thread::id thread_id) { dequeue_thread_id_ = thread_id; }
+
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
 
@@ -161,6 +165,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::optional<std::chrono::high_resolution_clock::time_point> thread_pool_enqueue_time_;
   std::optional<std::chrono::high_resolution_clock::time_point> thread_pool_dequeue_time_;
   std::optional<std::thread::id> receive_thread_id_;
+  std::optional<std::thread::id> enqueue_thread_id_;
+  std::optional<std::thread::id> dequeue_thread_id_;
 
   // Stats storage
   struct PullStats {
@@ -180,6 +186,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     int receive_thread_id_hash;
     int pull_thread_id_hash;
     int thread_migration;  // 1 if receive and pull threads are different, 0 if same
+    // Detailed timing breakdown
+    double receive_to_enqueue_us;     // Time from receive to enqueue
+    double dequeue_to_pull_start_us;  // Time from dequeue to Pull start
   };
   std::vector<PullStats> pull_stats_;
 

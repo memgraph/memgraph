@@ -360,6 +360,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
   // Calculate time from receive to start of Pull
   double receive_to_pull_us = 0.0;
   double thread_pool_queue_wait_us = 0.0;
+  double receive_to_enqueue_us = 0.0;
+  double dequeue_to_pull_start_us = 0.0;
   if (receive_time_.has_value()) {
     receive_to_pull_us =
         static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(pull_start - *receive_time_).count());
@@ -368,6 +370,14 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     thread_pool_queue_wait_us = static_cast<double>(
         std::chrono::duration_cast<std::chrono::microseconds>(*thread_pool_dequeue_time_ - *thread_pool_enqueue_time_)
             .count());
+  }
+  if (receive_time_.has_value() && thread_pool_enqueue_time_.has_value()) {
+    receive_to_enqueue_us = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(*thread_pool_enqueue_time_ - *receive_time_).count());
+  }
+  if (thread_pool_dequeue_time_.has_value()) {
+    dequeue_to_pull_start_us = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(pull_start - *thread_pool_dequeue_time_).count());
   }
 
   try {
@@ -426,7 +436,9 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
                     .numa_node_changes = numa_node_changes,
                     .receive_thread_id_hash = receive_thread_id_hash,
                     .pull_thread_id_hash = pull_thread_id_hash,
-                    .thread_migration = thread_migration};
+                    .thread_migration = thread_migration,
+                    .receive_to_enqueue_us = receive_to_enqueue_us,
+                    .dequeue_to_pull_start_us = dequeue_to_pull_start_us};
     pull_stats_.push_back(stats);
 
     // Reset timing state
@@ -434,6 +446,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     thread_pool_enqueue_time_.reset();
     thread_pool_dequeue_time_.reset();
     receive_thread_id_.reset();
+    enqueue_thread_id_.reset();
+    dequeue_thread_id_.reset();
 
     return summary;
   } catch (const memgraph::query::QueryException &e) {
@@ -761,7 +775,7 @@ void SessionHL::SaveStatsToFile() const {
   if (!file_exists || !header_written.load()) {
     file << "receive_to_pull_start_us,thread_pool_queue_wait_us,query_execution_us,pull_total_us,receive_to_pull_end_"
             "us,initial_cpu,final_cpu,initial_numa_node,final_numa_node,cpu_migrations,numa_node_changes,receive_"
-            "thread_id_hash,pull_thread_id_hash,thread_migration\n";
+            "thread_id_hash,pull_thread_id_hash,thread_migration,receive_to_enqueue_us,dequeue_to_pull_start_us\n";
     header_written.store(true);
   }
 
@@ -771,7 +785,8 @@ void SessionHL::SaveStatsToFile() const {
          << "," << stats.pull_total_us << "," << stats.receive_to_pull_end_us << "," << stats.initial_cpu << ","
          << stats.final_cpu << "," << stats.initial_numa_node << "," << stats.final_numa_node << ","
          << stats.cpu_migrations << "," << stats.numa_node_changes << "," << stats.receive_thread_id_hash << ","
-         << stats.pull_thread_id_hash << "," << stats.thread_migration << "\n";
+         << stats.pull_thread_id_hash << "," << stats.thread_migration << "," << stats.receive_to_enqueue_us << ","
+         << stats.dequeue_to_pull_start_us << "\n";
   }
 
   if (!file.good()) {

@@ -421,6 +421,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     auto enqueue_time = std::chrono::high_resolution_clock::now();
     if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
       session_.SetThreadPoolEnqueueTime(enqueue_time);
+      session_.SetEnqueueThreadId(std::this_thread::get_id());
     }
 
     session_context_->AddTask(
@@ -429,6 +430,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           auto dequeue_time = std::chrono::high_resolution_clock::now();
           if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
             shared_this->session_.SetThreadPoolDequeueTime(dequeue_time);
+            shared_this->session_.SetDequeueThreadId(std::this_thread::get_id());
           }
 
           try {
