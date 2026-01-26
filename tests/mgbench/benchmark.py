@@ -255,6 +255,34 @@ def parse_args():
         help="Client language implementation (cpp or python)",
     )
 
+    benchmark_parser.add_argument(
+        "--memgraph-cpu-list",
+        type=str,
+        default=None,
+        help="CPU list for pinning memgraph process (e.g., '0,1,2,3' or '0-3'). Uses taskset.",
+    )
+
+    benchmark_parser.add_argument(
+        "--memgraph-numa-node",
+        type=int,
+        default=None,
+        help="NUMA node for pinning memgraph process (e.g., 0, 1). Uses numactl. Preferred for NUMA-aware pinning.",
+    )
+
+    benchmark_parser.add_argument(
+        "--client-cpu-list",
+        type=str,
+        default=None,
+        help="CPU list for pinning client processes (e.g., '0,1,2,3' or '0-3'). Uses taskset.",
+    )
+
+    benchmark_parser.add_argument(
+        "--client-numa-node",
+        type=int,
+        default=None,
+        help="NUMA node for pinning client processes (e.g., 0, 1). Uses numactl. Preferred for NUMA-aware pinning.",
+    )
+
     return benchmark_parser.parse_args()
 
 
@@ -984,6 +1012,10 @@ if __name__ == "__main__":
         no_authorization=args.no_authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
+        memgraph_cpu_list=args.memgraph_cpu_list,
+        memgraph_numa_node=args.memgraph_numa_node,
+        client_cpu_list=args.client_cpu_list,
+        client_numa_node=args.client_numa_node,
     )
 
     log_benchmark_arguments(benchmark_context)

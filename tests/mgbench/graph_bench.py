@@ -138,6 +138,34 @@ def parse_arguments():
         help="Run isolated vulcanic benchmarks",
     )
 
+    parser.add_argument(
+        "--memgraph-cpu-list",
+        type=str,
+        default=None,
+        help="CPU list for pinning memgraph process (e.g., '0,1,2,3' or '0-3'). Uses taskset.",
+    )
+
+    parser.add_argument(
+        "--memgraph-numa-node",
+        type=int,
+        default=None,
+        help="NUMA node for pinning memgraph process (e.g., 0, 1). Uses numactl. Preferred for NUMA-aware pinning.",
+    )
+
+    parser.add_argument(
+        "--client-cpu-list",
+        type=str,
+        default=None,
+        help="CPU list for pinning client processes (e.g., '0,1,2,3' or '0-3'). Uses taskset.",
+    )
+
+    parser.add_argument(
+        "--client-numa-node",
+        type=int,
+        default=None,
+        help="NUMA node for pinning client processes (e.g., 0, 1). Uses numactl. Preferred for NUMA-aware pinning.",
+    )
+
     args = parser.parse_args()
 
     # Ensure vendor-binary is provided and matches vendor count when installation-type is 'native'
@@ -167,6 +195,10 @@ def run_full_benchmarks(
     run_isolated_cold,
     run_isolated_hot,
     run_isolated_vulcanic,
+    memgraph_cpu_list=None,
+    memgraph_numa_node=None,
+    client_cpu_list=None,
+    client_numa_node=None,
 ):
     configurations = []
     if run_isolated_cold:
@@ -284,6 +316,16 @@ def run_full_benchmarks(
         ]
     )
 
+    # Add CPU pinning arguments if provided
+    if memgraph_cpu_list is not None:
+        default_args.extend(["--memgraph-cpu-list", memgraph_cpu_list])
+    if memgraph_numa_node is not None:
+        default_args.extend(["--memgraph-numa-node", str(memgraph_numa_node)])
+    if client_cpu_list is not None:
+        default_args.extend(["--client-cpu-list", client_cpu_list])
+    if client_numa_node is not None:
+        default_args.extend(["--client-numa-node", str(client_numa_node)])
+
     for config in configurations:
         full_config = default_args + config
         print(full_config)
@@ -361,6 +403,10 @@ if __name__ == "__main__":
             args.run_isolated_cold,
             args.run_isolated_hot,
             args.run_isolated_vulcanic,
+            args.memgraph_cpu_list,
+            args.memgraph_numa_node,
+            args.client_cpu_list,
+            args.client_numa_node,
         )
         collect_all_results(
             vendor_name, args.dataset_name, args.dataset_size, args.dataset_group, args.num_workers_for_benchmark

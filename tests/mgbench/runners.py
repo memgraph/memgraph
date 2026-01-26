@@ -142,6 +142,50 @@ def get_docker_memory_usage(container_name):
         raise Exception(f"Unrecognized memory usage: {memory_usage}")
 
 
+def _get_cpu_pinning_command(cpu_list=None, numa_node=None):
+    """
+    Construct a command prefix for CPU pinning using taskset or numactl.
+
+    Args:
+        cpu_list: Comma-separated list of CPU cores (e.g., "0,1,2,3" or "0-3")
+        numa_node: NUMA node number (e.g., 0, 1)
+
+    Returns:
+        List of command prefix arguments, or empty list if no pinning is needed
+    """
+    if numa_node is not None:
+        # Use numactl for NUMA node pinning (preferred for NUMA)
+        if cpu_list is not None:
+            # If both are specified, use numactl with --physcpubind for specific CPUs
+            # and --membind for memory binding to the same NUMA node
+            return ["numactl", "--membind={}".format(numa_node), "--physcpubind={}".format(cpu_list)]
+        else:
+            # Use numactl to bind to all CPUs in the NUMA node
+            return ["numactl", "--membind={}".format(numa_node), "--cpunodebind={}".format(numa_node)]
+    elif cpu_list is not None:
+        # Use taskset for CPU list only (no NUMA node specified)
+        return ["taskset", "-c", str(cpu_list)]
+    return []
+
+
+def _wrap_command_with_pinning(command, cpu_list=None, numa_node=None):
+    """
+    Wrap a command with CPU pinning using taskset or numactl.
+
+    Args:
+        command: List of command arguments to wrap
+        cpu_list: Comma-separated list of CPU cores (e.g., "0,1,2,3" or "0-3")
+        numa_node: NUMA node number (e.g., 0, 1)
+
+    Returns:
+        List of command arguments with pinning prefix
+    """
+    pinning_cmd = _get_cpu_pinning_command(cpu_list, numa_node)
+    if pinning_cmd:
+        return pinning_cmd + command
+    return command
+
+
 class BaseClient(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -211,6 +255,11 @@ class BoltClient(BaseClient):
             databases=self._databases,
         )
 
+        # Apply CPU pinning if configured
+        cpu_list = self.benchmark_context.client_cpu_list
+        numa_node = self.benchmark_context.client_numa_node
+        client_args = _wrap_command_with_pinning(client_args, cpu_list=cpu_list, numa_node=numa_node)
+
         log.info("Client args: {}".format(client_args))
 
         while True:
@@ -249,6 +298,11 @@ class BoltClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
             databases=self._databases,
         )
+
+        # Apply CPU pinning if configured
+        cpu_list = self.benchmark_context.client_cpu_list
+        numa_node = self.benchmark_context.client_numa_node
+        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node)
 
         log.info("Client args: {}".format(args))
 
@@ -481,6 +535,11 @@ class PythonClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
         )
 
+        # Apply CPU pinning if configured
+        cpu_list = self.benchmark_context.client_cpu_list
+        numa_node = self.benchmark_context.client_numa_node
+        check_db_args = _wrap_command_with_pinning(check_db_args, cpu_list=cpu_list, numa_node=numa_node)
+
         while True:
             try:
                 subprocess.run(check_db_args, capture_output=True, text=True, check=True)
@@ -516,6 +575,11 @@ class PythonClient(BaseClient):
             validation=validation,
             time_dependent_execution=time_dependent_execution,
         )
+
+        # Apply CPU pinning if configured
+        cpu_list = self.benchmark_context.client_cpu_list
+        numa_node = self.benchmark_context.client_numa_node
+        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node)
 
         ret = None
         try:
@@ -645,6 +709,10 @@ class Memgraph(BaseRunner):
         if self._proc_mg is not None:
             raise Exception("The database process is already running!")
         args = self._set_args(**kwargs)
+        # Apply CPU pinning if configured
+        cpu_list = self.benchmark_context.memgraph_cpu_list
+        numa_node = self.benchmark_context.memgraph_numa_node
+        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node)
         self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
         time.sleep(0.2)
         if self._proc_mg.poll() is not None:

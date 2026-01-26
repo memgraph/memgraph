@@ -9,11 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-from workload_mode import (
-  BENCHMARK_MODE_ISOLATED,
-  BENCHMARK_MODE_MIXED,
-  BENCHMARK_MODE_REALISTIC,
-)
+from workload_mode import BENCHMARK_MODE_ISOLATED, BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
 
 
 class BenchmarkContext:
@@ -49,6 +45,10 @@ class BenchmarkContext:
         no_authorization: bool = True,
         customer_workloads: str = None,
         vendor_args: dict = {},
+        memgraph_cpu_list: str = None,  # CPU list for memgraph (e.g., "0,1,2,3" or "0-3")
+        memgraph_numa_node: int = None,  # NUMA node for memgraph (e.g., 0, 1)
+        client_cpu_list: str = None,  # CPU list for clients (e.g., "0,1,2,3" or "0-3")
+        client_numa_node: int = None,  # NUMA node for clients (e.g., 0, 1)
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.databases = databases
@@ -89,6 +89,10 @@ class BenchmarkContext:
         self.no_authorization = no_authorization
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
+        self.memgraph_cpu_list = memgraph_cpu_list
+        self.memgraph_numa_node = memgraph_numa_node
+        self.client_cpu_list = client_cpu_list
+        self.client_numa_node = client_numa_node
         self.active_workload = None
         self.active_variant = None
 
