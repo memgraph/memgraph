@@ -17,7 +17,7 @@ on:
 jobs:
   release_benchmarks:
     name: "Daily benchmarks"
-    runs-on: [self-hosted, Linux, "firebird"]
+    runs-on: [self-hosted, Linux, "doctor-doom"]
     #timeout-minutes: 600
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
@@ -89,7 +89,7 @@ jobs:
           # else
           #   echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           # fi
-          echo "BRANCH_NAME=firebird-benchmark-env-24" >> $GITHUB_ENV
+          echo "BRANCH_NAME=doctor-doom-benchmark-env" >> $GITHUB_ENV
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
