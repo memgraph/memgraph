@@ -616,7 +616,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
 
     auto marker = snapshot.ReadMarker();
     if (!marker || *marker != Marker::SECTION_METADATA)
-      throw RecoveryFailure("Couldn't read marker for section metadata!");
+      throw IncompleteSnapshotFailure("Couldn't read marker for section metadata!");
 
     auto maybe_uuid = snapshot.ReadString();
     if (!maybe_uuid) throw RecoveryFailure("Couldn't read storage_uuid!");
