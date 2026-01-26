@@ -2609,7 +2609,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
         auto edge_count = edge["count"].get<int>();
 
         // Verify positive counts
-        ASSERT_GT(edge_count, 0) << "Edge has non-positive count: " << edge.dump(2);
+        ASSERT_GT(edge_count, 0) << "Edge has non-positive count: " << json.dump(2);
 
         // Find corresponding nodes
         bool found_start = false, found_end = false;
@@ -2618,8 +2618,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
           if (node["labels"] == end_labels) found_end = true;
         }
 
-        ASSERT_TRUE(found_start) << "Edge references non-existent start labels: " << edge.dump(2);
-        ASSERT_TRUE(found_end) << "Edge references non-existent end labels: " << edge.dump(2);
+        ASSERT_TRUE(found_start) << "Edge references non-existent start labels: " << json.dump(2);
+        ASSERT_TRUE(found_end) << "Edge references non-existent end labels: " << json.dump(2);
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }

@@ -24,6 +24,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -887,6 +888,28 @@ class InMemoryStorage final : public Storage {
   AsyncIndexer async_indexer_;
 
   mutable utils::Synchronized<std::unordered_map<LabelId, uint64_t>, utils::SpinLock> label_counts_;
+
+  struct SchemaUpdateData {
+    LocalSchemaTracking schema_diff;
+    SchemaInfoPostProcess post_process;
+    uint64_t start_ts;
+    uint64_t commit_ts;
+    bool property_on_edges;
+
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t commit,
+                     bool prop_on_edges)
+        : schema_diff(std::move(diff)),
+          post_process(std::move(post_proc)),
+          start_ts(start),
+          commit_ts(commit),
+          property_on_edges(prop_on_edges) {}
+  };
+
+  std::map<uint64_t, SchemaUpdateData> pending_schema_updates_;
+  std::mutex schema_queue_mutex_;
+  uint64_t last_processed_commit_ts_{0};
+
+  void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {

@@ -164,6 +164,7 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
 };
 
 bool HasUncommittedInterleavedDeltas(Vertex const *vertex) {
+  DMG_ASSERT(vertex->lock.is_locked(), "HasUncommittedInterleavedDeltas must be called with vertex lock held");
   Delta *delta = vertex->delta;
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
@@ -701,13 +702,29 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
   bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
 
-  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
-                            &schema_acc, from_interleaved, to_interleaved]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
+  utils::AtomicMemoryBlock([this,
+                            edge,
+                            from_vertex = from_vertex,
+                            edge_type = edge_type,
+                            to_vertex = to_vertex,
+                            &schema_acc,
+                            from_interleaved,
+                            to_interleaved]() {
+    CreateAndLinkDelta(&transaction_,
+                       from_vertex,
+                       Delta::RemoveOutEdgeTag(),
+                       edge_type,
+                       to_vertex,
+                       edge,
                        from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
+    CreateAndLinkDelta(&transaction_,
+                       to_vertex,
+                       Delta::RemoveInEdgeTag(),
+                       edge_type,
+                       from_vertex,
+                       edge,
                        to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
@@ -837,13 +854,29 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
   bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
 
-  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
-                            &schema_acc, from_interleaved, to_interleaved]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
+  utils::AtomicMemoryBlock([this,
+                            edge,
+                            from_vertex = from_vertex,
+                            edge_type = edge_type,
+                            to_vertex = to_vertex,
+                            &schema_acc,
+                            from_interleaved,
+                            to_interleaved]() {
+    CreateAndLinkDelta(&transaction_,
+                       from_vertex,
+                       Delta::RemoveOutEdgeTag(),
+                       edge_type,
+                       to_vertex,
+                       edge,
                        from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
+    CreateAndLinkDelta(&transaction_,
+                       to_vertex,
+                       Delta::RemoveInEdgeTag(),
+                       edge_type,
+                       from_vertex,
+                       edge,
                        to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
@@ -1088,11 +1121,18 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   if (config_.enable_schema_info) {
-    mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_,
-                                                 transaction_.post_process_,
-                                                 transaction_.start_timestamp,
-                                                 transaction_.transaction_id,
-                                                 mem_storage->config_.salient.items.properties_on_edges);
+    // Queue schema update instead of processing immediately. This ensures
+    // schema updates are processed in commit timestamp order, solving a race
+    // condition whereby a slow in-flight edge operation can be accidentally
+    // read by the schema processing code in a label modification.
+    std::lock_guard<std::mutex> lock(mem_storage->schema_queue_mutex_);
+    mem_storage->pending_schema_updates_.emplace(
+        durability_commit_timestamp,
+        SchemaUpdateData(std::move(transaction_.schema_diff_),
+                         std::move(transaction_.post_process_),
+                         transaction_.start_timestamp,
+                         durability_commit_timestamp,
+                         mem_storage->config_.salient.items.properties_on_edges));
   }
 
   // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
@@ -1156,6 +1196,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+
+  if (config_.enable_schema_info) {
+    mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
+  }
+
   CheckForFastDiscardOfDeltas();
   memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
@@ -1217,13 +1262,16 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_, gc_deltas.transaction_id_, current_deleted_edges, current_deleted_vertices,
-                          impact_tracker);
+    UnlinkAndRemoveDeltas(
+        gc_deltas.deltas_, gc_deltas.transaction_id_, current_deleted_edges, current_deleted_vertices, impact_tracker);
   }
 
   // STEP 2) this transaction's deltas also minimal unlinking + remove
-  UnlinkAndRemoveDeltas(transaction_.deltas, transaction_.transaction_id, current_deleted_edges,
-                        current_deleted_vertices, impact_tracker);
+  UnlinkAndRemoveDeltas(transaction_.deltas,
+                        transaction_.transaction_id,
+                        current_deleted_edges,
+                        current_deleted_vertices,
+                        impact_tracker);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
@@ -1619,8 +1667,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
-                                          std::move(transaction_.commit_timestamp), transaction_.transaction_id);
+        garbage_undo_buffers.emplace_back(mark_timestamp,
+                                          std::move(transaction_.deltas),
+                                          std::move(transaction_.commit_timestamp),
+                                          transaction_.transaction_id);
       });
     }
 
@@ -1674,18 +1724,46 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_interleaved_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas),
+          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0,
+                                                              std::move(transaction_.deltas),
                                                               std::move(transaction_.commit_timestamp),
                                                               transaction_.transaction_id));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                              std::move(transaction_.commit_timestamp), transaction_.transaction_id);
+          committed_transactions.emplace_back(
+              0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp), transaction_.transaction_id);
         });
       }
     }
     commit_timestamp_.reset();
+  }
+}
+
+void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
+  std::vector<SchemaUpdateData> to_process;
+  uint64_t new_last_processed = 0;
+
+  // Process in commit timestamp order, bounded by the `up_to_commit_ts`
+  // timestamp
+  {
+    std::lock_guard<std::mutex> const lock{schema_queue_mutex_};
+
+    auto it = pending_schema_updates_.upper_bound(last_processed_commit_ts_);
+    while (it != pending_schema_updates_.end() && it->first <= up_to_commit_ts) {
+      to_process.push_back(std::move(it->second));
+      new_last_processed = it->first;
+      it = pending_schema_updates_.erase(it);
+    }
+
+    if (!to_process.empty()) {
+      last_processed_commit_ts_ = new_last_processed;
+    }
+  }
+
+  for (auto &update : to_process) {
+    schema_info_.ProcessTransaction(
+        update.schema_diff, update.post_process, update.start_ts, update.commit_ts, update.property_on_edges);
   }
 }
 
