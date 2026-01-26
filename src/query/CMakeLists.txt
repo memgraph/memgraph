@@ -86,6 +86,7 @@ target_sources(mg-query
     query_logger.cpp
     query_user.cpp
     serialization/property_value.cpp
+    serialization/typed_value.cpp
     stream/common.cpp
     stream/sources.cpp
     stream/streams.cpp
@@ -158,6 +159,7 @@ target_link_libraries(mg-query
     mg-flags
     mg-dbms
     mg-events
+    mg-parameters
     mg::planner
     PRIVATE
     arrow::arrow

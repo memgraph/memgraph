@@ -75,6 +75,13 @@ target_sources(mg-settings
 )
 target_link_libraries(mg-settings mg-kvstore mg-slk mg-utils)
 
+add_library(mg-parameters STATIC)
+target_sources(mg-parameters
+    PRIVATE
+    parameters.cpp
+)
+target_link_libraries(mg-parameters mg-kvstore mg-utils)
+
 add_library(mg-events STATIC)
 target_sources(mg-events
     PRIVATE

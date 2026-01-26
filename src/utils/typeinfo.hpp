@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -262,6 +262,7 @@ enum class TypeId : uint64_t {
   AST_CREATE_SNAPSHOT_QUERY,
   AST_STREAM_QUERY,
   AST_SETTING_QUERY,
+  AST_PARAMETER_QUERY,
   AST_VERSION_QUERY,
   AST_FOREACH,
   AST_SHOW_CONFIG_QUERY,
@@ -317,10 +318,15 @@ struct TypeInfo {
 };
 
 inline bool operator==(const TypeInfo &a, const TypeInfo &b) { return a.id == b.id; }
+
 inline bool operator!=(const TypeInfo &a, const TypeInfo &b) { return a.id != b.id; }
+
 inline bool operator<(const TypeInfo &a, const TypeInfo &b) { return a.id < b.id; }
+
 inline bool operator<=(const TypeInfo &a, const TypeInfo &b) { return a.id <= b.id; }
+
 inline bool operator>(const TypeInfo &a, const TypeInfo &b) { return a.id > b.id; }
+
 inline bool operator>=(const TypeInfo &a, const TypeInfo &b) { return a.id >= b.id; }
 
 /// Return true if `a` is subtype or the same type as `b`.

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@ inline int Noop(int x) { return x; }
 class Trie {
  public:
   Trie() = default;
+
   Trie(std::initializer_list<std::string> l) {
     for (const auto &s : l) {
       Insert(s);
@@ -85,7 +86,7 @@ class Trie {
 
 // All word constants should be lowercase in this file.
 
-constexpr int kBitsetSize = 65536;
+constexpr int kBitsetSize = 65'536;
 
 const trie::Trie kKeywords = {"active",
                               "add",
@@ -251,6 +252,8 @@ const trie::Trie kKeywords = {"active",
                               "optional",
                               "or",
                               "order",
+                              "parameter",
+                              "parameters",
                               "parquet",
                               "password",
                               "periodic",
@@ -335,6 +338,7 @@ const trie::Trie kKeywords = {"active",
                               "unlimited",
                               "unlock",
                               "unregister",
+                              "unset",
                               "unwind",
                               "update",
                               "usage",
