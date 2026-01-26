@@ -18,6 +18,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include <spdlog/spdlog.h>
 
@@ -390,6 +391,16 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     int cpu_migrations = (initial_cpu != final_cpu) ? 1 : 0;
     int numa_node_changes = (initial_numa_node != final_numa_node) ? 1 : 0;
 
+    // Track thread migration (receive thread vs pull thread)
+    auto pull_thread_id = std::this_thread::get_id();
+    int receive_thread_id_hash = 0;
+    int pull_thread_id_hash = static_cast<int>(std::hash<std::thread::id>{}(pull_thread_id));
+    int thread_migration = 0;
+    if (receive_thread_id_.has_value()) {
+      receive_thread_id_hash = static_cast<int>(std::hash<std::thread::id>{}(*receive_thread_id_));
+      thread_migration = (receive_thread_id_hash != pull_thread_id_hash) ? 1 : 0;
+    }
+
     // Calculate timing breakdown
     double query_execution_us = static_cast<double>(
         std::chrono::duration_cast<std::chrono::microseconds>(query_exec_end - query_exec_start).count());
@@ -412,13 +423,17 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
                     .initial_numa_node = initial_numa_node,
                     .final_numa_node = final_numa_node,
                     .cpu_migrations = cpu_migrations,
-                    .numa_node_changes = numa_node_changes};
+                    .numa_node_changes = numa_node_changes,
+                    .receive_thread_id_hash = receive_thread_id_hash,
+                    .pull_thread_id_hash = pull_thread_id_hash,
+                    .thread_migration = thread_migration};
     pull_stats_.push_back(stats);
 
     // Reset timing state
     receive_time_.reset();
     thread_pool_enqueue_time_.reset();
     thread_pool_dequeue_time_.reset();
+    receive_thread_id_.reset();
 
     return summary;
   } catch (const memgraph::query::QueryException &e) {
@@ -745,7 +760,8 @@ void SessionHL::SaveStatsToFile() const {
   // Write CSV header only if file is new
   if (!file_exists || !header_written.load()) {
     file << "receive_to_pull_start_us,thread_pool_queue_wait_us,query_execution_us,pull_total_us,receive_to_pull_end_"
-            "us,initial_cpu,final_cpu,initial_numa_node,final_numa_node,cpu_migrations,numa_node_changes\n";
+            "us,initial_cpu,final_cpu,initial_numa_node,final_numa_node,cpu_migrations,numa_node_changes,receive_"
+            "thread_id_hash,pull_thread_id_hash,thread_migration\n";
     header_written.store(true);
   }
 
@@ -754,7 +770,8 @@ void SessionHL::SaveStatsToFile() const {
     file << stats.receive_to_pull_start_us << "," << stats.thread_pool_queue_wait_us << "," << stats.query_execution_us
          << "," << stats.pull_total_us << "," << stats.receive_to_pull_end_us << "," << stats.initial_cpu << ","
          << stats.final_cpu << "," << stats.initial_numa_node << "," << stats.final_numa_node << ","
-         << stats.cpu_migrations << "," << stats.numa_node_changes << "\n";
+         << stats.cpu_migrations << "," << stats.numa_node_changes << "," << stats.receive_thread_id_hash << ","
+         << stats.pull_thread_id_hash << "," << stats.thread_migration << "\n";
   }
 
   if (!file.good()) {

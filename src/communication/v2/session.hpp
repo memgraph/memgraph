@@ -379,10 +379,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     input_buffer_.write_end()->Written(bytes_transferred);
 
-    // Track receive time for timing instrumentation
+    // Track receive time and thread ID for timing instrumentation
     auto receive_time = std::chrono::high_resolution_clock::now();
     if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
       session_.SetReceiveTime(receive_time);
+      session_.SetReceiveThreadId(std::this_thread::get_id());
     }
 
     DoWork();
@@ -397,10 +398,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     input_buffer_.write_end()->Written(bytes_transferred);
 
-    // Track receive time for timing instrumentation
+    // Track receive time and thread ID for timing instrumentation
     auto receive_time = std::chrono::high_resolution_clock::now();
     if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
       session_.SetReceiveTime(receive_time);
+      session_.SetReceiveThreadId(std::this_thread::get_id());
     }
 
     try {
