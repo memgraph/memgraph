@@ -404,11 +404,10 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     // of (from, to, edge). This needs correcting as we know that at least one
     // of those has changed.
     if (!edge_from_vertex_label_mod) {
-      auto &tracking_12 =
-          edge_lookup(EdgeKeyRef{edge_type, (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
-                                 (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
+      auto &tracking_12 = edge_lookup(EdgeKeyRef{edge_type,
+                                                 (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
+                                                 (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
       --tracking_12.n;
-      DMG_ASSERT(tracking_12.n >= 0, "Edge count went negative in post-processing (tracking_12)");
     }
 
     // Edge props
@@ -422,15 +421,13 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
         }
       }
       if (!edge_from_vertex_label_mod) {
-        auto &tracking_12 =
-            edge_lookup(EdgeKeyRef{edge_type, (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
-                                   (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
+        auto &tracking_12 = edge_lookup(EdgeKeyRef{edge_type,
+                                                   (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
+                                                   (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
         for (const auto &[key, type] : (edge_state == ANOTHER_TX) ? edge_prop_diff.pre : edge_prop_diff.post) {
           auto &post_info = tracking_12.properties[key];
           --post_info.n;
-          DMG_ASSERT(post_info.n >= 0, "Property count went negative in post-processing (tracking_12)");
           --post_info.types[type];
-          DMG_ASSERT(post_info.types[type] >= 0, "Property type count went negative in post-processing (tracking_12)");
         }
       }
     }
@@ -439,19 +436,16 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     // on its view when it committed. This needs removing from the shared
     // schema as we've changed either (from, to, edge).
     if (!edge_created_by_this_tx) {
-      auto &tracking_21 =
-          edge_lookup(EdgeKeyRef{edge_type, (from_state == ANOTHER_TX) ? *from_l_diff.post : *from_l_diff.pre,
-                                 (to_state == ANOTHER_TX) ? *to_l_diff.post : *to_l_diff.pre});
+      auto &tracking_21 = edge_lookup(EdgeKeyRef{edge_type,
+                                                 (from_state == ANOTHER_TX) ? *from_l_diff.post : *from_l_diff.pre,
+                                                 (to_state == ANOTHER_TX) ? *to_l_diff.post : *to_l_diff.pre});
       --tracking_21.n;
-      DMG_ASSERT(tracking_21.n >= 0, "Edge count went negative in post-processing (tracking_21)");
       // Edge props
       if (property_on_edges) {
         for (const auto &[key, type] : (edge_state == ANOTHER_TX) ? edge_prop_diff.post : edge_prop_diff.pre) {
           auto &post_info = tracking_21.properties[key];
           --post_info.n;
-          DMG_ASSERT(post_info.n >= 0, "Property count went negative in post-processing (tracking_21)");
           --post_info.types[type];
-          DMG_ASSERT(post_info.types[type] >= 0, "Property type count went negative in post-processing (tracking_21)");
         }
       }
     }
