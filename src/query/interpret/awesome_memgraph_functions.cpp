@@ -1482,10 +1482,12 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 
   if (args[0].IsZonedDateTime()) {
     auto const &zdt{args[0].ValueZonedDateTime()};
-    return TypedValue(
-        utils::LocalTime{
-            {zdt.LocalHour(), zdt.LocalMinute(), zdt.LocalSecond(), zdt.LocalMillisecond(), zdt.LocalMicrosecond()}},
-        ctx.memory);
+    return TypedValue(utils::LocalTime{{.hour = zdt.LocalHour(),
+                                        .minute = zdt.LocalMinute(),
+                                        .second = zdt.LocalSecond(),
+                                        .millisecond = zdt.LocalMillisecond(),
+                                        .microsecond = zdt.LocalMicrosecond()}},
+                      ctx.memory);
   }
 
   if (args[0].IsString()) {
