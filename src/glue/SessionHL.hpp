@@ -166,8 +166,19 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     double query_execution_us;
     double pull_total_us;
     double receive_to_pull_end_us;
+    // NUMA-related metrics
+    int initial_cpu;
+    int final_cpu;
+    int initial_numa_node;
+    int final_numa_node;
+    int cpu_migrations;
+    int numa_node_changes;
   };
   std::vector<PullStats> pull_stats_;
+
+  // Helper functions for NUMA tracking
+  static int GetCurrentCPU();
+  static int GetNUMANodeForCPU(int cpu);
 
   void SaveStatsToFile() const;
 };

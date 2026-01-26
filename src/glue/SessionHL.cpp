@@ -9,12 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sys/syscall.h>
+#include <unistd.h>
 #include <atomic>
 #include <chrono>
 #include <fstream>
 #include <mutex>
 #include <optional>
-#include <utility>
+#include <sstream>
+#include <string>
 
 #include <spdlog/spdlog.h>
 
@@ -349,6 +352,10 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
 bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
   auto pull_start = std::chrono::high_resolution_clock::now();
 
+  // Track initial CPU and NUMA node
+  int initial_cpu = GetCurrentCPU();
+  int initial_numa_node = GetNUMANodeForCPU(initial_cpu);
+
   // Calculate time from receive to start of Pull
   double receive_to_pull_us = 0.0;
   double thread_pool_queue_wait_us = 0.0;
@@ -375,6 +382,14 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
 
     auto pull_end = std::chrono::high_resolution_clock::now();
 
+    // Track final CPU and NUMA node
+    int final_cpu = GetCurrentCPU();
+    int final_numa_node = GetNUMANodeForCPU(final_cpu);
+
+    // Calculate migrations and NUMA changes
+    int cpu_migrations = (initial_cpu != final_cpu) ? 1 : 0;
+    int numa_node_changes = (initial_numa_node != final_numa_node) ? 1 : 0;
+
     // Calculate timing breakdown
     double query_execution_us = static_cast<double>(
         std::chrono::duration_cast<std::chrono::microseconds>(query_exec_end - query_exec_start).count());
@@ -391,7 +406,13 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
                     .thread_pool_queue_wait_us = thread_pool_queue_wait_us,
                     .query_execution_us = query_execution_us,
                     .pull_total_us = pull_total_us,
-                    .receive_to_pull_end_us = receive_to_pull_end_us};
+                    .receive_to_pull_end_us = receive_to_pull_end_us,
+                    .initial_cpu = initial_cpu,
+                    .final_cpu = final_cpu,
+                    .initial_numa_node = initial_numa_node,
+                    .final_numa_node = final_numa_node,
+                    .cpu_migrations = cpu_migrations,
+                    .numa_node_changes = numa_node_changes};
     pull_stats_.push_back(stats);
 
     // Reset timing state
@@ -639,6 +660,66 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   return decoded_summary;
 }
 
+int SessionHL::GetCurrentCPU() {
+  // Use sched_getcpu() if available, otherwise fall back to syscall
+#ifdef SYS_getcpu
+  unsigned cpu = 0;
+  unsigned node = 0;
+  if (syscall(SYS_getcpu, &cpu, &node, nullptr) == 0) {
+    return static_cast<int>(cpu);
+  }
+#endif
+  // Fallback: try to read from /proc/self/stat
+  // Field 39 (0-indexed) is the CPU number
+  std::ifstream stat_file("/proc/self/stat");
+  if (stat_file.is_open()) {
+    std::string line;
+    std::getline(stat_file, line);
+    std::istringstream iss(line);
+    std::string token;
+    // Skip first 38 fields
+    for (int i = 0; i < 38 && iss >> token; ++i) {
+    }
+    if (iss >> token) {
+      return std::stoi(token);
+    }
+  }
+  return -1;  // Unknown
+}
+
+int SessionHL::GetNUMANodeForCPU(int cpu) {
+  if (cpu < 0) return -1;
+
+  // Read /sys/devices/system/node/node*/cpulist to find which NUMA node contains this CPU
+  for (int node = 0; node < 256; ++node) {  // Reasonable limit
+    std::string path = "/sys/devices/system/node/node" + std::to_string(node) + "/cpulist";
+    std::ifstream file(path);
+    if (!file.is_open()) break;  // No more NUMA nodes
+
+    std::string line;
+    if (std::getline(file, line)) {
+      // Parse CPU list (can be ranges like "0-7,16-23")
+      std::istringstream iss(line);
+      std::string range;
+      while (std::getline(iss, range, ',')) {
+        size_t dash_pos = range.find('-');
+        if (dash_pos != std::string::npos) {
+          int start = std::stoi(range.substr(0, dash_pos));
+          int end = std::stoi(range.substr(dash_pos + 1));
+          if (cpu >= start && cpu <= end) {
+            return node;
+          }
+        } else {
+          if (std::stoi(range) == cpu) {
+            return node;
+          }
+        }
+      }
+    }
+  }
+  return -1;  // Unknown
+}
+
 void SessionHL::SaveStatsToFile() const {
   // Use a single shared file for all sessions
   static std::mutex file_mutex;
@@ -664,14 +745,16 @@ void SessionHL::SaveStatsToFile() const {
   // Write CSV header only if file is new
   if (!file_exists || !header_written.load()) {
     file << "receive_to_pull_start_us,thread_pool_queue_wait_us,query_execution_us,pull_total_us,receive_to_pull_end_"
-            "us\n";
+            "us,initial_cpu,final_cpu,initial_numa_node,final_numa_node,cpu_migrations,numa_node_changes\n";
     header_written.store(true);
   }
 
   // Write stats
   for (const auto &stats : pull_stats_) {
     file << stats.receive_to_pull_start_us << "," << stats.thread_pool_queue_wait_us << "," << stats.query_execution_us
-         << "," << stats.pull_total_us << "," << stats.receive_to_pull_end_us << "\n";
+         << "," << stats.pull_total_us << "," << stats.receive_to_pull_end_us << "," << stats.initial_cpu << ","
+         << stats.final_cpu << "," << stats.initial_numa_node << "," << stats.final_numa_node << ","
+         << stats.cpu_migrations << "," << stats.numa_node_changes << "\n";
   }
 
   if (!file.good()) {
