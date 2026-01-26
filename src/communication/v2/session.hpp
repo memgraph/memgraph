@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +23,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -61,6 +63,10 @@ extern const Event ActiveTCPSessions;
 extern const Event ActiveSSLSessions;
 extern const Event ActiveWebSocketSessions;
 }  // namespace memgraph::metrics
+
+namespace memgraph::glue {
+class SessionHL;
+}  // namespace memgraph::glue
 
 namespace memgraph::communication::v2 {
 
@@ -372,6 +378,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     input_buffer_.write_end()->Written(bytes_transferred);
+
+    // Track receive time for timing instrumentation
+    auto receive_time = std::chrono::high_resolution_clock::now();
+    if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
+      session_.SetReceiveTime(receive_time);
+    }
+
     DoWork();
   }
 
@@ -383,6 +396,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     input_buffer_.write_end()->Written(bytes_transferred);
+
+    // Track receive time for timing instrumentation
+    auto receive_time = std::chrono::high_resolution_clock::now();
+    if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
+      session_.SetReceiveTime(receive_time);
+    }
 
     try {
       // Execute until all data has been read
@@ -396,8 +415,20 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
+    // Track thread pool enqueue time
+    auto enqueue_time = std::chrono::high_resolution_clock::now();
+    if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
+      session_.SetThreadPoolEnqueueTime(enqueue_time);
+    }
+
     session_context_->AddTask(
         [shared_this = shared_from_this()](const auto thread_priority) {
+          // Track thread pool dequeue time (when task starts executing)
+          auto dequeue_time = std::chrono::high_resolution_clock::now();
+          if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
+            shared_this->session_.SetThreadPoolDequeueTime(dequeue_time);
+          }
+
           try {
             while (true) {
               if (shared_this->session_.Execute()) {

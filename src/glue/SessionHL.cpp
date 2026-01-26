@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,8 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
+#include <chrono>
+#include <fstream>
+#include <mutex>
 #include <optional>
-#include <ranges>
 #include <utility>
 
 #include <spdlog/spdlog.h>
@@ -344,13 +347,59 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
 }
 
 bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
+  auto pull_start = std::chrono::high_resolution_clock::now();
+
+  // Calculate time from receive to start of Pull
+  double receive_to_pull_us = 0.0;
+  double thread_pool_queue_wait_us = 0.0;
+  if (receive_time_.has_value()) {
+    receive_to_pull_us =
+        static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(pull_start - *receive_time_).count());
+  }
+  if (thread_pool_enqueue_time_.has_value() && thread_pool_dequeue_time_.has_value()) {
+    thread_pool_queue_wait_us = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(*thread_pool_dequeue_time_ - *thread_pool_enqueue_time_)
+            .count());
+  }
+
   try {
     using TEncoder =
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
     TypedValueResultStream<TEncoder> stream(&encoder_, storage);
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+
+    auto query_exec_start = std::chrono::high_resolution_clock::now();
+    auto summary = DecodeSummary(interpreter_.Pull(&stream, n, qid));
+    auto query_exec_end = std::chrono::high_resolution_clock::now();
+
+    auto pull_end = std::chrono::high_resolution_clock::now();
+
+    // Calculate timing breakdown
+    double query_execution_us = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(query_exec_end - query_exec_start).count());
+    double pull_total_us =
+        static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(pull_end - pull_start).count());
+    double receive_to_pull_end_us = 0.0;
+    if (receive_time_.has_value()) {
+      receive_to_pull_end_us =
+          static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(pull_end - *receive_time_).count());
+    }
+
+    // Store stats
+    PullStats stats{.receive_to_pull_start_us = receive_to_pull_us,
+                    .thread_pool_queue_wait_us = thread_pool_queue_wait_us,
+                    .query_execution_us = query_execution_us,
+                    .pull_total_us = pull_total_us,
+                    .receive_to_pull_end_us = receive_to_pull_end_us};
+    pull_stats_.push_back(stats);
+
+    // Reset timing state
+    receive_time_.reset();
+    thread_pool_enqueue_time_.reset();
+    thread_pool_dequeue_time_.reset();
+
+    return summary;
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -556,6 +605,11 @@ SessionHL::~SessionHL() {
   // User-related resource monitoring
   interpreter_.ResetUser();
 #endif
+
+  // Save stats to file on shutdown
+  if (!pull_stats_.empty()) {
+    SaveStatsToFile();
+  }
 }
 
 bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
@@ -583,6 +637,51 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   decoded_summary.emplace("run_id", memgraph::glue::run_id_);
 
   return decoded_summary;
+}
+
+void SessionHL::SaveStatsToFile() const {
+  // Use a single shared file for all sessions
+  static std::mutex file_mutex;
+  static const std::string filename = "pull_stats.csv";
+  static std::atomic<bool> header_written{false};
+
+  std::lock_guard<std::mutex> lock(file_mutex);
+
+  // Check if file exists to determine if we need to write header
+  bool file_exists = false;
+  {
+    std::ifstream check_file(filename);
+    file_exists = check_file.good();
+    check_file.close();
+  }
+
+  std::ofstream file(filename, std::ios::app);
+  if (!file.is_open()) {
+    spdlog::warn("Failed to open stats file {} for writing", filename);
+    return;
+  }
+
+  // Write CSV header only if file is new
+  if (!file_exists || !header_written.load()) {
+    file << "receive_to_pull_start_us,thread_pool_queue_wait_us,query_execution_us,pull_total_us,receive_to_pull_end_"
+            "us\n";
+    header_written.store(true);
+  }
+
+  // Write stats
+  for (const auto &stats : pull_stats_) {
+    file << stats.receive_to_pull_start_us << "," << stats.thread_pool_queue_wait_us << "," << stats.query_execution_us
+         << "," << stats.pull_total_us << "," << stats.receive_to_pull_end_us << "\n";
+  }
+
+  if (!file.good()) {
+    spdlog::warn("Error writing to stats file {}", filename);
+  }
+  file.close();
+
+  if (!pull_stats_.empty()) {
+    spdlog::info("Saved {} pull stats to {}", pull_stats_.size(), filename);
+  }
 }
 
 #ifdef MG_ENTERPRISE

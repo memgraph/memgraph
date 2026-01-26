@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,6 +117,17 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
+  // Timing instrumentation methods
+  void SetReceiveTime(std::chrono::high_resolution_clock::time_point time) { receive_time_ = time; }
+
+  void SetThreadPoolEnqueueTime(std::chrono::high_resolution_clock::time_point time) {
+    thread_pool_enqueue_time_ = time;
+  }
+
+  void SetThreadPoolDequeueTime(std::chrono::high_resolution_clock::time_point time) {
+    thread_pool_dequeue_time_ = time;
+  }
+
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
 
@@ -142,6 +153,23 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
+
+  // Timing instrumentation for query execution variability analysis
+  std::optional<std::chrono::high_resolution_clock::time_point> receive_time_;
+  std::optional<std::chrono::high_resolution_clock::time_point> thread_pool_enqueue_time_;
+  std::optional<std::chrono::high_resolution_clock::time_point> thread_pool_dequeue_time_;
+
+  // Stats storage
+  struct PullStats {
+    double receive_to_pull_start_us;
+    double thread_pool_queue_wait_us;
+    double query_execution_us;
+    double pull_total_us;
+    double receive_to_pull_end_us;
+  };
+  std::vector<PullStats> pull_stats_;
+
+  void SaveStatsToFile() const;
 };
 
 }  // namespace memgraph::glue

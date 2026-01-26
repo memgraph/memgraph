@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <chrono>
 #include <exception>
 #include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "communication/bolt/metrics.hpp"
@@ -31,6 +33,9 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+
+// Include SessionHL for timing instrumentation
+#include "glue/SessionHL.hpp"
 
 namespace memgraph::metrics {
 extern const Event TransientErrors;
