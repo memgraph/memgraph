@@ -112,6 +112,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
   auto process_vertex_for_recovery = [&](Vertex &vertex, VectorIndexSpec &spec, std::optional<std::size_t> thread_id) {
     if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
       UpdateVectorIndex(mg_index, spec, &vertex, std::move(it->second), thread_id);
     } else {
       TryAddVertexToIndex(spec, vertex, name_id_mapper, thread_id);

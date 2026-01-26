@@ -134,10 +134,9 @@ void VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipL
         TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info, thread_id);
       });
     } else {
-      PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
-        TryAddEdgesToIndex(
-            mg_index, mutable_spec, vertex, snapshot_info);  // NOLINT(clang-analyzer-core.CallAndMessage)
-      });
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+      PopulateVectorIndexSingleThreaded(
+          vertices, [&](Vertex &vertex) { TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info); });
     }
   } catch (const utils::OutOfMemoryException &) {
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -349,7 +348,7 @@ std::vector<float> VectorEdgeIndex::GetVectorFromEdge(Vertex *from_vertex, Verte
   }
   auto &[mg_index, _] = pimpl->edge_index_.at(edge_type_prop->second);
   auto locked_index = mg_index.ReadLock();
-  std::vector<float> vector(static_cast<std::size_t>(locked_index->dimensions()));
+  std::vector<float> vector(locked_index->dimensions());
   const EdgeIndexEntry entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge};
   locked_index->get(entry, vector.data());
   return vector;
