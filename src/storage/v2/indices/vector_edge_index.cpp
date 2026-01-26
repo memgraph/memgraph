@@ -134,9 +134,10 @@ void VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipL
         TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info, thread_id);
       });
     } else {
-      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      PopulateVectorIndexSingleThreaded(
-          vertices, [&](Vertex &vertex) { TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info); });
+      PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+        // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+        TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);
+      });
     }
   } catch (const utils::OutOfMemoryException &) {
     const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
