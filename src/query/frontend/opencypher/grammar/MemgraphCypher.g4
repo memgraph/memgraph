@@ -169,6 +169,8 @@ memgraphCypherKeyword : cypherKeyword
                       | SESSION
                       | SETTING
                       | SETTINGS
+                      | PARAMETER
+                      | PARAMETERS
                       | SNAPSHOT
                       | SNAPSHOTS
                       | START
@@ -201,6 +203,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TYPES
                       | UNCOMMITTED
                       | UNLOCK
+                      | UNSET
                       | UNREGISTER
                       | UPDATE
                       | USAGE
@@ -251,6 +254,7 @@ query : cypherQuery
       | showNextSnapshotQuery
       | streamQuery
       | settingQuery
+      | parameterQuery
       | versionQuery
       | showConfigQuery
       | transactionQueueQuery
@@ -395,6 +399,11 @@ settingQuery : setSetting
              | showSetting
              | showSettings
              ;
+
+parameterQuery : setParameter
+              | unsetParameter
+              | showParameters
+              ;
 
 transactionQueueQuery : showTransactions
                       | terminateTransactions
@@ -697,6 +706,16 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+parameterName : symbolicName ;
+
+parameterValue : literal ;
+
+setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
+
+unsetParameter : UNSET PARAMETER parameterName ;
+
+showParameters : SHOW PARAMETERS ;
 
 showConfigQuery : SHOW CONFIG ;
 

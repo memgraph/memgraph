@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "query/serialization/property_value.hpp"
+#include "serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -86,8 +86,9 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::TEMPORAL_DATA));
-      data.emplace("value", nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
-                                                    {"microseconds", temporal_data.microseconds}}));
+      data.emplace("value",
+                   nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
+                                           {"microseconds", temporal_data.microseconds}}));
       return data;
     }
     case Type::ZonedTemporalData: {
