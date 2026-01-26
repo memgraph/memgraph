@@ -89,6 +89,11 @@ class VertexCountCache {
     return it->second;
   }
 
+  int64_t EdgesCount() {
+    if (!edges_count_) edges_count_ = db_->EdgesCount();
+    return *edges_count_;
+  }
+
   int64_t EdgesCount(storage::EdgeTypeId edge_type) {
     if (!edge_type_edge_count_.contains(edge_type)) edge_type_edge_count_[edge_type] = db_->EdgesCount(edge_type);
     return edge_type_edge_count_.at(edge_type);
@@ -259,6 +264,8 @@ class VertexCountCache {
   std::unordered_map<LabelPropertiesRangesKey, int64_t, LabelPropertiesRangesHash, LabelPropertiesRangesEqual>
       label_properties_ranges_vertex_count_;
   std::unordered_map<LabelPropertyKey, std::optional<int64_t>, LabelPropertyHash> label_property_vertex_point_count_;
+
+  std::optional<int64_t> edges_count_;
   std::unordered_map<EdgeTypePropertyKey, int64_t, EdgeTypePropertyHash> edge_type_property_edge_count_;
   std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
   std::unordered_map<EdgeTypePropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, EdgeTypePropertyHash>
