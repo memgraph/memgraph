@@ -122,56 +122,42 @@ def get_replica_cursor(connection, name):
 
 def test_vector_index_replication(connection, test_name):
     # Goal: Proof that vector types are replicated to REPLICAs
-    # 0/ Setup replication
-    # 1/ Create vector index on MAIN
-    # 2/ Validate vector index has arrived at REPLICA
-    # 3/ Create vector entries on MAIN
-    # 4/ Validate index count on REPLICA is correct
-    # 5/ Drop vector index on MAIN
-    # 6/ Validate index has been droped on REPLICA
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = create_instances_description(test_name)
 
-    # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor,
         "CREATE VECTOR INDEX test_index ON :Node(embedding) WITH CONFIG {'dimension': 2, 'capacity': 10};",
     )
     wait_for_replication_change(cursor, 2)
 
-    # 2/
     expected_result = [("label+property_vector", "Node", "embedding", 0)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
     assert replica_2_enums == expected_result
 
-    # 3/
     execute_and_fetch_all(
         cursor,
         "CREATE (:Node {embedding: [1.0, 2.0]});",
     )
     wait_for_replication_change(cursor, 4)
 
-    # 4/
     expected_result = [("label+property_vector", "Node", "embedding", 1)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
     assert replica_2_enums == expected_result
 
-    # 5/
     execute_and_fetch_all(
         cursor,
         "DROP VECTOR INDEX test_index;",
     )
     wait_for_replication_change(cursor, 6)
 
-    # 6/
     expected_result = []
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
@@ -181,20 +167,12 @@ def test_vector_index_replication(connection, test_name):
 
 def test_vector_index_replication_property_changes(connection, test_name):
     # Goal: That setting properties to null and updating vector properties is correctly replicated.
-    # 0/ Setup replication
-    # 1/ Create vector index on MAIN, add nodes with vector properties
-    # 2/ Validate index count on REPLICA
-    # 3/ Set one property to null, update another property on MAIN
-    # 4/ Validate index count changes are replicated
-    # 5/ Validate property values on REPLICA
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = create_instances_description(test_name)
 
-    # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor,
         'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};',
@@ -209,48 +187,44 @@ def test_vector_index_replication_property_changes(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    # 2/
     expected_result = [("label+property_vector", "L1", "prop1", 3)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
     assert replica_2_enums == expected_result
 
-    # 3/
     execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [1.0, 2.0]}) SET n.prop1 = null;")
     wait_for_replication_change(cursor, 6)
 
     execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [3.0, 4.0]}) SET n.prop1 = [7.0, 8.0];")
     wait_for_replication_change(cursor, 8)
 
-    # 4/
     expected_result = [("label+property_vector", "L1", "prop1", 2)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
     assert replica_2_enums == expected_result
 
-    # 5/
     replica_1_cursor = get_replica_cursor(connection, "replica_1")
     replica_2_cursor = get_replica_cursor(connection, "replica_2")
 
-    # Check that property is not visible on node when stored in index
     nodes = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) WHERE n.prop1 IS NOT NULL RETURN n LIMIT 1;")
-    assert "prop1" not in nodes[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in nodes[0][0].properties
 
-    # Check null property
+    property_size = execute_and_fetch_all(
+        replica_1_cursor, "MATCH (n:L1) WHERE n.prop1 IS NOT NULL RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size[0][0] == 11
+
     null_prop = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) WHERE n.prop1 IS NULL RETURN count(*) AS cnt;")
     assert null_prop[0][0] == 1
 
-    # Check updated property
     updated_prop = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1 {prop1: [7.0, 8.0]}) RETURN n.prop1;")
     assert updated_prop[0][0] == [7.0, 8.0]
 
-    # Check original property
     original_prop = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1 {prop1: [5.0, 6.0]}) RETURN n.prop1;")
     assert original_prop[0][0] == [5.0, 6.0]
 
-    # Verify same on replica_2
     updated_prop2 = execute_and_fetch_all(replica_2_cursor, "MATCH (n:L1 {prop1: [7.0, 8.0]}) RETURN n.prop1;")
     assert updated_prop2[0][0] == [7.0, 8.0]
 
@@ -259,20 +233,12 @@ def test_vector_index_replication_property_changes(connection, test_name):
 
 def test_vector_index_replication_label_changes(connection, test_name):
     # Goal: That adding and removing labels from nodes with vector properties is correctly replicated.
-    # 0/ Setup replication
-    # 1/ Create vector index on MAIN, add nodes with labels and vector properties
-    # 2/ Validate index count on REPLICA
-    # 3/ Remove label from one node, add label to another on MAIN
-    # 4/ Validate index count changes are replicated
-    # 5/ Validate property access on REPLICA
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = create_instances_description(test_name)
 
-    # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor,
         'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};',
@@ -287,46 +253,44 @@ def test_vector_index_replication_label_changes(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    # 2/
     expected_result = [("label+property_vector", "L1", "prop1", 2)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
     assert replica_2_enums == expected_result
 
-    # 3/
     execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [1.0, 2.0]}) REMOVE n:L1;")
     wait_for_replication_change(cursor, 6)
 
     execute_and_fetch_all(cursor, "MATCH (n {prop1: [5.0, 6.0]}) SET n:L1;")
     wait_for_replication_change(cursor, 8)
 
-    # 4/
     expected_result = [("label+property_vector", "L1", "prop1", 2)]
     replica_1_enums = get_show_index_info(get_replica_cursor(connection, "replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor(connection, "replica_2"))
     assert replica_2_enums == expected_result
 
-    # 5/
     replica_1_cursor = get_replica_cursor(connection, "replica_1")
     replica_2_cursor = get_replica_cursor(connection, "replica_2")
 
-    # Check node with label - property should not be visible
     node_with_label = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert (
-        "prop1" not in node_with_label[0][0].properties
-    ), "Property should not be visible on node when stored in index"
+    assert "prop1" in node_with_label[0][0].properties
 
-    # Check node without label - property should be in property store
+    property_size_label = execute_and_fetch_all(
+        replica_1_cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size_label[0][0] == 11
+
     node_without_label = execute_and_fetch_all(replica_1_cursor, "MATCH (n) WHERE NOT n:L1 RETURN n LIMIT 1;")
-    assert (
-        "prop1" in node_without_label[0][0].properties
-    ), "Property should be in property store when node has no index label"
+    assert "prop1" in node_without_label[0][0].properties
 
-    # Check property access from index
+    property_size_no_label = execute_and_fetch_all(
+        replica_1_cursor, "MATCH (n) WHERE NOT n:L1 RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size_no_label[0][0] == 20
+
     prop3_node = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1 {prop1: [5.0, 6.0]}) RETURN n.prop1;")
-    print(prop3_node)
     assert prop3_node[0][0] == [5.0, 6.0]
 
     interactive_mg_runner.kill_all(keep_directories=False)
@@ -334,19 +298,12 @@ def test_vector_index_replication_label_changes(connection, test_name):
 
 def test_vector_index_replication_two_indices(connection, test_name):
     # Goal: That two vector indices on different labels/properties are correctly replicated.
-    # 0/ Setup replication
-    # 1/ Create two vector indices on MAIN on different properties
-    # 2/ Add nodes to both indices on MAIN
-    # 3/ Validate both indices are replicated correctly
-    # 4/ Validate property access on REPLICA
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = create_instances_description(test_name)
 
-    # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor,
         'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};',
@@ -357,7 +314,6 @@ def test_vector_index_replication_two_indices(connection, test_name):
     )
     wait_for_replication_change(cursor, 4)
 
-    # 2/
     execute_and_fetch_all(
         cursor,
         """CREATE (:L1 {prop1: [1.0, 2.0]})
@@ -367,7 +323,6 @@ def test_vector_index_replication_two_indices(connection, test_name):
     )
     wait_for_replication_change(cursor, 6)
 
-    # 3/
     replica_1_cursor = get_replica_cursor(connection, "replica_1")
     replica_2_cursor = get_replica_cursor(connection, "replica_2")
 
@@ -383,22 +338,24 @@ def test_vector_index_replication_two_indices(connection, test_name):
     assert index_info_2[0][3] == 2
     assert index_info_2[1][3] == 2
 
-    # 4/
-    # Check that properties are not visible on nodes when stored in index
     node_l1 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert "prop1" not in node_l1[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in node_l1[0][0].properties
+
+    property_size_l1 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size_l1[0][0] == 11
 
     node_l2 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
-    assert "prop2" not in node_l2[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop2" in node_l2[0][0].properties
 
-    # Check property access from indices
+    property_size_l2 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L2) RETURN propertySize(n, 'prop2') LIMIT 1;")
+    assert property_size_l2[0][0] == 11
+
     prop1 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
     assert prop1[0][0] in [[1.0, 2.0], [3.0, 4.0]]
 
     prop2 = execute_and_fetch_all(replica_1_cursor, "MATCH (n:L2) RETURN n.prop2 LIMIT 1;")
     assert prop2[0][0] in [[5.0, 6.0], [7.0, 8.0]]
 
-    # Verify same on replica_2
     prop1_2 = execute_and_fetch_all(replica_2_cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
     assert prop1_2[0][0] in [[1.0, 2.0], [3.0, 4.0]]
 

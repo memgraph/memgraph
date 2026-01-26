@@ -267,17 +267,22 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, NameIdMappe
   }
 }
 
-void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper) {
-  if (!value.IsVectorIndexId()) return;
-
-  const auto &vector_property = value.ValueVectorIndexList();
-  const auto &index_ids = value.ValueVectorIndexIds();
-
-  for (auto index_id : index_ids) {
-    const auto &idx_name = name_id_mapper->IdToName(index_id);
-    const auto &label_prop = pimpl->index_name_to_label_prop_.at(idx_name);
-    auto &index_item = pimpl->index_.at(label_prop);
-    UpdateVectorIndex(index_item.mg_index, index_item.spec, vertex, vector_property);
+void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                                      NameIdMapper *name_id_mapper) {
+  if (value.IsVectorIndexId()) {
+    const auto &vector_property = value.ValueVectorIndexList();
+    const auto &index_ids = value.ValueVectorIndexIds();
+    for (auto index_id : index_ids) {
+      const auto &idx_name = name_id_mapper->IdToName(index_id);
+      const auto &label_prop = pimpl->index_name_to_label_prop_.at(idx_name);
+      auto &index_item = pimpl->index_.at(label_prop);
+      UpdateVectorIndex(index_item.mg_index, index_item.spec, vertex, vector_property);
+    }
+  } else if (value.IsNull()) {
+    auto indices = GetIndicesByProperty(property);
+    for (const auto &[_, index_name] : indices) {
+      RemoveVertexFromIndex(vertex, index_name);
+    }
   }
 }
 
@@ -471,7 +476,7 @@ void VectorIndex::AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &clea
     }
     for (const auto &[property, value] : property_to_abort) {
       if (value.IsVectorIndexId()) {
-        UpdateOnSetProperty(value, vertex, name_id_mapper);
+        UpdateOnSetProperty(property, value, vertex, name_id_mapper);
       } else {
         for (const auto &[_, index_name] : GetIndicesByProperty(property)) {
           RemoveVertexFromIndex(vertex, index_name);

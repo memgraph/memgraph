@@ -113,24 +113,24 @@ Feature: Vector search related features
             CALL vector_search.search("test_index", 2, [1.0, 1.0]) YIELD * RETURN *;
             """
         Then the result should be:
-            | distance   | node  | similarity |
-            | 0.0        | (:L1) | 1.0        |
-            | 1.0        | (:L1) | 0.5        |
+            | distance   | node                    | similarity |
+            | 0.0        | (:L1 {prop1: [1.0, 1.0]}) | 1.0        |
+            | 1.0        | (:L1 {prop1: [1.0, 2.0]}) | 0.5        |
 
     Scenario: Vector search performs on float values
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         And having executed
             """
-            CREATE (:L1 {prop1: [1.1, 1.1]})
+            CREATE (:L1 {prop1: [1.5, 1.5]})
             """
         When executing query:
             """
             CALL vector_search.search("test_index", 1, [1.0, 1.0]) YIELD * RETURN node;
             """
         Then the result should be:
-            | node  |
-            | (:L1) |
+            | node                      |
+            | (:L1 {prop1: [1.5, 1.5]}) |
 
     Scenario: Vector search performs on integer values
         Given an empty graph
@@ -141,11 +141,12 @@ Feature: Vector search related features
             """
         When executing query:
             """
-            CALL vector_search.search("test_index", 1, [2, 2]) YIELD * RETURN node;
+            CALL vector_search.search("test_index", 1, [2, 2]) YIELD *
+            RETURN node, [x IN node.prop1 | round(x)] AS rounded_prop;
             """
         Then the result should be:
-            | node  |
-            | (:L1) |
+            | node                                          | rounded_prop    |
+            | (:L1 {prop1: [2.0999999046325684, 2.0999999046325684]}) | [2.0, 2.0]      |
 
     Scenario: Vector index raises error on property with wrong dimension
         Given an empty graph
@@ -161,8 +162,8 @@ Feature: Vector search related features
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         And having executed
             """
-            CREATE (:L1 {prop1: [1.1, 1.1]})
-            CREATE (:L1 {prop1: [2.1, 2.1]})
+            CREATE (:L1 {prop1: [1.5, 1.5]})
+            CREATE (:L1 {prop1: [2.5, 2.5]})
             """
         When executing query:
             """
@@ -182,8 +183,8 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n     |
-            | (:L1) |
+            | n                    |
+            | (:L1 {prop1: [1.0, 2.0]}) |
         When executing query:
             """
             SHOW VECTOR INDEX INFO;
@@ -198,6 +199,13 @@ Feature: Vector search related features
         Then the result should be:
             | n.prop1    |
             | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
 
     Scenario: Removing label removes node from vector index
         Given an empty graph
@@ -274,8 +282,8 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n     |
-            | (:L1) |
+            | n                    |
+            | (:L1 {prop1: [3.0, 4.0]}) |
         When executing query:
             """
             MATCH (n) RETURN n.prop1;
@@ -283,6 +291,13 @@ Feature: Vector search related features
         Then the result should be:
             | n.prop1    |
             | [3.0, 4.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                      |
 
     Scenario: Adding label after creating node with property adds to vector index
         Given an empty graph
@@ -314,8 +329,8 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n     |
-            | (:L1) |
+            | n                    |
+            | (:L1 {prop1: [5.0, 6.0]}) |
         When executing query:
             """
             MATCH (n) RETURN n.prop1;
@@ -323,6 +338,13 @@ Feature: Vector search related features
         Then the result should be:
             | n.prop1    |
             | [5.0, 6.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
 
 
 
@@ -342,6 +364,13 @@ Feature: Vector search related features
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
             | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
             | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
         And having executed
             """
             MATCH (n:L1:L2) REMOVE n:L1;
@@ -359,8 +388,8 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n     |
-            | (:L2) |
+            | n                    |
+            | (:L2 {prop1: [1.0, 2.0]}) |
         When executing query:
             """
             MATCH (n) RETURN n.prop1;
@@ -368,6 +397,13 @@ Feature: Vector search related features
         Then the result should be:
             | n.prop1    |
             | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
 
     Scenario: Vertex with both labels transfers property to property store when removing both labels
         Given an empty graph
@@ -385,6 +421,13 @@ Feature: Vector search related features
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
             | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
             | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
         And having executed
             """
             MATCH (n:L1:L2) REMOVE n:L1, n:L2;
@@ -404,6 +447,13 @@ Feature: Vector search related features
         Then the result should be:
             | n                     |
             | ({prop1: [1.0, 2.0]}) |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 20                       |
 
     Scenario: Adding second label to vertex with one label adds to second index
         Given an empty graph
@@ -421,6 +471,13 @@ Feature: Vector search related features
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
             | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
             | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
         And having executed
             """
             MATCH (n:L1) SET n:L2;
@@ -438,8 +495,8 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n        |
-            | (:L1:L2) |
+            | n                        |
+            | (:L1:L2 {prop1: [1.0, 2.0]}) |
         When executing query:
             """
             MATCH (n) RETURN n.prop1;
@@ -447,6 +504,13 @@ Feature: Vector search related features
         Then the result should be:
             | n.prop1    |
             | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
 
     Scenario: Updating property when vertex has both labels updates both indices
         Given an empty graph
@@ -464,6 +528,13 @@ Feature: Vector search related features
             | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
             | 64       | 2         | 'test_index'  | 'L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
             | 64       | 2         | 'test_index2' | 'L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
         And having executed
             """
             MATCH (n:L1:L2) SET n.prop1 = [3.0, 4.0];
@@ -481,8 +552,8 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n        |
-            | (:L1:L2) |
+            | n                        |
+            | (:L1:L2 {prop1: [3.0, 4.0]}) |
         When executing query:
             """
             MATCH (n) RETURN n.prop1;
@@ -490,6 +561,13 @@ Feature: Vector search related features
         Then the result should be:
             | n.prop1    |
             | [3.0, 4.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
 
     Scenario: Two indices on different properties work independently
         Given an empty graph
@@ -513,15 +591,15 @@ Feature: Vector search related features
             MATCH (n:L1) RETURN n;
             """
         Then the result should be:
-            | n     |
-            | (:L1) |
+            | n                    |
+            | (:L1 {prop1: [1.0, 2.0]}) |
         When executing query:
             """
             MATCH (n:L2) RETURN n;
             """
         Then the result should be:
-            | n     |
-            | (:L2) |
+            | n                    |
+            | (:L2 {prop2: [3.0, 4.0]}) |
         When executing query:
             """
             MATCH (n:L1) RETURN n.prop1;
@@ -538,18 +616,32 @@ Feature: Vector search related features
             | [3.0, 4.0] |
         When executing query:
             """
+            MATCH (n:L1) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+        When executing query:
+            """
+            MATCH (n:L2) RETURN propertySize(n, "prop2");
+            """
+        Then the result should be:
+            | propertySize(n, "prop2") |
+            | 11                       |
+        When executing query:
+            """
             CALL vector_search.search("test_index", 1, [1.0, 2.0]) YIELD * RETURN *;
             """
         Then the result should be:
-            | distance | node  | similarity |
-            | 0.0      | (:L1) | 1.0        |
+            | distance | node                    | similarity |
+            | 0.0      | (:L1 {prop1: [1.0, 2.0]}) | 1.0        |
         When executing query:
             """
             CALL vector_search.search("test_index2", 1, [3.0, 4.0]) YIELD * RETURN *;
             """
         Then the result should be:
-            | distance | node  | similarity |
-            | 0.0      | (:L2) | 1.0        |
+            | distance | node                    | similarity |
+            | 0.0      | (:L2 {prop2: [3.0, 4.0]}) | 1.0        |
 
     Scenario: Dropping vector index restores vectors to vertex properties
         Given an empty graph
@@ -581,6 +673,17 @@ Feature: Vector search related features
             | [3.0, 4.0] |
             | [5.0, 6.0] |
 
+        When executing query:
+            """
+            MATCH (n:L1) RETURN propertySize(n, "prop1") ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+            | 11                       |
+            | 11                       |
+
         And having executed
             """
             DROP VECTOR INDEX test_index
@@ -604,6 +707,17 @@ Feature: Vector search related features
             | [1.0, 2.0] |
             | [3.0, 4.0] |
             | [5.0, 6.0] |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN propertySize(n, "prop1") ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 20                       |
+            | 20                       |
+            | 20                       |
 
     Scenario: Dropping one vector index preserves vectors for remaining index
         Given an empty graph
@@ -633,6 +747,15 @@ Feature: Vector search related features
             | n.prop1    |
             | [1.0, 2.0] |
 
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+
         And having executed
             """
             DROP VECTOR INDEX test_index
@@ -652,8 +775,8 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n        |
-            | (:L1:L2) |
+            | n                        |
+            | (:L1:L2 {prop1: [1.0, 2.0]}) |
 
         When executing query:
             """
@@ -665,12 +788,21 @@ Feature: Vector search related features
 
         When executing query:
             """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+
+        When executing query:
+            """
             CALL vector_search.search("test_index2", 2, [1.0, 2.0]) YIELD * RETURN *;
             """
 
         Then the result should be:
-            | distance | node     | similarity |
-            | 0.0      | (:L1:L2) | 1.0        |
+            | distance | node                        | similarity |
+            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0        |
 
     Scenario: Creating index after vector is already in another index
         Given an empty graph
@@ -679,6 +811,13 @@ Feature: Vector search related features
             """
             CREATE (n:L1:L2 {prop1: [1.0, 2.0]})
             """
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
         And having executed
             """
             CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};
@@ -698,16 +837,24 @@ Feature: Vector search related features
             MATCH (n) RETURN n;
             """
         Then the result should be:
-            | n        |
-            | (:L1:L2) |
+            | n                        |
+            | (:L1:L2 {prop1: [1.0, 2.0]}) |
+
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
 
         When executing query:
             """
             CALL vector_search.search("test_index2", 2, [1.0, 2.0]) YIELD * RETURN *;
             """
         Then the result should be:
-            | distance | node     | similarity |
-            | 0.0      | (:L1:L2) | 1.0        |
+            | distance | node                        | similarity |
+            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0        |
 
         When executing query:
             """
@@ -715,5 +862,5 @@ Feature: Vector search related features
             """
 
         Then the result should be:
-            | distance | node     | similarity |
-            | 0.0      | (:L1:L2) | 1.0        |
+            | distance | node                        | similarity |
+            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0        |

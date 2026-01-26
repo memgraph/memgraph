@@ -186,10 +186,12 @@ class VectorIndex {
   void AbortEntries(NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection);
 
   /// @brief Updates all vector indices referenced by a VectorIndexId property.
+  /// @param property The property that was modified.
   /// @param value The VectorIndexId property value containing index references.
   /// @param vertex The vertex on which the property was modified.
   /// @param name_id_mapper Mapper for name/ID conversions.
-  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                           NameIdMapper *name_id_mapper);
 
   /// @brief Retrieves the vector of a vertex as a list of float values.
   /// @param vertex The vertex to retrieve the vector from.

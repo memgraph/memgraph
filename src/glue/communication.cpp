@@ -230,7 +230,6 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   if (!maybe_properties) return std::unexpected{maybe_properties.error()};
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
-    if (prop.second.IsVectorIndexId() && prop.second.ValueVectorIndexList().empty()) continue;
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
@@ -462,7 +461,13 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       return {value.ValuePoint3d()};
     }
     case storage::PropertyValue::Type::VectorIndexId: {
-      throw communication::bolt::ValueException("VectorIndexId is not supported for bolt value");
+      const auto &vector = value.ValueVectorIndexList();
+      std::vector<Value> vec;
+      vec.reserve(vector.size());
+      for (auto v : vector) {
+        vec.emplace_back(v);
+      }
+      return vec;
     }
   }
 }

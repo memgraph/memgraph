@@ -49,7 +49,6 @@ def test_durability_with_vector_index_basic(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -74,23 +73,24 @@ def test_durability_with_vector_index_basic(connection):
     assert len(index_info) == 1
     assert index_info[0][6] == 3
 
-    # 2/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 3/
     index_info = get_vector_index_info(cursor)
     assert len(index_info) == 1
     assert index_info[0][6] == 3
 
     nodes = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
     node = nodes[0][0]
-    assert "prop1" not in node.properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in node.properties, "Property should be visible on node"
 
     props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0] LIMIT 1;")
-    assert len(props) == 1, "Property should be accessible from index"
-    assert props[0][0] == [1.0, 2.0], "Property should be accessible from index"
+    assert len(props) == 1
+    assert props[0][0] == [1.0, 2.0]
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
 
     search_results = vector_search(cursor, "test_index", 1, [1.0, 2.0])
     assert len(search_results) == 1
@@ -120,7 +120,6 @@ def test_durability_with_vector_index_label_changes(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -135,7 +134,6 @@ def test_durability_with_vector_index_label_changes(connection):
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 2
 
-    # 2/
     execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [1.0, 2.0]}) REMOVE n:L1;")
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 1
@@ -144,24 +142,26 @@ def test_durability_with_vector_index_label_changes(connection):
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 2
 
-    # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 4/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 2
 
     node_with_label = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert (
-        "prop1" not in node_with_label[0][0].properties
-    ), "Property should not be visible on node when stored in index"
+    assert "prop1" in node_with_label[0][0].properties
+
+    property_size_label = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size_label[0][0] == 11
 
     node_without_label = execute_and_fetch_all(cursor, "MATCH (n) WHERE NOT n:L1 RETURN n LIMIT 1;")
-    assert (
-        "prop1" in node_without_label[0][0].properties
-    ), "Property should be in property store when node has no index label"
+    assert "prop1" in node_without_label[0][0].properties
+
+    property_size_no_label = execute_and_fetch_all(
+        cursor, "MATCH (n) WHERE NOT n:L1 RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size_no_label[0][0] == 20
 
     prop3_node = execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [5.0, 6.0]}) RETURN n.prop1;")
     assert prop3_node[0][0] == [5.0, 6.0]
@@ -190,7 +190,6 @@ def test_durability_with_vector_index_property_changes(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -205,24 +204,26 @@ def test_durability_with_vector_index_property_changes(connection):
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 3
 
-    # 2/
     execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [1.0, 2.0]}) SET n.prop1 = null;")
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 2
 
     execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [3.0, 4.0]}) SET n.prop1 = [7.0, 8.0];")
 
-    # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 4/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 2
 
     nodes = execute_and_fetch_all(cursor, "MATCH (n:L1) WHERE n.prop1 IS NOT NULL RETURN n LIMIT 1;")
-    assert "prop1" not in nodes[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in nodes[0][0].properties
+
+    property_size = execute_and_fetch_all(
+        cursor, "MATCH (n:L1) WHERE n.prop1 IS NOT NULL RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size[0][0] == 11
 
     null_prop = execute_and_fetch_all(cursor, "MATCH (n:L1) WHERE n.prop1 IS NULL RETURN count(*) AS cnt;")
     assert null_prop[0][0] == 1
@@ -257,7 +258,6 @@ def test_durability_with_two_vector_indices(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -265,7 +265,6 @@ def test_durability_with_two_vector_indices(connection):
         cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop2) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
 
-    # 2/
     execute_and_fetch_all(
         cursor,
         """CREATE (:L1 {prop1: [1.0, 2.0]})
@@ -280,12 +279,10 @@ def test_durability_with_two_vector_indices(connection):
     assert index_info[0][6] == 2
     assert index_info[1][6] == 2
 
-    # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 4/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     index_info = sorted(index_info, key=lambda x: x[2])
     assert len(index_info) == 2
@@ -293,10 +290,16 @@ def test_durability_with_two_vector_indices(connection):
     assert index_info[1][6] == 2
 
     node_l1 = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert "prop1" not in node_l1[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in node_l1[0][0].properties
+
+    property_size_l1 = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size_l1[0][0] == 11
 
     node_l2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
-    assert "prop2" not in node_l2[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop2" in node_l2[0][0].properties
+
+    property_size_l2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN propertySize(n, 'prop2') LIMIT 1;")
+    assert property_size_l2[0][0] == 11
 
     prop1 = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
     assert prop1[0][0] in [[1.0, 2.0], [3.0, 4.0]]
@@ -334,7 +337,6 @@ def test_durability_with_two_vector_indices_drop_one(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -342,7 +344,6 @@ def test_durability_with_two_vector_indices_drop_one(connection):
         cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
 
-    # 2/
     execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
@@ -351,7 +352,6 @@ def test_durability_with_two_vector_indices_drop_one(connection):
     assert index_info[0][6] == 1
     assert index_info[1][6] == 1
 
-    # 3/
     execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_index;")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
@@ -366,22 +366,24 @@ def test_durability_with_two_vector_indices_drop_one(connection):
     assert prop2[0][0] == [1.0, 2.0]
 
     node = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN n LIMIT 1;")
-    assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in node[0][0].properties
 
-    # 4/
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 5/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert len(index_info) == 1
     assert index_info[0][6] == 1
 
     node = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN n LIMIT 1;")
-    assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in node[0][0].properties
 
-    # Verify vector is still accessible via remaining index after restart
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
     prop = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1;")
     assert prop[0][0] == [1.0, 2.0]
 
@@ -416,7 +418,6 @@ def test_durability_with_vector_index_drop_single_index(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -432,19 +433,22 @@ def test_durability_with_vector_index_drop_single_index(connection):
     assert len(index_info) == 1
     assert index_info[0][6] == 3
 
-    # Verify property is not visible on node when in index
     node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in node[0][0].properties
 
-    # 2/
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+
     execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_index;")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert len(index_info) == 0
 
-    # Verify property is now visible on node after index is dropped
     node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert "prop1" in node[0][0].properties, "Property should be visible on node after index is dropped"
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 20
 
     # Verify vectors are accessible
     props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
@@ -453,18 +457,18 @@ def test_durability_with_vector_index_drop_single_index(connection):
     assert props[1][0] == [3.0, 4.0]
     assert props[2][0] == [5.0, 6.0]
 
-    # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 4/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert len(index_info) == 0
 
-    # Verify property is still visible on node after restart
     node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert "prop1" in node[0][0].properties, "Property should be visible on node after restart"
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 20
 
     # Verify all vectors are still accessible
     props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
@@ -497,7 +501,6 @@ def test_durability_with_two_vector_indices_remove_one_label(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -505,7 +508,6 @@ def test_durability_with_two_vector_indices_remove_one_label(connection):
         cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
 
-    # 2/
     execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
@@ -513,23 +515,23 @@ def test_durability_with_two_vector_indices_remove_one_label(connection):
     assert index_info[0][6] == 1
     assert index_info[1][6] == 1
 
-    # 3/
     execute_and_fetch_all(cursor, "MATCH (n:L1:L2 {prop1: [1.0, 2.0]}) REMOVE n:L1;")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 0 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 0
 
-    # 4/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 5/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 0 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 0
 
     node = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
-    assert "prop1" not in node[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
 
     prop = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n.prop1;")
     assert prop[0][0] == [1.0, 2.0]
@@ -562,7 +564,6 @@ def test_durability_with_two_vector_indices_remove_both_labels(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -570,13 +571,11 @@ def test_durability_with_two_vector_indices_remove_both_labels(connection):
         cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
 
-    # 2/
     execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert index_info[0][6] == 1 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 1
 
-    # 3/
     execute_and_fetch_all(cursor, "MATCH (n:L1:L2 {prop1: [1.0, 2.0]}) REMOVE n:L1, n:L2;")
 
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
@@ -584,12 +583,10 @@ def test_durability_with_two_vector_indices_remove_both_labels(connection):
     assert index_info[0][6] == 0
     assert index_info[1][6] == 0
 
-    # 4/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 5/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     index_info = sorted(index_info, key=lambda x: x[2])
     assert len(index_info) == 2
@@ -597,7 +594,12 @@ def test_durability_with_two_vector_indices_remove_both_labels(connection):
     assert index_info[1][6] == 0
 
     node = execute_and_fetch_all(cursor, "MATCH (n {prop1: [1.0, 2.0]}) WHERE NOT n:L1 AND NOT n:L2 RETURN n LIMIT 1;")
-    assert "prop1" in node[0][0].properties, "Property should be in property store when node has no index labels"
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(
+        cursor, "MATCH (n {prop1: [1.0, 2.0]}) WHERE NOT n:L1 AND NOT n:L2 RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size[0][0] == 20
 
     prop_check = execute_and_fetch_all(cursor, "MATCH (n {prop1: [1.0, 2.0]}) RETURN n.prop1;")
     assert prop_check[0][0] == [1.0, 2.0]
@@ -626,7 +628,6 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 1/
     execute_and_fetch_all(
         cursor,
         """CREATE (:L1 {prop1: [1.0, 2.0]})
@@ -637,7 +638,6 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
     node_count = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN count(*) AS cnt;")
     assert node_count[0][0] == 2
 
-    # 2/
     execute_and_fetch_all(
         cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
     )
@@ -647,7 +647,6 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
     assert len(index_info) == 1
     assert index_info[0][6] == 2
 
-    # 3/
     execute_and_fetch_all(
         cursor,
         """CREATE (:L1 {prop1: [5.0, 6.0]})
@@ -661,12 +660,10 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
     node_count = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN count(*) AS cnt;")
     assert node_count[0][0] == 4
 
-    # 4/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
 
-    # 5/
     index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
     assert len(index_info) == 1
     assert index_info[0][6] == 4
@@ -675,7 +672,10 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
     assert node_count[0][0] == 4
 
     nodes = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
-    assert "prop1" not in nodes[0][0].properties, "Property should not be visible on node when stored in index"
+    assert "prop1" in nodes[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
 
     # Verify all vector properties are accessible from index
     props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
@@ -805,6 +805,9 @@ def test_durability_creating_index_after_vector_already_in_another_index(connect
         == 1
     )
 
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1');")
+    assert property_size[0][0] == 19
+
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
     cursor = connection(7687, "main").cursor()
@@ -814,6 +817,9 @@ def test_durability_creating_index_after_vector_already_in_another_index(connect
     assert len(index_info) == 2
     assert index_info[0][6] == 1
     assert index_info[1][6] == 1
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1');")
+    assert property_size[0][0] == 19
 
     assert (
         len(execute_and_fetch_all(cursor, "CALL vector_search.search('test_index', 2, [1.0, 2.0]) YIELD * RETURN *;"))

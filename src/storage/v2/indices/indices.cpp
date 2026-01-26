@@ -74,15 +74,15 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
                                   NameIdMapper *name_id_mapper) {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   text_index_.UpdateOnSetProperty(vertex, tx, property);
-  vector_index_.UpdateOnSetProperty(value, vertex, name_id_mapper);
+  vector_index_.UpdateOnSetProperty(property, value, vertex, name_id_mapper);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge, Transaction &tx) {
-  tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property,
-                                                                value, tx.start_timestamp);
-  tx.active_indices_.edge_property_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
-                                                         tx.start_timestamp);
+  tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
+  tx.active_indices_.edge_property_->UpdateOnSetProperty(
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
   text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
 }
@@ -135,6 +135,7 @@ void Indices::AbortProcessor::CollectOnLabelRemoval(LabelId labelId, Vertex *ver
 void Indices::AbortProcessor::CollectOnLabelAddition(LabelId labelId, Vertex *vertex) {
   vector_.CollectOnLabelAddition(labelId, vertex);
 }
+
 void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
                                                       Vertex *vertex) {
   label_properties_.CollectOnPropertyChange(propId, vertex);
