@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -2417,20 +2418,18 @@ bool PropertyStore::HasProperty(PropertyId property) const {
 }
 
 bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) const {
-  return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
+  return std::ranges::all_of(properties, [this](const auto &prop) { return HasProperty(prop); });
 }
 
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
-  transform(property_map.begin(), property_map.end(), back_inserter(all_property_values), [](const auto &kv_entry) {
-    return kv_entry.second;
-  });
+  std::ranges::transform(
+      property_map, back_inserter(all_property_values), [](const auto &kv_entry) { return kv_entry.second; });
 
-  return std::all_of(
-      property_values.begin(), property_values.end(), [&all_property_values](const PropertyValue &value) {
-        return std::ranges::contains(all_property_values, value);
-      });
+  return std::ranges::all_of(property_values, [&all_property_values](const PropertyValue &value) {
+    return std::ranges::contains(all_property_values, value);
+  });
 }
 
 std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(

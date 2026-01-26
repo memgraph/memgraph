@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "query/interpreter.hpp"
-#include <bits/ranges_algo.h>
 #include <fmt/core.h>
 #include "ctre.hpp"
 
@@ -26,6 +25,7 @@
 #include <optional>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
+#include <ranges>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -1741,7 +1741,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
                 typed_replica.emplace_back(sys_info_to_tv(replica.system_info_));
               } else {
                 // Set to NULL
-                typed_replica.emplace_back(TypedValue{});
+                typed_replica.emplace_back();
               }
               typed_replica.emplace_back(data_info_to_tv(replica.data_info_));
 
@@ -2808,9 +2808,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
-  const bool is_any_counter_set = std::any_of(ctx_.execution_stats.counters.begin(),
-                                              ctx_.execution_stats.counters.end(),
-                                              [](const auto &counter) { return counter > 0; });
+  const bool is_any_counter_set =
+      std::ranges::any_of(ctx_.execution_stats.counters, [](const auto &counter) { return counter > 0; });
   if (is_any_counter_set) {
     std::map<std::string, TypedValue> stats;
     for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
@@ -2996,8 +2995,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
   auto clauses = cypher_query->single_query_->clauses_;
-  if (std::any_of(
-          clauses.begin(), clauses.end(), [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+  if (std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
         SeverityLevel::INFO,
         NotificationCode::LOAD_CSV_TIP,
@@ -3616,27 +3614,20 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(),
-                 label_results.end(),
-                 std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::ranges::transform(label_results, std::back_inserter(results), [execution_db_accessor](const auto &label_index) {
+    return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+  });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
   };
 
-  std::transform(label_prop_results.begin(),
-                 label_prop_results.end(),
-                 std::back_inserter(results),
-                 [&](const auto &label_property_index) {
-                   return std::vector<TypedValue>{
-                       TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
-                       TypedValue(label_property_index.second | rv::transform(prop_path_to_name) | ranges::to_vector),
-                   };
-                 });
+  std::ranges::transform(label_prop_results, std::back_inserter(results), [&](const auto &label_property_index) {
+    return std::vector<TypedValue>{
+        TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
+        TypedValue(label_property_index.second | rv::transform(prop_path_to_name) | ranges::to_vector),
+    };
+  });
 
   return results;
 }
@@ -5645,17 +5636,16 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       std::vector<uint64_t> maybe_kill_transaction_ids;
-      std::transform(transaction_query->transaction_id_list_.begin(),
-                     transaction_query->transaction_id_list_.end(),
-                     std::back_inserter(maybe_kill_transaction_ids),
-                     [&evaluator](Expression *expression) {
-                       try {
-                         auto value = expression->Accept(evaluator);
-                         return std::stoul(value.ValueString().c_str());  // NOLINT
-                       } catch (std::exception & /* unused */) {
-                         return std::numeric_limits<uint64_t>::max();
-                       }
-                     });
+      std::ranges::transform(transaction_query->transaction_id_list_,
+                             std::back_inserter(maybe_kill_transaction_ids),
+                             [&evaluator](Expression *expression) {
+                               try {
+                                 auto value = expression->Accept(evaluator);
+                                 return std::stoul(value.ValueString().c_str());  // NOLINT
+                               } catch (std::exception & /* unused */) {
+                                 return std::numeric_limits<uint64_t>::max();
+                               }
+                             });
       callback.header = {"transaction_id", "killed"};
       callback.fn = [interpreter_context,
                      maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
@@ -8303,10 +8293,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     // prepare is done, move system txn guard to be owned by interpreter
     system_transaction_ = std::move(system_transaction);
-    return {query_execution->prepared_query->header,
-            query_execution->prepared_query->privileges,
-            qid,
-            query_execution->prepared_query->db};
+    return {.headers = query_execution->prepared_query->header,
+            .privileges = query_execution->prepared_query->privileges,
+            .qid = qid,
+            .db = query_execution->prepared_query->db};
   } catch (const utils::BasicException &e) {
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query

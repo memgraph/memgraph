@@ -546,12 +546,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       group_by_.emplace_back(ident);
     }
     // Cypher RETURN/WITH * expects to expand '*' sorted by name.
-    std::sort(output_symbols_.begin(), output_symbols_.end(), [](const auto &a, const auto &b) {
-      return a.name() < b.name();
-    });
-    std::sort(named_expressions_.begin(), named_expressions_.end(), [](const auto &a, const auto &b) {
-      return a->name_ < b->name_;
-    });
+    std::ranges::sort(output_symbols_, [](const auto &a, const auto &b) { return a.name() < b.name(); });
+    std::ranges::sort(named_expressions_, [](const auto &a, const auto &b) { return a->name_ < b->name_; });
   }
 
   // If true, results need to be distinct.
@@ -785,9 +781,8 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   // so if any of the AND filters before
   // evaluate to false we don't need to
   // evaluate pattern ( exists() ) filter
-  std::partition(and_joinable_filters.begin(), and_joinable_filters.end(), [](const FilterInfo &filter_info) {
-    return filter_info.type != FilterInfo::Type::Pattern;
-  });
+  std::ranges::partition(and_joinable_filters,
+                         [](const FilterInfo &filter_info) { return filter_info.type != FilterInfo::Type::Pattern; });
   for (auto &and_joinable_filter : and_joinable_filters) {
     filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, and_joinable_filter.expression);
   }

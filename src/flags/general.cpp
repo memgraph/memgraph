@@ -18,6 +18,7 @@
 #include "utils/string.hpp"
 
 #include <iostream>
+#include <ranges>
 #include <thread>
 
 // Short help flag.
@@ -206,10 +207,7 @@ auto memgraph::flags::ParseQueryModulesDirectory() -> std::vector<std::filesyste
   const auto directories = memgraph::utils::Split(FLAGS_query_modules_directory, ",");
   std::vector<std::filesystem::path> query_modules_directories;
   query_modules_directories.reserve(directories.size());
-  std::transform(
-      directories.begin(), directories.end(), std::back_inserter(query_modules_directories), [](const auto &dir) {
-        return dir;
-      });
+  std::ranges::copy(directories, std::back_inserter(query_modules_directories));
 
   return query_modules_directories;
 }

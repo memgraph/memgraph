@@ -16,6 +16,7 @@
 #include <cmath>
 #include <iosfwd>
 #include <memory>
+#include <ranges>
 #include <string_view>
 #include <utility>
 
@@ -1419,8 +1420,7 @@ bool IsTemporalType(const TypedValue::Type type) {
                                              TypedValue::Type::LocalDateTime,
                                              TypedValue::Type::ZonedDateTime,
                                              TypedValue::Type::Duration};
-  return std::any_of(
-      temporal_types.begin(), temporal_types.end(), [type](const auto temporal_type) { return temporal_type == type; });
+  return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
 };
 }  // namespace
 

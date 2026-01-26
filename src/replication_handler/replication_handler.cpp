@@ -491,7 +491,7 @@ auto ReplicationHandler::ShowReplicas() const -> std::expected<query::ReplicasIn
       const auto ts = system_.LastCommittedSystemTimestamp();
       // NOTE: no system behind at the moment
       query::ReplicaSystemInfoState const system_info{
-          ts, 0 /* behind ts not implemented */, *replica.state_.ReadLock()};
+          .ts_ = ts, .behind_ = 0 /* behind ts not implemented */, .state_ = *replica.state_.ReadLock()};
 #else
       query::ReplicaSystemInfoState const system_info{};
 #endif

@@ -120,8 +120,9 @@ std::chrono::system_clock::time_point TtlInfo::ParseStartTime(std::string_view s
     // Midnight might be a problem...
     const auto now =
         std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
-    const utils::DateParameters date{
-        static_cast<int>(now.year()), static_cast<unsigned>(now.month()), static_cast<unsigned>(now.day())};
+    const utils::DateParameters date{.year = static_cast<int>(now.year()),
+                                     .month = static_cast<unsigned>(now.month()),
+                                     .day = static_cast<unsigned>(now.day())};
     auto [time, _] = utils::ParseLocalTimeParameters(sv);
     // LocalDateTime uses the user-defined timezone
     return std::chrono::system_clock::time_point{

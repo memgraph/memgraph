@@ -2902,7 +2902,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
           PyTime_FromTime(local_time.hour,
                           local_time.minute,
                           local_time.second,
-                          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
+                          (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond));
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
@@ -2915,7 +2915,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
                                      local_time.hour,
                                      local_time.minute,
                                      local_time.second,
-                                     local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
+                                     (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond));
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {
@@ -2956,7 +2956,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
                                 local_time.hour,
                                 local_time.minute,
                                 local_time.second,
-                                local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond,
+                                (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond,
                                 tz.Ptr()));
 
       return py_zoned_date_time;

@@ -176,6 +176,9 @@ def main():
         help="Additional argument to prepend to the compiler " "command line.",
     )
     parser.add_argument("-quiet", action="store_true", default=False, help="Run clang-tidy in quiet mode")
+    parser.add_argument(
+        "-config-file", dest="config_file", help="Specify the path of .clang-tidy or custom config file"
+    )
     clang_tidy_args = []
     argv = sys.argv[1:]
     if "--" in argv:
@@ -244,6 +247,8 @@ def main():
         common_clang_tidy_args.append("-checks=" + args.checks)
     if args.quiet:
         common_clang_tidy_args.append("-quiet")
+    if args.config_file is not None:
+        common_clang_tidy_args.append("--config-file=" + args.config_file)
     if args.build_path is not None:
         common_clang_tidy_args.append("-p=%s" % args.build_path)
     for arg in args.extra_arg:

@@ -284,10 +284,7 @@ IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expres
 void Filters::EraseFilter(const FilterInfo &filter) {
   // TODO: Ideally, we want to determine the equality of both expression trees,
   // instead of a simple pointer compare.
-  all_filters_.erase(std::remove_if(all_filters_.begin(),
-                                    all_filters_.end(),
-                                    [&filter](const auto &f) { return f.expression == filter.expression; }),
-                     all_filters_.end());
+  std::erase_if(all_filters_, [&filter](const auto &f) { return f.expression == filter.expression; });
 }
 
 // Tries to erase the filter which contains a label of a symbol
@@ -858,10 +855,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 
         auto before_count = as_set.size();
         for (auto &label_vec : labels_test->or_labels_) {
-          label_vec.erase(
-              std::remove_if(
-                  label_vec.begin(), label_vec.end(), [&](const auto &label) { return !as_set.insert(label).second; }),
-              label_vec.end());
+          std::erase_if(label_vec, [&](const auto &label) { return !as_set.insert(label).second; });
         }
         if (as_set.size() != before_count) {
           for (const auto &label_vec : labels_test->or_labels_) {

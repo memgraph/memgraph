@@ -747,11 +747,16 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::make_address(FLAGS_bolt_address),
                                                                      static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
-  memgraph::glue::Context session_context{
-      server_endpoint, &interpreter_context_, auth_.get(), &audit_log, worker_pool_ ? &*worker_pool_ : nullptr};
+  memgraph::glue::Context session_context{.endpoint = server_endpoint,
+                                          .ic = &interpreter_context_,
+                                          .auth = auth_.get(),
+                                          .audit_log = &audit_log,
+                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #else
-  memgraph::glue::Context session_context{
-      server_endpoint, &interpreter_context_, auth_.get(), worker_pool_ ? &*worker_pool_ : nullptr};
+  memgraph::glue::Context session_context{.endpoint = server_endpoint,
+                                          .ic = &interpreter_context_,
+                                          .auth = auth_.get(),
+                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
 
@@ -783,11 +788,12 @@ int main(int argc, char **argv) {
     telemetry->AddReplicationCollector(repl_state);
     telemetry->Start();
   }
-  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server,
-                                                           memgraph::glue::run_id_,
-                                                           machine_id,
-                                                           memory_limit,
-                                                           memgraph::license::global_license_checker.GetLicenseInfo());
+  memgraph::license::LicenseInfoSender const license_info_sender(
+      telemetry_server,
+      memgraph::glue::run_id_,
+      machine_id,
+      memory_limit,
+      memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{

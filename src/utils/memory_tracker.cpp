@@ -150,18 +150,16 @@ auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
       return fmt::format(
           "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
           "use to {}, while the maximum allowed size for allocation is set to {}.",
-          // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-          GetReadableSize(size),
-          GetReadableSize(will_be),
-          GetReadableSize(hard_limit));
+          GetReadableSize(static_cast<double>(size)),
+          GetReadableSize(static_cast<double>(will_be)),
+          GetReadableSize(static_cast<double>(hard_limit)));
     case kUser:
       return fmt::format(
           "User memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
           "use to {}, while the maximum allowed size for allocation is set to {}.",
-          // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-          GetReadableSize(size),
-          GetReadableSize(will_be),
-          GetReadableSize(hard_limit));
+          GetReadableSize(static_cast<double>(size)),
+          GetReadableSize(static_cast<double>(will_be)),
+          GetReadableSize(static_cast<double>(hard_limit)));
   }
 }
 

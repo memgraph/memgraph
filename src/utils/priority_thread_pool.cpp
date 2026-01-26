@@ -122,7 +122,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                         if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
                         // Update flag as soon as possible
                         worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-                        Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
+                        Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
                         worker->work_.pop();
                         l.unlock();
 

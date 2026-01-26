@@ -29,11 +29,9 @@ std::string ResolveHostname(std::string hostname) {
   hints.ai_family = AF_UNSPEC;  // use AF_INET6 to force IPv6
   hints.ai_socktype = SOCK_STREAM;
 
-  int addr_result;
   addrinfo *servinfo;
-  MG_ASSERT((addr_result = getaddrinfo(hostname.c_str(), NULL, &hints, &servinfo)) == 0,
-            "Error with getaddrinfo: {}",
-            gai_strerror(addr_result));
+  int addr_result = getaddrinfo(hostname.c_str(), nullptr, &hints, &servinfo);
+  MG_ASSERT(addr_result == 0, "Error with getaddrinfo: {}", gai_strerror(addr_result));
   MG_ASSERT(servinfo, "Could not resolve address: {}", hostname);
 
   std::string address;

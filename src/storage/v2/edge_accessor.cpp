@@ -11,6 +11,7 @@
 
 #include "storage/v2/edge_accessor.hpp"
 
+#include <ranges>
 #include <tuple>
 
 #include "storage/v2/delta.hpp"
@@ -57,10 +58,8 @@ bool EdgeAccessor::IsVisible(const View view) const {
     {
       auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
-      attached =
-          std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
-            return std::get<EdgeRef>(out_edge) == edge_;
-          }) != from_vertex_->out_edges.end();
+      attached = std::ranges::any_of(from_vertex_->out_edges,
+                                     [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
       delta = from_vertex_->delta;
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {

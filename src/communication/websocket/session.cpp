@@ -109,8 +109,9 @@ bool Session::IsConnected() const { return connected_.load(std::memory_order_rel
 void Session::DoWrite() {
   ExecuteForWebsocket([this](auto &&ws) {
     auto next_message = messages_.front();
+    auto buffer = boost::asio::buffer(*next_message);
     ws.async_write(
-        boost::asio::buffer(*next_message),
+        buffer,
         boost::asio::bind_executor(strand_,
                                    [message_string = std::move(next_message), shared_this = shared_from_this()](
                                        boost::beast::error_code ec, const size_t bytes_transferred) {

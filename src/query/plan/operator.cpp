@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <queue>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -2197,10 +2198,8 @@ class ExpandVariableCursor : public Cursor {
       // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
       // Check edge-uniqueness.
-      bool found_existing =
-          std::any_of(edges_on_frame.begin(), edges_on_frame.end(), [&current_edge](const TypedValue &edge) {
-            return current_edge.first == edge.ValueEdge();
-          });
+      bool const found_existing = std::ranges::any_of(
+          edges_on_frame, [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) return false;
 
       VertexAccessor current_vertex =
@@ -4486,7 +4485,7 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
 
   std::function<void(TypedValue *)> function =
       [&frame, self = this->self_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
-        OOMExceptionEnabler oom_exception;
+        OOMExceptionEnabler const oom_exception;
         input_cursor->Reset();
 
         *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
