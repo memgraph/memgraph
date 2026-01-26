@@ -169,6 +169,13 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
 
       if (delta_ts < transaction->start_timestamp) break;
 
+      // Optimization: Once we encounter an interleaved delta, we can break early
+      // because non-commutative deltas can only exist BEFORE interleaved deltas
+      // in the chain (PrepareForWrite prevents them when head is interleaved).
+      if (IsDeltaInterleaved(*delta)) {
+        break;
+      }
+
       if (delta->action == Delta::Action::ADD_LABEL || delta->action == Delta::Action::REMOVE_LABEL ||
           delta->action == Delta::Action::SET_PROPERTY) {
         return WriteResult::SERIALIZATION_ERROR;
