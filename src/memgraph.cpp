@@ -758,6 +758,7 @@ int main(int argc, char **argv) {
                                           .auth = auth_.get(),
                                           .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
+
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
 
   const auto machine_id = memgraph::utils::GetMachineId();

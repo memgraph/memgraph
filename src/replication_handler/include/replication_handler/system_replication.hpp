@@ -43,7 +43,7 @@ bool StartRpcServer(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system);
 #else
-static bool StartRpcServer(
+bool StartRpcServer(
     dbms::DbmsHandler &dbms_handler,
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     RoleReplicaData &data);
