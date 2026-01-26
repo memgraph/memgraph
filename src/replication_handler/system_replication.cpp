@@ -139,7 +139,9 @@ bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaDat
 #else
 bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data) {
 #endif
-  // Register storage handlers
+
+  // Register storage handlers and destroy previous cached repl accessor
+  dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
 #ifdef MG_ENTERPRISE
   // Register system handlers

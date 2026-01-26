@@ -239,6 +239,23 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerCon
   }
 }
 
+bool ReplicationHandler::SwapReplUUID(utils::UUID const &new_uuid) {
+  try {
+    spdlog::trace("Started swapping repl uuid");
+    auto locked_repl_state = repl_state_.TryLock();
+    if (!locked_repl_state->IsReplica()) {
+      spdlog::error("Setting uuid must be performed on replica.");
+      return false;
+    }
+
+    auto &repl_data = std::get<replication::RoleReplicaData>(locked_repl_state->ReplicationData());
+    SetReplicationRoleReplica_<true, true>(locked_repl_state, repl_data.config, new_uuid);
+    return true;
+  } catch (utils::TryLockException & /*unused*/) {
+    return false;
+  }
+}
+
 bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool const force) {
   try {
     auto locked_repl_state = repl_state_.TryLock();

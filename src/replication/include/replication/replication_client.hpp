@@ -128,7 +128,7 @@ struct ReplicationClient {
   // and we want to set replica to listen to main
   bool try_set_uuid{false};
 
-  enum class State {
+  enum class State : uint8_t {
     BEHIND,
     READY,
     RECOVERY,
