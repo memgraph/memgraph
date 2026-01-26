@@ -1361,6 +1361,109 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_group;
   }
 
+  // Checks if the input operator uses an index (indicating we know the source cardinality).
+  bool HasIndexedSource(std::shared_ptr<LogicalOperator> input_op) {
+    // TODO(ivan): check that operator is replaced by an indexed scan operator here already
+    if (!input_op) {
+      return false;
+    }
+    const auto &type_info = input_op->GetTypeInfo();
+    // if the input is filtered, we need to check if the filter uses an index
+    if (type_info == Filter::kType) {
+      return HasIndexedSource(input_op->input());
+    }
+
+    return type_info == ScanAllByLabel::kType || type_info == ScanAllByLabelProperties::kType ||
+           type_info == ScanAllById::kType;
+  }
+
+  // Estimates whether STShortestPath (bidirectional BFS) is beneficial compared to SingleSourceShortestPath.
+  // Parameters:
+  //   source_cardinality: |S| - number of source nodes
+  //   destination_cardinality: |T| - number of destination nodes
+  //   direction: edge direction (BOTH = undirected, IN/OUT = directed)
+  bool ShouldUseSTShortestPath(double source_cardinality, double destination_cardinality,
+                               EdgeAtom::Direction direction) {
+    const double V = db_->VerticesCount();
+    const double E = db_->EdgesCount();
+
+    if (V == 0 || E == 0 || source_cardinality == 0 || destination_cardinality == 0) {
+      return false;
+    }
+    if (source_cardinality + destination_cardinality > 128 || destination_cardinality > 64) {
+      return false;
+    }
+
+    // 1. Estimate branching factor b
+    // For undirected graph: b = 2 * |E| / |V|
+    // For directed graph: b = |E| / |V|
+    const bool is_undirected = (direction == EdgeAtom::Direction::BOTH);
+    const double b = is_undirected ? (2.0 * E / V) : (E / V);
+
+    // b must be > 1 for exponential expansion
+    if (b <= 1.0) {
+      return false;
+    }
+
+    // 2. Estimate depth d (assuming small-world graph)
+    // d ≈ log_b(|V|), clamped to [2, 12]
+    double d = std::log(V) / std::log(b);
+    d = std::clamp(d, 2.0, 12.0);
+
+    // 3. Decision rule: Use bidirectional BFS if b^(d/2) > (|S| + |T|) / |S|
+    // This means bidirectional is beneficial when the branching factor at half depth
+    // is greater than the relative cost of exploring from both sides.
+    const double b_half_depth = std::pow(b, d / 2.0);
+    const double relative_cost = (source_cardinality + destination_cardinality) / source_cardinality;
+
+    return b_half_depth > relative_cost;
+  }
+
+  // Estimates cardinality for indexed scan operators only.
+  // Since we only call this when we know the operator uses an index, we only need
+  // to handle the indexed scan operator types.
+  double EstimateIndexedScanCardinality(LogicalOperator *op) {
+    MG_ASSERT(op, "Input operator is null");
+
+    const auto &type_info = op->GetTypeInfo();
+    if (type_info == ScanAllById::kType) {
+      return 1.0;
+    }
+    if (type_info == ScanAllByLabel::kType) {
+      auto *scan_op = dynamic_cast<ScanAllByLabel *>(op);
+      return static_cast<double>(db_->VerticesCount(scan_op->label_));
+    }
+    if (type_info == ScanAllByLabelProperties::kType) {
+      auto *scan_op = dynamic_cast<ScanAllByLabelProperties *>(op);
+      Parameters empty_params;
+      auto maybe_propertyvalue_ranges =
+          scan_op->expression_ranges_ | ranges::views::transform([&](ExpressionRange const &er) {
+            return er.ResolveAtPlantime(empty_params, db_->GetStorageAccessor()->GetNameIdMapper());
+          }) |
+          ranges::to_vector;
+
+      auto cardinality = std::invoke([&]() -> double {
+        if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+          auto propertyvalue_ranges = maybe_propertyvalue_ranges |
+                                      ranges::views::transform([](auto &&optional) { return *optional; }) |
+                                      ranges::to_vector;
+
+          return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
+        }
+        // no values, but we still have the label + properties
+        // use basic count without property ranges (ranges depend on runtime parameters)
+        return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+      });
+      return static_cast<double>(cardinality);
+    }
+    // For other operators, traverse to find the underlying scan
+    // This handles cases like Filter -> ScanAllByLabel
+    if (op->HasSingleInput()) {
+      return EstimateIndexedScanCardinality(op->input().get());
+    }
+    MG_ASSERT(false, "Unknown indexed scan operator type");
+  }
+
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
   // does not have at least a label, no indexed lookup can be created and
   // `nullptr` is returned. The operator is chained after `input`. Optional
@@ -1544,8 +1647,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (!or_labels.empty()) {
       auto best_group = FindBestIndexGroup(node_symbol, bound_symbols, or_labels);
-      // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain it
-      // in unions
+      // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain
+      // it in unions
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
         std::unique_ptr<LogicalOperator> prev;
         std::vector<LabelIx> labels_to_erase;
