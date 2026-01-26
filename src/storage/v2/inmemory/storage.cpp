@@ -1125,7 +1125,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     // schema updates are processed in commit timestamp order, solving a race
     // condition whereby a slow in-flight edge operation can be accidentally
     // read by the schema processing code in a label modification.
-    std::lock_guard<std::mutex> lock(mem_storage->schema_queue_mutex_);
+    std::lock_guard<std::mutex> const lock{mem_storage->schema_queue_mutex_};
     mem_storage->pending_schema_updates_.emplace(
         durability_commit_timestamp,
         SchemaUpdateData(std::move(transaction_.schema_diff_),
