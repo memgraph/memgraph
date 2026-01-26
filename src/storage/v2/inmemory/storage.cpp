@@ -2714,15 +2714,6 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   }
 
   if (!wal_file_) {
-<<<<<<< HEAD
-    wal_file_ = std::make_unique<durability::WalFile>(recovery_.wal_directory_,
-                                                      uuid(),
-                                                      epoch.id(),
-                                                      config_.salient.items,
-                                                      name_id_mapper_.get(),
-                                                      wal_seq_num_++,
-                                                      &file_retainer_);
-=======
     wal_file_ = std::make_unique<durability::WalFile>(recovery_.wal_directory_,
                                                       uuid(),
                                                       epoch_id,
@@ -2730,7 +2721,6 @@ bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
                                                       name_id_mapper_.get(),
                                                       wal_seq_num_++,
                                                       &file_retainer_);
->>>>>>> 87dd936db (feat: Clean incomplete snapshots on instance restart)
   }
 
   return true;
@@ -3206,19 +3196,6 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
-<<<<<<< HEAD
-  const auto snapshot_path = durability::CreateSnapshot(this,
-                                                        transaction,
-                                                        recovery_.snapshot_directory_,
-                                                        recovery_.wal_directory_,
-                                                        &vertices_,
-                                                        &edges_,
-                                                        storage_uuid,
-                                                        epoch,
-                                                        epochHistory,
-                                                        &file_retainer_,
-                                                        &abort_snapshot_);
-=======
   const auto snapshot_path = durability::CreateSnapshot(this,
                                                         transaction,
                                                         recovery_.snapshot_directory_,
@@ -3230,7 +3207,6 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         epochHistory,
                                                         &file_retainer_,
                                                         &abort_snapshot_);
->>>>>>> 87dd936db (feat: Clean incomplete snapshots on instance restart)
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
