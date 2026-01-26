@@ -209,10 +209,22 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
     auto info = recovery_.RecoverData(
-        uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
-        &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
+        uuid(),
+        repl_storage_state_,
+        &vertices_,
+        &edges_,
+        &edges_metadata_,
+        &edge_count_,
+        name_id_mapper_.get(),
+        &indices_,
+        &constraints_,
+        config_,
+        &wal_seq_num_,
+        &enum_store_,
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name(), &ttl_);
+        [this](Gid edge_gid) { return FindEdge(edge_gid); },
+        name(),
+        &ttl_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -222,7 +234,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
       spdlog::trace(
           "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
-          info->last_durable_timestamp, timestamp_, info->num_committed_txns);
+          info->last_durable_timestamp,
+          timestamp_,
+          info->num_committed_txns);
     }
 
     if (config_.track_label_counts) {
@@ -249,8 +263,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         utils::EnsureDirOrDie(backup_curr);
         std::error_code item_error_code;
         std::filesystem::rename(item.path(), backup_curr / item.path().filename(), item_error_code);
-        MG_ASSERT(!item_error_code, "Couldn't move {} file {} because of: {}", what, item.path(),
-                  item_error_code.message());
+        MG_ASSERT(
+            !item_error_code, "Couldn't move {} file {} because of: {}", what, item.path(), item_error_code.message());
         files_moved = true;
       }
       MG_ASSERT(!error_code, "Couldn't backup {} files because of: {}", what, error_code.message());
@@ -350,6 +364,7 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemorySt
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
       config_(storage->config_.salient.items) {}
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
                                                     std::optional<std::chrono::milliseconds> timeout)
@@ -898,8 +913,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           mem_storage->FinalizeWalFile();
         }
         // Send to all replicas they can finalize a transaction
-        replicating_txn.FinalizeTransaction(repl_prepare_phase_status, mem_storage->uuid(), protector,
-                                            durability_commit_timestamp);
+        replicating_txn.FinalizeTransaction(
+            repl_prepare_phase_status, mem_storage->uuid(), protector, durability_commit_timestamp);
 
         if (!repl_prepare_phase_status) {
           // Release engine lock because we don't have to hold it anymore for abort
@@ -919,8 +934,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   if (config_.enable_schema_info) {
-    mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                                 transaction_.start_timestamp, transaction_.transaction_id,
+    mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_,
+                                                 transaction_.post_process_,
+                                                 transaction_.start_timestamp,
+                                                 transaction_.transaction_id,
                                                  mem_storage->config_.salient.items.properties_on_edges);
   }
 
@@ -1297,8 +1314,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 const auto has_vector_index = vector_index_labels != index_abort_processor.vector_.p2l.end();
                 if (has_vector_index) {
                   auto has_indexed_label = [&vector_index_labels](auto label) {
-                    return std::binary_search(vector_index_labels->second.begin(), vector_index_labels->second.end(),
-                                              label);
+                    return std::binary_search(
+                        vector_index_labels->second.begin(), vector_index_labels->second.end(), label);
                   };
                   auto indexed_labels_on_vertex =
                       vertex->labels | rv::filter(has_indexed_label) | r::to<std::vector<LabelId>>();
@@ -1422,8 +1439,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
-                                          std::move(transaction_.commit_timestamp));
+        garbage_undo_buffers.emplace_back(
+            mark_timestamp, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp));
       });
     }
 
@@ -1482,8 +1499,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
       // Only hand over delta to be GC'ed if there was any deltas
       mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
         // using mark of 0 as GC will assign a mark_timestamp after unlinking
-        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                            std::move(transaction_.commit_timestamp));
+        committed_transactions.emplace_back(
+            0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp));
       });
     }
     commit_timestamp_.reset();
@@ -1503,8 +1520,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_label_index
-           ->PopulateIndex(label, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               label, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1534,7 +1551,12 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
   }
   DowngradeToReadIfValid();
   if (!mem_label_property_index
-           ->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
+           ->PopulateIndex(label,
+                           properties,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           std::nullopt,
+                           &transaction_,
                            std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
@@ -1568,8 +1590,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_index
-           ->PopulateIndex(edge_type, in_memory->vertices_.access(), std::nullopt, &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               edge_type, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1600,8 +1622,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_property_index
-           ->PopulateIndex(edge_type, property, in_memory->vertices_.access(), std::nullopt, &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               edge_type, property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1632,8 +1654,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_property_index
-           ->PopulateIndex(property, in_memory->vertices_.access(), std::nullopt, &transaction_,
-                           std::move(cancel_check))
+           ->PopulateIndex(
+               property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -2009,8 +2031,13 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
                                                        const PropertyValue &value, View view) {
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_.edge_type_properties_.get());
-  return EdgesIterable(active_indices->Edges(edge_type, property, utils::MakeBoundInclusive(value),
-                                             utils::MakeBoundInclusive(value), view, storage_, &transaction_));
+  return EdgesIterable(active_indices->Edges(edge_type,
+                                             property,
+                                             utils::MakeBoundInclusive(value),
+                                             utils::MakeBoundInclusive(value),
+                                             view,
+                                             storage_,
+                                             &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
@@ -2053,8 +2080,8 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId 
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgeTypeIndex::ActiveIndices *>(transaction_.active_indices_.edge_type_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type, std::move(vertices_acc), std::move(edges_acc),
-                                                           view, storage_, &transaction_, num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(
+      edge_type, std::move(vertices_acc), std::move(edges_acc), view, storage_, &transaction_, num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId edge_type, PropertyId property,
@@ -2063,9 +2090,16 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(EdgeTypeId 
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_.edge_type_properties_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type, property, std::move(vertices_acc),
-                                                           std::move(edges_acc), std::nullopt, std::nullopt, view,
-                                                           storage_, &transaction_, num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
+                                                           property,
+                                                           std::move(vertices_acc),
+                                                           std::move(edges_acc),
+                                                           std::nullopt,
+                                                           std::nullopt,
+                                                           view,
+                                                           storage_,
+                                                           &transaction_,
+                                                           num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
@@ -2075,9 +2109,16 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
       transaction_.active_indices_.edge_type_properties_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type, property, std::move(vertices_acc),
-                                                           std::move(edges_acc), lower_bound, upper_bound, view,
-                                                           storage_, &transaction_, num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(edge_type,
+                                                           property,
+                                                           std::move(vertices_acc),
+                                                           std::move(edges_acc),
+                                                           lower_bound,
+                                                           upper_bound,
+                                                           view,
+                                                           storage_,
+                                                           &transaction_,
+                                                           num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId property, View view,
@@ -2086,8 +2127,14 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId 
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property, std::move(vertices_acc), std::move(edges_acc),
-                                                           std::nullopt, std::nullopt, view, storage_, &transaction_,
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
+                                                           std::move(vertices_acc),
+                                                           std::move(edges_acc),
+                                                           std::nullopt,
+                                                           std::nullopt,
+                                                           view,
+                                                           storage_,
+                                                           &transaction_,
                                                            num_chunks));
 }
 
@@ -2097,9 +2144,15 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId 
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(
-      property, std::move(vertices_acc), std::move(edges_acc), utils::MakeBoundInclusive(value),
-      utils::MakeBoundInclusive(value), view, storage_, &transaction_, num_chunks));
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
+                                                           std::move(vertices_acc),
+                                                           std::move(edges_acc),
+                                                           utils::MakeBoundInclusive(value),
+                                                           utils::MakeBoundInclusive(value),
+                                                           view,
+                                                           storage_,
+                                                           &transaction_,
+                                                           num_chunks));
 }
 
 EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
@@ -2109,8 +2162,14 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(
   auto edges_acc = static_cast<InMemoryStorage const *>(storage_)->edges_.access();
   auto *active_indices =
       static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
-  return EdgesChunkedIterable(active_indices->ChunkedEdges(property, std::move(vertices_acc), std::move(edges_acc),
-                                                           lower_bound, upper_bound, view, storage_, &transaction_,
+  return EdgesChunkedIterable(active_indices->ChunkedEdges(property,
+                                                           std::move(vertices_acc),
+                                                           std::move(edges_acc),
+                                                           lower_bound,
+                                                           upper_bound,
+                                                           view,
+                                                           storage_,
+                                                           &transaction_,
                                                            num_chunks));
 }
 
@@ -2191,9 +2250,17 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     } else {
       // No need to resume async indexer, it is always running.
       // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
-      const auto snapshot_path = durability::CreateSnapshot(
-          this, unique_accessor->GetTransaction(), recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-          &edges_, uuid(), repl_storage_state_.epoch_, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
+      const auto snapshot_path = durability::CreateSnapshot(this,
+                                                            unique_accessor->GetTransaction(),
+                                                            recovery_.snapshot_directory_,
+                                                            recovery_.wal_directory_,
+                                                            &vertices_,
+                                                            &edges_,
+                                                            uuid(),
+                                                            repl_storage_state_.epoch_,
+                                                            repl_storage_state_.history,
+                                                            &file_retainer_,
+                                                            &abort_snapshot_);
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
@@ -2244,7 +2311,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto trace_on_exit = utils::OnScopeExit{[&] {
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed());
     memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed.count());
-    spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.3f}s", name(), periodic ? "periodic" : "forced",
+    spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.3f}s",
+                  name(),
+                  periodic ? "periodic" : "forced",
                   std::chrono::duration<double>(elapsed).count());
   }};
 
@@ -2645,9 +2714,13 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
   }
 
   if (!wal_file_) {
-    wal_file_ =
-        std::make_unique<durability::WalFile>(recovery_.wal_directory_, uuid(), epoch.id(), config_.salient.items,
-                                              name_id_mapper_.get(), wal_seq_num_++, &file_retainer_);
+    wal_file_ = std::make_unique<durability::WalFile>(recovery_.wal_directory_,
+                                                      uuid(),
+                                                      epoch.id(),
+                                                      config_.salient.items,
+                                                      name_id_mapper_.get(),
+                                                      wal_seq_num_++,
+                                                      &file_retainer_);
   }
 
   return true;
@@ -2688,8 +2761,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
   // saved.
-  commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp,
-                                                                             !two_phase_commit, original_access_type_);
+  commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
+      durability_commit_timestamp, !two_phase_commit, original_access_type_);
   // Send transaction start to replicas with the correct access type
   // It does not matter what we send in the `commit` argument as it always gets ignored
   // EXCEPT when loading from a WAL file which will use whatever the line above wrote
@@ -2740,8 +2813,11 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder, *mem_storage->name_id_mapper_, md_delta.label_property_stats.label,
-                                   md_delta.label_property_stats.properties, md_delta.label_property_stats.stats);
+          EncodeLabelPropertyStats(encoder,
+                                   *mem_storage->name_id_mapper_,
+                                   md_delta.label_property_stats.label,
+                                   md_delta.label_property_stats.properties,
+                                   md_delta.label_property_stats.stats);
         });
         break;
       }
@@ -2755,7 +2831,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type_property.edge_type,
+          EncodeEdgeTypePropertyIndex(encoder,
+                                      *mem_storage->name_id_mapper_,
+                                      md_delta.edge_type_property.edge_type,
                                       md_delta.edge_type_property.property);
         });
         break;
@@ -2770,7 +2848,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *mem_storage->name_id_mapper_, md_delta.label_ordered_properties.label,
+          EncodeLabelProperties(encoder,
+                                *mem_storage->name_id_mapper_,
+                                md_delta.label_ordered_properties.label,
                                 md_delta.label_ordered_properties.properties);
         });
         break;
@@ -2780,15 +2860,15 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::POINT_INDEX_CREATE:
       case MetadataDelta::Action::POINT_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(encoder, *mem_storage->name_id_mapper_, md_delta.label_property.label,
-                              md_delta.label_property.property);
+          EncodeLabelProperty(
+              encoder, *mem_storage->name_id_mapper_, md_delta.label_property.label, md_delta.label_property.property);
         });
         break;
       }
       case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelStats(encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label,
-                           md_delta.label_stats.stats);
+          EncodeLabelStats(
+              encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
         });
         break;
       }
@@ -2827,7 +2907,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *mem_storage->name_id_mapper_, md_delta.label_unordered_properties.label,
+          EncodeLabelProperties(encoder,
+                                *mem_storage->name_id_mapper_,
+                                md_delta.label_unordered_properties.label,
                                 md_delta.label_unordered_properties.properties);
         });
         break;
@@ -2835,8 +2917,11 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTypeConstraint(encoder, *mem_storage->name_id_mapper_, md_delta.label_property_type.label,
-                               md_delta.label_property_type.property, md_delta.label_property_type.type);
+          EncodeTypeConstraint(encoder,
+                               *mem_storage->name_id_mapper_,
+                               md_delta.label_property_type.label,
+                               md_delta.label_property_type.property,
+                               md_delta.label_property_type.type);
         });
         break;
       }
@@ -2854,15 +2939,19 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterUpdate(encoder, mem_storage->enum_store_, md_delta.enum_alter_update_info.value,
+          EncodeEnumAlterUpdate(encoder,
+                                mem_storage->enum_store_,
+                                md_delta.enum_alter_update_info.value,
                                 md_delta.enum_alter_update_info.old_value);
         });
         break;
       }
       case MetadataDelta::Action::TTL_OPERATION: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          durability::EncodeTtlOperation(encoder, md_delta.ttl_operation_info.operation_type,
-                                         md_delta.ttl_operation_info.period, md_delta.ttl_operation_info.start_time,
+          durability::EncodeTtlOperation(encoder,
+                                         md_delta.ttl_operation_info.operation_type,
+                                         md_delta.ttl_operation_info.period,
+                                         md_delta.ttl_operation_info.start_time,
                                          md_delta.ttl_operation_info.should_run_edge_ttl);
         });
         break;
@@ -3107,9 +3196,17 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
-  const auto snapshot_path =
-      durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                                 &edges_, storage_uuid, epoch, epochHistory, &file_retainer_, &abort_snapshot_);
+  const auto snapshot_path = durability::CreateSnapshot(this,
+                                                        transaction,
+                                                        recovery_.snapshot_directory_,
+                                                        recovery_.wal_directory_,
+                                                        &vertices_,
+                                                        &edges_,
+                                                        storage_uuid,
+                                                        epoch,
+                                                        epochHistory,
+                                                        &file_retainer_,
+                                                        &abort_snapshot_);
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
@@ -3145,8 +3242,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     constexpr auto file_mode = "wbx";
     utils::FileUniquePtr file(std::fopen(local_path.string().data(), file_mode), &std::fclose);
 
-    if (!requests::CreateAndDownloadFile(uri_str, std::move(file),
-                                         memgraph::flags::run_time::GetFileDownloadConnTimeoutSec())) {
+    if (!requests::CreateAndDownloadFile(
+            uri_str, std::move(file), memgraph::flags::run_time::GetFileDownloadConnTimeoutSec())) {
       // Delete the empty or partially written file
       handler_error();
       return std::unexpected{InMemoryStorage::RecoverSnapshotError::DownloadFailure};
@@ -3199,10 +3296,18 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
   try {
     spdlog::debug("Recovering from a snapshot {}", local_path);
-    auto recovered_snapshot = storage::durability::LoadSnapshot(
-        local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
-        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        &ttl_);
+    auto recovered_snapshot =
+        storage::durability::LoadSnapshot(local_path,
+                                          &vertices_,
+                                          &edges_,
+                                          &edges_metadata_,
+                                          &repl_storage_state_.history,
+                                          name_id_mapper_.get(),
+                                          &edge_count_,
+                                          config_,
+                                          &enum_store_,
+                                          config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+                                          &ttl_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point
@@ -3225,9 +3330,14 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     if (timestamp_ > 0) commit_log_->MarkFinishedInRange(0, timestamp_ - 1);
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
-    storage::durability::RecoverIndicesStatsAndConstraints(
-        &vertices_, name_id_mapper_.get(), &indices_, &constraints_, config_, recovery_info,
-        recovered_snapshot.indices_constraints, config_.salient.items.properties_on_edges);
+    storage::durability::RecoverIndicesStatsAndConstraints(&vertices_,
+                                                           name_id_mapper_.get(),
+                                                           &indices_,
+                                                           &constraints_,
+                                                           config_,
+                                                           recovery_info,
+                                                           recovered_snapshot.indices_constraints,
+                                                           config_.salient.items.properties_on_edges);
 
     spdlog::trace("Successfully recovered from snapshot {}", local_path);
 
@@ -3418,21 +3528,30 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(StorageAccessType rw_type,
                                                            std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access,
+                                                                this,
                                                                 override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, rw_type, timeout});
+                                                                storage_mode_,
+                                                                rw_type,
+                                                                timeout});
 }
+
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access,
+                                                                this,
                                                                 override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, timeout});
+                                                                storage_mode_,
+                                                                timeout});
 }
+
 std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
     std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access, this,
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access,
+                                                                this,
                                                                 override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, timeout});
+                                                                storage_mode_,
+                                                                timeout});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
@@ -3604,6 +3723,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
           storage_->indices_.vector_index_.ListIndices(),
           storage_->indices_.vector_edge_index_.ListIndices()};
 }
+
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   return {.existence = transaction_.active_constraints_.existence_->ListConstraints(transaction_.start_timestamp),
           .unique = transaction_.active_constraints_.unique_->ListConstraints(transaction_.start_timestamp),
@@ -3678,8 +3798,8 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
-                                      std::vector(properties.begin(), properties.end()), stats);
+  transaction_.md_deltas.emplace_back(
+      MetadataDelta::label_property_index_stats_set, label, std::vector(properties.begin(), properties.end()), stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
@@ -3725,8 +3845,8 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
                                                       PropertyValue const &point_value,
                                                       PropertyValue const &boundary_value,
                                                       PointDistanceCondition condition) -> PointIterable {
-  return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, point_value,
-                                                     boundary_value, condition);
+  return transaction_.point_index_ctx_.PointVertices(
+      label, property, crs, storage_, &transaction_, point_value, boundary_value, condition);
 }
 
 std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnNodes(
@@ -3757,8 +3877,8 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
     auto &[edge_tuple, distance, score] = item;
     auto &[from_vertex, to_vertex, edge] = edge_tuple;
-    return std::make_tuple(EdgeAccessor{EdgeRef{edge}, edge_type_id, from_vertex, to_vertex, storage_, &transaction_},
-                           distance, score);
+    return std::make_tuple(
+        EdgeAccessor{EdgeRef{edge}, edge_type_id, from_vertex, to_vertex, storage_, &transaction_}, distance, score);
   });
 
   return result;
@@ -3775,8 +3895,8 @@ std::vector<VectorEdgeIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVecto
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                                       PropertyValue const &bottom_left, PropertyValue const &top_right,
                                                       WithinBBoxCondition condition) -> PointIterable {
-  return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, bottom_left,
-                                                     top_right, condition);
+  return transaction_.point_index_ctx_.PointVertices(
+      label, property, crs, storage_, &transaction_, bottom_left, top_right, condition);
 }
 
 }  // namespace memgraph::storage

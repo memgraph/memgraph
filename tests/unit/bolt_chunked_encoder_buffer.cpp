@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ using memgraph::communication::bolt::kChunkMaxDataSize;
 using memgraph::communication::bolt::kChunkWholeSize;
 
 // test data
-inline constexpr const int kTestDataSize = 100000;
+inline constexpr const int kTestDataSize = 100'000;
 uint8_t test_data[kTestDataSize];
 
 struct BoltChunkedEncoderBuffer : ::testing::Test {

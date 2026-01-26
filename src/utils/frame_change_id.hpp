@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,7 @@ struct FrameChangeId {
   enum struct Kind : uint8_t { Expr, Sym };
   Kind kind_;
   std::size_t hash_;
+
   union {
     query::Symbol::Position_t symbol_pos_;
     query::Expression *expr_;

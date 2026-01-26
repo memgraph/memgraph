@@ -179,9 +179,21 @@ static memgraph::query::plan::ExpandVariable MakeExpandVariable(memgraph::query:
   filter_lambda.inner_node_symbol = lambda_node_symbol;
   filter_lambda.inner_edge_symbol = lambda_edge_symbol;
   filter_lambda.expression = nullptr;
-  return memgraph::query::plan::ExpandVariable(nullptr, input_symbol, dest_symbol, edge_symbol, expand_type,
-                                               memgraph::query::EdgeAtom::Direction::OUT, {}, false, nullptr, nullptr,
-                                               false, filter_lambda, std::nullopt, std::nullopt, nullptr);
+  return memgraph::query::plan::ExpandVariable(nullptr,
+                                               input_symbol,
+                                               dest_symbol,
+                                               edge_symbol,
+                                               expand_type,
+                                               memgraph::query::EdgeAtom::Direction::OUT,
+                                               {},
+                                               false,
+                                               nullptr,
+                                               nullptr,
+                                               false,
+                                               filter_lambda,
+                                               std::nullopt,
+                                               std::nullopt,
+                                               nullptr);
 }
 
 template <class TMemory>
@@ -313,9 +325,10 @@ static void ExpandWeightedShortest(benchmark::State &state) {
   memgraph::query::SymbolTable symbol_table;
   auto expand_variable = MakeExpandVariable(memgraph::query::EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, &symbol_table);
   expand_variable.common_.existing_node = true;
-  expand_variable.weight_lambda_ = memgraph::query::plan::ExpansionLambda{
-      symbol_table.CreateSymbol("edge", false), symbol_table.CreateSymbol("vertex", false),
-      ast.Create<memgraph::query::PrimitiveLiteral>(1)};
+  expand_variable.weight_lambda_ =
+      memgraph::query::plan::ExpansionLambda{symbol_table.CreateSymbol("edge", false),
+                                             symbol_table.CreateSymbol("vertex", false),
+                                             ast.Create<memgraph::query::PrimitiveLiteral>(1)};
   auto dest_symbol = expand_variable.common_.node_symbol;
   auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -363,7 +376,8 @@ static void Accumulate(benchmark::State &state) {
   for (int i = 0; i < state.range(0); ++i) {
     symbols.push_back(symbol_table.CreateSymbol(std::to_string(i), false));
   }
-  memgraph::query::plan::Accumulate accumulate(scan_all, symbols,
+  memgraph::query::plan::Accumulate accumulate(scan_all,
+                                               symbols,
                                                /* advance_command= */ false);
   auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -410,7 +424,8 @@ static void Aggregate(benchmark::State &state) {
     auto sym = symbol_table.CreateSymbol(std::to_string(i), false);
     symbols.push_back(sym);
     group_by.push_back(ast.Create<memgraph::query::Identifier>(sym.name())->MapTo(sym));
-    aggregations.push_back({ast.Create<memgraph::query::PrimitiveLiteral>(i), nullptr,
+    aggregations.push_back({ast.Create<memgraph::query::PrimitiveLiteral>(i),
+                            nullptr,
                             memgraph::query::Aggregation::Op::SUM,
                             symbol_table.CreateSymbol("out" + std::to_string(i), false)});
   }

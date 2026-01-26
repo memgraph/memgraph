@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,9 +57,10 @@ bool EdgeAccessor::IsVisible(const View view) const {
     {
       auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
-      attached = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(),
-                              [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; }) !=
-                 from_vertex_->out_edges.end();
+      attached =
+          std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
+            return std::get<EdgeRef>(out_edge) == edge_;
+          }) != from_vertex_->out_edges.end();
       delta = from_vertex_->delta;
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
@@ -175,16 +176,17 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
     CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
     edge_.ptr->properties.SetProperty(property, value);
-    storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
-                                           *transaction_);
+    storage_->indices_.UpdateOnSetProperty(
+        edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
     if (schema_acc) {
-      std::visit(utils::Overloaded{
-                     [this, property, new_type = ExtendedPropertyType{value},
-                      old_type = ExtendedPropertyType{*current_value}](SchemaInfo::VertexModifyingAccessor &acc) {
-                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
-                     },
-                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
+      std::visit(
+          utils::Overloaded{
+              [this, property, new_type = ExtendedPropertyType{value}, old_type = ExtendedPropertyType{*current_value}](
+                  SchemaInfo::VertexModifyingAccessor &acc) {
+                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
+              },
+              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+          *schema_acc);
     }
   });
 
@@ -216,16 +218,17 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
     for (const auto &[property, value] : properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
-      storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
-                                             *transaction_);
+      storage_->indices_.UpdateOnSetProperty(
+          edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
-        std::visit(utils::Overloaded{[this, property, new_type = ExtendedPropertyType{value}](
-                                         SchemaInfo::VertexModifyingAccessor &acc) {
-                                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type,
-                                                       ExtendedPropertyType{});
-                                     },
-                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                   *schema_acc);
+        std::visit(
+            utils::Overloaded{
+                [this, property, new_type = ExtendedPropertyType{value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                  acc.SetProperty(
+                      edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, ExtendedPropertyType{});
+                },
+                [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+            *schema_acc);
       }
     }
     // TODO If the current implementation is too slow there is an InitProperties option
@@ -260,11 +263,13 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
-      storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
-                                             *transaction_);
+      storage_->indices_.UpdateOnSetProperty(
+          edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
         std::visit(utils::Overloaded{
-                       [this, property, new_type = ExtendedPropertyType{new_value},
+                       [this,
+                        property,
+                        new_type = ExtendedPropertyType{new_value},
                         old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
                          acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
                        },
@@ -299,18 +304,19 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first,
-                         property.second);
-      storage_->indices_.UpdateOnSetProperty(edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_,
-                                             edge_.ptr, *transaction_);
+      CreateAndLinkDelta(
+          transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first, property.second);
+      storage_->indices_.UpdateOnSetProperty(
+          edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
         std::visit(
-            utils::Overloaded{[this, property_id = property.first, old_type = ExtendedPropertyType{property.second}](
-                                  SchemaInfo::VertexModifyingAccessor &acc) {
-                                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property_id,
-                                                ExtendedPropertyType{}, old_type);
-                              },
-                              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+            utils::Overloaded{
+                [this, property_id = property.first, old_type = ExtendedPropertyType{property.second}](
+                    SchemaInfo::VertexModifyingAccessor &acc) {
+                  acc.SetProperty(
+                      edge_, edge_type_, from_vertex_, to_vertex_, property_id, ExtendedPropertyType{}, old_type);
+                },
+                [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
             *schema_acc);
       }
     }

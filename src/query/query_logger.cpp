@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,18 +61,27 @@ QueryLogger::~QueryLogger() {
 }
 
 void QueryLogger::trace(const std::string &log_line) { logger_->log(spdlog::level::trace, GetMessage(log_line)); }
+
 void QueryLogger::debug(const std::string &log_line) { logger_->log(spdlog::level::debug, GetMessage(log_line)); }
+
 void QueryLogger::info(const std::string &log_line) { logger_->log(spdlog::level::info, GetMessage(log_line)); }
+
 void QueryLogger::warn(const std::string &log_line) { logger_->log(spdlog::level::warn, GetMessage(log_line)); }
+
 void QueryLogger::err(const std::string &log_line) { logger_->log(spdlog::level::err, GetMessage(log_line)); }
 
 void QueryLogger::SetTransactionId(const std::string &t_id) { transaction_id_ = t_id; }
+
 void QueryLogger::SetSessionId(const std::string &s_id) { session_id_ = s_id; }
+
 void QueryLogger::SetUser(const std::string &u) { user_or_role_ = u; }
+
 void QueryLogger::ResetUser() { user_or_role_ = ""; }
+
 void QueryLogger::ResetTransactionId() { transaction_id_ = ""; }
 
 void QueryLogger::set_level(spdlog::level::level_enum l) { logger_->set_level(l); }
+
 int QueryLogger::get_level() { return logger_->level(); }
 
 std::string QueryLogger::GetMessage(const std::string &log_line) {

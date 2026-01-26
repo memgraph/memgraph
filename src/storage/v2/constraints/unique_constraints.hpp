@@ -45,6 +45,7 @@ class UniqueConstraints {
   /// Organized by constraint key so AbortEntries can iterate constraints (not vertices) in outer loop.
   struct AbortProcessor {
     explicit AbortProcessor() = default;
+
     explicit AbortProcessor(AbortableInfo &&interesting) : abortable_info_(std::move(interesting)) {}
 
     void Collect(Vertex const *vertex);

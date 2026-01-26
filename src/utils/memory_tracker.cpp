@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -135,6 +135,7 @@ constinit thread_local MemoryTrackerStatus status [[gnu::tls_model("initial-exec
 static_assert(std::is_trivially_destructible_v<MemoryTrackerStatus>,
               "TLS variable in malloc hook must be trivially destructible to avoid atexit allocations");
 }  // namespace
+
 auto MemoryErrorStatus() -> MemoryTrackerStatus & { return status; }
 
 auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
@@ -150,13 +151,17 @@ auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
           "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
           "use to {}, while the maximum allowed size for allocation is set to {}.",
           // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-          GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+          GetReadableSize(size),
+          GetReadableSize(will_be),
+          GetReadableSize(hard_limit));
     case kUser:
       return fmt::format(
           "User memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
           "use to {}, while the maximum allowed size for allocation is set to {}.",
           // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-          GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+          GetReadableSize(size),
+          GetReadableSize(will_be),
+          GetReadableSize(hard_limit));
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,6 +72,7 @@ class VisitorBase<R, Head, Tail...> : public VisitorBase<R, Tail...> {
   using VisitorBase<R, Tail...>::Visit;
   virtual ReturnType Visit(Head &) = 0;
 };
+
 template <typename R, class T>
 class VisitorBase<R, T> {
  public:
@@ -81,6 +82,7 @@ class VisitorBase<R, T> {
   /// @brief Visit an instance of @c T.
   virtual ReturnType Visit(T &) = 0;
 };
+
 #pragma clang diagnostic pop
 template <class... T>
 class CompositeVisitorBase;
@@ -89,6 +91,7 @@ template <class Head, class... Tail>
 class CompositeVisitorBase<Head, Tail...> : public CompositeVisitorBase<Tail...> {
  public:
   virtual bool PreVisit(Head &) { return DefaultPreVisit(); }
+
   virtual bool PostVisit(Head &) { return DefaultPostVisit(); }
 
   using CompositeVisitorBase<Tail...>::PreVisit;
@@ -111,6 +114,7 @@ class CompositeVisitorBase<T> {
   ///
   /// @return bool indicating whether to continue visiting.
   virtual bool PreVisit(T &) { return DefaultPreVisit(); }
+
   /// @brief Finish visiting an instance of *composite* type @c TVisitable.
   ///
   /// This function should be used to control whether the visitor should be sent
@@ -125,6 +129,7 @@ class CompositeVisitorBase<T> {
 
  protected:
   virtual bool DefaultPreVisit() { return true; }
+
   virtual bool DefaultPostVisit() { return true; }
 };
 

@@ -38,6 +38,7 @@ constexpr auto testSuite = "storage_v2_schema_info";
 const std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / testSuite};
 
 struct InMemTransactional {};
+
 struct InMemAnalytical {};
 
 template <typename StorageType>
@@ -150,10 +151,11 @@ TEST(SchemaInfoContext, ConfrontJSON) {
                    {{"count", 2},
                     {"ration", 35.0},
                     {"types", nlohmann::json::array({{{"type", "1"}, {"count", 1}}, {{"type", "2"}, {"count", 2}}})}}),
-               nlohmann::json::object({{"count", 1},
-                                       {"ration", 25.0},
-                                       {"types", nlohmann::json::array({{{"type", "1"}, {"count", 1}},
-                                                                        {{"type", "5"}, {"count", 5}}})}})})}});
+               nlohmann::json::object(
+                   {{"count", 1},
+                    {"ration", 25.0},
+                    {"types",
+                     nlohmann::json::array({{{"type", "1"}, {"count", 1}}, {{"type", "5"}, {"count", 5}}})}})})}});
     json1.emplace("nodes", node);
     json2.emplace("nodes", node);
     ASSERT_TRUE(ConfrontJSON(json1, json2));
@@ -262,13 +264,13 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{false}).has_value());
     ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    expected_result["nodes"].push_back(
-        {{"count", 1},
-         {"labels", jarray({"L2"})},
-         {"properties", jarray({{{"key", "p1"},
-                                 {"count", 1},
-                                 {"filling_factor", 100.0},
-                                 {"types", jarray({{{"type", "Integer"}, {"count", 1}}})}}})}});
+    expected_result["nodes"].push_back({{"count", 1},
+                                        {"labels", jarray({"L2"})},
+                                        {"properties",
+                                         jarray({{{"key", "p1"},
+                                                  {"count", 1},
+                                                  {"filling_factor", 100.0},
+                                                  {"types", jarray({{{"type", "Integer"}, {"count", 1}}})}}})}});
     const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(ConfrontJSON(json, expected_result));
   }
@@ -334,17 +336,17 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
         !v.SetProperty(p3, memgraph::storage::PropertyValue{memgraph::storage::PropertyValue::list_t{}}).has_value());
     ASSERT_TRUE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    expected_result["nodes"].push_back(
-        {{"count", 1},
-         {"labels", jarray({})},
-         {"properties", jarray({{{"key", "p2"},
-                                 {"count", 1},
-                                 {"filling_factor", 100.0},
-                                 {"types", jarray({{{"type", "String"}, {"count", 1}}})}},
-                                {{"key", "p3"},
-                                 {"count", 1},
-                                 {"filling_factor", 100.0},
-                                 {"types", jarray({{{"type", "List"}, {"count", 1}}})}}})}});
+    expected_result["nodes"].push_back({{"count", 1},
+                                        {"labels", jarray({})},
+                                        {"properties",
+                                         jarray({{{"key", "p2"},
+                                                  {"count", 1},
+                                                  {"filling_factor", 100.0},
+                                                  {"types", jarray({{{"type", "String"}, {"count", 1}}})}},
+                                                 {{"key", "p3"},
+                                                  {"count", 1},
+                                                  {"filling_factor", 100.0},
+                                                  {"types", jarray({{{"type", "List"}, {"count", 1}}})}}})}});
     const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(ConfrontJSON(json, expected_result));
     acc = in_memory->Access(memgraph::storage::WRITE);
@@ -398,17 +400,17 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       // No changes to result
     } else {
-      expected_result["nodes"].push_back(
-          {{"count", 1},
-           {"labels", jarray({"L1"})},
-           {"properties", jarray({{{"key", "p1"},
-                                   {"count", 1},
-                                   {"filling_factor", 100.0},
-                                   {"types", jarray({{{"type", "Integer"}, {"count", 1}}})}},
-                                  {{"key", "p2"},
-                                   {"count", 1},
-                                   {"filling_factor", 100.0},
-                                   {"types", jarray({{{"type", "String"}, {"count", 1}}})}}})}});
+      expected_result["nodes"].push_back({{"count", 1},
+                                          {"labels", jarray({"L1"})},
+                                          {"properties",
+                                           jarray({{{"key", "p1"},
+                                                    {"count", 1},
+                                                    {"filling_factor", 100.0},
+                                                    {"types", jarray({{{"type", "Integer"}, {"count", 1}}})}},
+                                                   {{"key", "p2"},
+                                                    {"count", 1},
+                                                    {"filling_factor", 100.0},
+                                                    {"types", jarray({{{"type", "String"}, {"count", 1}}})}}})}});
     }
     ASSERT_TRUE(ConfrontJSON(json, expected_result));
   }
@@ -1493,10 +1495,10 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
                                             {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p1; }));
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p2; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p1; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p2; }));
   }
 
   // change from label
@@ -1526,10 +1528,10 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
                                             {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p1; }));
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p2; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p1; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p2; }));
   }
 
   // delete edge - rollback
@@ -1563,10 +1565,10 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
                                             {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p1; }));
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p2; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p1; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p2; }));
   }
 
   // change to label
@@ -1596,10 +1598,10 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
                                             {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p1; }));
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p2; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p1; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p2; }));
   }
 
   // change to and from label->edges
@@ -1632,10 +1634,10 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
                                             {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p1; }));
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p2; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p1; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p2; }));
   }
 
   // delete edge property
@@ -1663,8 +1665,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
                                             {"types", nlohmann::json::array({{{"type", "Integer"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 1);
-    ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
-                            [&](const auto &in) { return in == p1; }));
+    ASSERT_TRUE(std::any_of(
+        json_edges_properties.begin(), json_edges_properties.end(), [&](const auto &in) { return in == p1; }));
   }
 
   // delete edge
@@ -2001,12 +2003,14 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       const auto json_nodes = json_mid["nodes"];
       ASSERT_EQ(json_nodes.size(), 2);
-      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L1"}); });
+      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L1"});
+      });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json_mid["edges"].size(), 1);
@@ -2029,8 +2033,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json_mid["edges"].size(), 1);
@@ -2054,12 +2059,14 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       const auto json_nodes = json["nodes"];
       ASSERT_EQ(json_nodes.size(), 2);
-      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L1"}); });
+      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L1"});
+      });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json["edges"].size(), 1);
@@ -2082,8 +2089,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json_mid["edges"].size(), 1);
@@ -2164,8 +2172,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json_mid["edges"].size(), 1);
@@ -2182,8 +2191,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json_mid["edges"].size(), 1);
@@ -2212,8 +2222,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json["edges"].size(), 1);
@@ -2236,8 +2247,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       });
       ASSERT_NE(json_l1, json_nodes.end());
       ASSERT_EQ((*json_l1)["count"], 1);
-      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
-                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L2"});
+      });
       ASSERT_NE(json_l2, json_nodes.end());
       ASSERT_EQ((*json_l2)["count"], 1);
       ASSERT_EQ(json_mid["edges"].size(), 1);
@@ -2469,7 +2481,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto read_schema = [&]() {
     auto stop = memgraph::utils::OnScopeExit{[&]() { running = false; }};
     uint16_t i = 0;
-    while (i++ < 15000) {
+    while (i++ < 15'000) {
       const auto json = in_memory->schema_info_.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
       // Possible schemas:
       static const auto no_labels_no_prop = nlohmann::json::parse(
@@ -2529,11 +2541,22 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
           "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"}
           ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
 
-      static const std::array<nlohmann::json, 16> possible_schemas = {
-          no_labels_no_prop, from_label_no_prop, to_label_no_prop, both_labels_no_prop,
-          no_labels_w_prop,  from_label_w_prop,  to_label_w_prop,  both_labels_w_prop,
-          no_labels_w_prop2, from_label_w_prop2, to_label_w_prop2, both_labels_w_prop2,
-          no_labels_w_prop3, from_label_w_prop3, to_label_w_prop3, both_labels_w_prop3};
+      static const std::array<nlohmann::json, 16> possible_schemas = {no_labels_no_prop,
+                                                                      from_label_no_prop,
+                                                                      to_label_no_prop,
+                                                                      both_labels_no_prop,
+                                                                      no_labels_w_prop,
+                                                                      from_label_w_prop,
+                                                                      to_label_w_prop,
+                                                                      both_labels_w_prop,
+                                                                      no_labels_w_prop2,
+                                                                      from_label_w_prop2,
+                                                                      to_label_w_prop2,
+                                                                      both_labels_w_prop2,
+                                                                      no_labels_w_prop3,
+                                                                      from_label_w_prop3,
+                                                                      to_label_w_prop3,
+                                                                      both_labels_w_prop3};
 
       auto itr = std::find_if(possible_schemas.begin(), possible_schemas.end(), [&json](auto &in) {
         // Support no edges as well

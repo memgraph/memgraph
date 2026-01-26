@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,39 +19,39 @@
 #include "utils/spin_lock.hpp"
 
 TEST(RingBuffer, MultithreadedUsage) {
-  auto test_f = [](int producer_count, int elems_per_producer, int producer_sleep_ms, int consumer_count,
-                   int consumer_sleep_ms) {
-    std::unordered_set<int> consumed;
-    memgraph::utils::SpinLock consumed_lock;
-    RingBuffer<int> buffer{20};
+  auto test_f =
+      [](int producer_count, int elems_per_producer, int producer_sleep_ms, int consumer_count, int consumer_sleep_ms) {
+        std::unordered_set<int> consumed;
+        memgraph::utils::SpinLock consumed_lock;
+        RingBuffer<int> buffer{20};
 
-    std::vector<std::thread> producers;
-    for (int i = 0; i < producer_count; i++)
-      producers.emplace_back([i, elems_per_producer, producer_sleep_ms, &buffer]() {
-        for (int j = 0; j < elems_per_producer; j++) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(producer_sleep_ms));
-          buffer.emplace(j + i * elems_per_producer);
-        }
-      });
+        std::vector<std::thread> producers;
+        for (int i = 0; i < producer_count; i++)
+          producers.emplace_back([i, elems_per_producer, producer_sleep_ms, &buffer]() {
+            for (int j = 0; j < elems_per_producer; j++) {
+              std::this_thread::sleep_for(std::chrono::milliseconds(producer_sleep_ms));
+              buffer.emplace(j + i * elems_per_producer);
+            }
+          });
 
-    std::vector<std::thread> consumers;
-    size_t elem_total_count = producer_count * elems_per_producer;
-    for (int i = 0; i < consumer_count; i++)
-      consumers.emplace_back([elem_total_count, consumer_sleep_ms, &buffer, &consumed, &consumed_lock]() {
-        while (true) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(consumer_sleep_ms));
-          auto guard = std::lock_guard{consumed_lock};
-          if (consumed.size() == elem_total_count) break;
-          auto value = buffer.pop();
-          if (value) consumed.emplace(*value);
-        }
-      });
+        std::vector<std::thread> consumers;
+        size_t elem_total_count = producer_count * elems_per_producer;
+        for (int i = 0; i < consumer_count; i++)
+          consumers.emplace_back([elem_total_count, consumer_sleep_ms, &buffer, &consumed, &consumed_lock]() {
+            while (true) {
+              std::this_thread::sleep_for(std::chrono::milliseconds(consumer_sleep_ms));
+              auto guard = std::lock_guard{consumed_lock};
+              if (consumed.size() == elem_total_count) break;
+              auto value = buffer.pop();
+              if (value) consumed.emplace(*value);
+            }
+          });
 
-    for (auto &producer : producers) producer.join();
-    for (auto &consumer : consumers) consumer.join();
+        for (auto &producer : producers) producer.join();
+        for (auto &consumer : consumers) consumer.join();
 
-    return !buffer.pop() && consumed.size() == elem_total_count;
-  };
+        return !buffer.pop() && consumed.size() == elem_total_count;
+      };
 
   // Many slow producers, many fast consumers.
   EXPECT_TRUE(test_f(10, 200, 3, 10, 0));

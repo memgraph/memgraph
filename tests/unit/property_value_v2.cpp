@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -104,8 +104,8 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
       TPropertyValue{TemporalData(TemporalType::Date, 23)},
       TPropertyValue{
           ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))},
-      TPropertyValue{ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
-                                       memgraph::utils::Timezone(std::chrono::minutes{-60}))},
+      TPropertyValue{ZonedTemporalData(
+          ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone(std::chrono::minutes{-60}))},
       TPropertyValue{enum_val},
       TPropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
       TPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},

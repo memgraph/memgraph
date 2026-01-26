@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -239,6 +239,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
           "Only nodes, edges, maps, temporal types, points, and graphs have properties to be looked up.");
   }
 }
+
 TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, ctx_);
 
@@ -423,7 +424,8 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), GetNameIdMapper(),
+        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
+                GetNameIdMapper(),
                 ctx_->memory};
       }
     case TypedValue::Type::Edge:
@@ -439,7 +441,8 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), GetNameIdMapper(),
+        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
+                GetNameIdMapper(),
                 ctx_->memory};
       }
     case TypedValue::Type::Map: {

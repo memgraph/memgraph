@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,6 +91,7 @@ void TryAddVertexToIndex(SyncVectorIndex &mg_index, VectorIndexSpec &spec, Verte
 }  // namespace
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
+
 VectorIndex::~VectorIndex() = default;
 VectorIndex::VectorIndex(VectorIndex &&) noexcept = default;
 VectorIndex &VectorIndex::operator=(VectorIndex &&) noexcept = default;
@@ -135,8 +136,8 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   auto mg_vector_index = mg_vector_index_t::make(metric);
   if (!mg_vector_index) {
-    throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
-                                                   spec.index_name, mg_vector_index.error.what()));
+    throw query::VectorSearchException(fmt::format(
+        "Failed to create vector index {}, error message: {}", spec.index_name, mg_vector_index.error.what()));
   }
 
   const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
@@ -147,9 +148,10 @@ void VectorIndex::SetupIndex(const VectorIndexSpec &spec) {
 
   pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
   pimpl->index_.try_emplace(
-      label_prop, IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
-                                std::move(mg_vector_index.index)),
-                            .spec = spec});
+      label_prop,
+      IndexItem{.mg_index = std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
+                    std::move(mg_vector_index.index)),
+                .spec = spec});
 
   spdlog::info("Created vector index {}", spec.index_name);
 }
@@ -252,10 +254,14 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   for (const auto &[_, index_item] : pimpl->index_) {
     const auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index->ReadLock();
-    result.emplace_back(spec.index_name, spec.label_id, spec.property,
+    result.emplace_back(spec.index_name,
+                        spec.label_id,
+                        spec.property,
                         NameFromMetric(locked_index->metric().metric_kind()),
-                        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(),
-                        locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind()));
+                        static_cast<std::uint16_t>(locked_index->dimensions()),
+                        locked_index->capacity(),
+                        locked_index->size(),
+                        NameFromScalar(locked_index->metric().scalar_kind()));
   }
   return result;
 }
@@ -263,8 +269,9 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
 std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   std::vector<VectorIndexSpec> result;
   result.reserve(pimpl->index_.size());
-  r::transform(pimpl->index_, std::back_inserter(result),
-               [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
+  r::transform(pimpl->index_, std::back_inserter(result), [](const auto &label_prop_index_item) {
+    return label_prop_index_item.second.spec;
+  });
   return result;
 }
 
@@ -299,7 +306,8 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(
-        vertex, static_cast<double>(result_keys[i].distance),
+        vertex,
+        static_cast<double>(result_keys[i].distance),
         std::abs(SimilarityFromDistance(locked_index->metric().metric_kind(), result_keys[i].distance)));
   }
 

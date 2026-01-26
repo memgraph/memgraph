@@ -134,8 +134,9 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant(
-        {"label1"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                       memgraph::auth::FineGrainedPermission::READ));
+        {"label1"},
+        static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                           memgraph::auth::FineGrainedPermission::READ));
     ASSERT_THROW(test_create(user), QueryRuntimeException);
   }
 }
@@ -228,8 +229,9 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
   {
     memgraph::auth::User user{"Test"};
     user.fine_grained_access_handler().label_permissions().Grant(
-        {"label"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                      memgraph::auth::FineGrainedPermission::READ));
+        {"label"},
+        static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                           memgraph::auth::FineGrainedPermission::READ));
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
@@ -414,8 +416,9 @@ TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithSecondLabelGranted) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant({"Node2"}, memgraph::auth::kAllPermissions);
   user.fine_grained_access_handler().label_permissions().Grant(
-      {"Node1"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                    memgraph::auth::FineGrainedPermission::READ));
+      {"Node1"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
 
   ASSERT_THROW(this->ExecuteCreateExpand(false, user), QueryRuntimeException);
@@ -543,8 +546,9 @@ TYPED_TEST(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) 
   user.fine_grained_access_handler().label_permissions().Grant({"l3"}, memgraph::auth::kAllPermissions);
 
   user.fine_grained_access_handler().label_permissions().Grant(
-      {"l2"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                 memgraph::auth::FineGrainedPermission::READ));
+      {"l2"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
 
   ASSERT_THROW(this->ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
 }
@@ -691,11 +695,13 @@ TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedOn
   // First two label granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant(
-      {"l1"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                 memgraph::auth::FineGrainedPermission::READ));
+      {"l1"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
   user.fine_grained_access_handler().label_permissions().Grant(
-      {"l3"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                 memgraph::auth::FineGrainedPermission::READ));
+      {"l3"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
   user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
 
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
@@ -786,7 +792,15 @@ TYPED_TEST(QueryPlanTest, Delete) {
   // delete all remaining edges
   {
     auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+    auto r_m = MakeExpand(this->storage,
+                          symbol_table,
+                          n.op_,
+                          n.sym_,
+                          "r",
+                          EdgeAtom::Direction::OUT,
+                          {},
+                          "m",
+                          false,
                           memgraph::storage::View::NEW);
     auto r_get = this->storage.template Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{r_get}, false);
@@ -867,7 +881,15 @@ class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void DeleteAllEdges(memgraph::auth::User &user) {
     auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+    auto r_m = MakeExpand(this->storage,
+                          symbol_table,
+                          n.op_,
+                          n.sym_,
+                          "r",
+                          EdgeAtom::Direction::OUT,
+                          {},
+                          "m",
+                          false,
                           memgraph::storage::View::NEW);
     auto r_get = this->storage.template Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{r_get}, false);
@@ -916,6 +938,7 @@ TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeExecutesWhenGrantedAllLabels
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllPermissions);
   this->ExecuteDeleteNodesTestSuite(user, 0);
 }
+
 TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenEdgeTypesNotGranted) {
   // All labels granted,All edge types denied
   memgraph::auth::User user{"test"};
@@ -927,26 +950,31 @@ TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenEdgeTypes
 
   ASSERT_THROW(this->ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
 }
+
 TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteEdgesThrowsErrorWhenPartialGrant) {
   // Specific label granted, Specific edge types granted
 
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant(
-      {"l1"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                 memgraph::auth::FineGrainedPermission::READ));
+      {"l1"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
   user.fine_grained_access_handler().label_permissions().Grant(
-      {"l2"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                 memgraph::auth::FineGrainedPermission::READ));
+      {"l2"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
   user.fine_grained_access_handler().label_permissions().Grant({"l3"}, memgraph::auth::FineGrainedPermission::READ);
   user.fine_grained_access_handler().label_permissions().Grant({"l4"}, memgraph::auth::FineGrainedPermission::READ);
   user.fine_grained_access_handler().edge_type_permissions().Grant({"type0"}, memgraph::auth::kAllPermissions);
   user.fine_grained_access_handler().edge_type_permissions().Grant({"type1"}, memgraph::auth::kAllPermissions);
   user.fine_grained_access_handler().edge_type_permissions().Grant(
-      {"type2"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                    memgraph::auth::FineGrainedPermission::READ));
+      {"type2"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
   user.fine_grained_access_handler().edge_type_permissions().Grant(
-      {"type3"}, static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
-                                                                    memgraph::auth::FineGrainedPermission::READ));
+      {"type3"},
+      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::UPDATE |
+                                                         memgraph::auth::FineGrainedPermission::READ));
 
   ASSERT_THROW(this->ExecuteDeleteEdgesTestSuite(user, 0), QueryRuntimeException);
 }
@@ -991,7 +1019,15 @@ TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m", false,
+    auto r_m = MakeExpand(this->storage,
+                          symbol_table,
+                          n.op_,
+                          n.sym_,
+                          "r",
+                          EdgeAtom::Direction::BOTH,
+                          {},
+                          "m",
+                          false,
                           memgraph::storage::View::OLD);
 
     // getter expressions for deletion
@@ -1111,7 +1147,15 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
 
   // scan (n)-[r]->(m)
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+  auto r_m = MakeExpand(this->storage,
+                        symbol_table,
+                        n.op_,
+                        n.sym_,
+                        "r",
+                        EdgeAtom::Direction::OUT,
+                        {},
+                        "m",
+                        false,
                         memgraph::storage::View::OLD);
 
   // set prop1 to 42 on n and r
@@ -1167,7 +1211,15 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
 
     // scan (n)-[r]->(m)
     auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+    auto r_m = MakeExpand(this->storage,
+                          symbol_table,
+                          n.op_,
+                          n.sym_,
+                          "r",
+                          EdgeAtom::Direction::OUT,
+                          {},
+                          "m",
+                          false,
                           memgraph::storage::View::OLD);
 
     auto op = update ? plan::SetProperties::Op::UPDATE : plan::SetProperties::Op::REPLACE;
@@ -1251,24 +1303,24 @@ TYPED_TEST(QueryPlanTest, SetLabels) {
 #ifdef MG_ENTERPRISE
 TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
   memgraph::license::global_license_checker.EnableTesting();
-  auto set_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
-                        std::vector<memgraph::storage::LabelId> labels) {
-    ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).has_value());
-    ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).has_value());
-    dba.AdvanceCommand();
-    std::vector<StorageLabelType> labels_variant;
-    labels_variant.emplace_back(labels[1]);
-    labels_variant.emplace_back(labels[2]);
+  auto set_labels =
+      [&](memgraph::auth::User user, memgraph::query::DbAccessor dba, std::vector<memgraph::storage::LabelId> labels) {
+        ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).has_value());
+        ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).has_value());
+        dba.AdvanceCommand();
+        std::vector<StorageLabelType> labels_variant;
+        labels_variant.emplace_back(labels[1]);
+        labels_variant.emplace_back(labels[2]);
 
-    SymbolTable symbol_table;
+        SymbolTable symbol_table;
 
-    auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto label_set = std::make_shared<plan::SetLabels>(n.op_, n.sym_, labels_variant);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
+        auto n = MakeScanAll(this->storage, symbol_table, "n");
+        auto label_set = std::make_shared<plan::SetLabels>(n.op_, n.sym_, labels_variant);
+        memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+        auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
-    PullAll(*label_set, &context);
-  };
+        PullAll(*label_set, &context);
+      };
 
   // All labels granted
   {
@@ -1352,7 +1404,15 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
 
   // scan (n)-[r]->(m)
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+  auto r_m = MakeExpand(this->storage,
+                        symbol_table,
+                        n.op_,
+                        n.sym_,
+                        "r",
+                        EdgeAtom::Direction::OUT,
+                        {},
+                        "m",
+                        false,
                         memgraph::storage::View::OLD);
 
   auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop1);
@@ -1419,30 +1479,30 @@ TYPED_TEST(QueryPlanTest, RemoveLabels) {
 #ifdef MG_ENTERPRISE
 TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
   memgraph::license::global_license_checker.EnableTesting();
-  auto remove_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
-                           std::vector<memgraph::storage::LabelId> labels) {
-    auto v1 = dba.InsertVertex();
-    ASSERT_TRUE(v1.AddLabel(labels[0]).has_value());
-    ASSERT_TRUE(v1.AddLabel(labels[1]).has_value());
-    ASSERT_TRUE(v1.AddLabel(labels[2]).has_value());
-    auto v2 = dba.InsertVertex();
-    ASSERT_TRUE(v2.AddLabel(labels[0]).has_value());
-    ASSERT_TRUE(v2.AddLabel(labels[2]).has_value());
-    dba.AdvanceCommand();
-    std::vector<StorageLabelType> labels_variant;
-    labels_variant.emplace_back(labels[0]);
-    labels_variant.emplace_back(labels[1]);
+  auto remove_labels =
+      [&](memgraph::auth::User user, memgraph::query::DbAccessor dba, std::vector<memgraph::storage::LabelId> labels) {
+        auto v1 = dba.InsertVertex();
+        ASSERT_TRUE(v1.AddLabel(labels[0]).has_value());
+        ASSERT_TRUE(v1.AddLabel(labels[1]).has_value());
+        ASSERT_TRUE(v1.AddLabel(labels[2]).has_value());
+        auto v2 = dba.InsertVertex();
+        ASSERT_TRUE(v2.AddLabel(labels[0]).has_value());
+        ASSERT_TRUE(v2.AddLabel(labels[2]).has_value());
+        dba.AdvanceCommand();
+        std::vector<StorageLabelType> labels_variant;
+        labels_variant.emplace_back(labels[0]);
+        labels_variant.emplace_back(labels[1]);
 
-    SymbolTable symbol_table;
+        SymbolTable symbol_table;
 
-    auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto label_remove = std::make_shared<plan::RemoveLabels>(n.op_, n.sym_, labels_variant);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+        auto n = MakeScanAll(this->storage, symbol_table, "n");
+        auto label_remove = std::make_shared<plan::RemoveLabels>(n.op_, n.sym_, labels_variant);
+        memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
 
-    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
+        auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
-    PullAll(*label_remove, &context);
-  };
+        PullAll(*label_remove, &context);
+      };
 
   // All labels granted
   {
@@ -1515,8 +1575,16 @@ TYPED_TEST(QueryPlanTest, NodeFilterSet) {
   // MATCH (n {prop: 42}) -[r]- (m)
   auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
   std::get<0>(scan_all.node_->properties_)[this->storage.GetPropertyIx(prop.first)] = LITERAL(42);
-  auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {},
-                           "m", false, memgraph::storage::View::OLD);
+  auto expand = MakeExpand(this->storage,
+                           symbol_table,
+                           scan_all.op_,
+                           scan_all.sym_,
+                           "r",
+                           EdgeAtom::Direction::BOTH,
+                           {},
+                           "m",
+                           false,
+                           memgraph::storage::View::OLD);
   auto *filter_expr = EQ(this->storage.template Create<PropertyLookup>(scan_all.node_->identifier_,
                                                                        this->storage.GetPropertyIx(prop.first)),
                          LITERAL(42));
@@ -1553,11 +1621,19 @@ TYPED_TEST(QueryPlanTest, FilterRemove) {
   // MATCH (n) -[r]- (m) WHERE n.prop < 43
   auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
   std::get<0>(scan_all.node_->properties_)[this->storage.GetPropertyIx(prop.first)] = LITERAL(42);
-  auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {},
-                           "m", false, memgraph::storage::View::OLD);
+  auto expand = MakeExpand(this->storage,
+                           symbol_table,
+                           scan_all.op_,
+                           scan_all.sym_,
+                           "r",
+                           EdgeAtom::Direction::BOTH,
+                           {},
+                           "m",
+                           false,
+                           memgraph::storage::View::OLD);
   auto filter_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), prop);
-  auto filter = std::make_shared<Filter>(expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                         LESS(filter_prop, LITERAL(43)));
+  auto filter = std::make_shared<Filter>(
+      expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, LESS(filter_prop, LITERAL(43)));
   // REMOVE n.prop
   auto rem_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), prop);
   auto rem = std::make_shared<plan::RemoveProperty>(filter, prop.second, rem_prop);
@@ -1613,8 +1689,16 @@ TYPED_TEST(QueryPlanTest, Merge) {
   auto n = MakeScanAll(this->storage, symbol_table, "n");
 
   // merge_match branch
-  auto r_m = MakeExpand(this->storage, symbol_table, std::make_shared<Once>(), n.sym_, "r", EdgeAtom::Direction::BOTH,
-                        {}, "m", false, memgraph::storage::View::OLD);
+  auto r_m = MakeExpand(this->storage,
+                        symbol_table,
+                        std::make_shared<Once>(),
+                        n.sym_,
+                        "r",
+                        EdgeAtom::Direction::BOTH,
+                        {},
+                        "m",
+                        false,
+                        memgraph::storage::View::OLD);
   auto m_p = PROPERTY_LOOKUP(dba, IDENT("m")->MapTo(r_m.node_sym_), prop);
   auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p, LITERAL(1));
 
@@ -2014,8 +2098,16 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
   void ExecuteSetPropertyOnEdge(memgraph::auth::User user, int new_property_value) {
     // MATCH (n)-[r]->(m) SET r.prop = 2
     auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
-    auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT,
-                             {}, "m", false, memgraph::storage::View::OLD);
+    auto expand = MakeExpand(this->storage,
+                             symbol_table,
+                             scan_all.op_,
+                             scan_all.sym_,
+                             "r",
+                             EdgeAtom::Direction::OUT,
+                             {},
+                             "m",
+                             false,
+                             memgraph::storage::View::OLD);
     // set property to 2 on n
     auto literal = LITERAL(new_property_value);
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(expand.edge_sym_), entity_prop);
@@ -2053,8 +2145,16 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
   void ExecuteSetPropertiesOnEdge(memgraph::auth::User user, int new_property_value) {
     // MATCH (n)-[r]->(m) SET r = {prop: 2};
     auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
-    auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT,
-                             {}, "m", false, memgraph::storage::View::OLD);
+    auto expand = MakeExpand(this->storage,
+                             symbol_table,
+                             scan_all.op_,
+                             scan_all.sym_,
+                             "r",
+                             EdgeAtom::Direction::OUT,
+                             {},
+                             "m",
+                             false,
+                             memgraph::storage::View::OLD);
 
     auto prop = PROPERTY_PAIR(dba, entity_prop_name);
     std::unordered_map<PropertyIx, Expression *> prop_map;
@@ -2096,8 +2196,16 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
   void ExecuteRemovePropertyOnEdge(memgraph::auth::User user) {
     // MATCH (n)-[r]->(m) REMOVE r.prop
     auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
-    auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT,
-                             {}, "m", false, memgraph::storage::View::OLD);
+    auto expand = MakeExpand(this->storage,
+                             symbol_table,
+                             scan_all.op_,
+                             scan_all.sym_,
+                             "r",
+                             EdgeAtom::Direction::OUT,
+                             {},
+                             "m",
+                             false,
+                             memgraph::storage::View::OLD);
     // set property to 2 on n
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(expand.edge_sym_), entity_prop);
     auto remove_property = std::make_shared<plan::RemoveProperty>(expand.op_, entity_prop, n_p);
@@ -2660,9 +2768,14 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   auto once = std::make_shared<Once>();
 
   auto edge_sym = this->symbol_table.CreateSymbol("r", true);
-  auto my_expand = std::make_shared<Expand>(
-      scan_supernode_by_label.op_, scan_supernode_by_label.sym_, scan_node_by_label.sym_, edge_sym,
-      EdgeAtom::Direction::OUT, std::vector<memgraph::storage::EdgeTypeId>{}, true, memgraph::storage::View::OLD);
+  auto my_expand = std::make_shared<Expand>(scan_supernode_by_label.op_,
+                                            scan_supernode_by_label.sym_,
+                                            scan_node_by_label.sym_,
+                                            edge_sym,
+                                            EdgeAtom::Direction::OUT,
+                                            std::vector<memgraph::storage::EdgeTypeId>{},
+                                            true,
+                                            memgraph::storage::View::OLD);
 
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
 

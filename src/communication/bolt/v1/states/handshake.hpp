@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,6 +65,7 @@ inline bool CopyProtocolInformationIfSupportedWithOffset(auto data_position, uin
     uint8_t minor;
     uint8_t major;
   } bolt_range_version;
+
   std::memcpy(&bolt_range_version, data_position, sizeof(bolt_range_version));
   if (bolt_range_version.major == 0 || bolt_range_version.minor == 0) return false;
   bolt_range_version.offset = std::min(bolt_range_version.offset, bolt_range_version.minor);

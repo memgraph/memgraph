@@ -38,6 +38,7 @@ class ExistenceConstraints {
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
+
   struct SingleThreadConstraintValidation {
     auto operator()(const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
@@ -71,6 +72,7 @@ class ExistenceConstraints {
   struct ActiveConstraints {
     explicit ActiveConstraints(ContainerPtr container = std::make_shared<Container>())
         : container_{std::move(container)} {}
+
     auto ListConstraints(uint64_t start_timestamp) const -> std::vector<std::pair<LabelId, PropertyId>>;
     bool empty() const;
 

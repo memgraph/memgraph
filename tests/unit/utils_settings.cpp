@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@ class SettingsTest : public ::testing::Test {
  protected:
   const std::filesystem::path test_directory{"MG_tests_unit_utils_settings"};
   const std::filesystem::path settings_directory{test_directory / "settings"};
+
   static void DummyCallback() {}
 };
 

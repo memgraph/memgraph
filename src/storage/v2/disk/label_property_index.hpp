@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     PropertyId property;
 
     LabelProperty(LabelId label, PropertyId property) : label(label), property(property) {}
+
     friend auto operator<=>(LabelProperty const &, LabelProperty const &) = default;
   };
 
@@ -43,8 +44,9 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
 
     auto ListIndices(uint64_t start_timestamp) const
         -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;

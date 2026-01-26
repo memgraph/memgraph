@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -239,7 +239,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
       factor =
-          db_accessor_->EdgesCount(edge_type, op.property_,
+          db_accessor_->EdgesCount(edge_type,
+                                   op.property_,
                                    storage::ToPropertyValue(*intermediate_property_value,
                                                             db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
     } else {
@@ -293,9 +294,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double factor = 1.0;
     if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor = db_accessor_->EdgesCount(
-          op.property_, storage::ToPropertyValue(*intermediate_property_value,
-                                                 db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+      factor =
+          db_accessor_->EdgesCount(op.property_,
+                                   storage::ToPropertyValue(*intermediate_property_value,
+                                                            db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
     } else {
       // estimate the influence as ScanAllByEdge(label, property) * filtering
       factor = db_accessor_->EdgesCount(op.property_) * CardParam::kFilter;
@@ -516,7 +518,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool Visit(Once &) override { return true; }
 
   auto cost() const { return cost_; }
+
   auto cardinality() const { return cardinality_; }
+
   auto use_index_hints() const { return use_index_hints_; }
 
  private:

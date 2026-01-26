@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,9 +37,12 @@ class Bound {
 
   /** Value for the bound. */
   const auto &value() const { return value_; }
+
   /** Whether the bound is inclusive or exclusive. */
   auto type() const { return type_; }
+
   auto IsInclusive() const { return type_ == BoundType::INCLUSIVE; }
+
   auto IsExclusive() const { return type_ == BoundType::EXCLUSIVE; }
 
   friend bool operator==(Bound const &lhs, Bound const &rhs) noexcept {

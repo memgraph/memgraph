@@ -93,6 +93,7 @@ class InfoTest : public testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 
 TYPED_TEST_SUITE(InfoTest, StorageTypes);
+
 // TYPED_TEST_SUITE(IndexTest, InMemoryStorageType);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -204,7 +205,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_GT(info.memory_res, 10'000'000);  // 200MB < > 10MB
   ASSERT_LT(info.memory_res, 200'000'000);
   ASSERT_GT(info.disk_usage, 100);  // 1MB < > 100B
-  ASSERT_LT(info.disk_usage, 1000'000);
+  ASSERT_LT(info.disk_usage, 1'000'000);
   ASSERT_EQ(info.label_indices, 1);
   ASSERT_EQ(info.label_property_indices, is_using_disk_storage ? 1 : 2);
   ASSERT_EQ(info.text_indices, 0);

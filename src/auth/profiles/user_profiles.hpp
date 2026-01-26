@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@ class UserProfiles {
   enum class Limits : uint8_t { kSessions = 0, kTransactionsMemory };
   static constexpr std::array<std::string_view, 2> kLimits = {"sessions", "transactions_memory"};
   static_assert(kLimits.size() == static_cast<int>(Limits::kTransactionsMemory) + 1, "kLimits size mismatch");
+
   static auto AllLimits() { return fmt::format("{}, {}", kLimits[0], kLimits[1]); }
 
   static constexpr std::string_view kUserProfilesPrefix = "user_profile:";
@@ -43,6 +44,7 @@ class UserProfiles {
     mutable std::unordered_set<std::string> usernames;  // mutable to allow update in sets
 
     Profile() = default;
+
     Profile(std::string name, limits_t limits, std::unordered_set<std::string> usernames = {})
         : name(std::move(name)), limits(std::move(limits)), usernames(std::move(usernames)) {}
   };
@@ -66,19 +68,27 @@ class UserProfiles {
  private:
   struct profile_hash {
     using is_transparent = void;
+
     [[nodiscard]] size_t operator()(const Profile &profile) const {
       return std::hash<std::string_view>{}(profile.name);
     }
+
     [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+
     [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+
     [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
   };
 
   struct profile_equal {
     using is_transparent = void;
+
     [[nodiscard]] bool operator()(const Profile &lhs, const Profile &rhs) const { return lhs.name == rhs.name; }
+
     [[nodiscard]] bool operator()(const char *lhs, const Profile &rhs) const { return lhs == rhs.name; }
+
     [[nodiscard]] bool operator()(std::string_view lhs, const Profile &rhs) const { return lhs == rhs.name; }
+
     [[nodiscard]] bool operator()(const std::string &lhs, const Profile &rhs) const { return lhs == rhs.name; }
   };
 

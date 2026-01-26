@@ -46,6 +46,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   struct IndividualIndex {
     explicit IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)) {}
+
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
 
@@ -53,6 +54,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
   };
+
   struct Compare {
     template <std::ranges::forward_range T, std::ranges::forward_range U>
     bool operator()(T const &lhs, U const &rhs) const {
@@ -66,6 +68,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using LabelPropertiesIndices = std::map<LabelId, PropertiesIndices, std::less<>>;
   using EntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex *>;
   using ReverseLabelPropertiesIndices = std::unordered_map<PropertyId, std::multimap<LabelId, EntryDetail>>;
+
   struct IndexContainer {
     IndexContainer(IndexContainer const &other) : indices_(other.indices_) {
       for (auto const &[label, by_label] : indices_) {
@@ -78,6 +81,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         }
       }
     }
+
     IndexContainer(IndexContainer &&) = default;
     IndexContainer &operator=(IndexContainer const &) = delete;
     IndexContainer &operator=(IndexContainer &&) = default;
@@ -90,11 +94,13 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     // Used to make UpdateOnSetProperty faster
     ReverseLabelPropertiesIndices reverse_lookup_;
   };
+
   struct AllIndicesEntry {
     std::shared_ptr<IndividualIndex> index_;
     LabelId label_;
     PropertiesPaths properties_;
   };
+
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
   // Convience function that does Register + Populate + direct Publish
@@ -126,6 +132,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++();
@@ -178,6 +185,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++() {
@@ -205,10 +213,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
+
       Iterator end() { return end_; }
     };
 
     Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+
     size_t size() const { return chunks_.size(); }
 
    private:

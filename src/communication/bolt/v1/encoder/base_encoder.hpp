@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,10 +66,10 @@ class BaseEncoder {
     } else if (value >= -128L && value < -16L) {
       WriteRAW(std::to_underlying(Marker::Int8));
       WriteRAW(static_cast<uint8_t>(value));
-    } else if (value >= -32768L && value < 32768L) {
+    } else if (value >= -32'768L && value < 32'768L) {
       WriteRAW(std::to_underlying(Marker::Int16));
       WritePrimitiveValue(static_cast<int16_t>(value));
-    } else if (value >= -2147483648L && value < 2147483648L) {
+    } else if (value >= -2'147'483'648L && value < 2'147'483'648L) {
       WriteRAW(std::to_underlying(Marker::Int32));
       WritePrimitiveValue(static_cast<int32_t>(value));
     } else {
@@ -93,7 +93,7 @@ class BaseEncoder {
       uint8_t len = size;
       WriteRAW(std::to_underlying(Marker8[typ]));
       WriteRAW(len);
-    } else if (size <= 65535) {
+    } else if (size <= 65'535) {
       uint16_t len = size;
       WriteRAW(std::to_underlying(Marker16[typ]));
       WritePrimitiveValue(len);

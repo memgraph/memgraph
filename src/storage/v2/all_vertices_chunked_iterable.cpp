@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,12 +17,12 @@ namespace {
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::ChunkedIterator it, utils::SkipList<Vertex>::ChunkedIterator end,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   while (it != end) [[likely]] {
-      if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
-        vertex->emplace(&*it, storage, tx);
-        break;
-      }
-      ++it;
+    if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
+      vertex->emplace(&*it, storage, tx);
+      break;
     }
+    ++it;
+  }
   return it;
 }
 

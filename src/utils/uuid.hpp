@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,6 +42,7 @@ struct UUID {
   using arr_t = std::array<unsigned char, 16>;
 
   UUID() { uuid_generate(uuid.data()); }
+
   explicit operator std::string() const {
     // Note not using UUID_STR_LEN so we can build with older libuuid
     auto decoded = std::array<char, 37 /*UUID_STR_LEN*/>{};
@@ -62,12 +63,14 @@ struct UUID {
   explicit operator arr_t() const { return uuid; }
 
   friend bool operator==(UUID const &, UUID const &) = default;
+
   friend bool operator==(UUID const &lhs, std::string_view rhs) { return std::string(lhs) == rhs; };
 
  private:
   friend void to_json(nlohmann::json &j, const UUID &uuid);
   friend void from_json(const nlohmann::json &j, UUID &uuid);
   friend void ::memgraph::slk::Load(UUID *self, slk::Reader *reader);
+
   explicit UUID(arr_t const &arr) : uuid(arr) {}
 
   arr_t uuid;

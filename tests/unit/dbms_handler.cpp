@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,6 +91,7 @@ class TestEnvironment : public ::testing::Environment {
 std::unique_ptr<memgraph::dbms::DbmsHandler> TestEnvironment::ptr_ = nullptr;
 
 class DBMS_Handler : public testing::Test {};
+
 using DBMS_HandlerDeath = DBMS_Handler;
 
 TEST(DBMS_Handler, Init) {

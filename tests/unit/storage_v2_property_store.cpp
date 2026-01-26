@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,9 @@ using KVPair = std::tuple<PropertyId, PropertyValue>;
 /** Creates a map from a (possibly nested) list of `KVPair`s.
  */
 template <typename... Ts>
-auto MakeMap(Ts &&...values) -> PropertyValue requires(std::is_same_v<std::decay_t<Ts>, KVPair> &&...) {
+auto MakeMap(Ts &&...values) -> PropertyValue
+  requires(std::is_same_v<std::decay_t<Ts>, KVPair> && ...)
+{
   return PropertyValue{PropertyValue::map_t{
       {std::get<0>(values),
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
@@ -62,10 +64,10 @@ const PropertyValue kSampleValues[] = {
     PropertyValue(-33),
     PropertyValue(-3137),
     PropertyValue(3137),
-    PropertyValue(310000007),
-    PropertyValue(-310000007),
-    PropertyValue(3100000000007L),
-    PropertyValue(-3100000000007L),
+    PropertyValue(310'000'007),
+    PropertyValue(-310'000'007),
+    PropertyValue(3'100'000'000'007L),
+    PropertyValue(-3'100'000'000'007L),
     PropertyValue(0.0),
     PropertyValue(33.33),
     PropertyValue(-33.33),
@@ -125,7 +127,7 @@ TEST(PropertyStore, SimpleLarge) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
   {
-    auto value = PropertyValue(std::string(10000, 'a'));
+    auto value = PropertyValue(std::string(10'000, 'a'));
     ASSERT_TRUE(props.SetProperty(prop, value));
     ASSERT_EQ(props.GetProperty(prop), value);
     ASSERT_TRUE(props.HasProperty(prop));
@@ -206,7 +208,7 @@ TEST(PropertyStore, MoveConstruct) {
 TEST(PropertyStore, MoveConstructLarge) {
   PropertyStore props1;
   auto prop = PropertyId::FromInt(42);
-  auto value = PropertyValue(std::string(10000, 'a'));
+  auto value = PropertyValue(std::string(10'000, 'a'));
   ASSERT_TRUE(props1.SetProperty(prop, value));
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
@@ -259,14 +261,14 @@ TEST(PropertyStore, MoveAssign) {
 TEST(PropertyStore, MoveAssignLarge) {
   PropertyStore props1;
   auto prop = PropertyId::FromInt(42);
-  auto value = PropertyValue(std::string(10000, 'a'));
+  auto value = PropertyValue(std::string(10'000, 'a'));
   ASSERT_TRUE(props1.SetProperty(prop, value));
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
   TestIsPropertyEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
-    auto value2 = PropertyValue(std::string(10000, 'b'));
+    auto value2 = PropertyValue(std::string(10'000, 'b'));
     PropertyStore props2;
     ASSERT_TRUE(props2.SetProperty(prop, value2));
     ASSERT_EQ(props2.GetProperty(prop), value2);
@@ -292,9 +294,14 @@ TEST(PropertyStore, EmptySet) {
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
   const auto zoned_temporal = GetSampleZonedTemporal();
 
-  std::vector<PropertyValue> data{PropertyValue(map),      PropertyValue(true),          PropertyValue(123),
-                                  PropertyValue(123.5),    PropertyValue("nandare"),     PropertyValue(vec),
-                                  PropertyValue(temporal), PropertyValue(zoned_temporal)};
+  std::vector<PropertyValue> data{PropertyValue(map),
+                                  PropertyValue(true),
+                                  PropertyValue(123),
+                                  PropertyValue(123.5),
+                                  PropertyValue("nandare"),
+                                  PropertyValue(vec),
+                                  PropertyValue(temporal),
+                                  PropertyValue(zoned_temporal)};
 
   auto prop = PropertyId::FromInt(42);
   for (const auto &value : data) {
@@ -350,8 +357,8 @@ TEST(PropertyStore, FullSet) {
                                  PropertyValue(std::string(10, 'a')),
                                  PropertyValue(std::string(100, 'a')),
                                  PropertyValue(std::string(1000, 'a')),
-                                 PropertyValue(std::string(10000, 'a')),
-                                 PropertyValue(std::string(100000, 'a'))};
+                                 PropertyValue(std::string(10'000, 'a')),
+                                 PropertyValue(std::string(100'000, 'a'))};
 
   PropertyStore props;
   for (const auto &target : data) {
@@ -433,27 +440,27 @@ TEST(PropertyStore, FullSet) {
 TEST(PropertyStore, IntEncoding) {
   std::map<PropertyId, PropertyValue> data{
       {PropertyId::FromUint(0UL), PropertyValue(std::numeric_limits<int64_t>::min())},
-      {PropertyId::FromUint(10UL), PropertyValue(-137438953472L)},
-      {PropertyId::FromUint(std::numeric_limits<uint8_t>::max()), PropertyValue(-4294967297L)},
+      {PropertyId::FromUint(10UL), PropertyValue(-137'438'953'472L)},
+      {PropertyId::FromUint(std::numeric_limits<uint8_t>::max()), PropertyValue(-4'294'967'297L)},
       {PropertyId::FromUint(256UL), PropertyValue(std::numeric_limits<int32_t>::min())},
-      {PropertyId::FromUint(1024UL), PropertyValue(-1048576L)},
-      {PropertyId::FromUint(1025UL), PropertyValue(-65537L)},
+      {PropertyId::FromUint(1024UL), PropertyValue(-1'048'576L)},
+      {PropertyId::FromUint(1025UL), PropertyValue(-65'537L)},
       {PropertyId::FromUint(1026UL), PropertyValue(std::numeric_limits<int16_t>::min())},
       {PropertyId::FromUint(1027UL), PropertyValue(-1024L)},
       {PropertyId::FromUint(2000UL), PropertyValue(-257L)},
       {PropertyId::FromUint(3000UL), PropertyValue(std::numeric_limits<int8_t>::min())},
       {PropertyId::FromUint(4000UL), PropertyValue(-1L)},
-      {PropertyId::FromUint(10000UL), PropertyValue(0L)},
-      {PropertyId::FromUint(20000UL), PropertyValue(1L)},
-      {PropertyId::FromUint(30000UL), PropertyValue(std::numeric_limits<int8_t>::max())},
-      {PropertyId::FromUint(40000UL), PropertyValue(256L)},
-      {PropertyId::FromUint(50000UL), PropertyValue(1024L)},
+      {PropertyId::FromUint(10'000UL), PropertyValue(0L)},
+      {PropertyId::FromUint(20'000UL), PropertyValue(1L)},
+      {PropertyId::FromUint(30'000UL), PropertyValue(std::numeric_limits<int8_t>::max())},
+      {PropertyId::FromUint(40'000UL), PropertyValue(256L)},
+      {PropertyId::FromUint(50'000UL), PropertyValue(1024L)},
       {PropertyId::FromUint(std::numeric_limits<uint16_t>::max()), PropertyValue(std::numeric_limits<int16_t>::max())},
-      {PropertyId::FromUint(65536UL), PropertyValue(65536L)},
-      {PropertyId::FromUint(1048576UL), PropertyValue(1048576L)},
+      {PropertyId::FromUint(65'536UL), PropertyValue(65'536L)},
+      {PropertyId::FromUint(1'048'576UL), PropertyValue(1'048'576L)},
       {PropertyId::FromUint(std::numeric_limits<uint32_t>::max()), PropertyValue(std::numeric_limits<int32_t>::max())},
-      {PropertyId::FromUint(1048577UL), PropertyValue(4294967296L)},
-      {PropertyId::FromUint(1048578UL), PropertyValue(137438953472L)},
+      {PropertyId::FromUint(1'048'577UL), PropertyValue(4'294'967'296L)},
+      {PropertyId::FromUint(1'048'578UL), PropertyValue(137'438'953'472L)},
       {PropertyId::FromUint(std::numeric_limits<uint32_t>::max()), PropertyValue(std::numeric_limits<int64_t>::max())}};
 
   PropertyStore props;
@@ -491,9 +498,9 @@ TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
   std::vector<std::pair<PropertyValue, PropertyValue>> tests{
       {PropertyValue(0), PropertyValue(0.0)},
       {PropertyValue(123), PropertyValue(123.0)},
-      {PropertyValue(12345), PropertyValue(12345.0)},
-      {PropertyValue(12345678), PropertyValue(12345678.0)},
-      {PropertyValue(1234567890123L), PropertyValue(1234567890123.0)},
+      {PropertyValue(12'345), PropertyValue(12345.0)},
+      {PropertyValue(12'345'678), PropertyValue(12345678.0)},
+      {PropertyValue(1'234'567'890'123L), PropertyValue(1234567890123.0)},
   };
 
   // Test equality with raw values.
@@ -655,8 +662,9 @@ TEST(PropertyStore, IsPropertyEqualSameTypeListsComparison) {
   ASSERT_TRUE(props.IsPropertyEqual(prop, prop_value_list));
 
   // Test PropertyValue list - different values should not be equal
-  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<PropertyValue>{
-                                               PropertyValue(33), PropertyValue("different"), PropertyValue(-33.33)})));
+  ASSERT_FALSE(props.IsPropertyEqual(
+      prop,
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(33), PropertyValue("different"), PropertyValue(-33.33)})));
 }
 
 TEST(PropertyStore, IsPropertyEqualCrossTypeNumericListsComparison) {
@@ -710,41 +718,46 @@ TEST(PropertyStore, IsPropertyEqualCrossTypeNumericListsComparison) {
   // ============================================================================
   // 4: PropertyValue lists should not be equal to numeric lists
   // ============================================================================
-  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::vector<PropertyValue>{
-                                               PropertyValue(33), PropertyValue("sample"), PropertyValue(-33.33)})));
+  ASSERT_FALSE(props.IsPropertyEqual(
+      prop,
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(33), PropertyValue("sample"), PropertyValue(-33.33)})));
 }
 
 TEST(PropertyStore, IsPropertyEqualMap) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
+  ASSERT_TRUE(props.SetProperty(prop,
+                                PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
+                                                                   {PropertyId::FromUint(2), PropertyValue("test")}})));
   ASSERT_TRUE(
-      props.SetProperty(prop, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
-                                                                 {PropertyId::FromUint(2), PropertyValue("test")}})));
-  ASSERT_TRUE(props.IsPropertyEqual(
-      prop, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
-                                               {PropertyId::FromUint(2), PropertyValue("test")}})));
+      props.IsPropertyEqual(prop,
+                            PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
+                                                               {PropertyId::FromUint(2), PropertyValue("test")}})));
 
   // Different length.
   ASSERT_FALSE(
       props.IsPropertyEqual(prop, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)}})));
 
   // Same length, different value.
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
-                                               {PropertyId::FromUint(2), PropertyValue("testt")}})));
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop,
+                            PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
+                                                               {PropertyId::FromUint(2), PropertyValue("testt")}})));
 
   // Same length, different key (different length).
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
-                                               {PropertyId::FromUint(3), PropertyValue("test")}})));
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop,
+                            PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
+                                                               {PropertyId::FromUint(3), PropertyValue("test")}})));
 
   // Shortened and extended.
   ASSERT_FALSE(
       props.IsPropertyEqual(prop, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)}})));
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop, PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
-                                               {PropertyId::FromUint(2), PropertyValue(true)},
-                                               {PropertyId::FromUint(3), PropertyValue("test")}})));
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop,
+                            PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(42)},
+                                                               {PropertyId::FromUint(2), PropertyValue(true)},
+                                                               {PropertyId::FromUint(3), PropertyValue("test")}})));
 }
 
 TEST(PropertyStore, IsPropertyEqualTemporalData) {
@@ -763,9 +776,12 @@ TEST(PropertyStore, IsPropertyEqualTemporalData) {
 
 TEST(PropertyStore, IsPropertyEqualZonedTemporalData) {
   const std::array timezone_offset_encoding_cases{
-      memgraph::utils::Timezone("America/Los_Angeles"),     memgraph::utils::Timezone(std::chrono::minutes{-360}),
-      memgraph::utils::Timezone(std::chrono::minutes{-60}), memgraph::utils::Timezone(std::chrono::minutes{0}),
-      memgraph::utils::Timezone(std::chrono::minutes{60}),  memgraph::utils::Timezone(std::chrono::minutes{360}),
+      memgraph::utils::Timezone("America/Los_Angeles"),
+      memgraph::utils::Timezone(std::chrono::minutes{-360}),
+      memgraph::utils::Timezone(std::chrono::minutes{-60}),
+      memgraph::utils::Timezone(std::chrono::minutes{0}),
+      memgraph::utils::Timezone(std::chrono::minutes{60}),
+      memgraph::utils::Timezone(std::chrono::minutes{360}),
   };
 
   auto check_case = [](const memgraph::utils::Timezone &timezone) {
@@ -819,11 +835,14 @@ TEST(PropertyStore, SetMultipleProperties) {
   const auto zoned_temporal = GetSampleZonedTemporal();
 
   // The order of property ids are purposfully not monotonic to test that PropertyStore orders them properly
-  const std::vector<std::pair<PropertyId, PropertyValue>> data{
-      {PropertyId::FromInt(1), PropertyValue(true)},     {PropertyId::FromInt(10), PropertyValue(123)},
-      {PropertyId::FromInt(3), PropertyValue(123.5)},    {PropertyId::FromInt(4), PropertyValue("nandare")},
-      {PropertyId::FromInt(12), PropertyValue(vec)},     {PropertyId::FromInt(6), PropertyValue(map)},
-      {PropertyId::FromInt(7), PropertyValue(temporal)}, {PropertyId::FromInt(5), PropertyValue(zoned_temporal)}};
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{{PropertyId::FromInt(1), PropertyValue(true)},
+                                                               {PropertyId::FromInt(10), PropertyValue(123)},
+                                                               {PropertyId::FromInt(3), PropertyValue(123.5)},
+                                                               {PropertyId::FromInt(4), PropertyValue("nandare")},
+                                                               {PropertyId::FromInt(12), PropertyValue(vec)},
+                                                               {PropertyId::FromInt(6), PropertyValue(map)},
+                                                               {PropertyId::FromInt(7), PropertyValue(temporal)},
+                                                               {PropertyId::FromInt(5), PropertyValue(zoned_temporal)}};
 
   const std::map<PropertyId, PropertyValue> data_in_map{data.begin(), data.end()};
 
@@ -863,8 +882,11 @@ TEST(PropertyStore, HasAllProperties) {
 
   PropertyStore store;
   EXPECT_TRUE(store.InitProperties(data));
-  EXPECT_TRUE(store.HasAllProperties({PropertyId::FromInt(1), PropertyId::FromInt(2), PropertyId::FromInt(3),
-                                      PropertyId::FromInt(6), PropertyId::FromInt(9)}));
+  EXPECT_TRUE(store.HasAllProperties({PropertyId::FromInt(1),
+                                      PropertyId::FromInt(2),
+                                      PropertyId::FromInt(3),
+                                      PropertyId::FromInt(6),
+                                      PropertyId::FromInt(9)}));
 }
 
 TEST(PropertyStore, HasAllPropertyValues) {
@@ -979,8 +1001,8 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
 
     std::vector<PropertyPath> ids;
     ids.reserve(data.size());
-    std::ranges::transform(ids_to_read, std::back_inserter(ids),
-                           [](auto id) -> PropertyPath { return {PropertyId::FromInt(id)}; });
+    std::ranges::transform(
+        ids_to_read, std::back_inserter(ids), [](auto id) -> PropertyPath { return {PropertyId::FromInt(id)}; });
 
     auto const read_values = store.ExtractPropertyValuesMissingAsNull(ids);
     ASSERT_EQ(ids_to_read.size(), read_values.size());
@@ -1188,7 +1210,8 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
   store.InitProperties(data);
 
   EXPECT_EQ(store.ArePropertiesEqual(std::array{PropertyPath{p1, p2}, PropertyPath{p1, p5}},
-                                     std::array{map_prop_value_1, map_prop_value_2}, std::array<std::size_t, 2>{0, 1}),
+                                     std::array{map_prop_value_1, map_prop_value_2},
+                                     std::array<std::size_t, 2>{0, 1}),
             (std::vector{true, true}));
 }
 
@@ -1219,8 +1242,9 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSame
   auto const p5 = PropertyId::FromInt(5);
 
   const std::vector<std::pair<PropertyId, PropertyValue>> data = {
-      {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})},
-                   KVPair(p5, PropertyValue("cherry")))}};
+      {p1,
+       MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})},
+               KVPair(p5, PropertyValue("cherry")))}};
 
   PropertyStore store;
   store.InitProperties(data);
@@ -1423,8 +1447,8 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
     PropertyStore store;
     store.InitProperties(data);
 
-    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p7, p8}, PropertyPath{p4, p5},
-                                                                      PropertyPath{p1, p2, p3}, PropertyPath{p6}}};
+    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{
+        PropertyPath{p7, p8}, PropertyPath{p4, p5}, PropertyPath{p1, p2, p3}, PropertyPath{p6}}};
     auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
     ASSERT_EQ(4u, values.size());
     EXPECT_EQ(values[0], PropertyValue{"date"});
@@ -1434,9 +1458,10 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
   }
 
   {
-    const std::vector<std::pair<PropertyId, PropertyValue>> data = {
-        {p1, MakeMap(KVPair{p1, PropertyValue("apple")}, KVPair{p2, PropertyValue("banana")},
-                     KVPair{p3, PropertyValue("cherry")})}};
+    const std::vector<std::pair<PropertyId, PropertyValue>> data = {{p1,
+                                                                     MakeMap(KVPair{p1, PropertyValue("apple")},
+                                                                             KVPair{p2, PropertyValue("banana")},
+                                                                             KVPair{p3, PropertyValue("cherry")})}};
 
     PropertyStore store;
     store.InitProperties(data);
@@ -1459,8 +1484,11 @@ TEST(PropertiesPermutationHelper, CanExtractMultipleValuesFromSameTopMostPropert
   auto const p5 = PropertyId::FromInt(5);
 
   const std::vector<std::pair<PropertyId, PropertyValue>> data = {
-      {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")},
-                                      KVPair{p5, PropertyValue("cherry")})})}};
+      {p1,
+       MakeMap(KVPair{p2,
+                      MakeMap(KVPair{p3, PropertyValue("apple")},
+                              KVPair{p4, PropertyValue("banana")},
+                              KVPair{p5, PropertyValue("cherry")})})}};
 
   PropertyStore store;
   store.InitProperties(data);
@@ -1486,8 +1514,8 @@ TEST(PropertiesPermutationHelper, MatchesValue_ProducesVectorOfPositionsAndCompa
   auto const p6 = PropertyId::FromInt(6);
   auto const p7 = PropertyId::FromInt(7);
 
-  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p4},
-                                                     PropertyPath{p5, p6}, PropertyPath{p7}}};
+  PropertiesPermutationHelper prop_reader{std::array{
+      PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p4}, PropertyPath{p5, p6}, PropertyPath{p7}}};
 
   IndexOrderedPropertyValues const baseline{{
       PropertyValue("apple"),
@@ -1633,7 +1661,8 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderPropertiesWhenR
       UnorderedElementsAre(Match(0, false), (Match(1, true))));
 
   EXPECT_THAT(prop_reader.MatchesValue(
-                  p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("date")}, {p6, PropertyValue("banana")}}),
+                  p1,
+                  PropertyValue(PropertyValue::map_t{{p2, PropertyValue("date")}, {p6, PropertyValue("banana")}}),
                   baseline),
               UnorderedElementsAre(Match(0, true), (Match(1, true))));
 
@@ -1657,7 +1686,8 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderPropertiesWhenR
       UnorderedElementsAre(Match(2, false), (Match(3, true))));
 
   EXPECT_THAT(prop_reader.MatchesValue(
-                  p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("apple")}, {p5, PropertyValue("cherry")}}),
+                  p3,
+                  PropertyValue(PropertyValue::map_t{{p4, PropertyValue("apple")}, {p5, PropertyValue("cherry")}}),
                   baseline),
               UnorderedElementsAre(Match(2, true), (Match(3, true))));
 }
@@ -1712,16 +1742,23 @@ TEST(PropertiesPermutationHelper, MatchesValues_ReturnsABooleanMaskOfMatches) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"banana"},
-                                                         PropertyValue{"cherry"}, PropertyValue{"date"}}),
-            (std::vector{true, true, true, true}));
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          std::vector{PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}),
+      (std::vector{true, true, true, true}));
 
-  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"applex"}, PropertyValue{"bananax"},
-                                                         PropertyValue{"cherryx"}, PropertyValue{"datex"}}),
-            (std::vector{false, false, false, false}));
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          std::vector{
+              PropertyValue{"applex"}, PropertyValue{"bananax"}, PropertyValue{"cherryx"}, PropertyValue{"datex"}}),
+      (std::vector{false, false, false, false}));
 
-  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"bananax"},
-                                                         PropertyValue{"cherry"}, PropertyValue{"datex"}}),
+  EXPECT_EQ(prop_reader.MatchesValues(
+                store,
+                std::vector{
+                    PropertyValue{"apple"}, PropertyValue{"bananax"}, PropertyValue{"cherry"}, PropertyValue{"datex"}}),
             (std::vector{true, false, true, false}));
 }
 
@@ -1742,13 +1779,17 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithOutOfOrderProperties) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"cherry"}, PropertyValue{"apple"},
-                                                         PropertyValue{"banana"}, PropertyValue{"date"}}),
-            (std::vector{true, true, true, true}));
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          std::vector{PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"date"}}),
+      (std::vector{true, true, true, true}));
 
-  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"banana"},
-                                                         PropertyValue{"cherry"}, PropertyValue{"date"}}),
-            (std::vector{false, false, false, true}));
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          std::vector{PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}),
+      (std::vector{false, false, false, true}));
 }
 
 TEST(PropertiesPermutationHelper, MatchesValues_WorksWithNestedProperties) {
@@ -1760,21 +1801,26 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithNestedProperties) {
   PropertiesPermutationHelper prop_reader{
       std::array{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p1}, PropertyPath{p4}}};
 
-  const std::vector<std::pair<PropertyId, PropertyValue>> data{
-      {p1, MakeMap(KVPair{p1, PropertyValue{"apple"}}, KVPair{p2, PropertyValue{"banana"}},
-                   KVPair{p3, PropertyValue{"cherry"}})},
-      {p4, PropertyValue{"date"}}};
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1,
+                                                                MakeMap(KVPair{p1, PropertyValue{"apple"}},
+                                                                        KVPair{p2, PropertyValue{"banana"}},
+                                                                        KVPair{p3, PropertyValue{"cherry"}})},
+                                                               {p4, PropertyValue{"date"}}};
 
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"banana"}, PropertyValue{"cherry"},
-                                                         PropertyValue{"apple"}, PropertyValue{"date"}}),
-            (std::vector{true, true, true, true}));
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          std::vector{PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"date"}}),
+      (std::vector{true, true, true, true}));
 
-  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"cherry"},
-                                                         PropertyValue{"banana"}, PropertyValue{"date"}}),
-            (std::vector{false, false, true, true}));
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          std::vector{PropertyValue{"apple"}, PropertyValue{"cherry"}, PropertyValue{"banana"}, PropertyValue{"date"}}),
+      (std::vector{false, false, true, true}));
 }
 
 //==============================================================================

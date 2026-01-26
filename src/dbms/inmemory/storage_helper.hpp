@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,8 +26,8 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   const auto name = config.salient.name;
 
   // Use default safe factory from Storage constructor for basic usage
-  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config), std::nullopt, std::move(invalidator),
-                                                            std::move(database_protector_factory));
+  auto storage = std::make_unique<storage::InMemoryStorage>(
+      std::move(config), std::nullopt, std::move(invalidator), std::move(database_protector_factory));
 
   // TODO: we want a better approach for controlling background works.
   //       Idea:

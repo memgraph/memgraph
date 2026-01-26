@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,6 +50,7 @@ class Parser {
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
    public:
     explicit FirstMessageErrorListener(const std::string &query) : query_(query) {}
+
     void syntaxError(antlr4::Recognizer * /* unused */, antlr4::Token *token, size_t line, size_t position,
                      const std::string &message, std::exception_ptr exception) override {
       if (error_.empty()) {

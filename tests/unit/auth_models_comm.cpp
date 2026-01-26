@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -95,28 +95,28 @@ TEST(AuthModule, Deserialization) {
     ASSERT_EQ(auth_object.username(), "a");
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object.uuid()), hash);
     ASSERT_TRUE(auth_object.CheckPasswordExplicit("password"));
-    ASSERT_EQ(auth_object.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object.permissions().denies(), 0);
 
     auto auth_object_no_license = memgraph::auth::User::Deserialize(mg_enterprise_no_license_json);
     ASSERT_EQ(auth_object_no_license.username(), "a");
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_no_license.uuid()), hash);
     ASSERT_TRUE(auth_object_no_license.CheckPasswordExplicit("password"));
-    ASSERT_EQ(auth_object_no_license.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
 
     auto auth_object_community = memgraph::auth::User::Deserialize(community_json);
     ASSERT_EQ(auth_object_community.username(), "a");
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community.uuid()), hash);
     ASSERT_TRUE(auth_object_community.CheckPasswordExplicit("password"));
-    ASSERT_EQ(auth_object_community.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community.permissions().denies(), 0);
 
     auto auth_object_community_resaved = memgraph::auth::User::Deserialize(community_saved_with_license_json);
     ASSERT_EQ(auth_object_community_resaved.username(), "a");
     ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community_resaved.uuid()), hash);
     ASSERT_TRUE(auth_object_community_resaved.CheckPasswordExplicit("password"));
-    ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
   }
 
@@ -258,7 +258,8 @@ TEST(AuthModule, UserSerialization) {
 
   // User with password
   memgraph::auth::User user{
-      "test_user", memgraph::auth::HashedPassword{memgraph::auth::PasswordHashAlgorithm::SHA256_MULTIPLE, "anything"},
+      "test_user",
+      memgraph::auth::HashedPassword{memgraph::auth::PasswordHashAlgorithm::SHA256_MULTIPLE, "anything"},
       memgraph::auth::Permissions{/* no permissions */}};
   // Need to update UUID (no way to inject)
   json[kUUID] = user.uuid();

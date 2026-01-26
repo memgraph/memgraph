@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,7 +86,9 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
 
   rpc_server.Register<memgraph::storage::replication::PrepareCommitRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         PrepareCommitReq req;
         Load(&req, req_reader);
         // Epoch id needs to be read
@@ -106,8 +108,11 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream_handler = client.Stream<PrepareCommitRpc>(
-      UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, 1, true);
+      UUID{},
+      main_storage.uuid(),
+      main_storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+      1,
+      true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_NO_THROW(stream.Finalize());
@@ -126,7 +131,9 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
 
   rpc_server.Register<memgraph::storage::replication::PrepareCommitRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         PrepareCommitReq req;
         Load(&req, req_reader);
         Decoder decoder(req_reader);
@@ -146,8 +153,11 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream_handler = client.Stream<PrepareCommitRpc>(
-      UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, 1, true);
+      UUID{},
+      main_storage.uuid(),
+      main_storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+      1,
+      true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
@@ -166,7 +176,9 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
 
   rpc_server.Register<PrepareCommitRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         PrepareCommitReq req;
         Load(&req, req_reader);
         Decoder decoder(req_reader);
@@ -189,8 +201,11 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream_handler = client.Stream<PrepareCommitRpc>(
-      UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, 1, true);
+      UUID{},
+      main_storage.uuid(),
+      main_storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+      1,
+      true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 
@@ -210,7 +225,9 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
 
   rpc_server.Register<CurrentWalRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         memgraph::storage::replication::CurrentWalReq req;
         Load(&req, req_reader);
 
@@ -243,7 +260,9 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
 
   rpc_server.Register<CurrentWalRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         memgraph::storage::replication::CurrentWalReq req;
         Load(&req, req_reader);
 
@@ -281,7 +300,9 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
 
   rpc_server.Register<memgraph::storage::replication::WalFilesRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
 
@@ -313,7 +334,9 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
 
   rpc_server.Register<memgraph::storage::replication::WalFilesRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
 
@@ -350,7 +373,9 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
 
   rpc_server.Register<memgraph::storage::replication::CurrentWalRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         memgraph::storage::replication::CurrentWalReq req;
         Load(&req, req_reader);
         std::this_thread::sleep_for(150ms);
@@ -361,7 +386,9 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
 
   rpc_server.Register<memgraph::storage::replication::WalFilesRpc>(
       [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
         std::this_thread::sleep_for(1s);

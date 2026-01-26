@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,8 @@ namespace {
 
 unsigned long long IndividualCycles(const ProfilingStats &cumulative_stats) {
   return cumulative_stats.num_cycles - std::accumulate(cumulative_stats.children.begin(),
-                                                       cumulative_stats.children.end(), 0ULL,
+                                                       cumulative_stats.children.end(),
+                                                       0ULL,
                                                        [](auto acc, auto &stats) { return acc + stats.num_cycles; });
 }
 
@@ -56,9 +57,10 @@ class ProfilingStatsToTableHelper {
   void Output(const ProfilingStats &cumulative_stats) {
     auto cycles = IndividualCycles(cumulative_stats);
 
-    rows_.emplace_back(std::vector<TypedValue>{
-        TypedValue(FormatOperator(cumulative_stats.name.c_str())), TypedValue(cumulative_stats.actual_hits),
-        TypedValue(FormatRelativeTime(cycles)), TypedValue(FormatAbsoluteTime(cycles))});
+    rows_.emplace_back(std::vector<TypedValue>{TypedValue(FormatOperator(cumulative_stats.name.c_str())),
+                                               TypedValue(cumulative_stats.actual_hits),
+                                               TypedValue(FormatRelativeTime(cycles)),
+                                               TypedValue(FormatAbsoluteTime(cycles))});
 
     for (size_t i = 1; i < cumulative_stats.children.size(); ++i) {
       Branch(cumulative_stats.children[i]);

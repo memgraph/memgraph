@@ -459,8 +459,10 @@ namespace memgraph::query {
 class BatchIterator {
  public:
   BatchIterator() = default;
+
   explicit BatchIterator(std::unique_ptr<arrow::RecordBatchReader> rbr, int const num_columns)
       : num_columns_(num_columns), rbr_(std::move(rbr)) {}
+
   ~BatchIterator() = default;
 
   BatchIterator(const BatchIterator &) = delete;
@@ -595,7 +597,8 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
     if (url_matcher(uri)) {
       auto const base_path = std::filesystem::path{"/tmp"} / std::filesystem::path{uri}.filename();
       auto [local_file_path, file] = utils::CreateUniqueDownloadFile(base_path);
-      if (requests::CreateAndDownloadFile(std::string{uri}, std::move(file),
+      if (requests::CreateAndDownloadFile(std::string{uri},
+                                          std::move(file),
                                           memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
                                           std::move(abort_check))) {
         utils::OnScopeExit const on_exit{[&local_file_path]() { utils::DeleteFile(local_file_path); }};

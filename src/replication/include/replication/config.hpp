@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 
 namespace memgraph::replication {
 
-inline constexpr uint16_t kDefaultReplicationPort = 10000;
+inline constexpr uint16_t kDefaultReplicationPort = 10'000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
 struct ReplicationClientConfig {
@@ -48,6 +48,7 @@ struct ReplicationClientConfig {
 
 struct ReplicationServerConfig {
   io::network::Endpoint repl_server;  // could be IP or domain name
+
   struct SSL {
     std::string key_file;
     std::string cert_file;

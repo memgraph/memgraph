@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,23 +56,23 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     spdlog::trace("  {}", writer);
   }
 
-  auto const lag_filter = [&max_replica_read_lag, &replicas_lag,
-                           str_db_name = std::string{db_name}](auto const &instance) {
-    auto const replica_it = replicas_lag.find(instance.config.instance_name);
-    // We don't want to forbid routing to the replica if don't have any information cached
-    if (replica_it == replicas_lag.end()) {
-      return true;
-    }
+  auto const lag_filter =
+      [&max_replica_read_lag, &replicas_lag, str_db_name = std::string{db_name}](auto const &instance) {
+        auto const replica_it = replicas_lag.find(instance.config.instance_name);
+        // We don't want to forbid routing to the replica if don't have any information cached
+        if (replica_it == replicas_lag.end()) {
+          return true;
+        }
 
-    auto const db_it = replica_it->second.find(str_db_name);
-    // We don't want to forbid routing to the replica if don't have any information cached
-    if (db_it == replica_it->second.end()) {
-      return true;
-    }
+        auto const db_it = replica_it->second.find(str_db_name);
+        // We don't want to forbid routing to the replica if don't have any information cached
+        if (db_it == replica_it->second.end()) {
+          return true;
+        }
 
-    // return true if cached lag is smaller than max_allowed_replica_read_lag
-    return db_it->second < max_replica_read_lag;
-  };
+        // return true if cached lag is smaller than max_allowed_replica_read_lag
+        return db_it->second < max_replica_read_lag;
+      };
 
   auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
                  ranges::views::filter(lag_filter) | ranges::views::transform(repl_instance_to_bolt) |

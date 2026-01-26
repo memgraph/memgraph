@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,6 +67,7 @@ class QuoteEscapeFormatter : public spdlog::custom_flag_formatter {
       }
     }
   }
+
   std::unique_ptr<custom_flag_formatter> clone() const override {
     return spdlog::details::make_unique<QuoteEscapeFormatter>();
   }

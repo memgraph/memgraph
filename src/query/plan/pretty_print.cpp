@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -234,6 +234,7 @@ nlohmann::json ToJson(const std::vector<T> &items, const Args &...args) {
   }
   return json;
 }
+
 ////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
 
 }  // namespace
@@ -607,6 +608,7 @@ bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
   op.main_branch_->Accept(*this);
   return false;
 }
+
 #undef PRE_VISIT
 
 bool PlanPrinter::DefaultPreVisit() {

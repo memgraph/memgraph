@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -222,6 +222,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   // Non-copyable, non-movable
   ThreadSafeMonotonicBufferResource(const ThreadSafeMonotonicBufferResource &) = delete;
   ThreadSafeMonotonicBufferResource &operator=(const ThreadSafeMonotonicBufferResource &) = delete;
+
   ThreadSafeMonotonicBufferResource(ThreadSafeMonotonicBufferResource &&other) noexcept
       : memory_(std::exchange(other.memory_, nullptr)),
         head_(std::atomic_exchange(&other.head_, nullptr)),
@@ -250,11 +251,13 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
     size_t capacity;              // Total capacity (constant)
 
     Block() = default;
+
     Block(Block *next_block, size_t initial_size, size_t block_capacity) : next(next_block), capacity(block_capacity) {
       size.store(initial_size, std::memory_order_relaxed);
     }
 
     char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
+
     char *data() { return begin() + size.load(std::memory_order_acquire); }
 
     size_t total_size() const { return sizeof(*this) + capacity; }
@@ -296,7 +299,9 @@ class Pool final {
   struct Chunk {
     // TODO: make blocks_per_chunk a per chunk thing (ie. allow chunk growth)
     std::byte *raw_data;
+
     explicit Chunk(std::byte *rawData) : raw_data(rawData) {}
+
     std::byte *build_freelist(std::size_t block_size, std::size_t blocks_in_chunk) {
       auto current = raw_data;
       std::byte *prev = nullptr;
@@ -357,6 +362,7 @@ class ThreadSafePool {
   pthread_key_t thread_local_head_key_;  // Instance-specific pthread key
 
   size_t chunk_size() const { return blocks_per_chunk_ * block_size_; }
+
   size_t chunk_alignment() const { return Ceil2(block_size_); }
 
   Node *carve_block();
@@ -385,7 +391,9 @@ class ThreadSafePool {
 
 // C++ overloads for clz
 constexpr auto clz(unsigned int x) { return __builtin_clz(x); }
+
 constexpr auto clz(unsigned long x) { return __builtin_clzl(x); }
+
 constexpr auto clz(unsigned long long x) { return __builtin_clzll(x); }
 
 template <typename T>
@@ -472,6 +480,7 @@ struct MultiPool {
 
   // upper bound is inclusive
   static bool is_size_handled(std::size_t size) { return LB < size && size <= UB; }
+
   static bool is_above_upper_bound(std::size_t size) { return UB < size; }
 
   static constexpr auto n_bins = bin_index<Bits, LB>(UB) + 1U;
@@ -567,6 +576,7 @@ class PoolResource final : public std::pmr::memory_resource {
         pools_4bit_(blocks_per_chunk, memory, internal_memory),
         pools_5bit_(blocks_per_chunk, memory, internal_memory),
         unpooled_memory_{internal_memory} {}
+
   ~PoolResource() override = default;
 
  protected:

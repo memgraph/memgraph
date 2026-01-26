@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,8 +122,13 @@ std::vector<Expansion> ExpansionsFrom(const PatternAtom *start_atom, const Match
   std::unordered_set<Symbol> expanded_symbols({symbol_table.at(*start_atom->identifier_)});
 
   auto add_next_expansions = [&](const auto *atom) {
-    AddNextExpansions(symbol_table.at(*atom->identifier_), matching, symbol_table, expanded_symbols,
-                      atom_symbol_to_expansions, seen_expansions, next_expansions);
+    AddNextExpansions(symbol_table.at(*atom->identifier_),
+                      matching,
+                      symbol_table,
+                      expanded_symbols,
+                      atom_symbol_to_expansions,
+                      seen_expansions,
+                      next_expansions);
   };
 
   add_next_expansions(start_atom);

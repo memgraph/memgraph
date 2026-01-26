@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -109,12 +109,13 @@ bool Session::IsConnected() const { return connected_.load(std::memory_order_rel
 void Session::DoWrite() {
   ExecuteForWebsocket([this](auto &&ws) {
     auto next_message = messages_.front();
-    ws.async_write(boost::asio::buffer(*next_message),
-                   boost::asio::bind_executor(
-                       strand_, [message_string = std::move(next_message), shared_this = shared_from_this()](
-                                    boost::beast::error_code ec, const size_t bytes_transferred) {
-                         shared_this->OnWrite(ec, bytes_transferred);
-                       }));
+    ws.async_write(
+        boost::asio::buffer(*next_message),
+        boost::asio::bind_executor(strand_,
+                                   [message_string = std::move(next_message), shared_this = shared_from_this()](
+                                       boost::beast::error_code ec, const size_t bytes_transferred) {
+                                     shared_this->OnWrite(ec, bytes_transferred);
+                                   }));
   });
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,7 +122,7 @@ TYPED_TEST(DecoderEncoderTest, ReadMarker) {
 GENERATE_READ_TEST(Bool, bool, false, true);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_READ_TEST(Uint, uint64_t, 0, 1, 1000, 123123123, std::numeric_limits<uint64_t>::max());
+GENERATE_READ_TEST(Uint, uint64_t, 0, 1, 1000, 123'123'123, std::numeric_limits<uint64_t>::max());
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_READ_TEST(Double, double, 1.123, 3.1415926535, 0, -505.505, std::numeric_limits<double>::infinity(),
@@ -130,7 +130,7 @@ GENERATE_READ_TEST(Double, double, 1.123, 3.1415926535, 0, -505.505, std::numeri
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_READ_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(),
-                   std::string(100000, 'a'));
+                   std::string(100'000, 'a'));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_READ_TEST(
@@ -192,7 +192,7 @@ GENERATE_READ_TEST(
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(500000, 'a'));
+GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(500'000, 'a'));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SKIP_TEST(
@@ -269,7 +269,7 @@ GENERATE_PARTIAL_READ_TEST(Marker, memgraph::storage::durability::Marker::SECTIO
 GENERATE_PARTIAL_READ_TEST(Bool, false);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_PARTIAL_READ_TEST(Uint, 123123123);
+GENERATE_PARTIAL_READ_TEST(Uint, 123'123'123);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_PARTIAL_READ_TEST(Double, 3.1415926535);
@@ -281,8 +281,10 @@ GENERATE_PARTIAL_READ_TEST(String, "nandare");
 GENERATE_PARTIAL_READ_TEST(
     ExternalPropertyValue,
     memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
-        memgraph::storage::ExternalPropertyValue(), memgraph::storage::ExternalPropertyValue(true),
-        memgraph::storage::ExternalPropertyValue(123L), memgraph::storage::ExternalPropertyValue(123.5),
+        memgraph::storage::ExternalPropertyValue(),
+        memgraph::storage::ExternalPropertyValue(true),
+        memgraph::storage::ExternalPropertyValue(123L),
+        memgraph::storage::ExternalPropertyValue(123.5),
         memgraph::storage::ExternalPropertyValue("nandare"),
         memgraph::storage::ExternalPropertyValue{
             memgraph::storage::ExternalPropertyValue::map_t{{"haihai", memgraph::storage::ExternalPropertyValue()}}},
@@ -349,8 +351,10 @@ GENERATE_PARTIAL_SKIP_TEST(String, "nandare");
 GENERATE_PARTIAL_SKIP_TEST(
     ExternalPropertyValue,
     memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
-        memgraph::storage::ExternalPropertyValue(), memgraph::storage::ExternalPropertyValue(true),
-        memgraph::storage::ExternalPropertyValue(123L), memgraph::storage::ExternalPropertyValue(123.5),
+        memgraph::storage::ExternalPropertyValue(),
+        memgraph::storage::ExternalPropertyValue(true),
+        memgraph::storage::ExternalPropertyValue(123L),
+        memgraph::storage::ExternalPropertyValue(123.5),
         memgraph::storage::ExternalPropertyValue("nandare"),
         memgraph::storage::ExternalPropertyValue{
             memgraph::storage::ExternalPropertyValue::map_t{{"haihai", memgraph::storage::ExternalPropertyValue()}}},

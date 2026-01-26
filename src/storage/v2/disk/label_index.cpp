@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,8 +52,8 @@ DiskLabelIndex::DiskLabelIndex(const Config &config) {
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
-  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
-                                                            config.disk.label_index_directory, &kvstore_->db_));
+  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(
+      kvstore_->options_, rocksdb::TransactionDBOptions(), config.disk.label_index_directory, &kvstore_->db_));
 }
 
 auto DiskLabelIndex::GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> {

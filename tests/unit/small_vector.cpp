@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,8 +22,11 @@ namespace rv = std::ranges::views;
 
 struct AlwaysAlloc {
   AlwaysAlloc() : AlwaysAlloc(-1) {}
+
   explicit AlwaysAlloc(int i) : ptr{std::make_unique<int>(i)} {}
+
   AlwaysAlloc(AlwaysAlloc const &other) : ptr{std::make_unique<int>(*other.ptr)} {}
+
   AlwaysAlloc &operator=(AlwaysAlloc const &other) {
     ptr = std::make_unique<int>(*other.ptr);
     return *this;
@@ -42,7 +45,9 @@ struct AlwaysAlloc {
 
 struct LargeType {
   LargeType() : LargeType(-1) {}
+
   explicit LargeType(int i) : values{i} {}
+
   LargeType(LargeType const &other) = default;
   LargeType &operator=(LargeType const &other) = default;
 
@@ -54,6 +59,7 @@ struct LargeType {
   static constexpr auto N = (8 / sizeof(int)) + 1;
   std::array<int, N> values;  // must be larger than 8B
 };
+
 static_assert(8 < sizeof(LargeType), "must be larger than 8B so that we don't use SBO");
 
 template <typename T>
@@ -516,13 +522,13 @@ TYPED_TEST(SmallVectorCommon, ShrinkToFit) {
 }
 
 template <typename It, typename ConstIt>
-concept CompatibleIterators = std::forward_iterator<It> && std::forward_iterator<ConstIt> &&
-    requires(It it, ConstIt cit) {
-  { it == cit } -> std::same_as<bool>;
-  { it != cit } -> std::same_as<bool>;
-  { cit == it } -> std::same_as<bool>;
-  { cit != it } -> std::same_as<bool>;
-};
+concept CompatibleIterators =
+    std::forward_iterator<It> && std::forward_iterator<ConstIt> && requires(It it, ConstIt cit) {
+      { it == cit } -> std::same_as<bool>;
+      { it != cit } -> std::same_as<bool>;
+      { cit == it } -> std::same_as<bool>;
+      { cit != it } -> std::same_as<bool>;
+    };
 
 using sut_t = small_vector<int>;
 static_assert(CompatibleIterators<sut_t::iterator, sut_t::const_iterator>);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,7 +68,9 @@ void ReplicationInstanceClient::StartStateCheck() {
 }
 
 void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
+
 void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
+
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {

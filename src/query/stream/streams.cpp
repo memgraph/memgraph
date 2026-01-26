@@ -65,14 +65,17 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
-        transformation_name, stream_name);
+        transformation_name,
+        stream_name);
   }
 
   auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
     auto it = signature.find(field_name);
     if (it == signature.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
-                             transformation_name, stream_name, field_name};
+                             transformation_name,
+                             stream_name,
+                             field_name};
     };
     return values[it->second.field_id];
   };
@@ -97,8 +100,10 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     };
     const auto &trans = *maybe_transformation->second;
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
-    std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
-                   [](const TMessage &message) { return mgp_message{message}; });
+    std::transform(
+        messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages), [](const TMessage &message) {
+          return mgp_message{message};
+        });
     mgp_graph graph{&db_accessor, storage::View::OLD, nullptr, db_accessor.GetStorageMode()};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
@@ -189,8 +194,8 @@ void Streams::RegisterProcedures() {
 void Streams::RegisterKafkaProcedures() {
   {
     static constexpr std::string_view proc_name = "kafka_set_stream_offset";
-    auto set_stream_offset = [this](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                    mgp_memory * /*memory*/) {
+    auto set_stream_offset = [this](
+                                 mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory * /*memory*/) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
@@ -203,7 +208,8 @@ void Streams::RegisterKafkaProcedures() {
                                      if (!error) {
                                        MG_ASSERT(mgp_result_set_error_msg(result, error.error().c_str()) ==
                                                      mgp_error::MGP_ERROR_NO_ERROR,
-                                                 "Unable to set procedure error message of procedure: {}", proc_name);
+                                                 "Unable to set procedure error message of procedure: {}",
+                                                 proc_name);
                                      }
                                    },
                                    [](auto && /*other*/) {
@@ -255,8 +261,8 @@ void Streams::RegisterKafkaProcedures() {
                 procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
                 if (!procedure::TryOrSetError(
                         [&] {
-                          return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(),
-                                                            memory);
+                          return procedure::CreateMgpObject(
+                              topic_names, mgp_list_make_empty, info.topics.size(), memory);
                         },
                         result)) {
                   return;
@@ -321,7 +327,8 @@ void Streams::RegisterKafkaProcedures() {
 
                 using CredentialsType = decltype(KafkaStream::StreamInfo::credentials);
                 CredentialsType reducted_credentials;
-                std::transform(info.credentials.begin(), info.credentials.end(),
+                std::transform(info.credentials.begin(),
+                               info.credentials.end(),
                                std::inserter(reducted_credentials, reducted_credentials.end()),
                                [](const auto &pair) -> CredentialsType::value_type {
                                  return {pair.first, integrations::kReducted};
@@ -332,8 +339,8 @@ void Streams::RegisterKafkaProcedures() {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, consumer_group_result_name.data(),
-                                                       consumer_group_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, consumer_group_result_name.data(), consumer_group_value.get())) {
                   return;
                 }
 
@@ -341,18 +348,18 @@ void Streams::RegisterKafkaProcedures() {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, bootstrap_servers_result_name.data(),
-                                                       bootstrap_servers_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, bootstrap_servers_result_name.data(), bootstrap_servers_value.get())) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, configs_result_name.data(),
-                                                       configs_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, configs_result_name.data(), configs_value.get())) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, credentials_result_name.data(),
-                                                       credentials_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, credentials_result_name.data(), credentials_value.get())) {
                   return;
                 }
               },
@@ -365,13 +372,16 @@ void Streams::RegisterKafkaProcedures() {
     mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource());
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, consumer_group_result_name.data(),
+    MG_ASSERT(mgp_proc_add_result(&proc,
+                                  consumer_group_result_name.data(),
                                   procedure::Call<mgp_type *>(mgp_type_string)) == mgp_error::MGP_ERROR_NO_ERROR);
     MG_ASSERT(
-        mgp_proc_add_result(&proc, topics_result_name.data(),
+        mgp_proc_add_result(&proc,
+                            topics_result_name.data(),
                             procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
         mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, bootstrap_servers_result_name.data(),
+    MG_ASSERT(mgp_proc_add_result(&proc,
+                                  bootstrap_servers_result_name.data(),
                                   procedure::Call<mgp_type *>(mgp_type_string)) == mgp_error::MGP_ERROR_NO_ERROR);
     MG_ASSERT(mgp_proc_add_result(&proc, configs_result_name.data(), procedure::Call<mgp_type *>(mgp_type_map)) ==
               mgp_error::MGP_ERROR_NO_ERROR);
@@ -410,8 +420,8 @@ void Streams::RegisterPulsarProcedures() {
                 procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
                 if (!procedure::TryOrSetError(
                         [&] {
-                          return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(),
-                                                            memory);
+                          return procedure::CreateMgpObject(
+                              topic_names, mgp_list_make_empty, info.topics.size(), memory);
                         },
                         result)) {
                   return;
@@ -438,8 +448,8 @@ void Streams::RegisterPulsarProcedures() {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, service_url_result_name.data(),
-                                                       service_url_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, service_url_result_name.data(), service_url_value.get())) {
                   return;
                 }
               },
@@ -452,11 +462,13 @@ void Streams::RegisterPulsarProcedures() {
     mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource());
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, service_url_result_name.data(),
+    MG_ASSERT(mgp_proc_add_result(&proc,
+                                  service_url_result_name.data(),
                                   procedure::Call<mgp_type *>(mgp_type_string)) == mgp_error::MGP_ERROR_NO_ERROR);
 
     MG_ASSERT(
-        mgp_proc_add_result(&proc, topics_result_name.data(),
+        mgp_proc_add_result(&proc,
+                            topics_result_name.data(),
                             procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
         mgp_error::MGP_ERROR_NO_ERROR);
 
@@ -468,8 +480,8 @@ template <typename TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
                      std::shared_ptr<QueryUserOrRole> owner, TDbAccess db_acc, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
-  auto it = CreateConsumer<TStream, TDbAccess>(*locked_streams, stream_name, std::move(info), std::move(owner),
-                                               std::move(db_acc), ic);
+  auto it = CreateConsumer<TStream, TDbAccess>(
+      *locked_streams, stream_name, std::move(info), std::move(owner), std::move(db_acc), ic);
 
   try {
     std::visit(
@@ -507,8 +519,11 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto *memory_resource = utils::NewDeleteResource();
 
-  auto consumer_function = [interpreter_context, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = std::move(owner),
+  auto consumer_function = [interpreter_context,
+                            memory_resource,
+                            stream_name,
+                            transformation_name = stream_info.common_info.transformation_name,
+                            owner = std::move(owner),
                             interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc)),
                             result = mgp_result{memory_resource},
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
@@ -559,7 +574,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
-                query, stream_name};
+                query,
+                stream_name};
           }
           interpreter->PullAll(&stream);
         }
@@ -584,11 +600,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     }
   };
 
-  auto insert_result = map.try_emplace(
-      stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(ownername),
-                                       std::move(rolenames),
-                                       std::make_unique<SynchronizedStreamSource<TStream>>(
-                                           stream_name, std::move(stream_info), std::move(consumer_function))});
+  auto insert_result =
+      map.try_emplace(stream_name,
+                      StreamData<TStream>{std::move(stream_info.common_info.transformation_name),
+                                          std::move(ownername),
+                                          std::move(rolenames),
+                                          std::make_unique<SynchronizedStreamSource<TStream>>(
+                                              stream_name, std::move(stream_info), std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
   return insert_result.first;
 }
@@ -800,9 +818,12 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
           [&, &stream_name = stream_name](const auto &stream_data) {
             auto locked_stream_source = stream_data.stream_source->ReadLock();
             auto info = locked_stream_source->Info(stream_data.transformation_name);
-            result.emplace_back(StreamStatus<>{stream_name, StreamType(*locked_stream_source),
-                                               locked_stream_source->IsRunning(), std::move(info.common_info),
-                                               stream_data.owner, stream_data.owner_roles});
+            result.emplace_back(StreamStatus<>{stream_name,
+                                               StreamType(*locked_stream_source),
+                                               locked_stream_source->IsRunning(),
+                                               std::move(info.common_info),
+                                               stream_data.owner,
+                                               stream_data.owner_roles});
           },
           stream_data);
     }
@@ -829,8 +850,12 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
         mgp_result result{memory_resource};
         TransformationResult test_result;
 
-        auto consumer_function = [&db_acc, memory_resource, &stream_name, &transformation_name = transformation_name,
-                                  &result, &test_result]<typename T>(const std::vector<T> &messages) mutable {
+        auto consumer_function = [&db_acc,
+                                  memory_resource,
+                                  &stream_name,
+                                  &transformation_name = transformation_name,
+                                  &result,
+                                  &test_result]<typename T>(const std::vector<T> &messages) mutable {
           auto accessor = db_acc->Access(memgraph::storage::WRITE);
           CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
