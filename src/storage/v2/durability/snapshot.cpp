@@ -10187,15 +10187,13 @@ std::optional<std::filesystem::path> CreateSnapshot(
                                                                                   : transaction->start_timestamp);
 
   auto const snapshot_aborted = [abort_snapshot, &timer, &path, file_retainer]() -> bool {
-    if (abort_snapshot == nullptr) return false;
-    if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
-      const bool abort = abort_snapshot->load(std::memory_order_acquire);
-      if (!abort) timer.ResetStartTime();  // Leave timer as elapsed, so future checks also return true
-      // Delete a partially written snapshot file
-      file_retainer->DeleteFile(path);
-      return abort;
-    }
-    return false;
+    if (!abort_snapshot || timer.Elapsed() < kCheckIfSnapshotAborted) return false;
+    if (!abort_snapshot->load(std::memory_order_acquire)) {
+      timer.ResetStartTime();
+      return false;
+    } 
+    file_retainer->DeleteFile(path);
+    return true;
   };
 
   spdlog::info("Starting snapshot creation to {}", path);

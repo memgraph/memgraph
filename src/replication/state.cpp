@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,13 +25,15 @@
 
 constexpr auto kReplicationDirectory = std::string_view{"replication"};
 
-namespace memgraph::replication {
-
+namespace {
 auto BuildReplicaKey(std::string_view name) -> std::string {
-  auto key = std::string{durability::kReplicationReplicaPrefix};
+  auto key = std::string{memgraph::replication::durability::kReplicationReplicaPrefix};
   key.append(name);
   return key;
 }
+}  // namespace
+
+namespace memgraph::replication {
 
 ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir, bool part_of_ha_cluster)
     : part_of_ha_cluster_(part_of_ha_cluster) {

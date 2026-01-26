@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,13 +15,12 @@
 #include <cstdint>
 
 #include "kvstore/kvstore.hpp"
-#include "utils/file.hpp"
 
 namespace memgraph::system {
 
 namespace {
 constexpr std::string_view kLastCommitedSystemTsKey = "last_committed_system_ts";  // Key for timestamp durability
-}
+}  // namespace
 
 struct State {
   explicit State(std::optional<std::filesystem::path> storage, bool recovery_on_startup);

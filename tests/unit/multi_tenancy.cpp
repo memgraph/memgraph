@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -157,11 +157,24 @@ class MultiTenantTest : public ::testing::Test {
   void CleanupDatabases() {
     auto interpreter = this->NewInterpreter();
     // Try to drop any existing test databases
-    std::vector<std::string> test_dbs = {
-        "rename_db1",        "rename_db2",        "rename_db3",       "renamed_db1",          "renamed_db2",
-        "renamed_db3",       "rename_error_db1",  "rename_error_db2", "rename_concurrent_db", "renamed_concurrent_db",
-        "rename_tx_db",      "renamed_tx_db",     "multi_rename_db1", "multi_rename_db2",     "multi_rename_db3",
-        "renamed_multi_db1", "renamed_multi_db2", "renamed_multi_db3"};
+    std::vector<std::string> test_dbs = {"rename_db1",
+                                         "rename_db2",
+                                         "rename_db3",
+                                         "renamed_db1",
+                                         "renamed_db2",
+                                         "renamed_db3",
+                                         "rename_error_db1",
+                                         "rename_error_db2",
+                                         "rename_concurrent_db",
+                                         "renamed_concurrent_db",
+                                         "rename_tx_db",
+                                         "renamed_tx_db",
+                                         "multi_rename_db1",
+                                         "multi_rename_db2",
+                                         "multi_rename_db3",
+                                         "renamed_multi_db1",
+                                         "renamed_multi_db2",
+                                         "renamed_multi_db3"};
 
     for (const auto &db_name : test_dbs) {
       try {
@@ -177,6 +190,11 @@ class MultiTenantTest : public ::testing::Test {
   std::optional<MinMemgraph> min_mg;
 };
 
+TEST_F(MultiTenantTest, RenameNonExistingDB) {
+  auto interpreter1 = this->NewInterpreter();
+  ASSERT_THROW(RenameDatabase(interpreter1, "db1", "db1"), memgraph::query::QueryRuntimeException);
+}
+
 TEST_F(MultiTenantTest, SimpleCreateDrop) {
   // 1) Create multiple interpreters with the default db
   // 2) Create multiple databases using both
@@ -188,7 +206,8 @@ TEST_F(MultiTenantTest, SimpleCreateDrop) {
 
   // 2
   auto create = [&](auto &interpreter, const std::string &name, bool success) {
-    RunMtQuery(interpreter, "CREATE DATABASE " + name,
+    RunMtQuery(interpreter,
+               "CREATE DATABASE " + name,
                success ? ("Successfully created database " + name) : (name + " already exists."));
   };
 
@@ -443,7 +462,8 @@ TEST_F(MultiTenantTest, ForceDropDatabase) {
 
   // 2
   auto create = [&](auto &interpreter, const std::string &name, bool success) {
-    RunMtQuery(interpreter, "CREATE DATABASE " + name,
+    RunMtQuery(interpreter,
+               "CREATE DATABASE " + name,
                success ? ("Successfully created database " + name) : (name + " already exists."));
   };
 
@@ -567,7 +587,8 @@ TEST_F(MultiTenantTest, SimpleRenameDatabase) {
 
   // 2
   auto create = [&](auto &interpreter, const std::string &name, bool success) {
-    RunMtQuery(interpreter, "CREATE DATABASE " + name,
+    RunMtQuery(interpreter,
+               "CREATE DATABASE " + name,
                success ? ("Successfully created database " + name) : (name + " already exists."));
   };
 
@@ -643,20 +664,15 @@ TEST_F(MultiTenantTest, RenameDatabaseErrors) {
   // Test 3: Cannot rename to existing database name
   ASSERT_THROW(RenameDatabase(interpreter1, "rename_error_db1", "rename_error_db2", ""),
                memgraph::query::QueryRuntimeException);
-
-  // Test 4: Rename to same name (no-op should succeed)
-  RenameDatabase(interpreter1, "rename_error_db1", "rename_error_db1",
-                 "Successfully renamed database rename_error_db1 to rename_error_db1");
-
   // Test 5: Support renaming database that is currently in use
   UseDatabase(interpreter1, "rename_error_db1", "Using rename_error_db1");
-  ASSERT_NO_THROW(RenameDatabase(interpreter2, "rename_error_db1", "new_name",
-                                 "Successfully renamed database rename_error_db1 to new_name"));
+  ASSERT_NO_THROW(RenameDatabase(
+      interpreter2, "rename_error_db1", "new_name", "Successfully renamed database rename_error_db1 to new_name"));
 
   // Test 6: Support renaming database that another interpreter is using
   UseDatabase(interpreter2, "rename_error_db2", "Using rename_error_db2");
-  ASSERT_NO_THROW(RenameDatabase(interpreter1, "rename_error_db2", "new_name2",
-                                 "Successfully renamed database rename_error_db2 to new_name2"));
+  ASSERT_NO_THROW(RenameDatabase(
+      interpreter1, "rename_error_db2", "new_name2", "Successfully renamed database rename_error_db2 to new_name2"));
 }
 
 TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {
@@ -670,8 +686,8 @@ TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {
   auto interpreter3 = this->NewInterpreter();
 
   // Create test database
-  RunMtQuery(interpreter1, "CREATE DATABASE rename_concurrent_db",
-             "Successfully created database rename_concurrent_db");
+  RunMtQuery(
+      interpreter1, "CREATE DATABASE rename_concurrent_db", "Successfully created database rename_concurrent_db");
 
   // Add data
   UseDatabase(interpreter1, "rename_concurrent_db", "Using rename_concurrent_db");
@@ -682,12 +698,16 @@ TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {
 
   // Test 1: Rename while another interpreter is using the database
   UseDatabase(interpreter2, "rename_concurrent_db", "Using rename_concurrent_db");
-  ASSERT_NO_THROW(RenameDatabase(interpreter1, "rename_concurrent_db", "renamed_concurrent_db",
+  ASSERT_NO_THROW(RenameDatabase(interpreter1,
+                                 "rename_concurrent_db",
+                                 "renamed_concurrent_db",
                                  "Successfully renamed database rename_concurrent_db to renamed_concurrent_db"));
 
   // Test 2: Rename after all interpreters stop using the database
   UseDatabase(interpreter2, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
-  RenameDatabase(interpreter1, "renamed_concurrent_db", "renamed_again_concurrent_db",
+  RenameDatabase(interpreter1,
+                 "renamed_concurrent_db",
+                 "renamed_again_concurrent_db",
                  "Successfully renamed database renamed_concurrent_db to renamed_again_concurrent_db");
 
   // Test 3: Verify data is preserved and accessible with new name
@@ -721,8 +741,8 @@ TEST_F(MultiTenantTest, RenameDatabaseWithTransactions) {
 
   // Try to rename while transaction is active
   ASSERT_EQ(RunQuery(interpreter1, "SHOW DATABASE")[0][0].ValueString(), "rename_tx_db");
-  ASSERT_NO_THROW(RenameDatabase(interpreter2, "rename_tx_db", "renamed_tx_db",
-                                 "Successfully renamed database rename_tx_db to renamed_tx_db"));
+  ASSERT_NO_THROW(RenameDatabase(
+      interpreter2, "rename_tx_db", "renamed_tx_db", "Successfully renamed database rename_tx_db to renamed_tx_db"));
 
   ASSERT_EQ(RunQuery(interpreter1, "SHOW DATABASE")[0][0].ValueString(), "renamed_tx_db");
   // Commit transaction and then rename
@@ -731,7 +751,9 @@ TEST_F(MultiTenantTest, RenameDatabaseWithTransactions) {
   // Switch back to default database before renaming
   UseDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
 
-  RenameDatabase(interpreter2, "renamed_tx_db", "renamed_again_tx_db",
+  RenameDatabase(interpreter2,
+                 "renamed_tx_db",
+                 "renamed_again_tx_db",
                  "Successfully renamed database renamed_tx_db to renamed_again_tx_db");
 
   // Verify data is preserved
@@ -785,11 +807,17 @@ TEST_F(MultiTenantTest, RenameDatabaseMultipleOperations) {
   }
 
   // Perform multiple renames
-  RenameDatabase(interpreter1, "multi_rename_db1", "renamed_multi_db1",
+  RenameDatabase(interpreter1,
+                 "multi_rename_db1",
+                 "renamed_multi_db1",
                  "Successfully renamed database multi_rename_db1 to renamed_multi_db1");
-  RenameDatabase(interpreter1, "multi_rename_db2", "renamed_multi_db2",
+  RenameDatabase(interpreter1,
+                 "multi_rename_db2",
+                 "renamed_multi_db2",
                  "Successfully renamed database multi_rename_db2 to renamed_multi_db2");
-  RenameDatabase(interpreter1, "multi_rename_db3", "renamed_multi_db3",
+  RenameDatabase(interpreter1,
+                 "multi_rename_db3",
+                 "renamed_multi_db3",
                  "Successfully renamed database multi_rename_db3 to renamed_multi_db3");
 
   // Verify all data is preserved

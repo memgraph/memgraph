@@ -6357,6 +6357,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                     throw QueryRuntimeException("Cannot rename {}, it is currently being used.", old_name);
                   case dbms::RenameError::FAIL:
                     throw QueryRuntimeException("Failed while renaming {}", old_name);
+                  case dbms::RenameError::SAME_NAME:
+                    throw QueryRuntimeException("New name cannot be the same as the old name.");
                 }
               }
             } catch (const utils::BasicException &e) {

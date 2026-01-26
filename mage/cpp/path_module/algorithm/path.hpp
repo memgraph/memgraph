@@ -119,8 +119,8 @@ class PathHelper {
   LabelBools GetLabelBools(const mgp::Node &node) const;
 
   bool AnyDirected(bool outgoing) const { return outgoing ? config_.any_outgoing : config_.any_incoming; }
-  bool IsNotStartOrSupportsStartNode(bool is_start) const { return (config_.filter_start_node || !is_start); }
-  bool IsNotStartOrSupportsStartRel(bool is_start) const { return (config_.begin_sequence_at_start || !is_start); }
+  bool IsNotStartOrFiltersStartNode(bool is_start) const { return (config_.filter_start_node || !is_start); }
+  bool IsNotStartOrFilterStartRel(bool is_start) const { return (config_.begin_sequence_at_start || !is_start); }
 
   bool AreLabelsValid(const LabelBools &label_bools) const;
   bool ContinueExpanding(const LabelBools &label_bools, size_t path_size) const;

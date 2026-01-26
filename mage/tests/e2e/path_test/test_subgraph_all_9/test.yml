@@ -1,0 +1,22 @@
+query: >
+  MATCH (cat:Cat)
+  CALL path.subgraph_all(cat, {labelFilter: ["/Human", ">Dog"], filterStartNode: false})
+  YIELD nodes, rels
+  RETURN nodes, rels
+
+output:
+  - nodes:
+      - labels:
+          - Cat
+        properties: {}
+      - labels:
+          - Dog
+        properties: {}
+      - labels:
+          - Human
+        properties: {}
+    rels:
+      - label: "CATCHES"
+        properties: {}
+      - label: "OWNS"
+        properties: {}
