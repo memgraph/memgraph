@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -94,27 +94,49 @@ namespace {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Null {};
+
 struct Bool {};
+
 struct Integer {};
+
 struct PositiveInteger {};
+
 struct NonZeroInteger {};
+
 struct NonNegativeInteger {};
+
 struct Double {};
+
 struct Number {};
+
 struct List {};
+
 struct String {};
+
 struct Map {};
+
 struct Edge {};
+
 struct Vertex {};
+
 struct Path {};
+
 struct Date {};
+
 struct LocalTime {};
+
 struct LocalDateTime {};
+
 struct Duration {};
+
 struct ZonedDateTime {};
+
 struct Graph {};
+
 struct Enum {};
+
 struct Point2d {};
+
 struct Point3d {};
 
 template <class ArgType>
@@ -277,13 +299,13 @@ struct Optional<ArgType> {
     const TypedValue &arg = args[0];
     if constexpr (IsOrType<ArgType>::value) {
       if (!ArgType::Check(arg)) {
-        throw QueryRuntimeException("Optional '{}' argument at position {} must be either {}.", name, pos,
-                                    ArgType::TypeNames());
+        throw QueryRuntimeException(
+            "Optional '{}' argument at position {} must be either {}.", name, pos, ArgType::TypeNames());
       }
     } else {
       if (!ArgIsType<ArgType>(arg))
-        throw QueryRuntimeException("Optional '{}' argument at position {} must be '{}'.", name, pos,
-                                    ArgTypeName<ArgType>());
+        throw QueryRuntimeException(
+            "Optional '{}' argument at position {} must be '{}'.", name, pos, ArgTypeName<ArgType>());
     }
   }
 };
@@ -350,8 +372,8 @@ void FType(const char *name, const TypedValue *args, int64_t nargs, int64_t pos 
     }
   } else {
     if (nargs != required_args) {
-      throw QueryRuntimeException("'{}' requires exactly {} {}.", name, required_args,
-                                  required_args == 1 ? "argument" : "arguments");
+      throw QueryRuntimeException(
+          "'{}' requires exactly {} {}.", name, required_args, required_args == 1 ? "argument" : "arguments");
     }
   }
   const TypedValue &arg = args[0];
@@ -632,8 +654,25 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime,
-           ZonedDateTime, Duration, Graph, Enum, Point2d, Point3d>>("type", args, nargs);
+  FType<Or<Null,
+           Bool,
+           Integer,
+           Double,
+           String,
+           List,
+           Map,
+           Vertex,
+           Edge,
+           Path,
+           Date,
+           LocalTime,
+           LocalDateTime,
+           ZonedDateTime,
+           Duration,
+           Graph,
+           Enum,
+           Point2d,
+           Point3d>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -854,10 +893,10 @@ TypedValue ToSet(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
   const auto &elements = value.ValueList();
   using unique_collection = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
-  auto unique_elements = unique_collection(elements.cbegin(), elements.cend(), elements.size() * 2, TypedValue::Hash{},
-                                           TypedValue::BoolEqual{}, ctx.memory);
-  return TypedValue{TypedValue::TVector(std::make_move_iterator(unique_elements.begin()),
-                                        std::make_move_iterator(unique_elements.end()), ctx.memory)};
+  auto unique_elements = unique_collection(
+      elements.cbegin(), elements.cend(), elements.size() * 2, TypedValue::Hash{}, TypedValue::BoolEqual{}, ctx.memory);
+  return TypedValue{TypedValue::TVector(
+      std::make_move_iterator(unique_elements.begin()), std::make_move_iterator(unique_elements.end()), ctx.memory)};
 }
 
 TypedValue UniformSample(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -977,31 +1016,37 @@ TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const Func
 // Check if s1 starts with s2.
 struct StartsWithPredicate {
   static constexpr const char *name = "startsWith";
+
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.begin(), s2.end(), s1.begin());
   }
 };
+
 auto StartsWith = StringMatchOperator<StartsWithPredicate>;
 
 // Check if s1 ends with s2.
 struct EndsWithPredicate {
   static constexpr const char *name = "endsWith";
+
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
   }
 };
+
 auto EndsWith = StringMatchOperator<EndsWithPredicate>;
 
 // Check if s1 contains s2.
 struct ContainsPredicate {
   static constexpr const char *name = "contains";
+
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return s1.find(s2) != std::string::npos;
   }
 };
+
 auto Contains = StringMatchOperator<ContainsPredicate>;
 
 TypedValue Assert(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1045,8 +1090,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>("toString", args,
-                                                                                                       nargs);
+  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>(
+      "toString", args, nargs);
   const auto &arg = args[0];
   using enum TypedValue::Type;
   switch (arg.type()) {
@@ -1228,23 +1273,26 @@ TypedValue CallStringFunction(const TypedValue *args, int64_t nargs, utils::Memo
 }
 
 TypedValue LTrim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "lTrim",
-                            [&](const auto &str) { return TypedValue::TString(utils::LTrim(str), ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "lTrim", [&](const auto &str) {
+    return TypedValue::TString(utils::LTrim(str), ctx.memory);
+  });
 }
 
 TypedValue RTrim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "rTrim",
-                            [&](const auto &str) { return TypedValue::TString(utils::RTrim(str), ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "rTrim", [&](const auto &str) {
+    return TypedValue::TString(utils::RTrim(str), ctx.memory);
+  });
 }
 
 TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "trim",
-                            [&](const auto &str) { return TypedValue::TString(utils::Trim(str), ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "trim", [&](const auto &str) {
+    return TypedValue::TString(utils::Trim(str), ctx.memory);
+  });
 }
 
 TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "reverse",
-                            [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
+  return CallStringFunction(
+      args, nargs, ctx.memory, "reverse", [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
 }
 
 TypedValue ToLower(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1373,9 +1421,13 @@ bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
+  FType<Optional<Or<Null, String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).date(), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsDate()) {
@@ -1410,10 +1462,14 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, struct LocalTime, LocalDateTime, ZonedDateTime>>>("localtime", args, nargs);
+  FType<Optional<Or<Null, String, Map, struct LocalTime, LocalDateTime, ZonedDateTime>>>("localtime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time(), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsLocalTime()) {
@@ -1426,8 +1482,11 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 
   if (args[0].IsZonedDateTime()) {
     auto const &zdt{args[0].ValueZonedDateTime()};
-    return TypedValue(utils::LocalTime{{zdt.LocalHour(), zdt.LocalMinute(), zdt.LocalSecond(), zdt.LocalMillisecond(),
-                                        zdt.LocalMicrosecond()}},
+    return TypedValue(utils::LocalTime{{.hour = zdt.LocalHour(),
+                                        .minute = zdt.LocalMinute(),
+                                        .second = zdt.LocalSecond(),
+                                        .millisecond = zdt.LocalMillisecond(),
+                                        .microsecond = zdt.LocalMicrosecond()}},
                       ctx.memory);
   }
 
@@ -1452,10 +1511,14 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, struct LocalDateTime, ZonedDateTime>>>("localdatetime", args, nargs);
+  FType<Optional<Or<Null, String, Map, struct LocalDateTime, ZonedDateTime>>>("localdatetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsLocalDateTime()) {
@@ -1495,7 +1558,11 @@ TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionCo
 }
 
 TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<String, Map>>("duration", args, nargs);
+  FType<Or<Null, String, Map>>("duration", args, nargs);
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
+  }
 
   if (args[0].IsString()) {
     return TypedValue(utils::Duration(utils::ParseDurationParameters(args[0].ValueString())), ctx.memory);
@@ -1530,10 +1597,14 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
 
 // Refers to ZonedDateTime; called DateTime for compatibility with Cypher
 TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, ZonedDateTime>>>("datetime", args, nargs);
+  FType<Optional<Or<Null, String, Map, ZonedDateTime>>>("datetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), utils::DefaultTimezone()), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsZonedDateTime()) {
