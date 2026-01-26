@@ -244,10 +244,11 @@ void InMemoryReplicationHandlers::Register(
             dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
-      [current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                                        uint64_t const request_version,
-                                        auto *req_reader,
-                                        auto *res_builder) {
+      [&current_main_uuid, dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         InMemoryReplicationHandlers::FinalizeCommitHandler(
             dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });

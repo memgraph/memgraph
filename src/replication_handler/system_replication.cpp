@@ -141,7 +141,7 @@ bool StartRpcServer(
 #else
 bool StartRpcServer(
     dbms::DbmsHandler &dbms_handler,
-    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     replication::RoleReplicaData &data) {
 #endif
   // Register storage handlers
