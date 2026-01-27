@@ -2275,6 +2275,7 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
+// TODO: this should probably do bfs from each source and destination simultaneously
 class STShortestPathCursor : public query::plan::Cursor {
  public:
   STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
