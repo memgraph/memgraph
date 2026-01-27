@@ -1290,6 +1290,9 @@ build_mage() {
   if [[ "$config_only" = true ]]; then
     build_args+=("--config-only")
   fi
+  if [[ "$cugraph" = true ]]; then
+    build_args+=("--cugraph")
+  fi
 
   docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
   if [[ "$config_only" = true ]]; then
