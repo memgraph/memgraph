@@ -45,26 +45,29 @@ def test_bfs_cost_based_selection(memgraph):
     ), "Expected STShortestPath to be used with label property index"
     assert any("ScanAllByLabelProperties" in line for line in actual_explain), "Expected ScanAllByLabelProperties"
 
-    # Test 3: Label index only - both have ScanAllByLabel + Filter (no exact cardinality)
-    # Should use BFSExpand (SingleSourceShortestPath, existing_node = false)
+    # Test 3: Range filters - both have ScanAllByLabelProperties with range filters
+    # Should use STShortestPath (existing_node = true) - small cardinality from range filters
     results = list(
-        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node)-[r *BFS]-(m:Node) WHERE n.id = 1 AND m.id = 100 RETURN r;")
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node)-[r *BFS]-(m:Node) WHERE n.id < 10 AND m.id < 20 RETURN r;")
     )
     actual_explain = [x[QUERY_PLAN] for x in results]
     assert any(
-        "BFSExpand" in line for line in actual_explain
-    ), "Expected BFSExpand (SingleSourceShortestPath) to be used with label index only"
-    assert any("ScanAllByLabel" in line for line in actual_explain), "Expected ScanAllByLabel"
+        "STShortestPath" in line for line in actual_explain
+    ), "Expected STShortestPath to be used with range filters"
+    assert any("ScanAllByLabelProperties" in line for line in actual_explain), "Expected ScanAllByLabelProperties"
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
 
     # Test 4: Large cardinality - recreate nodes with duplicate id values
-    # Delete existing nodes and edges
-    memgraph.execute("MATCH (n:Node) DETACH DELETE n;")
 
-    # Create chain of 100 nodes, but make many nodes share the same id value
-    # This simulates large cardinality for the index lookup (~50 nodes with id=0, ~50 with id=1)
-    memgraph.execute("UNWIND range(1, 100) AS i CREATE (n:Node {id: i % 2});")
+    # Create 100 nodes with only 2 unique id values (0 and 1) and edges in one query
     memgraph.execute(
-        "UNWIND range(1, 99) AS i MATCH (a:Node {id: i % 2}), (b:Node {id: (i + 1) % 2}) CREATE (a)-[:EDGE]->(b);"
+        "WITH range(0, 99) AS idx "
+        "UNWIND idx AS i "
+        "CREATE (n:Node {id: i % 2}) "
+        "WITH collect(n) AS nodes "
+        "UNWIND range(0, size(nodes)-2) AS i "
+        "WITH nodes[i] AS a, nodes[i+1] AS b "
+        "CREATE (a)-[:NEXT]->(b);"
     )
 
     # Both have ScanAllByLabelProperties but with large cardinality (~50 each)
