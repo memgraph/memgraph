@@ -9,14 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "storage/v2/parameters.hpp"
+
 #include <fmt/format.h>
 #include <shared_mutex>
 
 #include "flags/general.hpp"
 #include "utils/file.hpp"
-#include "utils/parameters.hpp"
 
-namespace memgraph::utils {
+namespace memgraph::storage {
 
 Parameters::Parameters(std::filesystem::path storage_path) {
   std::lock_guard parameters_guard{parameters_lock_};
@@ -25,7 +26,7 @@ Parameters::Parameters(std::filesystem::path storage_path) {
       utils::DeleteDir(storage_path);
     }
   }
-  storage_.emplace(std::move(storage_path));
+  storage_ = std::make_unique<kvstore::KVStore>(std::move(storage_path));
 }
 
 std::string_view ParameterScopeToString(ParameterScope scope) {
@@ -43,9 +44,8 @@ std::string_view ParameterScopeToString(ParameterScope scope) {
 
 bool Parameters::SetParameter(std::string_view name, std::string_view value, ParameterScope scope) {
   std::lock_guard parameters_guard{parameters_lock_};
-  if (!storage_) return false;
 
-  if (!storage_->Put(name, value)) {
+  if (!storage_ || !storage_->Put(name, value)) {
     SPDLOG_ERROR("Failed to set parameter '{}' with scope '{}'", name, static_cast<int>(scope));
     return false;
   }
@@ -57,15 +57,13 @@ bool Parameters::SetParameter(std::string_view name, std::string_view value, Par
 std::optional<std::string> Parameters::GetParameter(std::string_view name, ParameterScope /*scope*/) const {
   std::shared_lock parameters_guard{parameters_lock_};
   if (!storage_) return std::nullopt;
-
   return storage_->Get(name);
 }
 
 bool Parameters::UnsetParameter(std::string_view name, ParameterScope scope) {
   std::lock_guard parameters_guard{parameters_lock_};
-  if (!storage_) return false;
 
-  if (!storage_->Delete(name)) {
+  if (!storage_ || !storage_->Delete(name)) {
     SPDLOG_ERROR("Failed to delete parameter '{}' with scope '{}'", name, static_cast<int>(scope));
     return false;
   }
@@ -86,4 +84,4 @@ std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) co
   return parameters;
 }
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::storage

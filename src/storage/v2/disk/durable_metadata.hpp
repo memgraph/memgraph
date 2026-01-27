@@ -67,6 +67,8 @@ class DurableMetadata {
 
   kvstore::KVStore durability_kvstore_;
   Config config_;
+  
+  static std::string MakeParameterKey(const std::string &name);
 };
 
 }  // namespace memgraph::storage

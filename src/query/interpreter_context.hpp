@@ -65,7 +65,6 @@ struct QueryUserOrRole;
  */
 struct InterpreterContext {
   memgraph::utils::Settings *settings;
-  memgraph::utils::Parameters *parameters;
   dbms::DbmsHandler *dbms_handler;
 
   // Internal
@@ -109,7 +108,7 @@ struct InterpreterContext {
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-                     memgraph::utils::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+                     dbms::DbmsHandler *dbms_handler,
                      utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
 #ifdef MG_ENTERPRISE
                      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
@@ -129,7 +128,7 @@ class InterpreterContextHolder {
 
  private:
   static void Initialize(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-                         memgraph::utils::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+                         dbms::DbmsHandler *dbms_handler,
                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
                          system::System &system,
 #ifdef MG_ENTERPRISE
@@ -141,7 +140,6 @@ class InterpreterContextHolder {
     assert(!instance);
     instance.emplace(interpreter_config,
                      settings,
-                     parameters,
                      dbms_handler,
                      rs,
                      system,
@@ -169,7 +167,7 @@ class InterpreterContextHolder {
 struct InterpreterContextLifetimeControl {
   InterpreterContextLifetimeControl(
       InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-      memgraph::utils::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+      dbms::DbmsHandler *dbms_handler,
       utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
 #ifdef MG_ENTERPRISE
       std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
@@ -179,7 +177,6 @@ struct InterpreterContextLifetimeControl {
       ReplicationQueryHandler *replication_handler = nullptr) {
     InterpreterContextHolder::Initialize(interpreter_config,
                                          settings,
-                                         parameters,
                                          dbms_handler,
                                          rs,
                                          system,

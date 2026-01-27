@@ -114,7 +114,7 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/parameters.hpp"
+#include "storage/v2/parameters.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
@@ -2591,7 +2591,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 }
 
 Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters &query_parameters,
-                              InterpreterContext *interpreter_context) {
+                              CurrentDB *current_db) {
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = query_parameters;
@@ -2603,12 +2603,19 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       const auto parameter_value = EvaluateOptionalExpression(parameter_query->parameter_value_, evaluator);
       auto value_str = serialization::SerializeTypedValue(parameter_value).dump();
 
-      callback.fn = [parameter_name = parameter_query->parameter_name_, value_str, parameters = interpreter_context->parameters]() mutable {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
+      callback.fn = [parameter_name = parameter_query->parameter_name_, value_str, current_db]() mutable {
+        if (!current_db->db_acc_) {
+          throw QueryRuntimeException("No database selected");
         }
+        auto *storage = current_db->db_acc_->get()->storage();
+        // Only in-memory storage supports parameters
+        if (storage->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
+            storage->GetStorageMode() != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+          throw QueryRuntimeException("Parameters are only supported in in-memory storage");
+        }
+        auto *inmem_storage = static_cast<storage::InMemoryStorage *>(storage);
         // For now, always use GLOBAL scope
-        if (!parameters->SetParameter(parameter_name, value_str, utils::ParameterScope::GLOBAL)) {
+        if (!inmem_storage->SetParameter(parameter_name, value_str, storage::ParameterScope::GLOBAL)) {
           throw utils::BasicException("Failed to set parameter '{}'", parameter_name);
         }
         return std::vector<std::vector<TypedValue>>{};
@@ -2616,12 +2623,19 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       return callback;
     }
     case ParameterQuery::Action::UNSET_PARAMETER: {
-      callback.fn = [parameter_name = parameter_query->parameter_name_, parameters = interpreter_context->parameters]() mutable {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
+      callback.fn = [parameter_name = parameter_query->parameter_name_, current_db]() mutable {
+        if (!current_db->db_acc_) {
+          throw QueryRuntimeException("No database selected");
         }
+        auto *storage = current_db->db_acc_->get()->storage();
+        // Only in-memory storage supports parameters
+        if (storage->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
+            storage->GetStorageMode() != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+          throw QueryRuntimeException("Parameters are only supported in in-memory storage");
+        }
+        auto *inmem_storage = static_cast<storage::InMemoryStorage *>(storage);
         // For now, always use GLOBAL scope
-        if (!parameters->UnsetParameter(parameter_name, utils::ParameterScope::GLOBAL)) {
+        if (!inmem_storage->UnsetParameter(parameter_name, storage::ParameterScope::GLOBAL)) {
           throw utils::BasicException("Parameter '{}' does not exist", parameter_name);
         }
         return std::vector<std::vector<TypedValue>>{};
@@ -2630,18 +2644,25 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
     }
     case ParameterQuery::Action::SHOW_PARAMETERS: {
       callback.header = {"name", "value", "scope"};
-      callback.fn = [parameters = interpreter_context->parameters] {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
+      callback.fn = [current_db] {
+        if (!current_db->db_acc_) {
+          throw QueryRuntimeException("No database selected");
         }
-        auto all_params = parameters->GetAllParameters(utils::ParameterScope::GLOBAL);
+        auto *storage = current_db->db_acc_->get()->storage();
+        // Only in-memory storage supports parameters
+        if (storage->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL &&
+            storage->GetStorageMode() != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+          throw QueryRuntimeException("Parameters are only supported in in-memory storage");
+        }
+        auto *inmem_storage = static_cast<storage::InMemoryStorage *>(storage);
+        auto all_params = inmem_storage->GetAllParameters(storage::ParameterScope::GLOBAL);
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
         for (const auto &param : all_params) {
           results.emplace_back(std::vector<TypedValue>{
               TypedValue(param.name),
               TypedValue(param.value),
-              TypedValue(utils::ParameterScopeToString(param.scope))});
+              TypedValue(storage::ParameterScopeToString(param.scope))});
         }
         return results;
       };
@@ -5631,7 +5652,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                    InterpreterContext *interpreter_context) {
+                                    CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
@@ -5639,7 +5660,7 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
   auto *parameter_query = utils::Downcast<ParameterQuery>(parsed_query.query);
   MG_ASSERT(parameter_query);
 
-  auto callback = HandleParameterQuery(parameter_query, parsed_query.parameters, interpreter_context);
+  auto callback = HandleParameterQuery(parameter_query, parsed_query.parameters, &current_db);
 
   return PreparedQuery{
       .header = std::move(callback.header),
@@ -8279,7 +8300,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<ParameterQuery>(parsed_query.query)) {
       /// SYSTEM PURE
-      prepared_query = PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);

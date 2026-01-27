@@ -56,6 +56,7 @@ target_sources(mg-storage-v2
         inmemory/replication/recovery.cpp
         inmemory/storage.cpp
         inmemory/unique_constraints.cpp
+        parameters.cpp
         point_functions.cpp
         property_store.cpp
         property_value_utils.cpp
@@ -118,6 +119,7 @@ target_sources(mg-storage-v2
         inmemory/storage.hpp
         inmemory/storagefwd.hpp
         mvcc.hpp
+        parameters.hpp
         point.hpp
         point_functions.hpp
         property_constants.hpp

@@ -27,6 +27,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
+#include "storage/v2/parameters.hpp"
 
 /// REPLICATION ///
 
@@ -751,6 +752,24 @@ class InMemoryStorage final : public Storage {
 
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
+  bool SetParameter(std::string_view name, std::string_view value,
+                    storage::ParameterScope scope = storage::ParameterScope::GLOBAL) {
+    return parameters_.SetParameter(name, value, scope);
+  }
+
+  std::optional<std::string> GetParameter(std::string_view name,
+                                          storage::ParameterScope scope = storage::ParameterScope::GLOBAL) const {
+    return parameters_.GetParameter(name, scope);
+  }
+
+  bool UnsetParameter(std::string_view name, storage::ParameterScope scope = storage::ParameterScope::GLOBAL) {
+    return parameters_.UnsetParameter(name, scope);
+  }
+
+  std::vector<storage::ParameterInfo> GetAllParameters(storage::ParameterScope scope = storage::ParameterScope::GLOBAL) const {
+    return parameters_.GetAllParameters(scope);
+  }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -868,6 +887,8 @@ class InMemoryStorage final : public Storage {
   AsyncIndexer async_indexer_;
 
   mutable utils::Synchronized<std::unordered_map<LabelId, uint64_t>, utils::SpinLock> label_counts_;
+
+  Parameters parameters_;
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {

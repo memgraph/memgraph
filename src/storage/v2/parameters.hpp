@@ -13,12 +13,13 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "kvstore/kvstore.hpp"
 #include "utils/rw_lock.hpp"
 
-namespace memgraph::utils {
+namespace memgraph::storage {
 
 enum class ParameterScope { GLOBAL, DATABASE, SESSION };
 
@@ -35,11 +36,11 @@ struct ParameterInfo {
  * Parameters are dynamic key-value pairs that can be set, retrieved, and deleted.
  * Unlike Settings, parameters don't need to be pre-registered and can be created on-the-fly.
  */
-struct Parameters {
+class Parameters {
+ public:
   /**
    * @brief Construct Parameters with storage path and recovery flag.
    * @param storage_path Path to the storage directory for parameters
-   * @param recovery_on_startup If false, clears all existing parameters on startup
    */
   explicit Parameters(std::filesystem::path storage_path);
 
@@ -64,8 +65,8 @@ struct Parameters {
   std::vector<ParameterInfo> GetAllParameters(ParameterScope scope) const;
 
  private:
-  mutable utils::RWLock parameters_lock_{RWLock::Priority::WRITE};
-  std::optional<kvstore::KVStore> storage_;
+  mutable utils::RWLock parameters_lock_{utils::RWLock::Priority::WRITE};
+  std::unique_ptr<kvstore::KVStore> storage_;
 };
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::storage

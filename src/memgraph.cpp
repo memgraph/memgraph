@@ -62,7 +62,6 @@
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
-#include "utils/parameters.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
@@ -351,7 +350,6 @@ int main(int argc, char **argv) {
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
-  auto parameters = std::make_shared<memgraph::utils::Parameters>(data_directory / "parameters");
 
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
@@ -674,7 +672,6 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
       settings.get(),
-      parameters.get(),
       &dbms_handler,
       repl_state,
       system,
