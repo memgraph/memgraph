@@ -17,7 +17,7 @@ on:
 jobs:
   release_benchmarks:
     name: "Daily benchmarks"
-    runs-on: [self-hosted, Linux, "${{ github.ref == 'refs/heads/master' && 'laufey' || 'benchmark' }}"]
+    runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 350
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
@@ -89,6 +89,15 @@ jobs:
           else
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
+
+      - name: Force container into first numa group
+        run: |
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Using numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          mgbuild_v7_ubuntu-24.04
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
