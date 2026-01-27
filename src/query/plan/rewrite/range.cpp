@@ -133,7 +133,7 @@ Expression *CompactFilters(Expression *filter_expr, AstStorage &storage) {
         // Substitute the current filter
         filter_expr = SubstituteExpression(filter_expr, filter_old, range);
         // Remove the other filter
-        filter_expr = RemoveExpressions(filter_expr, {filter}).trimmed_expression;
+        filter_expr = RemoveExpressions(filter_expr, {filter}, &storage).trimmed_expression;
         // Remove these filters from any further consideration
         info.type = ComparisonFilterInfo::Type::UNKNOWN;
         info_old.type = ComparisonFilterInfo::Type::UNKNOWN;
