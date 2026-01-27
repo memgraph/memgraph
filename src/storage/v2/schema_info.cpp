@@ -31,6 +31,8 @@
 
 #include <nlohmann/json.hpp>
 
+namespace r = std::ranges;
+
 namespace memgraph::storage {
 namespace {
 
@@ -700,6 +702,48 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
   // Have to loop though edges and lock in order
   v_lock.unlock();
 
+  auto const get_visible_edges = [start_ts = start_ts_](Vertex *vertex, bool is_in_edge, auto &edge_list)
+      -> utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> {
+    utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> edges{edge_list};
+
+    Delta *delta = vertex->delta;
+    if (delta) {
+      ApplyDeltasForRead(delta, start_ts, [&](const Delta &delta) {
+        if (is_in_edge) {
+          if (delta.action == Delta::Action::ADD_IN_EDGE) {
+            auto it = r::find(
+                edges, std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge});
+            if (it != edges.end()) {
+              *it = edges.back();
+              edges.pop_back();
+            }
+          } else if (delta.action == Delta::Action::REMOVE_IN_EDGE) {
+            auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge};
+            if (!r::contains(edges, link)) {
+              edges.push_back(link);
+            }
+          }
+        } else {
+          if (delta.action == Delta::Action::ADD_OUT_EDGE) {
+            auto it = r::find(
+                edges, std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge});
+            if (it != edges.end()) {
+              *it = edges.back();
+              edges.pop_back();
+            }
+          } else if (delta.action == Delta::Action::REMOVE_OUT_EDGE) {
+            auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge};
+            if (!r::contains(edges, link)) {
+              edges.push_back(link);
+            }
+          }
+        }
+      });
+    }
+
+    return edges;
+  };
+
   auto process = [&](auto &edge, const auto edge_dir) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
 
@@ -733,10 +777,11 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     }
   };
 
-  for (const auto &edge : vertex->in_edges) {
+  for (const auto &edge : get_visible_edges(vertex, InEdge, vertex->in_edges)) {
     process(edge, InEdge);
   }
-  for (const auto &edge : vertex->out_edges) {
+
+  for (const auto &edge : get_visible_edges(vertex, OutEdge, vertex->out_edges)) {
     process(edge, OutEdge);
   }
 }
