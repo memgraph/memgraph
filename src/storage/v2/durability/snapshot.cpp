@@ -10064,7 +10064,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 
-void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory,
+void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer) {
   struct LoadWalInfo {
@@ -10083,6 +10083,10 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory,
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
+      if (info.uuid != uuid) {
+        file_retainer->DeleteFile(item.path());
+        continue;
+      }
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       // We want to find out what happened with the corrupted snapshot file, not delete it
@@ -10122,7 +10126,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory,
   }
 }
 
-auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory,
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &uuid,
                                         const std::string &current_snapshot_path, utils::FileRetainer *file_retainer,
                                         Storage *storage) -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
@@ -10132,6 +10136,10 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
     if (item.path() == current_snapshot_path) continue;
     try {
       auto info = ReadSnapshotInfo(item.path());
+      if (info.uuid != uuid) {
+        old_snapshot_files.emplace_back(0, item.path());
+        continue;
+      }
       old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       // We use logical timestamp of 0 so that corrupted files get deleted before healthy ones
@@ -10947,12 +10955,13 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   snapshot.Finalize();
   spdlog::info("Snapshot creation successful!");
 
-  auto const old_snapshot_files = EnsureRetentionCountSnapshotsExist(snapshot_directory, path, file_retainer, storage);
+  auto const old_snapshot_files =
+      EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid_str, file_retainer, storage);
 
   // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    EnsureNecessaryWalFilesExist(wal_directory, old_snapshot_files, transaction, file_retainer);
+    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer);
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other
