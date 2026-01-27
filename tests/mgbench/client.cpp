@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,6 +35,7 @@
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/numa.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
@@ -65,11 +66,59 @@ DEFINE_int64(time_dependent_execution, 0,
              "Time-dependent executions execute the queries for a specified number of seconds."
              "If all queries are executed, and there is still time, queries are rerun again."
              "If the time runs out, the client is done with the job and returning results.");
+DEFINE_bool(client_numa_aware, false,
+            "Enable NUMA-aware thread pinning. Automatically assigns threads to NUMA nodes: "
+            "fills one NUMA node at a time (primary cores first, then hyperthreads).");
 
 using bolt_map_t = memgraph::communication::bolt::map_t;
 
 std::random_device rd;
 std::mt19937 gen(rd());  // Mersenne Twister RNG
+
+// Assign NUMA nodes to threads using the same logic as PriorityThreadPool:
+// - Fill one NUMA node at a time
+// - Primary cores first, then hyperthreads
+static std::vector<int> AssignNUMANodesToThreads(int num_threads) {
+  auto topology_opt = memgraph::utils::numa::DetectTopology();
+  if (!topology_opt) {
+    return std::vector<int>(num_threads, -1);  // No pinning if topology detection fails
+  }
+
+  const auto &topology = *topology_opt;
+  std::vector<int> numa_assignments;
+
+  // First pass: assign primary cores, one NUMA node at a time
+  for (const auto &node : topology.nodes) {
+    auto primary_cores = node.GetPrimaryCores();
+    for ([[maybe_unused]] int cpu : primary_cores) {
+      numa_assignments.push_back(node.node_id);
+    }
+  }
+
+  // Second pass: assign hyperthreads if we need more threads
+  if (numa_assignments.size() < static_cast<size_t>(num_threads)) {
+    for (const auto &node : topology.nodes) {
+      auto hyperthreads = node.GetHyperthreads();
+      for ([[maybe_unused]] int cpu : hyperthreads) {
+        numa_assignments.push_back(node.node_id);
+        if (numa_assignments.size() >= static_cast<size_t>(num_threads)) break;
+      }
+      if (numa_assignments.size() >= static_cast<size_t>(num_threads)) break;
+    }
+  }
+
+  // If we don't have enough assignments, extend by repeating cyclically
+  if (numa_assignments.size() < static_cast<size_t>(num_threads) && !numa_assignments.empty()) {
+    size_t original_len = numa_assignments.size();
+    while (numa_assignments.size() < static_cast<size_t>(num_threads)) {
+      numa_assignments.push_back(numa_assignments[numa_assignments.size() % original_len]);
+    }
+  }
+
+  // Return assignments (one per thread)
+  numa_assignments.resize(num_threads);
+  return numa_assignments;
+}
 
 // Max db idx is exclusive
 std::string GetRandomDB(std::vector<std::string> const &dbs, int const min_db_idx, int const max_db_idx) {
@@ -264,8 +313,26 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
 
   std::chrono::time_point<std::chrono::steady_clock> workload_start;
   std::chrono::duration<double> time_limit = std::chrono::seconds(FLAGS_time_dependent_execution);
+
+  // Assign NUMA nodes to threads if NUMA-aware pinning is enabled
+  std::vector<int> numa_assignments;
+  if (FLAGS_client_numa_aware) {
+    numa_assignments = AssignNUMANodesToThreads(FLAGS_num_workers);
+  }
+
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
-    threads.emplace_back([&, worker]() {
+    int numa_node = -1;
+    if (FLAGS_client_numa_aware && worker < static_cast<int>(numa_assignments.size())) {
+      numa_node = numa_assignments[worker];
+    }
+    threads.emplace_back([&, worker, numa_node]() {
+      // Pin thread to NUMA node if assigned
+      if (numa_node >= 0) {
+        auto topology_opt = memgraph::utils::numa::DetectTopology();
+        if (topology_opt) {
+          memgraph::utils::numa::PinThreadToNUMANode(numa_node, *topology_opt);
+        }
+      }
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
       memgraph::communication::bolt::Client client(context);
@@ -368,11 +435,30 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   std::atomic<uint64_t> position(0);
   auto const num_workers = FLAGS_num_workers;
   auto const num_dbs = dbs.size();
+
+  // Assign NUMA nodes to threads if NUMA-aware pinning is enabled
+  std::vector<int> numa_assignments;
+  if (FLAGS_client_numa_aware) {
+    numa_assignments = AssignNUMANodesToThreads(FLAGS_num_workers);
+  }
+
   for (int worker_id = 0; worker_id < num_workers; ++worker_id) {
     auto const min_db_idx = worker_id * num_dbs / num_workers;
     auto const max_db_idx = (worker_id + 1) * num_dbs / num_workers;
 
-    threads.emplace_back([&, worker_id, min_db_idx, max_db_idx]() {
+    int numa_node = -1;
+    if (FLAGS_client_numa_aware && worker_id < static_cast<int>(numa_assignments.size())) {
+      numa_node = numa_assignments[worker_id];
+    }
+
+    threads.emplace_back([&, worker_id, min_db_idx, max_db_idx, numa_node]() {
+      // Pin thread to NUMA node if assigned
+      if (numa_node >= 0) {
+        auto topology_opt = memgraph::utils::numa::DetectTopology();
+        if (topology_opt) {
+          memgraph::utils::numa::PinThreadToNUMANode(numa_node, *topology_opt);
+        }
+      }
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
       memgraph::communication::bolt::Client client(context);

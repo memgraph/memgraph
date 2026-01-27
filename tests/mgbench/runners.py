@@ -257,11 +257,13 @@ class BoltClient(BaseClient):
             databases=self._databases,
         )
 
-        # Apply CPU pinning if configured
-        cpu_list = self.benchmark_context.client_cpu_list
-        numa_node = self.benchmark_context.client_numa_node
-        cpu_id = self.benchmark_context.client_cpu_id
-        client_args = _wrap_command_with_pinning(client_args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
+        # CPU pinning is now handled in the C++ client if --client-numa-aware is set
+        # Only apply pinning if explicitly configured (not using NUMA-aware mode)
+        if not self.benchmark_context.client_numa_aware:
+            cpu_list = self.benchmark_context.client_cpu_list
+            numa_node = self.benchmark_context.client_numa_node
+            cpu_id = self.benchmark_context.client_cpu_id
+            client_args = _wrap_command_with_pinning(client_args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
 
         log.info("Client args: {}".format(client_args))
 
@@ -302,11 +304,17 @@ class BoltClient(BaseClient):
             databases=self._databases,
         )
 
-        # Apply CPU pinning if configured
-        cpu_list = self.benchmark_context.client_cpu_list
-        numa_node = self.benchmark_context.client_numa_node
-        cpu_id = self.benchmark_context.client_cpu_id
-        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
+        # CPU pinning is now handled in the C++ client if --client-numa-aware is set
+        # Only apply pinning if explicitly configured (not using NUMA-aware mode)
+        if not self.benchmark_context.client_numa_aware:
+            cpu_list = self.benchmark_context.client_cpu_list
+            numa_node = self.benchmark_context.client_numa_node
+            cpu_id = self.benchmark_context.client_cpu_id
+            args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
+
+        # Pass client_numa_aware flag to C++ client
+        if self.benchmark_context.client_numa_aware:
+            args.append("--client-numa-aware=true")
 
         log.info("Client args: {}".format(args))
 
@@ -539,11 +547,15 @@ class PythonClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
         )
 
-        # Apply CPU pinning if configured
-        cpu_list = self.benchmark_context.client_cpu_list
-        numa_node = self.benchmark_context.client_numa_node
-        cpu_id = self.benchmark_context.client_cpu_id
-        check_db_args = _wrap_command_with_pinning(check_db_args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
+        # CPU pinning is now handled in the C++ client if --client-numa-aware is set
+        # Only apply pinning if explicitly configured (not using NUMA-aware mode)
+        if not self.benchmark_context.client_numa_aware:
+            cpu_list = self.benchmark_context.client_cpu_list
+            numa_node = self.benchmark_context.client_numa_node
+            cpu_id = self.benchmark_context.client_cpu_id
+            check_db_args = _wrap_command_with_pinning(
+                check_db_args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id
+            )
 
         while True:
             try:
@@ -581,11 +593,16 @@ class PythonClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
         )
 
-        # Apply CPU pinning if configured
-        cpu_list = self.benchmark_context.client_cpu_list
-        numa_node = self.benchmark_context.client_numa_node
-        cpu_id = self.benchmark_context.client_cpu_id
-        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
+        # CPU pinning is now handled in the C++ client if --client-numa-aware is set
+        # Only apply pinning if explicitly configured (not using NUMA-aware mode)
+        if not self.benchmark_context.client_numa_aware:
+            cpu_list = self.benchmark_context.client_cpu_list
+            numa_node = self.benchmark_context.client_numa_node
+            cpu_id = self.benchmark_context.client_cpu_id
+            args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
+
+        # Pass client_numa_aware flag to C++ client (Python client doesn't support this)
+        # Note: Python client uses multiprocessing, not threads, so NUMA pinning would need different handling
 
         ret = None
         try:

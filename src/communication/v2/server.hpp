@@ -12,7 +12,9 @@
 #pragma once
 
 #include <boost/system/detail/errc.hpp>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include <fmt/format.h>
 #include <boost/asio/io_context.hpp>
@@ -30,44 +32,21 @@ namespace memgraph::communication::v2 {
 
 using Socket = boost::asio::ip::tcp::socket;
 using ServerEndpoint = boost::asio::ip::tcp::endpoint;
+
 /**
- * Communication server.
+ * Communication server using Sharded Acceptors for NUMA efficiency.
  *
- * Listens for incoming connections on the server port and assigns them to the
- * connection listener. The listener and session are implemented using asio
- * async model. Currently the implemented model is thread per core model
- * opposed to io_context per core. The reasoning for opting for the former model
- * is the robustness to the multiple resource demanding queries that can be split
- * across multiple threads, and then a single thread would not block io_context,
- * unlike in the latter model where it is possible that thread that accepts
- * request is being blocked by demanding query.
- * All logic is contained within handlers that are being dispatched
- * on a single strand per session. The only exception is write which is
- * synchronous since the nature of the clients conenction is synchronous as
- * well.
- *
- * Current Server architecture:
- * incoming connection -> server -> listener -> session
-
- *
- * @tparam TSession the server can handle different Sessions, each session
- *         represents a different protocol so the same network infrastructure
- *         can be used for handling different protocols
- * @tparam TSessionContext the class with objects that will be forwarded to the
- *         session
+ * This version implements one acceptor per NUMA node using SO_REUSEPORT.
+ * This allows the kernel to dispatch incoming connections to the specific
+ * I/O thread running on the NUMA node where the network interrupt occurred,
+ * minimizing cross-socket traffic and context switching.
  */
-
 template <typename TSession, typename TSessionContext>
 class Server final {
   using tcp = boost::asio::ip::tcp;
   using SessionHandler = Session<TSession, TSessionContext>;
 
  public:
-  /**
-   * Constructs and binds server to endpoint, operates on session data and
-   * invokes workers_count workers
-   */
-
   Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
          std::string_view service_name, unsigned io_n_threads);
 
@@ -97,20 +76,24 @@ class Server final {
   bool IsRunning() const noexcept;
 
  private:
-  void DoAccept() {
-    acceptor_->async_accept(
-        [this](auto ec, boost::asio::ip::tcp::socket &&socket) { OnAccept(ec, std::move(socket)); });
+  /**
+   * Starts an asynchronous accept loop on a specific acceptor.
+   */
+  void DoAccept(tcp::acceptor &acceptor) {
+    acceptor.async_accept([this, &acceptor](auto ec, boost::asio::ip::tcp::socket &&socket) {
+      OnAccept(ec, std::move(socket), acceptor);
+    });
   }
 
-  void OnAccept(boost::system::error_code ec, tcp::socket socket);
+  void OnAccept(boost::system::error_code ec, tcp::socket socket, tcp::acceptor &acceptor);
 
-  void InitializeAcceptor();
+  void InitializeAcceptors();
 
-  void OnError(const boost::system::error_code &ec, const std::string_view what) {
+  void OnError(const boost::system::error_code &ec, const std::string_view what, tcp::acceptor *acceptor) {
     spdlog::error("Listener failed on {}: {}", what, ec.message());
     if (ec == boost::system::errc::too_many_files_open || ec == boost::system::errc::too_many_files_open_in_system) {
       spdlog::trace("too many open files... retrying");
-      DoAccept();
+      if (acceptor) DoAccept(*acceptor);
       return;
     }
     spdlog::trace("fatal communication error... shutting down");
@@ -124,7 +107,8 @@ class Server final {
   ServerContext *server_context_;
 
   IOContextThreadPool io_thread_pool_;
-  std::unique_ptr<tcp::acceptor> acceptor_;
+  // One acceptor per I/O context (NUMA node)
+  std::vector<std::unique_ptr<tcp::acceptor>> acceptors_;
 };
 
 template <typename TSession, typename TSessionContext>
@@ -140,9 +124,10 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
       service_name_{service_name},
       session_context_(session_context),
       server_context_(server_context),
-      io_thread_pool_{io_n_threads},
-      acceptor_{std::make_unique<tcp::acceptor>(io_thread_pool_.GetIOContext())} {
-  InitializeAcceptor();
+      io_thread_pool_{io_n_threads} {
+  // Single legacy acceptor
+  acceptors_.push_back(std::make_unique<tcp::acceptor>(io_thread_pool_.GetIOContext()));
+  InitializeAcceptors();
 }
 
 template <typename TSession, typename TSessionContext>
@@ -153,45 +138,55 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
       service_name_{service_name},
       session_context_(session_context),
       server_context_(server_context),
-      io_thread_pool_{topology},
-      acceptor_{std::make_unique<tcp::acceptor>(io_thread_pool_.GetIOContext())} {
-  InitializeAcceptor();
+      io_thread_pool_{topology} {
+  // Create one acceptor per NUMA node context
+  for (const auto &node : topology.nodes) {
+    acceptors_.push_back(std::make_unique<tcp::acceptor>(io_thread_pool_.GetIOContextForNUMA(node.node_id)));
+  }
+  InitializeAcceptors();
 }
 
 template <typename TSession, typename TSessionContext>
-void Server<TSession, TSessionContext>::InitializeAcceptor() {
-  boost::system::error_code ec;
-  // Open the acceptor
-  (void)acceptor_->open(endpoint_.protocol(), ec);
-  if (ec) {
-    OnError(ec, "open");
-    MG_ASSERT(false, "Failed to open to socket.");
-    return;
-  }
+void Server<TSession, TSessionContext>::InitializeAcceptors() {
+  for (auto &acceptor : acceptors_) {
+    boost::system::error_code ec;
+    (void)acceptor->open(endpoint_.protocol(), ec);
+    if (ec) {
+      OnError(ec, "open", nullptr);
+      MG_ASSERT(false, "Failed to open to socket.");
+      return;
+    }
 
-  // Allow address reuse
-  (void)acceptor_->set_option(boost::asio::socket_base::reuse_address(true), ec);
-  if (ec) {
-    OnError(ec, "set_option");
-    MG_ASSERT(false, "Failed to set_option.");
-    return;
-  }
+    // Allow address reuse
+    (void)acceptor->set_option(boost::asio::socket_base::reuse_address(true), ec);
 
-  // Bind to the server address
-  (void)acceptor_->bind(endpoint_, ec);
-  if (ec) {
-    spdlog::error(
-        utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
-    OnError(ec, "bind");
-    MG_ASSERT(false, "Failed to bind.");
-    return;
-  }
+    // Enable SO_REUSEPORT for NUMA sharding
+    // This allows multiple acceptors to bind to the same port and lets the kernel
+    // distribute connections based on NUMA locality.
+    typedef boost::asio::detail::socket_option::integer<SOL_SOCKET, SO_REUSEPORT> reuse_port;
+    (void)acceptor->set_option(reuse_port(1), ec);
 
-  (void)acceptor_->listen(boost::asio::socket_base::max_listen_connections, ec);
-  if (ec) {
-    OnError(ec, "listen");
-    MG_ASSERT(false, "Failed to listen.");
-    return;
+    if (ec) {
+      OnError(ec, "set_option (reuse_port)", nullptr);
+      MG_ASSERT(false, "Failed to set SO_REUSEPORT.");
+      return;
+    }
+
+    (void)acceptor->bind(endpoint_, ec);
+    if (ec) {
+      spdlog::error(
+          utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
+      OnError(ec, "bind", nullptr);
+      MG_ASSERT(false, "Failed to bind.");
+      return;
+    }
+
+    (void)acceptor->listen(boost::asio::socket_base::max_listen_connections, ec);
+    if (ec) {
+      OnError(ec, "listen", nullptr);
+      MG_ASSERT(false, "Failed to listen.");
+      return;
+    }
   }
 }
 
@@ -203,44 +198,32 @@ bool Server<TSession, TSessionContext>::Start() {
   }
 
   io_thread_pool_.Run();
-  DoAccept();
+
+  // Start accept loop for every acceptor
+  for (auto &acceptor : acceptors_) {
+    DoAccept(*acceptor);
+  }
 
   spdlog::info("{} server is fully armed and operational", service_name_);
-  spdlog::info("{} listening on {}", service_name_, endpoint_);
+  spdlog::info("{} listening on {} with {} sharded acceptor(s)", service_name_, endpoint_, acceptors_.size());
   return true;
 }
 
 template <typename TSession, typename TSessionContext>
-inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_code ec, tcp::socket socket) {
+inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_code ec, tcp::socket socket,
+                                                        tcp::acceptor &acceptor) {
   if (ec) {
-    return OnError(ec, "accept");
+    return OnError(ec, "accept", &acceptor);
   }
 
-  int socket_fd = socket.native_handle();
+  // Socket is already associated with the io_context of the acceptor that handled it.
+  // With SO_REUSEPORT and NUMA IRQ affinity, this should naturally be the context
+  // on the local NUMA node.
+  auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
+  session->Start();
 
-  // 1. Detect which NUMA node should handle this connection based on NIC affinity
-  auto &target_io_context = io_thread_pool_.GetIOContextForIncomingCPU(socket_fd);
-
-  // 2. MOVE the socket to the detected NUMA node's IOContext
-  // This ensures the Session runs on the same NUMA node that handles the NIC interrupts
-  boost::system::error_code move_ec;
-  socket.release(move_ec);  // Release from current io_context
-
-  // Re-wrap the native handle into a new socket object bound to the target NUMA context
-  tcp::socket numa_socket(target_io_context);
-  numa_socket.assign(boost::asio::ip::tcp::v4(), socket_fd, move_ec);
-
-  if (move_ec) {
-    spdlog::error("Failed to rebind socket to NUMA context: {}", move_ec.message());
-    // Fallback to the original socket if move fails
-    auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
-    session->Start();
-  } else {
-    auto session = SessionHandler::Create(std::move(numa_socket), session_context_, *server_context_, service_name_);
-    session->Start();
-  }
-
-  DoAccept();
+  // Continue the loop for this specific acceptor
+  DoAccept(acceptor);
 }
 
 template <typename TSession, typename TSessionContext>
