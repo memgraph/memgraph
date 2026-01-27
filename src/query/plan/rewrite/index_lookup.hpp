@@ -412,7 +412,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
 
         // Use cost-based decision with the formula
-        if (ShouldUseSTShortestPathV1(source_cardinality, destination_cardinality, expand.common_.direction)) {
+        if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
           expand.set_input(std::move(indexed_scan));
           expand.common_.existing_node = true;
         } else {
@@ -1438,84 +1438,32 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
   // compared to SingleSourceShortestPath (multi-source BFS).
   // assumes STShortestPaths is source*destination complexity
-  bool ShouldUseSTShortestPathV1(double source_cardinality, double destination_cardinality,
-                                 EdgeAtom::Direction direction) {
+  bool ShouldUseSTShortestPath(double S, double T, EdgeAtom::Direction direction) {
+    if (S == 0 || T == 0) return false;
+
     const double V = db_->VerticesCount();
     const double E = db_->EdgesCount();
+    if (V == 0 || E == 0) return false;
 
-    if (V == 0 || E == 0 || source_cardinality == 0 || destination_cardinality == 0) {
-      return false;
-    }
+    // 1. Pair explosion guard
+    if (S * T > 1024) return false;
 
-    // Hard safety caps — pairwise explosion guard
-    if (source_cardinality * destination_cardinality > 128) {
-      return false;
-    }
+    // 2. Balance heuristic
+    const double ratio = std::max(S, T) / std::min(S, T);
+    if (ratio > 4.0) return false;
 
-    // 1. Estimate branching factor b
-    const bool is_undirected = (direction == EdgeAtom::Direction::BOTH);
-    const double b = is_undirected ? (2.0 * E / V) : (E / V);
+    // 3. Branching factor (cheap structural hint)
+    const bool undirected = (direction == EdgeAtom::Direction::BOTH);
+    const double b = undirected ? (2.0 * E / V) : (E / V);
 
-    // No exponential benefit if b <= 1
-    if (b <= 1.0) {
-      return false;
-    }
+    // If graph is chain-like or tree-like, bidirectional shines
+    if (b <= 2.0) return true;
 
-    // 2. Estimate depth d
-    double d = std::log(V) / std::log(b);
+    // 4. Otherwise fall back to conservative math
+    double d = std::log(V) / std::log(std::max(b, 1.01));
     d = std::clamp(d, 2.0, 12.0);
 
-    // 3. Pairwise decision rule:
-    // |S| * |T| * b^(d/2) < |S| * b^d
-    // => |T| < b^(d/2)
-    const double b_half_depth = std::pow(b, d / 2.0);
-
-    // Safety margin to counter planner optimism
-    constexpr double kSafety = 8.0;
-
-    return destination_cardinality < (b_half_depth / kSafety);
-  }
-
-  // Estimates whether STShortestPath (bidirectional BFS) is beneficial compared to SingleSourceShortestPath.
-  // Parameters:
-  //   source_cardinality: |S| - number of source nodes
-  //   destination_cardinality: |T| - number of destination nodes
-  //   direction: edge direction (BOTH = undirected, IN/OUT = directed)
-  bool ShouldUseSTShortestPathV2(double source_cardinality, double destination_cardinality,
-                                 EdgeAtom::Direction direction) {
-    const double V = db_->VerticesCount();
-    const double E = db_->EdgesCount();
-
-    if (V == 0 || E == 0 || source_cardinality == 0 || destination_cardinality == 0) {
-      return false;
-    }
-    if (source_cardinality + destination_cardinality > 128 || destination_cardinality > 64) {
-      return false;
-    }
-
-    // 1. Estimate branching factor b
-    // For undirected graph: b = 2 * |E| / |V|
-    // For directed graph: b = |E| / |V|
-    const bool is_undirected = (direction == EdgeAtom::Direction::BOTH);
-    const double b = is_undirected ? (2.0 * E / V) : (E / V);
-
-    // b must be > 1 for exponential expansion
-    if (b <= 1.0) {
-      return false;
-    }
-
-    // 2. Estimate depth d (assuming small-world graph)
-    // d ≈ log_b(|V|), clamped to [2, 12]
-    double d = std::log(V) / std::log(b);
-    d = std::clamp(d, 2.0, 12.0);
-
-    // 3. Decision rule: Use bidirectional BFS if b^(d/2) > (|S| + |T|) / |S|
-    // This means bidirectional is beneficial when the branching factor at half depth
-    // is greater than the relative cost of exploring from both sides.
-    const double b_half_depth = std::pow(b, d / 2.0);
-    const double relative_cost = (source_cardinality + destination_cardinality) / source_cardinality;
-
-    return b_half_depth > relative_cost;
+    return T < std::pow(b, d / 2.0) / 8.0;
   }
 
   // Estimates cardinality for indexed scan operators only.
