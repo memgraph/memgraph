@@ -635,7 +635,7 @@ jobs:
   release_benchmark_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Benchmark Tests"
-    runs-on: [self-hosted, DockerMgBuild, x86-64-v3]
+    runs-on: [self-hosted, Linux, benchmark]
     timeout-minutes: 70
 
     steps:
