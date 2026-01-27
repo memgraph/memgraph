@@ -127,7 +127,6 @@ DEFINE_VALIDATED_HIDDEN_string(
       return true;
     });
 
-
 namespace memgraph::auth {
 
 const Auth::Epoch Auth::kStartEpoch = 1;
