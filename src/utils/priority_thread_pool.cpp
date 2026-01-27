@@ -112,49 +112,48 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
             "PriorityThreadPool supports a maximum of 1024 mixed work threads");
   MG_ASSERT(high_priority_threads_count > 0, "PriorityThreadPool requires at least one high priority work thread");
 
-  // Build CPU assignment: fill one NUMA node at a time, primary cores first, then hyperthreads
-  std::vector<std::pair<int, int>> cpu_assignments;  // (cpu_id, numa_node)
+  // Build NUMA node assignment: fill one NUMA node at a time
+  // We pin to NUMA groups (not specific CPUs) to allow OS scheduling flexibility
+  std::vector<int> numa_assignments;  // NUMA node IDs
 
-  // First pass: assign primary cores, one NUMA node at a time
+  // First pass: assign NUMA nodes based on primary cores (one NUMA node at a time)
   for (const auto &node : topology.nodes) {
     auto primary_cores = node.GetPrimaryCores();
-    for (int cpu : primary_cores) {
-      cpu_assignments.push_back({cpu, node.node_id});
+    // Assign one worker per primary core in this NUMA node
+    for (size_t i = 0; i < primary_cores.size() && numa_assignments.size() < mixed_work_threads_count; ++i) {
+      numa_assignments.push_back(node.node_id);
     }
   }
 
-  // Second pass: assign hyperthreads if we need more CPUs
-  if (cpu_assignments.size() < mixed_work_threads_count) {
+  // Second pass: if we need more workers, use hyperthreads (still one NUMA node at a time)
+  if (numa_assignments.size() < mixed_work_threads_count) {
     for (const auto &node : topology.nodes) {
       auto hyperthreads = node.GetHyperthreads();
-      for (int cpu : hyperthreads) {
-        cpu_assignments.push_back({cpu, node.node_id});
-        if (cpu_assignments.size() >= mixed_work_threads_count) break;
+      // Assign one worker per hyperthread in this NUMA node
+      for (size_t i = 0; i < hyperthreads.size() && numa_assignments.size() < mixed_work_threads_count; ++i) {
+        numa_assignments.push_back(node.node_id);
       }
-      if (cpu_assignments.size() >= mixed_work_threads_count) break;
     }
   }
 
   // Assign HP threads: one per NUMA node
-  std::vector<std::pair<int, int>> hp_cpu_assignments;
+  std::vector<int> hp_numa_assignments;
   for (size_t i = 0; i < topology.nodes.size() && i < static_cast<size_t>(high_priority_threads_count); ++i) {
-    const auto &node = topology.nodes[i];
-    // Use first primary core from each NUMA node for HP thread
-    auto primary_cores = node.GetPrimaryCores();
-    if (!primary_cores.empty()) {
-      hp_cpu_assignments.push_back({primary_cores[0], node.node_id});
-    }
+    hp_numa_assignments.push_back(topology.nodes[i].node_id);
   }
 
-  // If we don't have enough CPUs, log a warning
-  if (cpu_assignments.size() < mixed_work_threads_count) {
+  // If we don't have enough NUMA assignments, extend by repeating
+  if (numa_assignments.size() < mixed_work_threads_count) {
     spdlog::warn(
-        "Not enough CPUs available: requested {} workers, but only {} CPUs found. "
-        "Some workers will share CPUs.",
-        mixed_work_threads_count, cpu_assignments.size());
-    // Extend by repeating assignments
-    while (cpu_assignments.size() < mixed_work_threads_count) {
-      cpu_assignments.push_back(cpu_assignments[cpu_assignments.size() % cpu_assignments.size()]);
+        "Not enough NUMA capacity: requested {} workers, but only {} NUMA slots found. "
+        "Some workers will share NUMA nodes.",
+        mixed_work_threads_count, numa_assignments.size());
+    // Extend by repeating assignments cyclically
+    size_t original_len = numa_assignments.size();
+    if (original_len > 0) {
+      while (numa_assignments.size() < mixed_work_threads_count) {
+        numa_assignments.push_back(numa_assignments[numa_assignments.size() % original_len]);
+      }
     }
   }
 
@@ -165,70 +164,49 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   const size_t nthreads = mixed_work_threads_count + high_priority_threads_count;
   SimpleBarrier barrier{nthreads};
 
-  // Create mixed priority workers with CPU pinning
+  // Create mixed priority workers with NUMA node pinning
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
-    const auto &assignment = cpu_assignments[i % cpu_assignments.size()];
-    int cpu_id = assignment.first;
-    int numa_node = assignment.second;
+    int numa_node = numa_assignments.empty() ? 0 : numa_assignments[i % numa_assignments.size()];
 
-    pool_.emplace_back([this, i, cpu_id, numa_node, &barrier]() {
-      // Pin thread to specific CPU
-      if (!numa::PinThreadToCPU(cpu_id)) {
-        spdlog::warn("Failed to pin worker {} to CPU {}", i, cpu_id);
+    pool_.emplace_back([this, i, numa_node, &barrier]() {
+      // Pin thread to NUMA node (allows OS to schedule on any CPU in that NUMA node)
+      if (!numa::PinThreadToNUMANode(numa_node)) {
+        spdlog::warn("Failed to pin worker {} to NUMA node {}", i, numa_node);
       } else {
-        spdlog::trace("Pinned worker {} to CPU {} (NUMA node {})", i, cpu_id, numa_node);
+        spdlog::trace("Pinned worker {} to NUMA node {}", i, numa_node);
       }
 
       workers_[i] = std::make_unique<Worker>();
       workers_[i]->numa_node_ = numa_node;
-      workers_[i]->cpu_id_ = cpu_id;
+      workers_[i]->cpu_id_ = -1;  // Not pinned to specific CPU, just NUMA node
 
       barrier.arrive_and_wait();
       workers_[i]->operator()<Priority::LOW>(i, workers_, hot_threads_);
     });
   }
 
-  // Create high priority workers with CPU pinning (one per NUMA node)
+  // Create high priority workers with NUMA node pinning (one per NUMA node)
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
-    if (i < hp_cpu_assignments.size()) {
-      const auto &assignment = hp_cpu_assignments[i];
-      int cpu_id = assignment.first;
-      int numa_node = assignment.second;
-
-      pool_.emplace_back([this, i, cpu_id, numa_node, &barrier]() {
-        // Pin thread to specific CPU
-        if (!numa::PinThreadToCPU(cpu_id)) {
-          spdlog::warn("Failed to pin HP worker {} to CPU {}", i, cpu_id);
-        } else {
-          spdlog::trace("Pinned HP worker {} to CPU {} (NUMA node {})", i, cpu_id, numa_node);
-        }
-
-        hp_workers_[i] = std::make_unique<Worker>();
-        hp_workers_[i]->numa_node_ = numa_node;
-        hp_workers_[i]->cpu_id_ = cpu_id;
-
-        barrier.arrive_and_wait();
-        hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
-      });
-    } else {
-      // Fallback: use first CPU assignment if we don't have enough NUMA nodes
-      const auto &assignment = cpu_assignments[0];
-      int cpu_id = assignment.first;
-      int numa_node = assignment.second;
-
-      pool_.emplace_back([this, i, cpu_id, numa_node, &barrier]() {
-        if (!numa::PinThreadToCPU(cpu_id)) {
-          spdlog::warn("Failed to pin HP worker {} to CPU {}", i, cpu_id);
-        }
-
-        hp_workers_[i] = std::make_unique<Worker>();
-        hp_workers_[i]->numa_node_ = numa_node;
-        hp_workers_[i]->cpu_id_ = cpu_id;
-
-        barrier.arrive_and_wait();
-        hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
-      });
+    int numa_node = topology.nodes[0].node_id;  // Default to first NUMA node
+    if (i < hp_numa_assignments.size()) {
+      numa_node = hp_numa_assignments[i];
     }
+
+    pool_.emplace_back([this, i, numa_node, &barrier]() {
+      // Pin thread to NUMA node (allows OS to schedule on any CPU in that NUMA node)
+      if (!numa::PinThreadToNUMANode(numa_node)) {
+        spdlog::warn("Failed to pin HP worker {} to NUMA node {}", i, numa_node);
+      } else {
+        spdlog::trace("Pinned HP worker {} to NUMA node {}", i, numa_node);
+      }
+
+      hp_workers_[i] = std::make_unique<Worker>();
+      hp_workers_[i]->numa_node_ = numa_node;
+      hp_workers_[i]->cpu_id_ = -1;  // Not pinned to specific CPU, just NUMA node
+
+      barrier.arrive_and_wait();
+      hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
+    });
   }
 
   barrier.wait();
