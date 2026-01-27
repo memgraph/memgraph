@@ -166,34 +166,22 @@ class IOContextThreadPool final {
     return *shared_io_context_;
   }
 
-  // Get IO context based on incoming CPU (for client location detection)
+  // Inside IOContextThreadPool
   IOContext &GetIOContextForIncomingCPU(int socket_fd) {
     if (numa_aware_) {
-      // Try to detect which CPU received the connection
       int incoming_cpu = utils::numa::GetIncomingCPU(socket_fd);
-      spdlog::trace("GetIOContextForIncomingCPU: socket_fd={}, detected incoming_cpu={}", socket_fd, incoming_cpu);
       if (incoming_cpu >= 0) {
         int numa_node = utils::numa::GetNUMANodeForCPU(incoming_cpu);
-        spdlog::trace("GetIOContextForIncomingCPU: incoming_cpu={} mapped to numa_node={}", incoming_cpu, numa_node);
         if (numa_node >= 0) {
-          spdlog::trace("GetIOContextForIncomingCPU: routing connection to NUMA node {} (detected from incoming CPU)",
-                        numa_node);
           return GetIOContextForNUMA(numa_node);
         }
       }
-      // Fallback: use current thread's NUMA node
-      int current_numa = utils::numa::GetCurrentNUMANode();
-      spdlog::trace("GetIOContextForIncomingCPU: using fallback, current_numa={}", current_numa);
-      if (current_numa >= 0) {
-        spdlog::trace("GetIOContextForIncomingCPU: routing connection to NUMA node {} (current thread's NUMA node)",
-                      current_numa);
-        return GetIOContextForNUMA(current_numa);
-      }
-      // Final fallback: first NUMA node
-      spdlog::trace("GetIOContextForIncomingCPU: using final fallback, routing to first NUMA node (node 0)");
-      return numa_io_contexts_[0]->io_context_;
+
+      // FALLBACK: Round-robin across NUMA nodes if hardware detection fails
+      static std::atomic<size_t> rr_counter{0};
+      size_t node_idx = rr_counter.fetch_add(1, std::memory_order_relaxed) % numa_io_contexts_.size();
+      return numa_io_contexts_[node_idx]->io_context_;
     }
-    spdlog::trace("GetIOContextForIncomingCPU: NUMA-aware mode disabled, using shared IO context");
     return *shared_io_context_;
   }
 

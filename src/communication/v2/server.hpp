@@ -216,33 +216,29 @@ inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_cod
     return OnError(ec, "accept");
   }
 
-  // Get connection details for logging
-  boost::system::error_code endpoint_ec;
-  auto remote_endpoint = socket.remote_endpoint(endpoint_ec);
-  auto local_endpoint = socket.local_endpoint(endpoint_ec);
   int socket_fd = socket.native_handle();
 
-  spdlog::trace(
-      "OnAccept: new connection accepted, socket_fd={}, remote={}, local={}", socket_fd,
-      endpoint_ec ? "unknown" : remote_endpoint.address().to_string() + ":" + std::to_string(remote_endpoint.port()),
-      endpoint_ec ? "unknown" : local_endpoint.address().to_string() + ":" + std::to_string(local_endpoint.port()));
+  // 1. Detect which NUMA node should handle this connection based on NIC affinity
+  auto &target_io_context = io_thread_pool_.GetIOContextForIncomingCPU(socket_fd);
 
-  // Detect which NUMA node should handle this connection
-  // Use the socket's native handle to detect incoming CPU
-  // Note: The socket is already bound to an io_context, so we detect the NUMA node
-  // for potential future optimization (e.g., routing work to the appropriate NUMA node)
-  int incoming_cpu = utils::numa::GetIncomingCPU(socket_fd);
-  if (incoming_cpu >= 0) {
-    int numa_node = utils::numa::GetNUMANodeForCPU(incoming_cpu);
-    spdlog::trace("OnAccept: connection detected on incoming_cpu={}, numa_node={}", incoming_cpu, numa_node);
+  // 2. MOVE the socket to the detected NUMA node's IOContext
+  // This ensures the Session runs on the same NUMA node that handles the NIC interrupts
+  boost::system::error_code move_ec;
+  socket.release(move_ec);  // Release from current io_context
+
+  // Re-wrap the native handle into a new socket object bound to the target NUMA context
+  tcp::socket numa_socket(target_io_context);
+  numa_socket.assign(boost::asio::ip::tcp::v4(), socket_fd, move_ec);
+
+  if (move_ec) {
+    spdlog::error("Failed to rebind socket to NUMA context: {}", move_ec.message());
+    // Fallback to the original socket if move fails
+    auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
+    session->Start();
   } else {
-    spdlog::trace("OnAccept: could not detect incoming CPU for socket_fd={}", socket_fd);
+    auto session = SessionHandler::Create(std::move(numa_socket), session_context_, *server_context_, service_name_);
+    session->Start();
   }
-
-  auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
-  spdlog::trace("OnAccept: session created and starting for socket_fd={}", socket_fd);
-  session->Start();
-  spdlog::trace("OnAccept: session started successfully for socket_fd={}", socket_fd);
 
   DoAccept();
 }
