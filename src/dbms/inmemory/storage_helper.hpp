@@ -27,8 +27,6 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   auto storage = std::make_unique<storage::InMemoryStorage>(
       std::move(config), std::nullopt, std::move(invalidator), std::move(database_protector_factory));
 
-  storage->ttl_.SetUserCheck([]() -> bool { return true; });
-
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
       [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {

@@ -644,6 +644,14 @@ int main(int argc, char **argv) {
 #endif
   };
 
+  // TTL will be stopped with StopBackgroundTasks in dbms handler
+  dbms_handler.ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+    db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+      const auto locked_repl_state = repl_state.ReadLock();
+      return locked_repl_state->IsMainWriteable();
+    });
+  });
+
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)
   //       ReplicationHandler will handle the recovery
