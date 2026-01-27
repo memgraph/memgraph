@@ -53,7 +53,7 @@ std::optional<uint16_t> HotMask::GetHotElement() {
   // Go through all groups and check
   for (size_t group_i = 0; group_i < n_groups_; ++group_i) {
     // Get group and check if there are any hot elements
-    auto &group = hot_masks_[group_i];
+    auto &group = hot_masks_[group_i].mask;
     auto group_mask = group.load(std::memory_order::acquire);
     // No hot thread in this group
     if (group_mask == 0) continue;

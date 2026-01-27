@@ -29,6 +29,8 @@ namespace memgraph::utils {
 class HotMask {
  public:
   static constexpr auto kMaxElements = 1024U;
+  // Cache line size - typically 64 bytes on modern CPUs
+  static constexpr auto kCacheLineSize = 64U;
 
   explicit HotMask(uint16_t n_elements)
       :
@@ -40,11 +42,11 @@ class HotMask {
 
   inline void Set(const uint64_t id) {
     DMG_ASSERT(id < n_elements_, "Trying to set out-of-bounds");
-    hot_masks_[GetGroup(id)].fetch_or(GroupMask(id), std::memory_order::acq_rel);
+    hot_masks_[GetGroup(id)].mask.fetch_or(GroupMask(id), std::memory_order::acq_rel);
   }
   inline void Reset(const uint64_t id) {
     DMG_ASSERT(id < n_elements_, "Trying to reset out-of-bounds");
-    hot_masks_[GetGroup(id)].fetch_and(~GroupMask(id), std::memory_order::acq_rel);
+    hot_masks_[GetGroup(id)].mask.fetch_and(~GroupMask(id), std::memory_order::acq_rel);
   }
 
   // Returns the position of the first set bit and resets it
@@ -61,7 +63,16 @@ class HotMask {
   // Mask as seen by the appropriate group
   static constexpr uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
 
-  std::array<std::atomic<uint64_t>, kMaxElements / kGroupSize> hot_masks_{};
+  // Padded structure to ensure each atomic is on its own cache line
+  // This prevents false sharing when multiple threads access different groups
+  struct alignas(kCacheLineSize) CacheLineAlignedMask {
+    std::atomic<uint64_t> mask{0};
+    // Padding to fill the rest of the cache line
+    std::array<uint8_t, kCacheLineSize - sizeof(std::atomic<uint64_t>)> padding{};
+  };
+  static_assert(sizeof(CacheLineAlignedMask) == kCacheLineSize, "CacheLineAlignedMask must be exactly one cache line");
+
+  std::array<CacheLineAlignedMask, kMaxElements / kGroupSize> hot_masks_{};
 #ifndef NDEBUG
   const uint16_t n_elements_;
 #endif
