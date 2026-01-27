@@ -1801,6 +1801,7 @@ conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 conan_cache_dir=""
 command=""
 build_container=""
+cugraph=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -1820,6 +1821,10 @@ while [[ $# -gt 0 ]]; do
         build_type=$2
         check_support build_type $build_type
         shift 2
+    ;;
+    --cugraph)
+      cugraph=true
+      shift 1
     ;;
     --enterprise-license)
         enterprise_license=$2
@@ -1890,6 +1895,9 @@ if [[ "$os" != "all" ]]; then
 fi
 
 build_container="mgbuild_${toolchain_version}_${os}"
+if [[ "$cugraph" == "true" ]]; then
+  build_container="${build_container}-cugraph"
+fi
 
 if [[ "$command" == "" ]]; then
   echo -e "Error: Command not provided, please provide command"
@@ -1917,6 +1925,9 @@ case $command in
       git_ref_flag="--build-arg GIT_REF=master"
       rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
       node_version_flag="--build-arg NODE_VERSION=20"
+      rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
+      cuda_version_minor="13.1.0"
+      python_version_flag="--build-arg PY_VERSION=3.12"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --git-ref)
@@ -1931,6 +1942,18 @@ case $command in
               node_version_flag="--build-arg NODE_VERSION=$2"
               shift 2
             ;;
+            --rapids-version)
+              rapids_version_flag="--build-arg RAPIDS_VERSION=$2"
+              shift 2
+            ;;
+            --cuda-version)
+              cuda_version_minor=$2
+              shift 2
+            ;;
+            --python-version)
+              python_version_flag="--build-arg PY_VERSION=$2"
+              shift 2
+            ;;
             *)
               echo "Error: Unknown flag '$1'"
               print_help
@@ -1938,7 +1961,18 @@ case $command in
             ;;
         esac
       done
-      if [[ "$os" == "all" ]]; then
+
+      if [[ "$cugraph" == "true" ]] && [[ "$os" != "ubuntu-24.04" ]] && [[ "$arch" != "amd" ]]; then
+        echo -e "Error: cugraph is only supported with ubuntu-24.04 and amd"
+        exit 1
+      fi
+
+      if [[ "$cugraph" == "true" ]]; then
+        cuda_version="${cuda_version_minor%%.*}"
+        cuda_version_flag="--build-arg CUDA_VERSION=${cuda_version}"
+        cuda_version_minor_flag="--build-arg CUDA_VERSION_MINOR=${cuda_version_minor}"
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $rapids_version_flag $cuda_version_flag $cuda_version_minor_flag $python_version_flag $build_container
+      elif [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag
       else
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $build_container
