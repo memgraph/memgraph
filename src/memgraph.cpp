@@ -89,7 +89,7 @@ constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
 constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
-constexpr uint64_t kMgVmMaxMapCount = 262144;
+constexpr uint64_t kMgVmMaxMapCount = 262'144;
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,

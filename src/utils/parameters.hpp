@@ -36,6 +36,11 @@ struct ParameterInfo {
  * Unlike Settings, parameters don't need to be pre-registered and can be created on-the-fly.
  */
 struct Parameters {
+  /**
+   * @brief Construct Parameters with storage path and recovery flag.
+   * @param storage_path Path to the storage directory for parameters
+   * @param recovery_on_startup If false, clears all existing parameters on startup
+   */
   explicit Parameters(std::filesystem::path storage_path);
 
   /**

@@ -12,12 +12,19 @@
 #include <fmt/format.h>
 #include <shared_mutex>
 
+#include "flags/general.hpp"
+#include "utils/file.hpp"
 #include "utils/parameters.hpp"
 
 namespace memgraph::utils {
 
 Parameters::Parameters(std::filesystem::path storage_path) {
   std::lock_guard parameters_guard{parameters_lock_};
+  if (!FLAGS_data_recovery_on_startup) {
+    if (utils::DirExists(storage_path)) {
+      utils::DeleteDir(storage_path);
+    }
+  }
   storage_.emplace(std::move(storage_path));
 }
 
@@ -72,12 +79,10 @@ std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) co
   if (!storage_) return {};
 
   std::vector<ParameterInfo> parameters;
-
-  // Iterate through all stored parameters
+  parameters.reserve(storage_->Size());
   for (const auto &[key, value] : *storage_) {
     parameters.emplace_back(ParameterInfo{.name = key, .value = value, .scope = scope});
   }
-
   return parameters;
 }
 
