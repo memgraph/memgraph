@@ -26,17 +26,33 @@ else
     git fetch "$REPO_URL" "$BRANCH_NAME:$BRANCH_NAME"
 fi
 
-# Check if staging branch already exists, delete if it does
-if git show-ref --verify --quiet refs/heads/"$STAGING_BRANCH" || git show-ref --verify --quiet refs/remotes/origin/"$STAGING_BRANCH"; then
-    echo "WARNING: Staging branch '$STAGING_BRANCH' already exists. DELETING EXISTING BRANCH."
-    git branch -D "$STAGING_BRANCH"
+# Check existence of staging branch (local / remote)
+EXISTS_LOCAL=false
+EXISTS_REMOTE=false
 
-    # delete the remote staging branch
-    git push origin --delete "$STAGING_BRANCH"
-
-    echo "Deleted remote staging branch: $STAGING_BRANCH"
+if git show-ref --verify --quiet "refs/heads/$STAGING_BRANCH"; then
+  EXISTS_LOCAL=true
 fi
 
+if git show-ref --verify --quiet "refs/remotes/origin/$STAGING_BRANCH"; then
+  EXISTS_REMOTE=true
+fi
+
+# Check if staging branch already exists, delete if it does
+if [[ "$EXISTS_LOCAL" == "true" || "$EXISTS_REMOTE" == "true" ]]; then
+  echo "WARNING: Staging branch '$STAGING_BRANCH' already exists."
+
+  if $EXISTS_LOCAL; then
+    echo "Deleting local staging branch: $STAGING_BRANCH"
+    git branch -D "$STAGING_BRANCH"
+  fi
+
+  if $EXISTS_REMOTE; then
+    echo "Deleting remote staging branch: $STAGING_BRANCH"
+    git push origin --delete "$STAGING_BRANCH" || true
+    git fetch origin --prune
+  fi
+fi
 
 if [ "$BASE_MASTER" = "true" ]; then
     echo "Creating staging branch from master and merging feature branch..."
