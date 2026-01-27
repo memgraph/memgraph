@@ -107,8 +107,10 @@ class Memgraph:
             self._binary,
             "--data-directory",
             self._storage_directory.name,
-            f"--auth-module-mappings=basic:{kwargs.pop('module_executable', self._auth_module)}",
         ]
+        module_path = kwargs.pop("module_executable", self._auth_module)
+        if module_path:
+            args.append(f"--auth-module-mappings=basic:{module_path}")
         for key, value in kwargs.items():
             ldap_key = "--auth-module-" + key.replace("_", "-")
             if isinstance(value, bool):
