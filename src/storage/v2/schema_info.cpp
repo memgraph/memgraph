@@ -68,12 +68,6 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
   if (!delta) return;
 
   while (delta != nullptr) {
-    // Skip interleaved deltas as they don't affect vertex/edge properties or labels
-    if (IsDeltaInterleaved(*delta)) {
-      delta = delta->next.load(std::memory_order_acquire);
-      continue;
-    }
-
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     // Went back far enough
     if (ts < start_timestamp) break;
@@ -87,13 +81,6 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
 inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp) {
-  // Skip interleaved deltas to find first non-interleaved delta. Because such
-  // deltas are only ever used to create edges, they will never be label
-  // or property deltas, and so never be relevant for what `GetState` needs.
-  while (delta != nullptr && IsDeltaInterleaved(*delta)) {
-    delta = delta->next.load(std::memory_order_acquire);
-  }
-
   // This tx is running, so no deltas means there are no changes made after the tx started
   if (delta == nullptr) return State::NO_CHANGE;
   const auto ts = delta->timestamp->load(std::memory_order_acquire);
@@ -126,8 +113,6 @@ inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Ver
                                                                        uint64_t commit_timestamp, auto &cache) {
   const auto state = GetState(v->delta, start_timestamp, commit_timestamp);
   const auto *labels = &v->labels;
-  // If labels were changed by another transaction, or if there are uncommitted label deltas
-  // (which GetState might not detect if they're after interleaved deltas), use committed state
   if (state == ANOTHER_TX) {
     labels = GetLabelsViewOld(v, start_timestamp, cache);
   }
@@ -266,92 +251,6 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
   std::unordered_map<const Vertex *, VertexKey> post_vertex_cache;
 
-  // Track edges added from vertex label modifications (not touched by this transaction)
-  std::unordered_set<SchemaInfoEdge> edges_from_vertex_label_mods;
-
-  // Check vertices with label modifications for interleaved deltas
-  for (auto *vertex : post_process.vertices_with_label_modifications) {
-    auto v_lock = std::shared_lock{vertex->lock};
-
-    // Check if vertex has interleaved delta at head and downstream uncommitted delta from us @TODO tidy this
-    const Delta *delta = vertex->delta;
-    if (delta && IsDeltaInterleaved(*delta)) {
-      // Skip interleaved deltas to find first non-interleaved delta
-      while (delta && IsDeltaInterleaved(*delta)) {
-        delta = delta->next.load(std::memory_order_acquire);
-      }
-
-      // Check if we have a downstream delta from this transaction
-      bool has_our_delta = false;
-      while (delta) {
-        auto ts = delta->timestamp->load(std::memory_order_acquire);
-        if (ts == commit_ts) {
-          has_our_delta = true;
-          break;
-        }
-        if (ts < start_ts) break;
-        delta = delta->next.load(std::memory_order_acquire);
-      }
-
-      if (has_our_delta) {
-        // Add all committed edges of this vertex to post-process
-        // Skip uncommitted edges by checking if the vertex has uncommitted interleaved deltas
-        // at the head (which indicate edge creation by another uncommitted transaction)
-        auto has_uncommitted_interleaved = [commit_ts](const Vertex *v) {
-          const Delta *d = v->delta;
-          if (!d || !IsDeltaInterleaved(*d)) return false;
-          auto ts = d->timestamp->load(std::memory_order_acquire);
-          return ts >= kTransactionInitialId && ts != commit_ts;
-        };
-
-        // Helper to check if an edge appears in the diff with any label combination
-        // Returns true if this transaction touched the edge (created, deleted, or moved due to label change)
-        auto edge_touched_by_this_tx = [&diff, &post_process, start_ts, commit_ts](
-                                           EdgeTypeId edge_type, Vertex const *from, Vertex const *to) {
-          auto const from_state = GetState(from->delta, start_ts, commit_ts);
-          auto const to_state = GetState(to->delta, start_ts, commit_ts);
-          std::unordered_map<const Vertex *, VertexKey> empty_cache;
-          auto from_l_diff = GetLabelsDiff(from, from_state, start_ts, post_process.vertex_cache, empty_cache);
-          auto to_l_diff = GetLabelsDiff(to, to_state, start_ts, post_process.vertex_cache, empty_cache);
-
-          // Check all possible label combinations (pre/pre, pre/post, post/pre, post/post)
-          std::array<EdgeKeyRef, 4> const keys = {
-              EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.pre},
-              EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.post},
-              EdgeKeyRef{edge_type, *from_l_diff.post, *to_l_diff.pre},
-              EdgeKeyRef{edge_type, *from_l_diff.post, *to_l_diff.post},
-          };
-
-          return std::ranges::any_of(keys, [&diff](auto const &key) {
-            auto it = diff.edge_state_.find(key);
-            return it != diff.edge_state_.cend() && it->second.n != 0;
-          });
-        };
-
-        for (const auto &[edge_type, other_vertex, edge_ref] : vertex->in_edges) {
-          if (!has_uncommitted_interleaved(vertex) && !has_uncommitted_interleaved(other_vertex)) {
-            SchemaInfoEdge edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = other_vertex, .to = vertex};
-            post_process.edges.emplace(edge);
-            // Only add to edges_from_vertex_label_mods if this transaction didn't touch the edge
-            if (!edge_touched_by_this_tx(edge_type, other_vertex, vertex)) {
-              edges_from_vertex_label_mods.insert(edge);
-            }
-          }
-        }
-        for (const auto &[edge_type, other_vertex, edge_ref] : vertex->out_edges) {
-          if (!has_uncommitted_interleaved(vertex) && !has_uncommitted_interleaved(other_vertex)) {
-            SchemaInfoEdge edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = vertex, .to = other_vertex};
-            post_process.edges.emplace(edge);
-            // Only add to edges_from_vertex_label_mods if this transaction didn't touch the edge
-            if (!edge_touched_by_this_tx(edge_type, vertex, other_vertex)) {
-              edges_from_vertex_label_mods.insert(edge);
-            }
-          }
-        }
-      }
-    }
-  }
-
   // Post process (edge updates)
   for (const auto &[edge_ref, edge_type, from, to] : post_process.edges) {
     auto v_locks = SchemaInfo::ReadLockFromTo(from, to);
@@ -383,75 +282,42 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     // TODO Possible optimization: check if labels or props changed and skip some lookups/updates
 
-    // Check if this edge was added due to vertex label modifications (not touched by this tx)
-    SchemaInfoEdge const current_edge{.edge_ref = edge_ref, .edge_type = edge_type, .from = from, .to = to};
-    bool const edge_from_vertex_label_mod = edges_from_vertex_label_mods.contains(current_edge);
-
-    // Revert local changes. Another commited transaction has also modified at
-    // least one of the (from, to, edge) objects involved in this edge. When it
-    // did so, it had already removed the edge, which we then removed again when
-    // we updated the shared schema. This step corrects the double removal by
-    // adding it back.
-    auto const existing_edge_key = EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.pre};
-    auto it = diff.edge_state_.find(existing_edge_key);
-    bool const edge_created_by_this_tx = (it != diff.edge_state_.cend() && it->second.n > 0);
-    if (!edge_created_by_this_tx && !edge_from_vertex_label_mod) {
-      auto &tracking_11 = edge_lookup(existing_edge_key);
-      ++tracking_11.n;
-    }
-
-    // We added an edge to the shared schema based on this transaction's view
-    // of (from, to, edge). This needs correcting as we know that at least one
-    // of those has changed.
-    if (!edge_from_vertex_label_mod) {
-      auto &tracking_12 = edge_lookup(EdgeKeyRef{edge_type,
-                                                 (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
-                                                 (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
-      --tracking_12.n;
-    }
-
+    // Revert local changes
+    auto &tracking_11 = edge_lookup(EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.pre});
+    ++tracking_11.n;
+    auto &tracking_12 = edge_lookup(EdgeKeyRef{edge_type,
+                                               (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
+                                               (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
+    --tracking_12.n;
     // Edge props
     if (property_on_edges) {
-      if (!edge_created_by_this_tx && !edge_from_vertex_label_mod) {
-        auto &tracking_11 = edge_lookup(existing_edge_key);
-        for (const auto &[key, type] : edge_prop_diff.pre) {
-          auto &pre_info = tracking_11.properties[key];
-          ++pre_info.n;
-          ++pre_info.types[type];
-        }
+      for (const auto &[key, type] : edge_prop_diff.pre) {
+        auto &pre_info = tracking_11.properties[key];
+        ++pre_info.n;
+        ++pre_info.types[type];
       }
-      if (!edge_from_vertex_label_mod) {
-        auto &tracking_12 = edge_lookup(EdgeKeyRef{edge_type,
-                                                   (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
-                                                   (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
-        for (const auto &[key, type] : (edge_state == ANOTHER_TX) ? edge_prop_diff.pre : edge_prop_diff.post) {
-          auto &post_info = tracking_12.properties[key];
-          --post_info.n;
-          --post_info.types[type];
-        }
+      for (const auto &[key, type] : (edge_state == ANOTHER_TX) ? edge_prop_diff.pre : edge_prop_diff.post) {
+        auto &post_info = tracking_12.properties[key];
+        --post_info.n;
+        --post_info.types[type];
       }
     }
 
-    // Revert committed changes. The other transaction updated the schema based
-    // on its view when it committed. This needs removing from the shared
-    // schema as we've changed either (from, to, edge).
-    if (!edge_created_by_this_tx) {
-      auto &tracking_21 = edge_lookup(EdgeKeyRef{edge_type,
-                                                 (from_state == ANOTHER_TX) ? *from_l_diff.post : *from_l_diff.pre,
-                                                 (to_state == ANOTHER_TX) ? *to_l_diff.post : *to_l_diff.pre});
-      --tracking_21.n;
-      // Edge props
-      if (property_on_edges) {
-        for (const auto &[key, type] : (edge_state == ANOTHER_TX) ? edge_prop_diff.post : edge_prop_diff.pre) {
-          auto &post_info = tracking_21.properties[key];
-          --post_info.n;
-          --post_info.types[type];
-        }
+    // Revert committed changes
+    auto &tracking_21 = edge_lookup(EdgeKeyRef{edge_type,
+                                               (from_state == ANOTHER_TX) ? *from_l_diff.post : *from_l_diff.pre,
+                                               (to_state == ANOTHER_TX) ? *to_l_diff.post : *to_l_diff.pre});
+    --tracking_21.n;
+    // Edge props
+    if (property_on_edges) {
+      for (const auto &[key, type] : (edge_state == ANOTHER_TX) ? edge_prop_diff.post : edge_prop_diff.pre) {
+        auto &post_info = tracking_21.properties[key];
+        --post_info.n;
+        --post_info.types[type];
       }
     }
 
-    // Apply the correct changes. Based on all committed items, we can add
-    // the correct (from, to, edge) to the schema.
+    // Apply the correct changes
     auto &tracking_22 = edge_lookup(EdgeKeyRef{edge_type, *from_l_diff.post, *to_l_diff.post});
     ++tracking_22.n;
     // Edge props
@@ -632,13 +498,6 @@ void SchemaTracking<TContainer>::CreateEdge(Vertex *from, Vertex *to, EdgeTypeId
 }
 
 template <template <class...> class TContainer>
-void SchemaTracking<TContainer>::CreateEdgeWithLabels(EdgeTypeId edge_type, const VertexKey &from_labels,
-                                                      const VertexKey &to_labels) {
-  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from_labels, to_labels});
-  ++tracking_info.n;
-}
-
-template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to,
                                             bool prop_on_edges) {
   auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
@@ -814,8 +673,6 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::AddLabel(Vertex *vertex, La
   old_labels.pop_back();
   // Update vertex stats
   tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
-  // Track this vertex for post-processing
-  post_process_->vertices_with_label_modifications.insert(vertex);
   // Update edge stats
   UpdateTransactionalEdges(vertex, old_labels, std::move(v_lock));
 }
@@ -830,8 +687,6 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex,
   old_labels.push_back(label);
   // Update vertex stats
   tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
-  // Track this vertex for post-processing
-  post_process_->vertices_with_label_modifications.insert(vertex);
   // Update edge stats
   UpdateTransactionalEdges(vertex, old_labels, std::move(v_lock));
 }
@@ -961,10 +816,6 @@ void SchemaInfo::VertexModifyingAccessor::AddLabel(Vertex *vertex, LabelId label
   *itr = old_labels.back();
   old_labels.pop_back();
   tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
-  // Track this vertex for post-processing if in transactional mode
-  if (post_process_) {
-    post_process_->vertices_with_label_modifications.insert(vertex);
-  }
 }
 
 // Special case for vertex without any edges
@@ -978,51 +829,13 @@ void SchemaInfo::VertexModifyingAccessor::RemoveLabel(Vertex *vertex, LabelId la
   auto old_labels = vertex->labels;
   old_labels.push_back(label);
   tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
-  // Track this vertex for post-processing if in transactional mode
-  if (post_process_) {
-    post_process_->vertices_with_label_modifications.insert(vertex);
-  }
 }
 
 void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
   DMG_ASSERT(from->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-
-  // In transactional mode, if vertices have interleaved deltas at the head,
-  // we need to use GetLabels to get the correct committed state (ignoring uncommitted/aborted changes
-  // from other transactions). Otherwise, use the fast path with v->labels directly.
-  const bool needs_getlabels = post_process_ && ((from->delta != nullptr && IsDeltaInterleaved(*from->delta)) ||
-                                                 (to->delta != nullptr && IsDeltaInterleaved(*to->delta)));
-
-  if (needs_getlabels) {
-    // Use GetLabels to get correct committed state (or this transaction's changes)
-    auto from_labels = GetLabels(from, start_ts_, commit_ts_, post_process_->vertex_cache);
-    auto to_labels = GetLabels(to, start_ts_, commit_ts_, post_process_->vertex_cache);
-
-    // Create edge with the correct labels
-    tracking_->CreateEdgeWithLabels(edge_type, *from_labels.first, *to_labels.first);
-
-    // If labels might change (from other transactions or this transaction), add to post_process
-    if (from_labels.second || to_labels.second) {
-      // Find the EdgeRef from the vertices' edge lists (edge was just added in AtomicMemoryBlock)
-      // The edge should be in from->out_edges
-      std::optional<EdgeRef> edge_ref;
-      for (const auto &[e_type, other_vertex, e_ref] : from->out_edges) {
-        if (e_type == edge_type && other_vertex == to) {
-          edge_ref = e_ref;
-          break;
-        }
-      }
-
-      if (edge_ref.has_value()) {
-        post_process_->edges.emplace(
-            SchemaInfoEdge{.edge_ref = *edge_ref, .edge_type = edge_type, .from = from, .to = to});
-      }
-    }
-  } else {
-    // Fast path: no interleaved deltas and no uncommitted label deltas, use v->labels directly
-    tracking_->CreateEdge(from, to, edge_type);
-  }
+  // Empty edge; just update the top level stats
+  tracking_->CreateEdge(from, to, edge_type);
 }
 
 void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge_ref) {
