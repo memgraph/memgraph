@@ -709,7 +709,7 @@ showSettings : SHOW DATABASE SETTINGS ;
 
 parameterName : symbolicName ;
 
-parameterValue : literal ;
+parameterValue : literal | parameter ;
 
 setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
 

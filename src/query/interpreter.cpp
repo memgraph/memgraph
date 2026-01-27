@@ -243,7 +243,7 @@ struct QueryLogWrapper {
   std::string_view db_name;
 };
 
-#if FMT_VERSION > 90'000
+#if FMT_VERSION > 90000
 template <>
 class fmt::formatter<QueryLogWrapper> : public fmt::ostream_formatter {};
 #endif
@@ -2600,17 +2600,10 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
   Callback callback;
   switch (parameter_query->action_) {
     case ParameterQuery::Action::SET_PARAMETER: {
-      const auto parameter_name = EvaluateOptionalExpression(parameter_query->parameter_name_, evaluator);
-      if (!parameter_name.IsString()) {
-        throw utils::BasicException("Parameter name should be a string literal");
-      }
-
       const auto parameter_value = EvaluateOptionalExpression(parameter_query->parameter_value_, evaluator);
-      std::string value_str = serialization::SerializeTypedValue(parameter_value).dump();
+      auto value_str = serialization::SerializeTypedValue(parameter_value).dump();
 
-      callback.fn = [parameter_name = std::string{parameter_name.ValueString()},
-                     value_str,
-                     parameters = interpreter_context->parameters]() mutable {
+      callback.fn = [parameter_name = parameter_query->parameter_name_, value_str, parameters = interpreter_context->parameters]() mutable {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
@@ -2623,13 +2616,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       return callback;
     }
     case ParameterQuery::Action::UNSET_PARAMETER: {
-      const auto parameter_name = EvaluateOptionalExpression(parameter_query->parameter_name_, evaluator);
-      if (!parameter_name.IsString()) {
-        throw utils::BasicException("Parameter name should be a string literal");
-      }
-
-      callback.fn = [parameter_name = std::string{parameter_name.ValueString()},
-                     parameters = interpreter_context->parameters]() mutable {
+      callback.fn = [parameter_name = parameter_query->parameter_name_, parameters = interpreter_context->parameters]() mutable {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
@@ -2647,36 +2634,15 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        // For now, only show global parameters
         auto all_params = parameters->GetAllParameters(utils::ParameterScope::GLOBAL);
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
-
         for (const auto &param : all_params) {
-          std::vector<TypedValue> param_info;
-          param_info.reserve(3);
-
-          param_info.emplace_back(param.name);
-          param_info.emplace_back(param.value);
-
-          // Convert scope to string
-          std::string scope_str;
-          switch (param.scope) {
-            case utils::ParameterScope::GLOBAL:
-              scope_str = "global";
-              break;
-            case utils::ParameterScope::DATABASE:
-              scope_str = "database";
-              break;
-            case utils::ParameterScope::SESSION:
-              scope_str = "session";
-              break;
-          }
-          param_info.emplace_back(scope_str);
-
-          results.push_back(std::move(param_info));
+          results.emplace_back(std::vector<TypedValue>{
+              TypedValue(param.name),
+              TypedValue(param.value),
+              TypedValue(utils::ParameterScopeToString(param.scope))});
         }
-
         return results;
       };
       return callback;
@@ -5667,7 +5633,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
 PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                     InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
-    throw SettingConfigInMulticommandTxException{};  // Reuse the same exception type
+    throw SettingConfigInMulticommandTxException{};
   }
 
   auto *parameter_query = utils::Downcast<ParameterQuery>(parsed_query.query);
@@ -5690,8 +5656,6 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
         return std::nullopt;
       },
       .rw_type = RWType::NONE};
-  // False positive report for the std::make_shared above
-  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 }  // namespace
 

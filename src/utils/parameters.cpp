@@ -21,7 +21,20 @@ Parameters::Parameters(std::filesystem::path storage_path) {
   storage_.emplace(std::move(storage_path));
 }
 
-bool Parameters::SetParameter(const std::string &name, const std::string &value, ParameterScope scope) {
+std::string_view ParameterScopeToString(ParameterScope scope) {
+  switch (scope) {
+    case ParameterScope::GLOBAL:
+      return "global";
+    case ParameterScope::DATABASE:
+      return "database";
+    case ParameterScope::SESSION:
+      return "session";
+    default:
+      throw utils::BasicException("Invalid parameter scope");
+  }
+}
+
+bool Parameters::SetParameter(std::string_view name, std::string_view value, ParameterScope scope) {
   std::lock_guard parameters_guard{parameters_lock_};
   if (!storage_) return false;
 
@@ -34,14 +47,14 @@ bool Parameters::SetParameter(const std::string &name, const std::string &value,
   return true;
 }
 
-std::optional<std::string> Parameters::GetParameter(const std::string &name, ParameterScope /*scope*/) const {
+std::optional<std::string> Parameters::GetParameter(std::string_view name, ParameterScope /*scope*/) const {
   std::shared_lock parameters_guard{parameters_lock_};
   if (!storage_) return std::nullopt;
 
   return storage_->Get(name);
 }
 
-bool Parameters::UnsetParameter(const std::string &name, ParameterScope scope) {
+bool Parameters::UnsetParameter(std::string_view name, ParameterScope scope) {
   std::lock_guard parameters_guard{parameters_lock_};
   if (!storage_) return false;
 

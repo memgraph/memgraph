@@ -1199,6 +1199,29 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) override;
 
   /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) override;
+
+  /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitSetParameter(MemgraphCypher::SetParameterContext *ctx) override;
+
+  /**
+   * @return ParameterQuery*
+   */
+  /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitUnsetParameter(MemgraphCypher::UnsetParameterContext *ctx) override;
+
+  /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitShowParameters(MemgraphCypher::ShowParametersContext *ctx) override;
+
+  /**
    * @return CallSubquery*
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;

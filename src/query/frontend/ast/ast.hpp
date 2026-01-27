@@ -3791,15 +3791,15 @@ class ParameterQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::ParameterQuery::Action action_;
-  memgraph::query::Expression *parameter_name_{nullptr};
+  std::string parameter_name_;
   memgraph::query::Expression *parameter_value_{nullptr};
 
-  // TODO: Add scope information (GLOBAL, DATABASE, SESSION) when implementing scopes
+  // TODO(@DavIvek): Add scope information (GLOBAL, DATABASE, SESSION) when implementing scopes
 
   ParameterQuery *Clone(AstStorage *storage) const override {
-    ParameterQuery *object = storage->Create<ParameterQuery>();
+    auto *object = storage->Create<ParameterQuery>();
     object->action_ = action_;
-    object->parameter_name_ = parameter_name_ ? parameter_name_->Clone(storage) : nullptr;
+    object->parameter_name_ = parameter_name_;
     object->parameter_value_ = parameter_value_ ? parameter_value_->Clone(storage) : nullptr;
     return object;
   }

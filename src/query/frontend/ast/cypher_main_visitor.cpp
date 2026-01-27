@@ -3848,6 +3848,40 @@ antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfig
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) {  
+  MG_ASSERT(ctx->children.size() == 1, "ParameterQuery should have exactly one child!");
+  auto *parameter_query = std::any_cast<ParameterQuery *>(ctx->children[0]->accept(this));
+  query_ = parameter_query;
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetParameter(MemgraphCypher::SetParameterContext *ctx) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::SET_PARAMETER;
+  parameter_query->parameter_name_ = std::any_cast<std::string>(ctx->parameterName()->symbolicName()->accept(this));
+  if (ctx->parameterValue()->literal() && ctx->parameterValue()->literal()->StringLiteral()) {
+    parameter_query->parameter_value_ = std::any_cast<Expression *>(ctx->parameterValue()->accept(this));
+  } else if (ctx->parameterValue()->parameter()) {
+    parameter_query->parameter_value_ = std::any_cast<ParameterLookup *>(ctx->parameterValue()->accept(this));
+  } else {
+    throw SemanticException("Parameter value should be a string literal");
+  }
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUnsetParameter(MemgraphCypher::UnsetParameterContext *ctx) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::UNSET_PARAMETER;
+  parameter_query->parameter_name_ = std::any_cast<std::string>(ctx->parameterName()->symbolicName()->accept(this));
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowParameters(MemgraphCypher::ShowParametersContext * /*ctx*/) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::SHOW_PARAMETERS;
+  return parameter_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) {
   auto *call_subquery = storage_->Create<CallSubquery>();
 

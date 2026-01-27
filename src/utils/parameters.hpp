@@ -22,6 +22,8 @@ namespace memgraph::utils {
 
 enum class ParameterScope { GLOBAL, DATABASE, SESSION };
 
+std::string_view ParameterScopeToString(ParameterScope scope);
+
 struct ParameterInfo {
   std::string name;
   std::string value;
@@ -39,17 +41,17 @@ struct Parameters {
   /**
    * @brief Set a parameter with a given name, value, and scope.
    */
-  bool SetParameter(const std::string &name, const std::string &value, ParameterScope scope = ParameterScope::GLOBAL);
+  bool SetParameter(std::string_view name, std::string_view value, ParameterScope scope = ParameterScope::GLOBAL);
 
   /**
    * @brief Get a parameter with a given name and scope.
    */
-  std::optional<std::string> GetParameter(const std::string &name, ParameterScope scope = ParameterScope::GLOBAL) const;
+  std::optional<std::string> GetParameter(std::string_view name, ParameterScope scope = ParameterScope::GLOBAL) const;
 
   /**
    * @brief Delete a parameter with a given name and scope.
    */
-  bool UnsetParameter(const std::string &name, ParameterScope scope = ParameterScope::GLOBAL);
+  bool UnsetParameter(std::string_view name, ParameterScope scope = ParameterScope::GLOBAL);
 
   /**
    * @brief Get all parameters with a given scope.
