@@ -150,11 +150,6 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
     // Head delta is from another uncommitted transaction. Check if this is
     // a situation where the entire uncommitted delta chain is of commutative
     // operations: if so, we can safely add an interleaved deltas.
-    // TODO(colinbarry): This is pessimistic: everywhere apart from the
-    // schema_info can handle the case of mixed deltas. Once schema_info is
-    // changed to cope with uncommitted label/prop changes via a deferred
-    // processing scheme for interleaved deltas, we can remove the `for` loop
-    // and check.
 
     // If the head delta is interleaved, we know we can always add another
     // interleaved delta.
