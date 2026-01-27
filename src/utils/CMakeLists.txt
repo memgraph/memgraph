@@ -35,6 +35,7 @@ target_sources(mg-utils
     resource_monitoring.cpp
     safe_string.cpp
     disk_utils.cpp
+    numa.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -56,6 +57,7 @@ target_sources(mg-utils
     compile_time.hpp
     resource_monitoring.hpp
     safe_string.hpp
+    numa.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

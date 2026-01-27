@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@
 #include "communication/v2/session.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/numa.hpp"
 
 namespace memgraph::communication::v2 {
 
@@ -70,6 +71,10 @@ class Server final {
   Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
          std::string_view service_name, unsigned io_n_threads);
 
+  // NUMA-aware constructor
+  Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
+         std::string_view service_name, const utils::numa::NUMATopology &topology);
+
   ~Server();
 
   Server(const Server &) = delete;
@@ -93,10 +98,13 @@ class Server final {
 
  private:
   void DoAccept() {
-    acceptor_.async_accept([this](auto ec, boost::asio::ip::tcp::socket &&socket) { OnAccept(ec, std::move(socket)); });
+    acceptor_->async_accept(
+        [this](auto ec, boost::asio::ip::tcp::socket &&socket) { OnAccept(ec, std::move(socket)); });
   }
 
   void OnAccept(boost::system::error_code ec, tcp::socket socket);
+
+  void InitializeAcceptor();
 
   void OnError(const boost::system::error_code &ec, const std::string_view what) {
     spdlog::error("Listener failed on {}: {}", what, ec.message());
@@ -116,7 +124,7 @@ class Server final {
   ServerContext *server_context_;
 
   IOContextThreadPool io_thread_pool_;
-  tcp::acceptor acceptor_{io_thread_pool_.GetIOContext()};
+  std::unique_ptr<tcp::acceptor> acceptor_;
 };
 
 template <typename TSession, typename TSessionContext>
@@ -132,10 +140,29 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
       service_name_{service_name},
       session_context_(session_context),
       server_context_(server_context),
-      io_thread_pool_{io_n_threads} {
+      io_thread_pool_{io_n_threads},
+      acceptor_{std::make_unique<tcp::acceptor>(io_thread_pool_.GetIOContext())} {
+  InitializeAcceptor();
+}
+
+template <typename TSession, typename TSessionContext>
+Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionContext *session_context,
+                                          ServerContext *server_context, const std::string_view service_name,
+                                          const utils::numa::NUMATopology &topology)
+    : endpoint_{endpoint},
+      service_name_{service_name},
+      session_context_(session_context),
+      server_context_(server_context),
+      io_thread_pool_{topology},
+      acceptor_{std::make_unique<tcp::acceptor>(io_thread_pool_.GetIOContext())} {
+  InitializeAcceptor();
+}
+
+template <typename TSession, typename TSessionContext>
+void Server<TSession, TSessionContext>::InitializeAcceptor() {
   boost::system::error_code ec;
   // Open the acceptor
-  (void)acceptor_.open(endpoint_.protocol(), ec);
+  (void)acceptor_->open(endpoint_.protocol(), ec);
   if (ec) {
     OnError(ec, "open");
     MG_ASSERT(false, "Failed to open to socket.");
@@ -143,7 +170,7 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
   }
 
   // Allow address reuse
-  (void)acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
+  (void)acceptor_->set_option(boost::asio::socket_base::reuse_address(true), ec);
   if (ec) {
     OnError(ec, "set_option");
     MG_ASSERT(false, "Failed to set_option.");
@@ -151,7 +178,7 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
   }
 
   // Bind to the server address
-  (void)acceptor_.bind(endpoint_, ec);
+  (void)acceptor_->bind(endpoint_, ec);
   if (ec) {
     spdlog::error(
         utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
@@ -160,7 +187,7 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
     return;
   }
 
-  (void)acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
+  (void)acceptor_->listen(boost::asio::socket_base::max_listen_connections, ec);
   if (ec) {
     OnError(ec, "listen");
     MG_ASSERT(false, "Failed to listen.");
@@ -188,6 +215,12 @@ inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_cod
   if (ec) {
     return OnError(ec, "accept");
   }
+
+  // Detect which NUMA node should handle this connection
+  // Use the socket's native handle to detect incoming CPU
+  // Note: The socket is already bound to an io_context, so we detect the NUMA node
+  // for potential future optimization (e.g., routing work to the appropriate NUMA node)
+  (void)socket.native_handle();  // Detect but don't use yet - future optimization
 
   auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
   session->Start();

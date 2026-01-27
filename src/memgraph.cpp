@@ -62,6 +62,7 @@
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/numa.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
@@ -687,10 +688,30 @@ int main(int argc, char **argv) {
   std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
   unsigned io_n_threads = FLAGS_bolt_num_workers;
 
+  // Detect NUMA topology
+  auto numa_topology = memgraph::utils::numa::DetectTopology();
+  uint16_t hp_threads_count = 1U;
+
+  if (numa_topology.has_value()) {
+    // Set HP threads to number of NUMA groups
+    hp_threads_count = static_cast<uint16_t>(numa_topology->GetNUMANodeCount());
+    spdlog::info("NUMA-aware mode: detected {} NUMA node(s), setting HP threads to {}",
+                 numa_topology->GetNUMANodeCount(), hp_threads_count);
+  }
+
   if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
-    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
-                         /* high priority */ 1U);
-    io_n_threads = 1U;
+    if (numa_topology.has_value()) {
+      // NUMA-aware thread pool
+      worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+                           /* high priority */ hp_threads_count, *numa_topology);
+    } else {
+      // Legacy thread pool
+      worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+                           /* high priority */ hp_threads_count);
+    }
+    // For NUMA-aware, use per-NUMA IO contexts (one thread per NUMA node)
+    // For legacy, use single IO thread
+    io_n_threads = numa_topology.has_value() ? 0U : 1U;  // 0 signals NUMA-aware mode
   }
 
   ServerContext context;
@@ -712,7 +733,15 @@ int main(int argc, char **argv) {
   memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(),
                                           worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
-  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
+
+  // Create server with NUMA-aware IO context if available
+  memgraph::glue::ServerT server = [&]() {
+    if (numa_topology.has_value() && GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
+      return memgraph::glue::ServerT(server_endpoint, &session_context, &context, service_name, *numa_topology);
+    } else {
+      return memgraph::glue::ServerT(server_endpoint, &session_context, &context, service_name, io_n_threads);
+    }
+  }();
 
   const auto machine_id = memgraph::utils::GetMachineId();
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include <thread>
 
 #include "utils/logging.hpp"
+#include "utils/numa.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
 
@@ -115,6 +116,10 @@ class PriorityThreadPool {
 
   PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count);
 
+  // NUMA-aware constructor
+  PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
+                     const numa::NUMATopology &topology);
+
   ~PriorityThreadPool();
 
   PriorityThreadPool(const PriorityThreadPool &) = delete;
@@ -170,6 +175,10 @@ class PriorityThreadPool {
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
 
+    // NUMA information
+    int numa_node_{-1};  // NUMA node this worker is pinned to
+    int cpu_id_{-1};     // CPU core this worker is pinned to
+
     friend class PriorityThreadPool;
   };
 
@@ -186,6 +195,15 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+
+  // NUMA topology (if NUMA-aware)
+  std::optional<numa::NUMATopology> numa_topology_;
+
+  // Helper: Get workers in the same NUMA group
+  std::vector<Worker *> GetWorkersInNUMAGroup(int numa_node) const;
+
+  // Helper: Get a worker from a different NUMA group (for stuck task migration)
+  Worker *GetWorkerFromDifferentNUMA(int exclude_numa_node) const;
 };
 
 }  // namespace memgraph::utils

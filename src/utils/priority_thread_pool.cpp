@@ -23,6 +23,7 @@
 
 #include "utils/barrier.hpp"
 #include "utils/logging.hpp"
+#include "utils/numa.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
@@ -41,7 +42,7 @@ struct TmpHotElement {
   uint8_t id;
   uint64_t new_mask;
 
-  static inline TmpHotElement Get(uint64_t state) {
+  static TmpHotElement Get(uint64_t state) {
     uint8_t hot_id = std::countr_zero(state);       // Get first hot thread in group
     uint64_t new_state = state & ~(1UL << hot_id);  // Update group to reflect thread reservation
     return {hot_id, new_state};
@@ -101,6 +102,136 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   }
 
   barrier.wait();
+}
+
+PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
+                                       const numa::NUMATopology &topology)
+    : hot_threads_{mixed_work_threads_count}, task_id_{kMaxLowPriorityId}, last_wid_{0}, numa_topology_{topology} {
+  MG_ASSERT(mixed_work_threads_count > 0, "PriorityThreadPool requires at least one mixed work thread");
+  MG_ASSERT(mixed_work_threads_count <= kMaxWorkers,
+            "PriorityThreadPool supports a maximum of 1024 mixed work threads");
+  MG_ASSERT(high_priority_threads_count > 0, "PriorityThreadPool requires at least one high priority work thread");
+
+  // Build CPU assignment: fill one NUMA node at a time, primary cores first, then hyperthreads
+  std::vector<std::pair<int, int>> cpu_assignments;  // (cpu_id, numa_node)
+
+  // First pass: assign primary cores, one NUMA node at a time
+  for (const auto &node : topology.nodes) {
+    auto primary_cores = node.GetPrimaryCores();
+    for (int cpu : primary_cores) {
+      cpu_assignments.push_back({cpu, node.node_id});
+    }
+  }
+
+  // Second pass: assign hyperthreads if we need more CPUs
+  if (cpu_assignments.size() < mixed_work_threads_count) {
+    for (const auto &node : topology.nodes) {
+      auto hyperthreads = node.GetHyperthreads();
+      for (int cpu : hyperthreads) {
+        cpu_assignments.push_back({cpu, node.node_id});
+        if (cpu_assignments.size() >= mixed_work_threads_count) break;
+      }
+      if (cpu_assignments.size() >= mixed_work_threads_count) break;
+    }
+  }
+
+  // Assign HP threads: one per NUMA node
+  std::vector<std::pair<int, int>> hp_cpu_assignments;
+  for (size_t i = 0; i < topology.nodes.size() && i < static_cast<size_t>(high_priority_threads_count); ++i) {
+    const auto &node = topology.nodes[i];
+    // Use first primary core from each NUMA node for HP thread
+    auto primary_cores = node.GetPrimaryCores();
+    if (!primary_cores.empty()) {
+      hp_cpu_assignments.push_back({primary_cores[0], node.node_id});
+    }
+  }
+
+  // If we don't have enough CPUs, log a warning
+  if (cpu_assignments.size() < mixed_work_threads_count) {
+    spdlog::warn(
+        "Not enough CPUs available: requested {} workers, but only {} CPUs found. "
+        "Some workers will share CPUs.",
+        mixed_work_threads_count, cpu_assignments.size());
+    // Extend by repeating assignments
+    while (cpu_assignments.size() < mixed_work_threads_count) {
+      cpu_assignments.push_back(cpu_assignments[cpu_assignments.size() % cpu_assignments.size()]);
+    }
+  }
+
+  pool_.reserve(mixed_work_threads_count + high_priority_threads_count);
+  workers_.resize(mixed_work_threads_count);
+  hp_workers_.resize(high_priority_threads_count);
+
+  const size_t nthreads = mixed_work_threads_count + high_priority_threads_count;
+  SimpleBarrier barrier{nthreads};
+
+  // Create mixed priority workers with CPU pinning
+  for (size_t i = 0; i < mixed_work_threads_count; ++i) {
+    const auto &assignment = cpu_assignments[i % cpu_assignments.size()];
+    int cpu_id = assignment.first;
+    int numa_node = assignment.second;
+
+    pool_.emplace_back([this, i, cpu_id, numa_node, &barrier]() {
+      // Pin thread to specific CPU
+      if (!numa::PinThreadToCPU(cpu_id)) {
+        spdlog::warn("Failed to pin worker {} to CPU {}", i, cpu_id);
+      } else {
+        spdlog::trace("Pinned worker {} to CPU {} (NUMA node {})", i, cpu_id, numa_node);
+      }
+
+      workers_[i] = std::make_unique<Worker>();
+      workers_[i]->numa_node_ = numa_node;
+      workers_[i]->cpu_id_ = cpu_id;
+
+      barrier.arrive_and_wait();
+      workers_[i]->operator()<Priority::LOW>(i, workers_, hot_threads_);
+    });
+  }
+
+  // Create high priority workers with CPU pinning (one per NUMA node)
+  for (size_t i = 0; i < high_priority_threads_count; ++i) {
+    if (i < hp_cpu_assignments.size()) {
+      const auto &assignment = hp_cpu_assignments[i];
+      int cpu_id = assignment.first;
+      int numa_node = assignment.second;
+
+      pool_.emplace_back([this, i, cpu_id, numa_node, &barrier]() {
+        // Pin thread to specific CPU
+        if (!numa::PinThreadToCPU(cpu_id)) {
+          spdlog::warn("Failed to pin HP worker {} to CPU {}", i, cpu_id);
+        } else {
+          spdlog::trace("Pinned HP worker {} to CPU {} (NUMA node {})", i, cpu_id, numa_node);
+        }
+
+        hp_workers_[i] = std::make_unique<Worker>();
+        hp_workers_[i]->numa_node_ = numa_node;
+        hp_workers_[i]->cpu_id_ = cpu_id;
+
+        barrier.arrive_and_wait();
+        hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
+      });
+    } else {
+      // Fallback: use first CPU assignment if we don't have enough NUMA nodes
+      const auto &assignment = cpu_assignments[0];
+      int cpu_id = assignment.first;
+      int numa_node = assignment.second;
+
+      pool_.emplace_back([this, i, cpu_id, numa_node, &barrier]() {
+        if (!numa::PinThreadToCPU(cpu_id)) {
+          spdlog::warn("Failed to pin HP worker {} to CPU {}", i, cpu_id);
+        }
+
+        hp_workers_[i] = std::make_unique<Worker>();
+        hp_workers_[i]->numa_node_ = numa_node;
+        hp_workers_[i]->cpu_id_ = cpu_id;
+
+        barrier.arrive_and_wait();
+        hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
+      });
+    }
+  }
+
+  barrier.wait();
 
   // Under heavy load a task can get stuck, monitor and move to different thread
   monitoring_.SetInterval(std::chrono::milliseconds(100));
@@ -123,21 +254,46 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
         worker->work_.pop();
         l.unlock();
 
-        auto tid = hot_threads_.GetHotElement();
-        if (!tid) {
-          // No hot LP threads available; schedule HP work to HP thread
-          if (work.id > kMinHighPriorityId) {
-            static size_t last_hp_thread = 0;
-            auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
-            if (!hp_worker->has_pending_work_) {
-              hp_worker->push(std::move(work.work), work.id);
-              continue;
+        // Try to find a worker in the same NUMA group first
+        Worker *target_worker = nullptr;
+        if (numa_topology_.has_value() && worker->numa_node_ >= 0) {
+          // First try same NUMA group
+          auto same_numa_workers = GetWorkersInNUMAGroup(worker->numa_node_);
+          for (auto *w : same_numa_workers) {
+            if (w != worker.get() && !w->has_pending_work_.load(std::memory_order_acquire)) {
+              target_worker = w;
+              break;
             }
           }
-          // No hot thread and low priority work, schedule to the next lp worker
-          tid = (worker_id + 1) % workers_num;
+
+          // If no worker in same NUMA group, allow cross-NUMA migration for stuck tasks
+          if (!target_worker) {
+            target_worker = GetWorkerFromDifferentNUMA(worker->numa_node_);
+          }
         }
-        workers_[*tid]->push(std::move(work.work), work.id);
+
+        // Fallback to original logic if not NUMA-aware or no NUMA worker found
+        if (!target_worker) {
+          auto tid = hot_threads_.GetHotElement();
+          if (!tid) {
+            // No hot LP threads available; schedule HP work to HP thread
+            if (work.id > kMinHighPriorityId) {
+              static size_t last_hp_thread = 0;
+              auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
+              if (!hp_worker->has_pending_work_) {
+                hp_worker->push(std::move(work.work), work.id);
+                continue;
+              }
+            }
+            // No hot thread and low priority work, schedule to the next lp worker
+            tid = (worker_id + 1) % workers_num;
+          }
+          target_worker = workers_[*tid].get();
+        }
+
+        if (target_worker) {
+          target_worker->push(std::move(work.work), work.id);
+        }
       }
     }
   });
@@ -173,18 +329,74 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   }
   const auto id = (TaskID(priority == Priority::HIGH) * kMinHighPriorityId) +
                   --task_id_;  // Way to priorities hp tasks and older tasks
-  auto tid = hot_threads_.GetHotElement();
-  if (!tid) {
-    // Limit the number of directly used threads when there are more workers than hw threads.
-    // Gives better overall performance.
-    static const auto max_wakeup_thread =
-        std::min(static_cast<TaskID>(std::thread::hardware_concurrency()), workers_.size());
-    // If no hot thread found, give it to the next thread
-    tid = last_wid_++ % max_wakeup_thread;
+
+  // If NUMA-aware, try to find a hot thread in the same NUMA group as the current thread
+  uint16_t target_worker_id = 0;
+  if (numa_topology_.has_value()) {
+    int current_numa = numa::GetCurrentNUMANode();
+    if (current_numa >= 0) {
+      auto same_numa_workers = GetWorkersInNUMAGroup(current_numa);
+      // Try to find a hot thread in same NUMA group
+      auto tid = hot_threads_.GetHotElement();
+      if (tid && *tid < workers_.size() && workers_[*tid]->numa_node_ == current_numa) {
+        target_worker_id = *tid;
+      } else {
+        // Find first available worker in same NUMA group
+        for (auto *w : same_numa_workers) {
+          size_t worker_idx = 0;
+          for (size_t i = 0; i < workers_.size(); ++i) {
+            if (workers_[i].get() == w) {
+              worker_idx = i;
+              break;
+            }
+          }
+          if (worker_idx < workers_.size()) {
+            target_worker_id = static_cast<uint16_t>(worker_idx);
+            break;
+          }
+        }
+      }
+    }
   }
-  workers_[*tid]->push(std::move(new_task), id);
+
+  // Fallback to original logic
+  if (!numa_topology_.has_value() || target_worker_id == 0) {
+    auto tid = hot_threads_.GetHotElement();
+    if (!tid) {
+      // Limit the number of directly used threads when there are more workers than hw threads.
+      // Gives better overall performance.
+      static const auto max_wakeup_thread =
+          std::min(static_cast<TaskID>(std::thread::hardware_concurrency()), workers_.size());
+      // If no hot thread found, give it to the next thread
+      tid = last_wid_++ % max_wakeup_thread;
+    }
+    target_worker_id = *tid;
+  }
+
+  workers_[target_worker_id]->push(std::move(new_task), id);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
+}
+
+std::vector<PriorityThreadPool::Worker *> PriorityThreadPool::GetWorkersInNUMAGroup(int numa_node) const {
+  std::vector<Worker *> result;
+  for (const auto &worker : workers_) {
+    if (worker && worker->numa_node_ == numa_node) {
+      result.push_back(worker.get());
+    }
+  }
+  return result;
+}
+
+PriorityThreadPool::Worker *PriorityThreadPool::GetWorkerFromDifferentNUMA(int exclude_numa_node) const {
+  // Find first worker from a different NUMA node
+  for (const auto &worker : workers_) {
+    if (worker && worker->numa_node_ >= 0 && worker->numa_node_ != exclude_numa_node) {
+      return worker.get();
+    }
+  }
+  // Fallback: return first worker if no different NUMA node found
+  return workers_.empty() ? nullptr : workers_[0].get();
 }
 
 void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id) {
@@ -211,24 +423,39 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
+  // NUMA-aware: only steal from workers in the same NUMA group
   const auto other_workers = std::invoke([&workers_pool, self = this, worker_id]() -> std::vector<Worker *> {
     if constexpr (ThreadPriority != Priority::HIGH) {
       // Only mixed work threads can have work stolen, workers_pool does not contain hp threads (skip self)
-      const auto other_workers_size = workers_pool.size() - 1;
-      if (other_workers_size == 0) return {};
-      std::vector<Worker *> other_workers(other_workers_size, nullptr);
-      size_t i = other_workers_size - worker_id;  // Optimization to mix thread stealing between workers
+      // Filter to only workers in the same NUMA group
+      std::vector<Worker *> other_workers;
       for (const auto &worker : workers_pool) {
         if (worker.get() == self) continue;
-        other_workers[i % other_workers_size] = worker.get();
-        ++i;
+        // Only steal from workers in the same NUMA group
+        if (self->numa_node_ >= 0 && worker->numa_node_ == self->numa_node_) {
+          other_workers.push_back(worker.get());
+        } else if (self->numa_node_ < 0) {
+          // If NUMA info not available, allow stealing from any worker (fallback)
+          other_workers.push_back(worker.get());
+        }
+      }
+      // Shuffle order for better load distribution
+      if (other_workers.size() > 1) {
+        const size_t rotate_amount = other_workers.size() - (worker_id % other_workers.size());
+        std::rotate(other_workers.begin(), other_workers.begin() + static_cast<ptrdiff_t>(rotate_amount),
+                    other_workers.end());
       }
       return other_workers;
     } else {
-      // Hp threads steal from any mixed work thread (workers_pool contains only mixed work threads)
-      (void)self;
-      (void)worker_id;
-      return workers_pool | std::views::transform([](auto &o) { return o.get(); }) | std::ranges::to<std::vector>();
+      // Hp threads steal from any mixed work thread in the same NUMA group
+      std::vector<Worker *> other_workers;
+      for (const auto &worker : workers_pool) {
+        // Only steal from workers in the same NUMA group
+        if (self->numa_node_ < 0 || worker->numa_node_ == self->numa_node_) {
+          other_workers.push_back(worker.get());
+        }
+      }
+      return other_workers;
     }
   });
 
