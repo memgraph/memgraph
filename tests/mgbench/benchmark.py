@@ -1028,27 +1028,45 @@ if __name__ == "__main__":
         client_numa_aware=args.client_numa_aware,
     )
 
-    # If NUMA-aware client pinning is enabled, assign CPUs to clients
+    # If NUMA-aware client pinning is enabled, assign NUMA nodes to clients
     if args.client_numa_aware:
-        from numa_utils import assign_cpus_to_clients
+        if args.client_numa_node is not None:
+            log.warning("--client-numa-node is specified but will be overridden by --client-numa-aware auto-assignment")
+        if args.client_cpu_list is not None:
+            log.warning("--client-cpu-list is specified but will be overridden by --client-numa-aware auto-assignment")
 
-        # Assign CPUs based on number of benchmark workers (one CPU per potential client)
-        # Note: Typically there's one client process, but we assign CPUs for potential parallel clients
+        from numa_utils import assign_numa_nodes_to_clients, detect_topology
+
+        # Assign NUMA nodes based on number of benchmark workers (one NUMA node per potential client)
+        # Note: Typically there's one client process, but we assign NUMA nodes for potential parallel clients
         num_clients = args.num_workers_for_benchmark if args.num_workers_for_benchmark else 1
-        cpu_assignments = assign_cpus_to_clients(num_clients)
+        numa_assignments = assign_numa_nodes_to_clients(num_clients)
 
-        # Store CPU assignments in context (for potential future use with multiple clients)
-        # For now, we'll use the first CPU for the client
-        if cpu_assignments and cpu_assignments[0] is not None:
-            benchmark_context.client_cpu_id = cpu_assignments[0]
-            available_cpus = len([c for c in cpu_assignments if c is not None])
-            log.log(
-                "NUMA-aware client pinning: assigned CPU {} to client ({} CPUs available for {} clients)".format(
-                    cpu_assignments[0], available_cpus, num_clients
+        # Store NUMA node assignment in context (for potential future use with multiple clients)
+        # For now, we'll use the first NUMA node for the client
+        if numa_assignments and numa_assignments[0] is not None:
+            benchmark_context.client_numa_node = numa_assignments[0]
+
+            # Get topology info for logging
+            topology = detect_topology()
+            if topology:
+                total_primary = sum(node.get_primary_core_count() for node in topology.nodes)
+                total_hyperthreads = sum(node.get_hyperthread_count() for node in topology.nodes)
+                num_numa_nodes = topology.get_numa_node_count()
+                log.log(
+                    "NUMA-aware client pinning: assigned NUMA node {} to client "
+                    "({} NUMA nodes, {} primary cores, {} hyperthreads, {} clients)".format(
+                        numa_assignments[0], num_numa_nodes, total_primary, total_hyperthreads, num_clients
+                    )
                 )
-            )
+            else:
+                log.log(
+                    "NUMA-aware client pinning: assigned NUMA node {} to client ({} clients)".format(
+                        numa_assignments[0], num_clients
+                    )
+                )
         else:
-            log.warning("NUMA-aware client pinning enabled but no CPUs available, running without pinning")
+            log.warning("NUMA-aware client pinning enabled but no NUMA nodes available, running without pinning")
 
     log_benchmark_arguments(benchmark_context)
     check_benchmark_requirements(benchmark_context)

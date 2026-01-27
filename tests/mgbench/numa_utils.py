@@ -51,6 +51,14 @@ class NUMANode:
         """Get hyperthreads in this NUMA node."""
         return [cpu.logical_id for cpu in self.cpus if cpu.is_hyperthread]
 
+    def get_primary_core_count(self) -> int:
+        """Get number of primary cores in this NUMA node."""
+        return len(self.get_primary_cores())
+
+    def get_hyperthread_count(self) -> int:
+        """Get number of hyperthreads in this NUMA node."""
+        return len(self.get_hyperthreads())
+
 
 class NUMATopology:
     """NUMA topology information."""
@@ -222,3 +230,60 @@ def assign_cpus_to_clients(num_clients: int, topology: Optional[NUMATopology] = 
 
     # Return assignments (one per client)
     return cpu_assignments[:num_clients]
+
+
+def assign_numa_nodes_to_clients(num_clients: int, topology: Optional[NUMATopology] = None) -> List[Optional[int]]:
+    """
+    Assign NUMA nodes to clients using the same logic as PriorityThreadPool:
+    - Fill one NUMA node at a time
+    - Primary cores first (one client per primary core), then hyperthreads
+    - Clients are pinned to NUMA groups, not individual cores
+
+    Strategy:
+    1. Fill NUMA node 0 with primary cores (one client per primary core)
+    2. Then fill NUMA node 1 with primary cores
+    3. Continue until all primary cores across all NUMA nodes are used
+    4. Then loop back and fill hyperthreaded cores in the same order
+
+    Args:
+        num_clients: Number of clients to assign NUMA nodes to
+        topology: NUMA topology (if None, will be detected)
+
+    Returns:
+        List of NUMA node IDs, one per client. None means no pinning for that client.
+    """
+    if topology is None:
+        topology = detect_topology()
+        if topology is None:
+            return [None] * num_clients
+
+    numa_assignments = []
+
+    # First pass: assign primary cores, one NUMA node at a time
+    # Each primary core gets one client assigned to its NUMA node
+    for node in topology.nodes:
+        primary_core_count = node.get_primary_core_count()
+        for _ in range(primary_core_count):
+            numa_assignments.append(node.node_id)
+
+    # Second pass: assign hyperthreads if we need more clients
+    # Each hyperthread gets one client assigned to its NUMA node
+    if len(numa_assignments) < num_clients:
+        for node in topology.nodes:
+            hyperthread_count = node.get_hyperthread_count()
+            for _ in range(hyperthread_count):
+                numa_assignments.append(node.node_id)
+                if len(numa_assignments) >= num_clients:
+                    break
+            if len(numa_assignments) >= num_clients:
+                break
+
+    # If we don't have enough assignments, extend by repeating cyclically
+    if len(numa_assignments) < num_clients and len(numa_assignments) > 0:
+        # Repeat assignments cyclically
+        original_len = len(numa_assignments)
+        while len(numa_assignments) < num_clients:
+            numa_assignments.append(numa_assignments[len(numa_assignments) % original_len])
+
+    # Return assignments (one per client)
+    return numa_assignments[:num_clients]
