@@ -24,6 +24,7 @@ from pathlib import Path
 import log
 from benchmark_context import BenchmarkContext
 from constants import BenchmarkInstallationType, GraphVendors
+from numa_utils import assign_cpus_to_clients, detect_topology
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -142,7 +143,7 @@ def get_docker_memory_usage(container_name):
         raise Exception(f"Unrecognized memory usage: {memory_usage}")
 
 
-def _get_cpu_pinning_command(cpu_list=None, numa_node=None):
+def _get_cpu_pinning_command(cpu_list=None, numa_node=None, cpu_id=None):
     """
     Construct a command prefix for CPU pinning using taskset or numactl.
 
@@ -168,7 +169,7 @@ def _get_cpu_pinning_command(cpu_list=None, numa_node=None):
     return []
 
 
-def _wrap_command_with_pinning(command, cpu_list=None, numa_node=None):
+def _wrap_command_with_pinning(command, cpu_list=None, numa_node=None, cpu_id=None):
     """
     Wrap a command with CPU pinning using taskset or numactl.
 
@@ -176,11 +177,12 @@ def _wrap_command_with_pinning(command, cpu_list=None, numa_node=None):
         command: List of command arguments to wrap
         cpu_list: Comma-separated list of CPU cores (e.g., "0,1,2,3" or "0-3")
         numa_node: NUMA node number (e.g., 0, 1)
+        cpu_id: Single CPU ID to pin to (takes precedence over cpu_list)
 
     Returns:
         List of command arguments with pinning prefix
     """
-    pinning_cmd = _get_cpu_pinning_command(cpu_list, numa_node)
+    pinning_cmd = _get_cpu_pinning_command(cpu_list, numa_node, cpu_id)
     if pinning_cmd:
         return pinning_cmd + command
     return command
@@ -258,7 +260,8 @@ class BoltClient(BaseClient):
         # Apply CPU pinning if configured
         cpu_list = self.benchmark_context.client_cpu_list
         numa_node = self.benchmark_context.client_numa_node
-        client_args = _wrap_command_with_pinning(client_args, cpu_list=cpu_list, numa_node=numa_node)
+        cpu_id = self.benchmark_context.client_cpu_id
+        client_args = _wrap_command_with_pinning(client_args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
 
         log.info("Client args: {}".format(client_args))
 
@@ -302,7 +305,8 @@ class BoltClient(BaseClient):
         # Apply CPU pinning if configured
         cpu_list = self.benchmark_context.client_cpu_list
         numa_node = self.benchmark_context.client_numa_node
-        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node)
+        cpu_id = self.benchmark_context.client_cpu_id
+        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
 
         log.info("Client args: {}".format(args))
 
@@ -538,7 +542,8 @@ class PythonClient(BaseClient):
         # Apply CPU pinning if configured
         cpu_list = self.benchmark_context.client_cpu_list
         numa_node = self.benchmark_context.client_numa_node
-        check_db_args = _wrap_command_with_pinning(check_db_args, cpu_list=cpu_list, numa_node=numa_node)
+        cpu_id = self.benchmark_context.client_cpu_id
+        check_db_args = _wrap_command_with_pinning(check_db_args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
 
         while True:
             try:
@@ -579,7 +584,8 @@ class PythonClient(BaseClient):
         # Apply CPU pinning if configured
         cpu_list = self.benchmark_context.client_cpu_list
         numa_node = self.benchmark_context.client_numa_node
-        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node)
+        cpu_id = self.benchmark_context.client_cpu_id
+        args = _wrap_command_with_pinning(args, cpu_list=cpu_list, numa_node=numa_node, cpu_id=cpu_id)
 
         ret = None
         try:

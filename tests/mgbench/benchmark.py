@@ -283,6 +283,15 @@ def parse_args():
         help="NUMA node for pinning client processes (e.g., 0, 1). Uses numactl. Preferred for NUMA-aware pinning.",
     )
 
+    benchmark_parser.add_argument(
+        "--client-numa-aware",
+        action="store_true",
+        default=False,
+        help="Enable NUMA-aware client CPU assignment. Automatically assigns CPUs to clients: "
+        "fills one NUMA node at a time (primary cores first, then hyperthreads). "
+        "If not enough CPUs, remaining clients run without pinning.",
+    )
+
     return benchmark_parser.parse_args()
 
 
@@ -1016,7 +1025,30 @@ if __name__ == "__main__":
         memgraph_numa_node=args.memgraph_numa_node,
         client_cpu_list=args.client_cpu_list,
         client_numa_node=args.client_numa_node,
+        client_numa_aware=args.client_numa_aware,
     )
+
+    # If NUMA-aware client pinning is enabled, assign CPUs to clients
+    if args.client_numa_aware:
+        from numa_utils import assign_cpus_to_clients
+
+        # Assign CPUs based on number of benchmark workers (one CPU per potential client)
+        # Note: Typically there's one client process, but we assign CPUs for potential parallel clients
+        num_clients = args.num_workers_for_benchmark if args.num_workers_for_benchmark else 1
+        cpu_assignments = assign_cpus_to_clients(num_clients)
+
+        # Store CPU assignments in context (for potential future use with multiple clients)
+        # For now, we'll use the first CPU for the client
+        if cpu_assignments and cpu_assignments[0] is not None:
+            benchmark_context.client_cpu_id = cpu_assignments[0]
+            available_cpus = len([c for c in cpu_assignments if c is not None])
+            log.log(
+                "NUMA-aware client pinning: assigned CPU {} to client ({} CPUs available for {} clients)".format(
+                    cpu_assignments[0], available_cpus, num_clients
+                )
+            )
+        else:
+            log.warning("NUMA-aware client pinning enabled but no CPUs available, running without pinning")
 
     log_benchmark_arguments(benchmark_context)
     check_benchmark_requirements(benchmark_context)

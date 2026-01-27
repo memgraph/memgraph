@@ -166,6 +166,15 @@ def parse_arguments():
         help="NUMA node for pinning client processes (e.g., 0, 1). Uses numactl. Preferred for NUMA-aware pinning.",
     )
 
+    parser.add_argument(
+        "--client-numa-aware",
+        action="store_true",
+        default=False,
+        help="Enable NUMA-aware client CPU assignment. Automatically assigns CPUs to clients: "
+        "fills one NUMA node at a time (primary cores first, then hyperthreads). "
+        "If not enough CPUs, remaining clients run without pinning.",
+    )
+
     args = parser.parse_args()
 
     # Ensure vendor-binary is provided and matches vendor count when installation-type is 'native'
@@ -199,6 +208,7 @@ def run_full_benchmarks(
     memgraph_numa_node=None,
     client_cpu_list=None,
     client_numa_node=None,
+    client_numa_aware=False,
 ):
     configurations = []
     if run_isolated_cold:
@@ -325,6 +335,8 @@ def run_full_benchmarks(
         default_args.extend(["--client-cpu-list", client_cpu_list])
     if client_numa_node is not None:
         default_args.extend(["--client-numa-node", str(client_numa_node)])
+    if client_numa_aware:
+        default_args.append("--client-numa-aware")
 
     for config in configurations:
         full_config = default_args + config
@@ -407,6 +419,7 @@ if __name__ == "__main__":
             args.memgraph_numa_node,
             args.client_cpu_list,
             args.client_numa_node,
+            args.client_numa_aware,
         )
         collect_all_results(
             vendor_name, args.dataset_name, args.dataset_size, args.dataset_group, args.num_workers_for_benchmark

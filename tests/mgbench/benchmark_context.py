@@ -49,6 +49,8 @@ class BenchmarkContext:
         memgraph_numa_node: int = None,  # NUMA node for memgraph (e.g., 0, 1)
         client_cpu_list: str = None,  # CPU list for clients (e.g., "0,1,2,3" or "0-3")
         client_numa_node: int = None,  # NUMA node for clients (e.g., 0, 1)
+        client_numa_aware: bool = False,  # Enable NUMA-aware client CPU assignment
+        client_cpu_id: int = None,  # Single CPU ID for this specific client (used internally)
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.databases = databases
@@ -93,6 +95,8 @@ class BenchmarkContext:
         self.memgraph_numa_node = memgraph_numa_node
         self.client_cpu_list = client_cpu_list
         self.client_numa_node = client_numa_node
+        self.client_numa_aware = client_numa_aware
+        self.client_cpu_id = client_cpu_id
         self.active_workload = None
         self.active_variant = None
 
