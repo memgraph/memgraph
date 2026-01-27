@@ -4115,8 +4115,6 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
         SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})",
                      *index_name,
-        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})",
-                     *index_name,
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 

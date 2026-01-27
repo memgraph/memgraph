@@ -209,34 +209,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
     auto info = recovery_.RecoverData(
-        uuid(),
-        repl_storage_state_,
-        &vertices_,
-        &edges_,
-        &edges_metadata_,
-        &edge_count_,
-        name_id_mapper_.get(),
-        &indices_,
-        &constraints_,
-        config_,
-        &wal_seq_num_,
-        &enum_store_,
-        uuid(),
-        repl_storage_state_,
-        &vertices_,
-        &edges_,
-        &edges_metadata_,
-        &edge_count_,
-        name_id_mapper_.get(),
-        &indices_,
-        &constraints_,
-        config_,
-        &wal_seq_num_,
-        &enum_store_,
-        config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        [this](Gid edge_gid) { return FindEdge(edge_gid); },
-        name(),
-        &ttl_);
+      uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
+      &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
+      config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+      [this](Gid edge_gid) { return FindEdge(edge_gid); }, name(), &ttl_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
