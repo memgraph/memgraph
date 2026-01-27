@@ -23,6 +23,7 @@ inline std::shared_ptr<spdlog::sinks::sink> &stderr_sink() {
 }
 
 const std::string &GetAllowedLogLevels();
+
 constexpr const char *GetLogLevelHelpString() {
   return "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL";
 }

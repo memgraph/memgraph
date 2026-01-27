@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -142,6 +142,7 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
 class TTL final {
  public:
   explicit TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
+
   ~TTL() = default;
 
   TTL(const TTL &) = delete;
@@ -238,6 +239,7 @@ class TTL final {
   // Returns true if this is a main instance, false if replica
   struct UserCheck {
     UserCheck() = default;
+
     explicit UserCheck(std::function<bool()> check_fn) : check_fn(std::move(check_fn)) {}
 
     void Update(std::function<bool()> check_fn) {
@@ -272,11 +274,17 @@ namespace memgraph::storage::ttl {
 
 struct TtlInfo {
   TtlInfo() = default;
+
   TtlInfo(std::string_view, std::string_view) {}
+
   TtlInfo(std::optional<std::chrono::microseconds>, std::optional<std::chrono::system_clock::time_point>) {}
+
   TtlInfo(std::string_view, std::string_view, bool) {}
+
   TtlInfo(std::optional<std::chrono::microseconds>, std::optional<std::chrono::system_clock::time_point>, bool) {}
+
   std::string ToString() const { return ""; }
+
   explicit operator bool() const { return false; }
 };
 
@@ -290,20 +298,34 @@ class TTL final {
 
  public:
   explicit TTL(Storage * /*storage_ptr*/) {}
+
   void Shutdown() {}
+
   void Stop() {}
+
   void Pause() {}
+
   void Resume() {}
+
   bool Enabled() const { return false; }
+
   bool Running() { return false; }
+
   bool Paused() const { return false; }
+
   void Enable() {}
+
   void Disable() {}
+
   void Configure(bool) {}
+
   TtlInfo Config() const { return TtlInfo{}; }
+
   void SetInterval(std::optional<std::chrono::microseconds> = std::nullopt,
                    std::optional<std::chrono::system_clock::time_point> = std::nullopt) {}
+
   void SetUserCheck(std::function<bool()>) {}
+
   bool Restore() { return false; }
 };
 

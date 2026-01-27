@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,11 +41,11 @@ class DataInstanceContextTest : public ::testing::Test {
 
 TEST_F(DataInstanceContextTest, Marshalling) {
   DataInstanceConfig config{.instance_name = "instance3",
-                            .mgt_server = {"127.0.0.1", 10112},
+                            .mgt_server = {"127.0.0.1", 10'112},
                             .bolt_server = {"127.0.0.1", 7687},
                             .replication_client_info = {.instance_name = "instance_name",
                                                         .replication_mode = ReplicationMode::ASYNC,
-                                                        .replication_server = {"127.0.0.1", 10001}}};
+                                                        .replication_server = {"127.0.0.1", 10'001}}};
 
   nlohmann::json j;
   memgraph::coordination::to_json(j, config);

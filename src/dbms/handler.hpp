@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,8 +56,8 @@ class Handler {
   NewResult New(std::piecewise_construct_t /* marker */, std::string_view name, Args &&...args) {
     // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
     if (!Has(name)) {
-      auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                     std::forward_as_tuple(std::forward<Args>(args)...));
+      auto [itr, _] = items_.emplace(
+          std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(std::forward<Args>(args)...));
       auto db_acc = itr->second.access();
       if (db_acc) return std::move(*db_acc);
       return std::unexpected{NewError::DEFUNCT};
@@ -148,10 +148,6 @@ class Handler {
    * @return true on success, false if new_name already exists or context is in use
    */
   std::expected<void, RenameError> Rename(std::string_view old_name, std::string_view new_name) {
-    if (old_name == new_name) {
-      return {};  // No-op
-    }
-
     auto old_itr = items_.find(old_name);
     if (old_itr == items_.end()) {
       return std::unexpected{RenameError::NON_EXISTENT};
@@ -170,18 +166,26 @@ class Handler {
   }
 
   auto begin() { return items_.begin(); }
+
   auto end() { return items_.end(); }
+
   auto begin() const { return items_.begin(); }
+
   auto end() const { return items_.end(); }
+
   auto cbegin() const { return items_.cbegin(); }
+
   auto cend() const { return items_.cend(); }
 
   auto size() const { return items_.size(); }
 
   struct string_hash {
     using is_transparent = void;
+
     [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+
     [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+
     [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
   };
 

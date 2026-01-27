@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,64 +65,94 @@ struct MetadataDelta {
 
   static constexpr struct LabelIndexCreate {
   } label_index_create;
+
   static constexpr struct LabelIndexDrop {
   } label_index_drop;
+
   static constexpr struct LabelIndexStatsSet {
   } label_index_stats_set;
+
   static constexpr struct LabelIndexStatsClear {
   } label_index_stats_clear;
+
   static constexpr struct LabelPropertyIndexCreate {
   } label_property_index_create;
+
   static constexpr struct PointIndexCreate {
   } point_index_create;
+
   static constexpr struct PointIndexDrop {
   } point_index_drop;
+
   static constexpr struct LabelPropertyIndexDrop {
   } label_property_index_drop;
+
   static constexpr struct LabelPropertyIndexStatsSet {
   } label_property_index_stats_set;
+
   static constexpr struct LabelPropertyIndexStatsClear {
   } label_property_index_stats_clear;
+
   static constexpr struct EdgeIndexCreate {
   } edge_index_create;
+
   static constexpr struct EdgeIndexDrop {
   } edge_index_drop;
+
   static constexpr struct EdgePropertyIndexCreate {
   } edge_property_index_create;
+
   static constexpr struct EdgePropertyIndexDrop {
   } edge_property_index_drop;
+
   static constexpr struct GlobalEdgePropertyIndexCreate {
   } global_edge_property_index_create;
+
   static constexpr struct GlobalEdgePropertyIndexDrop {
   } global_edge_property_index_drop;
+
   static constexpr struct TextIndexCreate {
   } text_index_create;
+
   static constexpr struct TextEdgeIndexCreate {
   } text_edge_index_create;
+
   static constexpr struct TextIndexDrop {
   } text_index_drop;
+
   static constexpr struct VectorIndexCreate {
   } vector_index_create;
+
   static constexpr struct VectorIndexDrop {
   } vector_index_drop;
+
   static constexpr struct VectorEdgeIndexCreate {
   } vector_edge_index_create;
+
   static constexpr struct ExistenceConstraintCreate {
   } existence_constraint_create;
+
   static constexpr struct ExistenceConstraintDrop {
   } existence_constraint_drop;
+
   static constexpr struct UniqueConstraintCreate {
   } unique_constraint_create;
+
   static constexpr struct UniqueConstraintDrop {
   } unique_constraint_drop;
+
   static constexpr struct TypeConstraintCreate {
   } type_constraint_create;
+
   static constexpr struct TypeConstraintDrop {
   } type_constraint_drop;
+
   static constexpr struct EnumCreate {
   } enum_create;
+
   static constexpr struct EnumAlterAdd {
   } enum_alter_add;
+
   static constexpr struct EnumAlterUpdate {
   } enum_alter_update;
 
@@ -398,6 +428,7 @@ struct MetadataDelta {
 
     TextIndexSpec text_index;
     TextEdgeIndexSpec text_edge_index;
+
     struct {
       durability::TtlOperationType operation_type;
       std::optional<std::chrono::microseconds> period;

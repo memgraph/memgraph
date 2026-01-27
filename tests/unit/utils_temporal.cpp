@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,8 +30,8 @@ std::string ToString(const memgraph::utils::DateParameters &date_parameters) {
 }
 
 std::string ToString(const memgraph::utils::LocalTimeParameters &local_time_parameters) {
-  return fmt::format("{:02}:{:02d}:{:02d}", local_time_parameters.hour, local_time_parameters.minute,
-                     local_time_parameters.second);
+  return fmt::format(
+      "{:02}:{:02d}:{:02d}", local_time_parameters.hour, local_time_parameters.minute, local_time_parameters.second);
 }
 
 struct TestDateParameters {
@@ -39,12 +39,16 @@ struct TestDateParameters {
   bool should_throw;
 };
 
-inline constexpr std::array test_dates{
-    TestDateParameters{{-1996, 11, 22}, true}, TestDateParameters{{1996, -11, 22}, true},
-    TestDateParameters{{1996, 11, -22}, true}, TestDateParameters{{1, 13, 3}, true},
-    TestDateParameters{{1, 12, 32}, true},     TestDateParameters{{1, 2, 29}, true},
-    TestDateParameters{{2020, 2, 29}, false},  TestDateParameters{{1700, 2, 29}, true},
-    TestDateParameters{{1200, 2, 29}, false},  TestDateParameters{{10000, 12, 3}, true}};
+inline constexpr std::array test_dates{TestDateParameters{{-1996, 11, 22}, true},
+                                       TestDateParameters{{1996, -11, 22}, true},
+                                       TestDateParameters{{1996, 11, -22}, true},
+                                       TestDateParameters{{1, 13, 3}, true},
+                                       TestDateParameters{{1, 12, 32}, true},
+                                       TestDateParameters{{1, 2, 29}, true},
+                                       TestDateParameters{{2020, 2, 29}, false},
+                                       TestDateParameters{{1700, 2, 29}, true},
+                                       TestDateParameters{{1200, 2, 29}, false},
+                                       TestDateParameters{{10'000, 12, 3}, true}};
 
 struct TestLocalTimeParameters {
   memgraph::utils::LocalTimeParameters local_time_parameters;
@@ -125,13 +129,13 @@ TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
 }
 
 TEST(TemporalTest, DateDaysSinceEpochConstructor) {
-  const auto verify_date = [](int32_t days_since_epoch, int expected_year, unsigned expected_month,
-                              unsigned expected_day) {
-    memgraph::utils::Date date(std::chrono::days{days_since_epoch});
-    EXPECT_EQ(date.year, expected_year);
-    EXPECT_EQ(date.month, expected_month);
-    EXPECT_EQ(date.day, expected_day);
-  };
+  const auto verify_date =
+      [](int32_t days_since_epoch, int expected_year, unsigned expected_month, unsigned expected_day) {
+        memgraph::utils::Date date(std::chrono::days{days_since_epoch});
+        EXPECT_EQ(date.year, expected_year);
+        EXPECT_EQ(date.month, expected_month);
+        EXPECT_EQ(date.day, expected_day);
+      };
 
   const auto date_to_days = [](int year, unsigned month, unsigned day) -> int32_t {
     std::chrono::year_month_day ymd{std::chrono::year{year}, std::chrono::month{month}, std::chrono::day{day}};
@@ -319,8 +323,13 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
   const auto local_date_time = LocalDateTime{date_parameters, local_time_parameters};
 
   std::array timezone_offsets{
-      std::chrono::minutes{0},   std::chrono::minutes{60},  std::chrono::minutes{75},  std::chrono::minutes{90},
-      std::chrono::minutes{-60}, std::chrono::minutes{-75}, std::chrono::minutes{-90},
+      std::chrono::minutes{0},
+      std::chrono::minutes{60},
+      std::chrono::minutes{75},
+      std::chrono::minutes{90},
+      std::chrono::minutes{-60},
+      std::chrono::minutes{-75},
+      std::chrono::minutes{-90},
   };
 
   const auto check_conversion = [&date_parameters, &local_time_parameters, &local_date_time](const auto &cases) {
@@ -341,16 +350,16 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
       std::make_pair("America/Los_Angeles", std::chrono::minutes{-420}),  // local_date_time in daylight saving time
   };
 
-  const auto check_conversion_from_named = [&date_parameters, &local_time_parameters,
-                                            &local_date_time](const auto &cases) {
-    for (const auto &[timezone_name, timezone_offset] : cases) {
-      const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_name)});
+  const auto check_conversion_from_named =
+      [&date_parameters, &local_time_parameters, &local_date_time](const auto &cases) {
+        for (const auto &[timezone_name, timezone_offset] : cases) {
+          const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_name)});
 
-      EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch().count(),
-                local_date_time.MicrosecondsSinceEpoch() -
-                    std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
-    }
-  };
+          EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch().count(),
+                    local_date_time.MicrosecondsSinceEpoch() -
+                        std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
+        }
+      };
 
   check_conversion_from_named(named_timezones);
 }
@@ -592,8 +601,10 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
     return std::format("{0}{1}", date_time, timezone);
   };
 
-  const auto check_timezone_parsing_cases = [&shared_date_time, &shared_expected_date_params,
-                                             &shared_expected_local_time_params, &join_strings](const auto &cases) {
+  const auto check_timezone_parsing_cases = [&shared_date_time,
+                                             &shared_expected_date_params,
+                                             &shared_expected_local_time_params,
+                                             &join_strings](const auto &cases) {
     for (const auto &[timezone_string, timezone_parameter] : cases) {
       auto zdt_string = join_strings(shared_date_time, timezone_string);
       auto zdt_parameters =
@@ -614,9 +625,10 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
 }
 
 TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_UTC) {
-  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
-      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
-      memgraph::utils::Timezone{"UTC"}}};
+  memgraph::utils::ZonedDateTime datetime{
+      memgraph::utils::ZonedDateTimeParameters{memgraph::utils::DateParameters{2020, 11, 22},
+                                               memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+                                               memgraph::utils::Timezone{"UTC"}}};
 
   auto const local_time = datetime.AsLocalTime();
   auto const date = datetime.AsLocalDate();
@@ -632,9 +644,10 @@ TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_UTC) {
 }
 
 TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_NamedTimezone) {
-  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
-      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
-      memgraph::utils::Timezone{"Europe/Prague"}}};
+  memgraph::utils::ZonedDateTime datetime{
+      memgraph::utils::ZonedDateTimeParameters{memgraph::utils::DateParameters{2020, 11, 22},
+                                               memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+                                               memgraph::utils::Timezone{"Europe/Prague"}}};
 
   auto const local_time = datetime.AsLocalTime();
   auto const date = datetime.AsLocalDate();
@@ -650,9 +663,10 @@ TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_NamedTimezone) {
 }
 
 TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_PositiveOffset) {
-  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
-      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
-      memgraph::utils::Timezone{std::chrono::minutes{60}}}};
+  memgraph::utils::ZonedDateTime datetime{
+      memgraph::utils::ZonedDateTimeParameters{memgraph::utils::DateParameters{2020, 11, 22},
+                                               memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+                                               memgraph::utils::Timezone{std::chrono::minutes{60}}}};
 
   auto const local_time = datetime.AsLocalTime();
   auto const date = datetime.AsLocalDate();
@@ -668,9 +682,10 @@ TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_PositiveOffset) {
 }
 
 TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_NegativeOffset) {
-  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
-      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
-      memgraph::utils::Timezone{std::chrono::minutes{-60}}}};
+  memgraph::utils::ZonedDateTime datetime{
+      memgraph::utils::ZonedDateTimeParameters{memgraph::utils::DateParameters{2020, 11, 22},
+                                               memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+                                               memgraph::utils::Timezone{std::chrono::minutes{-60}}}};
 
   auto const local_time = datetime.AsLocalTime();
   auto const date = datetime.AsLocalDate();
@@ -743,15 +758,15 @@ TEST(TemporalTest, DurationParsing) {
                               20.1,
                           });
   CheckDurationParameters(memgraph::utils::ParseDurationParameters("P-22222222DT1H9M20.100S"),
-                          memgraph::utils::DurationParameters{-22222222, 1, 9, 20.1});
+                          memgraph::utils::DurationParameters{-22'222'222, 1, 9, 20.1});
   CheckDurationParameters(memgraph::utils::ParseDurationParameters("P-22222222DT-10H8M21.200S"),
-                          memgraph::utils::DurationParameters{-22222222, -10, 8, 21.2});
+                          memgraph::utils::DurationParameters{-22'222'222, -10, 8, 21.2});
   CheckDurationParameters(memgraph::utils::ParseDurationParameters("P-22222222DT-1H-7M22.300S"),
-                          memgraph::utils::DurationParameters{-22222222, -1, -7, 22.3});
+                          memgraph::utils::DurationParameters{-22'222'222, -1, -7, 22.3});
   CheckDurationParameters(memgraph::utils::ParseDurationParameters("P-22222222DT-1H-6M-20.100S"),
-                          memgraph::utils::DurationParameters{-22222222, -1, -6, -20.1});
+                          memgraph::utils::DurationParameters{-22'222'222, -1, -6, -20.1});
   CheckDurationParameters(memgraph::utils::ParseDurationParameters("P-22222222DT-1H-5M-20.100S"),
-                          memgraph::utils::DurationParameters{-22222222, -1, -5, -20.1});
+                          memgraph::utils::DurationParameters{-22'222'222, -1, -5, -20.1});
 }
 
 TEST(TemporalTest, PrintDate) {

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,7 @@ struct PointIndexContext;
 
 struct TrackedChanges {
   TrackedChanges() = default;
+
   template <typename It>
   TrackedChanges(It b, It e) : data(b, e) {}
 
@@ -53,9 +54,13 @@ struct TrackedChanges {
   }
 
   auto begin() const { return data.begin(); }
+
   auto end() const { return data.end(); }
+
   bool empty() const { return data.empty(); }
+
   auto find(LabelPropKey key) { return data.find(key); }
+
   auto find(LabelPropKey key) const { return data.find(key); }
 
  private:

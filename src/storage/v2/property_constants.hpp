@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,16 +26,18 @@ static const auto kSmallestList = PropertyValue(std::vector<PropertyValue>());
 static const auto kSmallestMap = PropertyValue(PropertyValue::map_t{});
 static const auto kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
-static const auto kSmallestZonedTemporalData = PropertyValue(
-    ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
-                      utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
+static const auto kSmallestZonedTemporalData =
+    PropertyValue(ZonedTemporalData{static_cast<ZonedTemporalType>(0),
+                                    utils::AsSysTime(std::numeric_limits<int64_t>::min()),
+                                    utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
 static const auto kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
 static const auto kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
 static const auto kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
-static const auto kLargestProperty =
-    PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d, std::numeric_limits<double>::infinity(),
-                          std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()});
+static const auto kLargestProperty = PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d,
+                                                           std::numeric_limits<double>::infinity(),
+                                                           std::numeric_limits<double>::infinity(),
+                                                           std::numeric_limits<double>::infinity()});
 
 // We statically verify that the ordering of the property values holds.
 static_assert(PropertyValue::Type::Null < PropertyValue::Type::Bool);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,7 @@ class CsvReaderTest : public ::testing::TestWithParam<TestParam> {
       std::filesystem::create_directory(csv_directory);
     }
   }
+
   void Clear() {
     if (!std::filesystem::exists(csv_directory)) return;
     std::filesystem::remove_all(csv_directory);

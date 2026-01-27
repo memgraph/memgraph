@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       EdgeAccessor const &operator*() const { return current_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++();
@@ -76,6 +77,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }
+
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
@@ -106,7 +108,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       }
 
       EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++() {
@@ -133,10 +137,12 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
+
       Iterator end() { return end_; }
     };
 
     Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+
     size_t size() const { return chunks_.size(); }
 
    private:
@@ -161,6 +167,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   struct IndicesContainer {
     IndicesContainer(IndicesContainer const &other) : indices_(other.indices_) {}
+
     IndicesContainer(IndicesContainer &&) = default;
     IndicesContainer &operator=(IndicesContainer const &) = default;
     IndicesContainer &operator=(IndicesContainer &&) = default;

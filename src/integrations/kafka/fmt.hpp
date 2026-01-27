@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@ inline std::ostream &operator<<(std::ostream &os, const RdKafka::ErrorCode &code
   os << RdKafka::err2str(code);
   return os;
 }
+
 template <>
 class fmt::formatter<RdKafka::ErrorCode> : public fmt::ostream_formatter {};
 #endif

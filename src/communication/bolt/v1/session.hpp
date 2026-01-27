@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -189,6 +189,7 @@ class Session {
   std::optional<BoltMetrics::Metrics> metrics_;
 
   std::string UUID() const { return session_uuid_; }
+
   std::string GetLoginTimestamp() const { return login_timestamp_; }
 
  protected:

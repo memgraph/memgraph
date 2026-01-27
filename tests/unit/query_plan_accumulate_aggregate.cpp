@@ -111,7 +111,15 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m", false,
+    auto r_m = MakeExpand(this->storage,
+                          symbol_table,
+                          n.op_,
+                          n.sym_,
+                          "r",
+                          EdgeAtom::Direction::BOTH,
+                          {},
+                          "m",
+                          false,
                           memgraph::storage::View::OLD);
 
     auto one = LITERAL(1);
@@ -193,10 +201,14 @@ class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
   }
 
   auto AggregationResults(bool with_group_by, bool distinct,
-                          std::vector<Aggregation::Op> ops = {
-                              Aggregation::Op::COUNT, Aggregation::Op::COUNT, Aggregation::Op::MIN,
-                              Aggregation::Op::MAX, Aggregation::Op::SUM, Aggregation::Op::AVG,
-                              Aggregation::Op::COLLECT_LIST, Aggregation::Op::COLLECT_MAP}) {
+                          std::vector<Aggregation::Op> ops = {Aggregation::Op::COUNT,
+                                                              Aggregation::Op::COUNT,
+                                                              Aggregation::Op::MIN,
+                                                              Aggregation::Op::MAX,
+                                                              Aggregation::Op::SUM,
+                                                              Aggregation::Op::AVG,
+                                                              Aggregation::Op::COLLECT_LIST,
+                                                              Aggregation::Op::COLLECT_MAP}) {
     // match all nodes and perform aggregations
     auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
@@ -364,8 +376,8 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
-  EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
-                                  TypedValue::BoolEqual{}));
+  EXPECT_TRUE(std::is_permutation(
+      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
@@ -394,8 +406,8 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
   auto n_p2 = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop2);
   auto n_p3 = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop3);
 
-  auto produce = this->MakeAggregationProduce(n.op_, symbol_table, {n_p1}, {Aggregation::Op::COUNT}, {n_p1, n_p2, n_p3},
-                                              {n.sym_}, false);
+  auto produce = this->MakeAggregationProduce(
+      n.op_, symbol_table, {n_p1}, {Aggregation::Op::COUNT}, {n_p1, n_p2, n_p3}, {n.sym_}, false);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -590,9 +602,10 @@ TYPED_TEST(QueryPlanTest, Unwind) {
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
   auto input_expr =
       this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::ExternalPropertyValue>{
-          memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
-              memgraph::storage::ExternalPropertyValue(1), memgraph::storage::ExternalPropertyValue(true),
-              memgraph::storage::ExternalPropertyValue("x")}),
+          memgraph::storage::ExternalPropertyValue(
+              std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
+                                                                    memgraph::storage::ExternalPropertyValue(true),
+                                                                    memgraph::storage::ExternalPropertyValue("x")}),
           memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{}),
           memgraph::storage::ExternalPropertyValue(
               std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue("bla")})});
@@ -777,8 +790,8 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
-  EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
-                                  TypedValue::BoolEqual{}));
+  EXPECT_TRUE(std::is_permutation(
+      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {

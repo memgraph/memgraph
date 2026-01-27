@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,12 +19,17 @@
 namespace memgraph::utils {
 struct SafeString {
   SafeString() {}
+
   SafeString(std::string str) : str_(std::move(str)) {}
+
   SafeString(std::string_view str) : str_(str) {}
+
   SafeString(char const *str) : str_(str) {}
 
   SafeString(SafeString const &other) : str_(other.str()) {}
+
   SafeString(SafeString &&other) noexcept : str_(other.str()) {}
+
   SafeString &operator=(SafeString const &other) {
     if (this == &other) return *this;
     auto other_str = other.str();
@@ -32,6 +37,7 @@ struct SafeString {
     str_ = std::move(other_str);
     return *this;
   }
+
   SafeString &operator=(SafeString &&other) noexcept {
     if (this == &other) return *this;
     std::scoped_lock lock(mutex_, other.mutex_);

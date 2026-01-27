@@ -28,6 +28,7 @@ class TmpDirManager final {
       : tmp_dir_{std::filesystem::temp_directory_path() / directory} {
     CreateDir();
   }
+
   ~TmpDirManager() { Clear(); }
 
   const std::filesystem::path &Path() const { return tmp_dir_; }

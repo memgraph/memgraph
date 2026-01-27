@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -85,8 +85,11 @@ std::optional<EdgeAccessor> Graph::RemoveEdge(const EdgeAccessor &edge) {
 }
 
 utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() { return vertices_; }
+
 utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() { return edges_; }
+
 const utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() const { return vertices_; }
+
 const utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() const { return edges_; }
 
 auto Graph::get_allocator() const -> allocator_type { return vertices_.get_allocator(); }

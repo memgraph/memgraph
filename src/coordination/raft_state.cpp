@@ -84,7 +84,8 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
 
   auto const last_committed_index_state_machine_{state_machine_->last_commit_index()};
   spdlog::trace("Last commited index from snapshot: {}, last commited index in state machine: {}",
-                last_commit_index_snapshot, last_committed_index_state_machine_);
+                last_commit_index_snapshot,
+                last_committed_index_state_machine_);
 
   auto log_store = state_manager_->load_log_store();
   if (!log_store) {
@@ -170,8 +171,8 @@ auto RaftState::InitRaftServer() -> void {
     throw RaftServerStartException("Failed to create rpc listener on port {}", coordinator_port_);
   }
 
-  auto *ctx = new context(casted_state_manager, casted_state_machine, asio_listener_, logger_, rpc_cli_factory,
-                          scheduler, params);
+  auto *ctx = new context(
+      casted_state_manager, casted_state_machine, asio_listener_, logger_, rpc_cli_factory, scheduler, params);
 
   raft_server_ = std::make_shared<raft_server>(ctx, init_opts);
 
@@ -287,7 +288,8 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
     spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
   } else {
     throw RaftRemoveServerException(
-        "Failed to accept request for removing coordinator {} from the cluster with the error code {}", coordinator_id,
+        "Failed to accept request for removing coordinator {} from the cluster with the error code {}",
+        coordinator_id,
         static_cast<int>(cmd_result->get_result_code()));
   }
 
@@ -306,14 +308,14 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
   }
 
   if (!removed) {
-    throw RaftRemoveServerException("Failed to remove coordinator {} from the cluster in {}ms", coordinator_id,
-                                    max_tries * waiting_period);
+    throw RaftRemoveServerException(
+        "Failed to remove coordinator {} from the cluster in {}ms", coordinator_id, max_tries * waiting_period);
   }
 }
 
 auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void {
-  spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
-                coordinator_id_);
+  spdlog::trace(
+      "Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id, coordinator_id_);
 
   // If I am not adding myself, I need to use add_srv and rely on NuRaft...
   auto const coordinator_server = config.coordinator_server.SocketAddress();  // non-resolved IP
@@ -321,15 +323,16 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
                                                          .coordinator_server = coordinator_server,
                                                          .management_server = config.management_server.SocketAddress()};
 
-  srv_config const srv_config_to_add(config.coordinator_id, 0, coordinator_server,
-                                     nlohmann::json(coord_instance_aux).dump(), false);
+  srv_config const srv_config_to_add(
+      config.coordinator_id, 0, coordinator_server, nlohmann::json(coord_instance_aux).dump(), false);
 
   if (const auto cmd_result = raft_server_->add_srv(srv_config_to_add);
       cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
     spdlog::info("Request to add server {} to the cluster accepted", coordinator_server);
   } else {
     throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
-                                 coordinator_server, static_cast<int>(cmd_result->get_result_code()));
+                                 coordinator_server,
+                                 static_cast<int>(cmd_result->get_result_code()));
   }
   // Waiting for server to join
   constexpr int max_tries{10};
@@ -342,8 +345,8 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
       return;
     }
   }
-  throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", coordinator_server,
-                               max_tries * waiting_period);
+  throw RaftAddServerException(
+      "Failed to add server {} to the cluster in {}ms", coordinator_server, max_tries * waiting_period);
 }
 
 auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds {
@@ -413,7 +416,8 @@ auto RaftState::GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux {
   auto const self_aux = std::ranges::find_if(
       coord_instances_aux,
       [coordinator_id = this->coordinator_id_](auto const &coordinator) { return coordinator_id == coordinator.id; });
-  MG_ASSERT(self_aux != coord_instances_aux.end(), "Cannot find raft_server::aux for coordinator with id {}.",
+  MG_ASSERT(self_aux != coord_instances_aux.end(),
+            "Cannot find raft_server::aux for coordinator with id {}.",
             coordinator_id_);
   return *self_aux;
 }
@@ -436,8 +440,13 @@ auto RaftState::GetRoutingTable(std::string_view const db_name,
   auto const raft_log_data_instances = GetDataInstancesContext();
   auto const coord_servers = GetCoordinatorInstancesContext();
 
-  return CreateRoutingTable(raft_log_data_instances, coord_servers, is_instance_main, GetEnabledReadsOnMain(),
-                            GetMaxReplicaReadLag(), db_name, replicas_lag);
+  return CreateRoutingTable(raft_log_data_instances,
+                            coord_servers,
+                            is_instance_main,
+                            GetEnabledReadsOnMain(),
+                            GetMaxReplicaReadLag(),
+                            db_name,
+                            replicas_lag);
 }
 
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }

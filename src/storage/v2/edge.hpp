@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,8 +43,11 @@ struct Edge {
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
 
 inline bool operator==(const Edge &first, const Edge &second) { return first.gid == second.gid; }
+
 inline bool operator<(const Edge &first, const Edge &second) { return first.gid < second.gid; }
+
 inline bool operator==(const Edge &first, const Gid &second) { return first.gid == second; }
+
 inline bool operator<(const Edge &first, const Gid &second) { return first.gid < second; }
 
 struct EdgeMetadata {
@@ -57,8 +60,11 @@ struct EdgeMetadata {
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
 
 inline bool operator==(const EdgeMetadata &first, const EdgeMetadata &second) { return first.gid == second.gid; }
+
 inline bool operator<(const EdgeMetadata &first, const EdgeMetadata &second) { return first.gid < second.gid; }
+
 inline bool operator==(const EdgeMetadata &first, const Gid &second) { return first.gid == second; }
+
 inline bool operator<(const EdgeMetadata &first, const Gid &second) { return first.gid < second; }
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -137,6 +137,7 @@ struct OrderedTypedValueCompare {
 class TypedValueVectorCompare final {
  public:
   TypedValueVectorCompare() = default;
+
   explicit TypedValueVectorCompare(std::vector<OrderedTypedValueCompare> orderings)
       : orderings_{std::move(orderings)} {}
 
@@ -182,10 +183,10 @@ inline void ProcessError(const storage::Error error) {
 }
 
 template <typename T>
-concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
-                                           const storage::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
-};
+concept AccessorWithSetProperty =
+    requires(T accessor, const storage::PropertyId key, const storage::PropertyValue new_value) {
+      { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
+    };
 
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
@@ -205,10 +206,10 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 }
 
 template <typename T>
-concept AccessorWithInitProperties = requires(T accessor,
-                                              const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
-};
+concept AccessorWithInitProperties =
+    requires(T accessor, const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+      { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
+    };
 
 /// Set property `values` mapped with given `key` on a `record`.
 ///
@@ -231,8 +232,8 @@ concept AccessorWithUpdateProperties = requires(T accessor,
                                                 std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   {
     accessor.UpdateProperties(properties)
-    } -> std::same_as<
-        storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
+  } -> std::same_as<
+      storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
 };
 
 /// Set property `values` mapped with given `key` on a `record`.

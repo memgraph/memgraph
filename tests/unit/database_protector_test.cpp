@@ -49,7 +49,9 @@ struct AsyncIndexerNotifier {
 
       // Notify on first call
       if (!first_call_received.exchange(true)) {
-        { std::lock_guard<std::mutex> lock(mutex); }
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+        }
         cv.notify_all();
       }
 
@@ -204,7 +206,9 @@ TEST_F(DatabaseProtectorTest, FactoryHandlesNullProtector) {
 
   bool database_dropped = false;
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(
-      config_, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      config_,
+      std::nullopt,
+      std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
       CreateTestFactory(database_dropped));
 
   // Simulate database being dropped
@@ -229,7 +233,9 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerStopsWhenProtectorReturnsNull) {
 
   // Create storage with auto index creation enabled
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(
-      config_, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      config_,
+      std::nullopt,
+      std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
       notifier.CreateNotifyingFactory());
 
   // Create vertices with labels to trigger auto index creation
@@ -275,7 +281,9 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
   AsyncIndexerNotifier notifier;
 
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(
-      config_, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      config_,
+      std::nullopt,
+      std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
       notifier.CreateNotifyingFactory());
 
   // Create vertices with a label to trigger auto index creation

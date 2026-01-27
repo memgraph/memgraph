@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
 namespace memgraph::storage {
 
 namespace {
@@ -246,15 +247,15 @@ auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, Property
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
     DropIndex(edge_type, property);
@@ -366,7 +367,9 @@ uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(Edge
 uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                                                             const PropertyValue &value) const {
   auto it = index_container_->find({edge_type, property});
-  MG_ASSERT(it != index_container_->end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
             property.AsUint());
   auto acc = it->second->skiplist.access();
   if (!value.IsNull()) {
@@ -387,7 +390,9 @@ uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
   auto it = index_container_->find({edge_type, property});
-  MG_ASSERT(it != index_container_->end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
             property.AsUint());
   auto acc = it->second->skiplist.access();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -436,8 +441,16 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterator &InMemoryEdgeTypePropertyIndex
 }
 
 void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  AdvanceUntilValid_(index_iterator_, self_->index_accessor_.end(), current_edge_, current_accessor_, self_->property_,
-                     self_->lower_bound_, self_->upper_bound_, self_->view_, self_->storage_, self_->transaction_,
+  AdvanceUntilValid_(index_iterator_,
+                     self_->index_accessor_.end(),
+                     current_edge_,
+                     current_accessor_,
+                     self_->property_,
+                     self_->lower_bound_,
+                     self_->upper_bound_,
+                     self_->view_,
+                     self_->storage_,
+                     self_->transaction_,
                      self_->edge_type_);
 }
 
@@ -457,7 +470,9 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->find({edge_type, property});
-  MG_ASSERT(it != index_container_->end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
             property.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
@@ -479,7 +494,9 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->find({edge_type, property});
-  MG_ASSERT(it != index_container_->end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
             property.AsUint());
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
@@ -566,9 +583,17 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
 void InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(index_iterator_, utils::SkipList<Entry>::ChunkedIterator{}, current_edge_, current_edge_accessor_,
-                     self_->property_, self_->lower_bound_, self_->upper_bound_, self_->view_, self_->storage_,
-                     self_->transaction_, self_->edge_type_);
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipList<Entry>::ChunkedIterator{},
+                     current_edge_,
+                     current_edge_accessor_,
+                     self_->property_,
+                     self_->lower_bound_,
+                     self_->upper_bound_,
+                     self_->view_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->edge_type_);
 }
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -169,15 +169,15 @@ auto InMemoryLabelIndex::PopulateIndex(
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelIndex(vertex, label, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, std::move(cancel_check),
-                            parallel_exec_info);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, try_insert_into_index, std::move(cancel_check), parallel_exec_info);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelPropertiesIndex(vertex, label, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, std::move(cancel_check),
-                            parallel_exec_info);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, try_insert_into_index, std::move(cancel_check), parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
     DropIndex(label);
@@ -322,8 +322,14 @@ InMemoryLabelIndex::Iterable::Iterator &InMemoryLabelIndex::Iterable::Iterator::
 }
 
 void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
-  AdvanceUntilValid_(index_iterator_, self_->index_accessor_.end(), current_vertex_, current_vertex_accessor_,
-                     self_->storage_, self_->transaction_, self_->view_, self_->label_);
+  AdvanceUntilValid_(index_iterator_,
+                     self_->index_accessor_.end(),
+                     current_vertex_,
+                     current_vertex_accessor_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->label_);
 }
 
 uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label) const {
@@ -384,8 +390,9 @@ std::vector<LabelId> InMemoryLabelIndex::ClearIndexStats() {
   std::vector<LabelId> deleted_indexes;
   auto locked_stats = stats_.Lock();
   deleted_indexes.reserve(locked_stats->size());
-  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
-                 [](const auto &elem) { return elem.first; });
+  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes), [](const auto &elem) {
+    return elem.first;
+  });
   locked_stats->clear();
   return deleted_indexes;
 }
@@ -433,8 +440,14 @@ void InMemoryLabelIndex::CleanupAllIndices() {
 void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
   // NOTE: Using the skiplist end here to not store the end iterator in the class
   // The higher level != end will still be correct
-  AdvanceUntilValid_(index_iterator_, utils::SkipList<Entry>::ChunkedIterator{}, current_vertex_,
-                     current_vertex_accessor_, self_->storage_, self_->transaction_, self_->view_, self_->label_);
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipList<Entry>::ChunkedIterator{},
+                     current_vertex_,
+                     current_vertex_accessor_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->label_);
 }
 
 InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,

@@ -14,11 +14,10 @@ EmptyLineBeforeAccessModifier: LogicalBlock
 BinPackArguments: false
 InsertTrailingCommas: Wrapped
 AllowShortLambdasOnASingleLine: All
+# Disabled: clang-format inserts separators in #if directives where the
+# preprocessor doesn't support C++14 digit separators (e.g., #if FMT_VERSION > 90'000)
 IntegerLiteralSeparator:
-  Binary: 4
-  BinaryMinDigits: 8
-  Decimal: 3
-  DecimalMinDigits: 5
-  Hex: 4
-  HexMinDigits: 8
+  Binary: 0
+  Decimal: 0
+  Hex: 0
 ...

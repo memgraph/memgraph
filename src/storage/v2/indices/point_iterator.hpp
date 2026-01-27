@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -210,6 +210,7 @@ struct PointIterator {
   Storage *storage_ = nullptr;
   Transaction *transaction_ = nullptr;
   CoordinateReferenceSystem crs_;
+
   union {
     index_t<IndexPointWGS2d>::const_query_iterator wgs84_2d_;
     index_t<IndexPointWGS3d>::const_query_iterator wgs84_3d_;

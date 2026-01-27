@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,7 @@ class RaftLogSerialization : public ::testing::Test {
 TEST_F(RaftLogSerialization, ReplClientInfo) {
   ReplicationClientInfo info{.instance_name = "instance_name",
                              .replication_mode = ReplicationMode::SYNC,
-                             .replication_server = Endpoint{"127.0.0.1", 10111}};
+                             .replication_server = Endpoint{"127.0.0.1", 10'111}};
 
   nlohmann::json j = info;
   ReplicationClientInfo info2 = j.get<memgraph::coordination::ReplicationClientInfo>();
@@ -52,10 +52,10 @@ TEST_F(RaftLogSerialization, ReplClientInfo) {
 
 TEST_F(RaftLogSerialization, DataInstanceConfig) {
   DataInstanceConfig config{.instance_name = "instance3",
-                            .mgt_server = Endpoint{"127.0.0.1", 10112},
+                            .mgt_server = Endpoint{"127.0.0.1", 10'112},
                             .replication_client_info = {.instance_name = "instance_name",
                                                         .replication_mode = ReplicationMode::ASYNC,
-                                                        .replication_server = Endpoint{"127.0.0.1", 10001}}};
+                                                        .replication_server = Endpoint{"127.0.0.1", 10'001}}};
 
   nlohmann::json j = config;
   DataInstanceConfig config2 = j.get<memgraph::coordination::DataInstanceConfig>();
@@ -65,10 +65,10 @@ TEST_F(RaftLogSerialization, DataInstanceConfig) {
 
 TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
   DataInstanceConfig config{.instance_name = "instance3",
-                            .mgt_server = Endpoint{"127.0.0.1", 10112},
+                            .mgt_server = Endpoint{"127.0.0.1", 10'112},
                             .replication_client_info = {.instance_name = "instance_name",
                                                         .replication_mode = ReplicationMode::ASYNC,
-                                                        .replication_server = Endpoint{"127.0.0.1", 10001}}};
+                                                        .replication_server = Endpoint{"127.0.0.1", 10'001}}};
 
   std::vector<DataInstanceContext> data_instances;
   data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});

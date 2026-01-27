@@ -12,6 +12,7 @@
 #include "replication_handler/replication_handler.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "replication/replication_client.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
@@ -140,8 +141,8 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
   auto const &endpoint = client.rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
-      [&, license = license::global_license_checker.IsEnterpriseValidFast(),
-       main_uuid](ReplicationClient &local_client) mutable {
+      [&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
+          ReplicationClient &local_client) mutable {
         // Working connection
         if (local_client.try_set_uuid &&
             replication_coordination_glue::SendSwapMainUUIDRpc(local_client.rpc_client_, main_uuid)) {
@@ -337,8 +338,8 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
     auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
       return query::UnregisterReplicaResult::NOT_MAIN;
     };
-    auto const main_handler = [this, name,
-                               &locked_repl_state](RoleMainData &mainData) -> query::UnregisterReplicaResult {
+    auto const main_handler =
+        [this, name, &locked_repl_state](RoleMainData &mainData) -> query::UnregisterReplicaResult {
       if (!locked_repl_state->TryPersistUnregisterReplica(name)) {
         return query::UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
       }
@@ -403,20 +404,20 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
         repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
     lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
 
-    repl_storage_state.replication_storage_clients_.WithReadLock([&db_name, &lag_info,
-                                                                  &num_main_committed_txns](auto &storage_clients) {
-      for (auto &repl_storage_client : storage_clients) {
-        auto const replica_name = repl_storage_client->Name();
-        auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
-        auto const replica_lag = num_main_committed_txns - num_committed_txns_repl;
-        // Insert or find the already inserted element
-        auto [replica_it, _] =
-            lag_info.replicas_info_.try_emplace(replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
-        replica_it->second.emplace(db_name,
-                                   coordination::ReplicaDBLagData{.num_committed_txns_ = num_committed_txns_repl,
-                                                                  .num_txns_behind_main_ = replica_lag});
-      }
-    });
+    repl_storage_state.replication_storage_clients_.WithReadLock(
+        [&db_name, &lag_info, &num_main_committed_txns](auto &storage_clients) {
+          for (auto &repl_storage_client : storage_clients) {
+            auto const replica_name = repl_storage_client->Name();
+            auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
+            auto const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+            // Insert or find the already inserted element
+            auto [replica_it, _] = lag_info.replicas_info_.try_emplace(
+                replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
+            replica_it->second.emplace(db_name,
+                                       coordination::ReplicaDBLagData{.num_committed_txns_ = num_committed_txns_repl,
+                                                                      .num_txns_behind_main_ = replica_lag});
+          }
+        });
   });
   return lag_info;
 }
@@ -476,9 +477,10 @@ auto ReplicationHandler::ShowReplicas() const -> std::expected<query::ReplicasIn
             replica.name_, [&](const storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);
               auto state = client.State();
-              data_info.emplace(storage->name(),
-                                query::ReplicaInfoState{ts_info.current_timestamp_of_replica,
-                                                        ts_info.current_number_of_timestamp_behind_main, state});
+              data_info.emplace(
+                  storage->name(),
+                  query::ReplicaInfoState{
+                      ts_info.current_timestamp_of_replica, ts_info.current_number_of_timestamp_behind_main, state});
             });
         DMG_ASSERT(ok);
       });
@@ -488,13 +490,16 @@ auto ReplicationHandler::ShowReplicas() const -> std::expected<query::ReplicasIn
       // Already locked on system transaction via the interpreter
       const auto ts = system_.LastCommittedSystemTimestamp();
       // NOTE: no system behind at the moment
-      query::ReplicaSystemInfoState const system_info{ts, 0 /* behind ts not implemented */,
-                                                      *replica.state_.ReadLock()};
+      query::ReplicaSystemInfoState const system_info{
+          .ts_ = ts, .behind_ = 0 /* behind ts not implemented */, .state_ = *replica.state_.ReadLock()};
 #else
       query::ReplicaSystemInfoState const system_info{};
 #endif
       // STEP 3: add entry
-      entries.emplace_back(replica.name_, replica.rpc_client_.Endpoint().SocketAddress(), replica.mode_, system_info,
+      entries.emplace_back(replica.name_,
+                           replica.rpc_client_.Endpoint().SocketAddress(),
+                           replica.mode_,
+                           system_info,
                            std::move(data_info));
     }
     return query::ReplicasInfos{std::move(entries)};

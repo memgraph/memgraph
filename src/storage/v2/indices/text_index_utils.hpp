@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,6 +61,7 @@ bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
 
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
+
 struct TextIndexSpec {
   bool operator==(const TextIndexSpec &other) const = default;
 
@@ -81,6 +82,7 @@ struct TextIndexPending {
   absl::flat_hash_set<const Vertex *> to_add;
   absl::flat_hash_set<const Vertex *> to_remove;
 };
+
 struct EdgeWithVertices {
   const Edge *edge;
   const Vertex *from_vertex;
@@ -95,6 +97,7 @@ struct EdgeWithVertices {
     return H::combine(std::move(h), edge_with_vertices.edge);
   }
 };
+
 struct TextEdgeIndexPending {
   absl::flat_hash_set<EdgeWithVertices> to_add;
   absl::flat_hash_set<const Edge *> to_remove;

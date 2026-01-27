@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,10 +31,15 @@ class VertexCountCache {
   explicit VertexCountCache(DbAccessor *db) : db_(db) {}
 
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
+
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
+
   auto NameToEdgeType(const std::string &name) { return db_->NameToEdgeType(name); }
+
   auto LabelToName(storage::LabelId id) { return db_->LabelToName(id); }
+
   auto PropertyToName(storage::PropertyId id) { return db_->PropertyToName(id); }
+
   auto EdgeTypeToName(storage::EdgeTypeId id) { return db_->EdgeTypeToName(id); }
 
   auto GetEnumValue(std::string_view name, std::string_view value)
@@ -61,8 +66,8 @@ class VertexCountCache {
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) {
-    auto key = std::make_tuple(label, std::vector(properties.begin(), properties.end()),
-                               std::vector(bounds.begin(), bounds.end()));
+    auto key = std::make_tuple(
+        label, std::vector(properties.begin(), properties.end()), std::vector(bounds.begin(), bounds.end()));
     auto it = label_properties_ranges_vertex_count_.find(key);
     if (it != label_properties_ranges_vertex_count_.end()) {
       return it->second;

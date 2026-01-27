@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,11 @@ std::string CoordinationSetup::ToString() {
   return fmt::format(
       "management port: {}, coordinator port: {}, coordinator id: {}, nuraft_log_file: {}, "
       "coordinator_hostname: {}",
-      management_port, coordinator_port, coordinator_id, nuraft_log_file, coordinator_hostname);
+      management_port,
+      coordinator_port,
+      coordinator_id,
+      nuraft_log_file,
+      coordinator_hostname);
 }
 
 [[nodiscard]] auto CoordinationSetup::IsDataInstanceManagedByCoordinator() const -> bool {
@@ -50,8 +54,10 @@ auto CoordinationSetupInstance() -> CoordinationSetup & {
 void SetFinalCoordinationSetup() {
 #ifdef MG_ENTERPRISE
 
-  std::vector<char const *> const maybe_coord_envs{std::getenv(kMgManagementPort), std::getenv(kMgCoordinatorPort),
-                                                   std::getenv(kMgCoordinatorId), std::getenv(kMgNuRaftLogFile),
+  std::vector<char const *> const maybe_coord_envs{std::getenv(kMgManagementPort),
+                                                   std::getenv(kMgCoordinatorPort),
+                                                   std::getenv(kMgCoordinatorId),
+                                                   std::getenv(kMgNuRaftLogFile),
                                                    std::getenv(kMgCoordinatorHostname)};
 
   bool const any_envs_set = std::ranges::any_of(maybe_coord_envs, [](char const *env) { return env != nullptr; });

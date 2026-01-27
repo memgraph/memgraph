@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,8 +79,8 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   }
 
   // Get WAL files, ordered by timestamp, from oldest to newest
-  auto const wal_files = durability::GetWalFiles(main_storage->recovery_.wal_directory_,
-                                                 std::string{main_storage->uuid()}, current_wal_seq_num);
+  auto const wal_files = durability::GetWalFiles(
+      main_storage->recovery_.wal_directory_, std::string{main_storage->uuid()}, current_wal_seq_num);
 
   if (transaction_guard.owns_lock()) {
     transaction_guard.unlock();  // In case we didn't have a current wal file, we can unlock only now since there is no

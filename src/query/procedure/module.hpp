@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,7 @@ namespace memgraph::query::procedure {
 class Module {
  public:
   Module() {}
+
   virtual ~Module();
   Module(const Module &) = delete;
   Module(Module &&) = delete;
@@ -177,12 +178,12 @@ void ValidateArguments(std::span<TypedValue const> args, const TCall &callable,
     }
 
     if (callable.opt_args.empty()) {
-      throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, c_args_sz,
-                                  c_args_sz == 1U ? "argument" : "arguments");
+      throw QueryRuntimeException(
+          "'{}' requires exactly {} {}.", fully_qualified_name, c_args_sz, c_args_sz == 1U ? "argument" : "arguments");
     }
 
-    throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name, c_args_sz,
-                                c_args_sz + c_opt_args_sz);
+    throw QueryRuntimeException(
+        "'{}' requires between {} and {} arguments.", fully_qualified_name, c_args_sz, c_args_sz + c_opt_args_sz);
   }
 
   for (size_t i = 0; i < n_args; ++i) {
@@ -191,8 +192,11 @@ void ValidateArguments(std::span<TypedValue const> args, const TCall &callable,
     if (!type->SatisfiesType(args[i])) [[unlikely]] {
       auto name =
           std::string_view{is_required_arg ? callable.args[i].first : std::get<0>(callable.opt_args[i - c_args_sz])};
-      throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
-                                  name, i, type->GetPresentableName());
+      throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.",
+                                  fully_qualified_name,
+                                  name,
+                                  i,
+                                  type->GetPresentableName());
     }
   }
 }

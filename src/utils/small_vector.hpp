@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -92,6 +92,7 @@ struct small_vector {
     auto operator-=(difference_type n) -> iterator & { return this->operator+=(-n); }
 
     auto operator+(const difference_type n) const -> iterator { return iterator(ptr + n); }
+
     friend auto operator+(const difference_type n, iterator other) -> iterator { return iterator(other.ptr + n); }
 
     auto operator*() const -> reference { return *ptr; }
@@ -101,12 +102,17 @@ struct small_vector {
     auto operator[](difference_type n) const -> reference { return ptr[n]; }
 
     friend auto operator==(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
+
     friend auto operator<(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
+
     friend auto operator>(iterator const &lhs, iterator const &rhs) -> bool { return rhs < lhs; }
+
     friend auto operator>=(iterator const &lhs, iterator const &rhs) -> bool { return !(lhs < rhs); }
+
     friend auto operator<=(iterator const &lhs, iterator const &rhs) -> bool { return !(rhs < lhs); }
 
     auto operator-(const iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
+
     auto operator-(const difference_type n) const -> iterator { return iterator(ptr - n); }
 
    private:
@@ -123,6 +129,7 @@ struct small_vector {
     const_iterator() = default;
 
     explicit(false) const_iterator(iterator p) : ptr{p.ptr} {}
+
     explicit const_iterator(pointer p) : ptr{p} {}
 
     auto operator++() -> const_iterator & {
@@ -155,6 +162,7 @@ struct small_vector {
     auto operator-=(difference_type n) -> const_iterator & { return this->operator+=(-n); }
 
     auto operator+(const difference_type n) const -> const_iterator { return const_iterator(ptr + n); }
+
     friend auto operator+(const difference_type n, const_iterator other) -> const_iterator {
       return const_iterator(other.ptr + n);
     }
@@ -166,9 +174,13 @@ struct small_vector {
     auto operator[](difference_type n) const -> reference { return ptr[n]; }
 
     friend auto operator==(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
+
     friend auto operator<(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
+
     friend auto operator>(const_iterator const &lhs, const_iterator const &rhs) -> bool { return rhs < lhs; }
+
     friend auto operator>=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(lhs < rhs); }
+
     friend auto operator<=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(rhs < lhs); }
 
     friend auto operator==(iterator const &lhs, const_iterator const &rhs) -> bool {
@@ -176,6 +188,7 @@ struct small_vector {
     }
 
     auto operator-(const const_iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
+
     auto operator-(const difference_type n) const -> const_iterator { return const_iterator(ptr - n); }
 
    private:
@@ -196,7 +209,7 @@ struct small_vector {
     // NOTE 1: smallest capacity is kSmallCapacity
     // NOTE 2: upon copy construct we only need enough capacity to satisfy size requirement
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+      buffer_ = reinterpret_cast<pointer>(operator new(capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
     std::ranges::uninitialized_copy(other, *this);
   }
@@ -220,12 +233,12 @@ struct small_vector {
     }
     // NOTE : ensure we have enough capacity
     if (capacity_ < other.size_) {
-      auto *new_data = reinterpret_cast<pointer>(operator new (other.size_ * sizeof(T), std::align_val_t{alignof(T)}));
+      auto *new_data = reinterpret_cast<pointer>(operator new(other.size_ * sizeof(T), std::align_val_t{alignof(T)}));
       // NOTE: move values to the new buffer
       std::ranges::uninitialized_move(begin(), end(), new_data, new_data + size_);
       std::destroy(begin(), end());
       if (!usingSmallBuffer(capacity_)) {
-        operator delete (buffer_, std::align_val_t{alignof(T)});
+        operator delete(buffer_, std::align_val_t{alignof(T)});
       }
       buffer_ = new_data;
       capacity_ = other.size_;
@@ -282,7 +295,7 @@ struct small_vector {
     } else {
       std::destroy(begin(), end());
       if (!usingSmallBuffer(capacity_)) {
-        operator delete (buffer_, std::align_val_t{alignof(T)});
+        operator delete(buffer_, std::align_val_t{alignof(T)});
       }
       size_ = std::exchange(other.size_, 0);
       capacity_ = std::exchange(other.capacity_, kSmallCapacity);
@@ -294,7 +307,7 @@ struct small_vector {
   ~small_vector() {
     std::destroy(begin(), end());
     if (!usingSmallBuffer(capacity_)) {
-      operator delete (buffer_, std::align_val_t{alignof(T)});
+      operator delete(buffer_, std::align_val_t{alignof(T)});
     }
   }
 
@@ -302,10 +315,11 @@ struct small_vector {
 
   // TODO: change to range + add test
   explicit small_vector(std::span<T const> other) : small_vector(other.begin(), other.end()) {}
+
   // TODO: generalise to not just vector
   explicit small_vector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+      buffer_ = reinterpret_cast<pointer>(operator new(capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
     std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
   }
@@ -314,7 +328,7 @@ struct small_vector {
   explicit small_vector(It first, It last)
       : size_(std::distance(first, last)), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+      buffer_ = reinterpret_cast<pointer>(operator new(capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
     std::ranges::uninitialized_copy(first, last, begin(), end());
   }
@@ -379,7 +393,7 @@ struct small_vector {
 
     if (size_ == 0) {
       // special case, reset to default small_vector
-      operator delete (buffer_, std::align_val_t{alignof(T)});
+      operator delete(buffer_, std::align_val_t{alignof(T)});
       capacity_ = kSmallCapacity;
       if constexpr (!usingSmallBuffer(kSmallCapacity)) {
         buffer_ = nullptr;
@@ -403,14 +417,14 @@ struct small_vector {
         // move, destroy, delete
         std::uninitialized_move(src_b, src_e, dst_b);
         std::destroy(src_b, src_e);
-        operator delete (buffer, std::align_val_t{alignof(T)});
+        operator delete(buffer, std::align_val_t{alignof(T)});
         return;
       }
     }
 
     pointer new_data;
     try {
-      new_data = reinterpret_cast<pointer>(operator new (size_ * sizeof(T), std::align_val_t{alignof(T)}));
+      new_data = reinterpret_cast<pointer>(operator new(size_ * sizeof(T), std::align_val_t{alignof(T)}));
     } catch (...) {
       // couldn't allocate smaller buffer... do nothing
       return;
@@ -418,7 +432,7 @@ struct small_vector {
 
     std::uninitialized_move(begin(), end(), new_data);
     std::destroy(begin(), end());
-    operator delete (buffer_, std::align_val_t{alignof(T)});
+    operator delete(buffer_, std::align_val_t{alignof(T)});
     buffer_ = new_data;
     capacity_ = size_;
   }
@@ -428,11 +442,11 @@ struct small_vector {
       return;
     }
 
-    auto *new_data = reinterpret_cast<pointer>(operator new (new_capacity * sizeof(T), std::align_val_t{alignof(T)}));
+    auto *new_data = reinterpret_cast<pointer>(operator new(new_capacity * sizeof(T), std::align_val_t{alignof(T)}));
     std::uninitialized_move(begin(), end(), new_data);
     std::destroy(begin(), end());
     if (!usingSmallBuffer(capacity_)) {
-      operator delete (buffer_, std::align_val_t{alignof(T)});
+      operator delete(buffer_, std::align_val_t{alignof(T)});
     }
     buffer_ = new_data;
     capacity_ = new_capacity;
@@ -526,6 +540,7 @@ struct small_vector {
 
   uint32_t size_{};                    // max 4 billion
   uint32_t capacity_{kSmallCapacity};  // max 4 billion
+
   union {
     value_type *buffer_;
     uninitialised_storage<value_type, kSmallCapacity ? sizeof(value_type) : 1>

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@ struct SumReqV1 {
   static constexpr uint64_t kVersion{1};
 
   SumReqV1() = default;  // Needed for serialization.
+
   SumReqV1(int x, int y) : x(x), y(y) {}
 
   static void Load(SumReqV1 *obj, memgraph::slk::Reader *reader);
@@ -29,6 +30,7 @@ struct SumReqV1 {
   int x;
   int y;
 };
+
 // v2 request accepts the vector of numbers
 // v2 response return the sum as a vector with the single-element (some random reason)
 struct SumReq {
@@ -36,6 +38,7 @@ struct SumReq {
   static constexpr uint64_t kVersion{2};
 
   SumReq() = default;  // Needed for serialization.
+
   explicit SumReq(std::initializer_list<int> const nums) : nums_(nums) {}
 
   static void Load(SumReq *obj, memgraph::slk::Reader *reader);
@@ -51,6 +54,7 @@ struct SumResV1 {
   static constexpr uint64_t kVersion{1};
 
   SumResV1() = default;  // Needed for serialization.
+
   explicit SumResV1(int const sum) : sum(sum) {}
 
   static void Load(SumResV1 *obj, memgraph::slk::Reader *reader);
@@ -64,6 +68,7 @@ struct SumRes {
   static constexpr uint64_t kVersion{2};
 
   SumRes() = default;  // Needed for serialization.
+
   explicit SumRes(std::initializer_list<int> const sum) : sum(sum) {}
 
   static void Load(SumRes *obj, memgraph::slk::Reader *reader);
@@ -96,6 +101,7 @@ struct EchoMessage {
   static constexpr uint64_t kVersion{1};
 
   EchoMessage() = default;  // Needed for serialization.
+
   explicit EchoMessage(std::string data) : data(std::move(data)) {}
 
   static void Load(EchoMessage *obj, memgraph::slk::Reader *reader);

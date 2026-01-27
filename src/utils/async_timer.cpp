@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,8 +38,11 @@ struct ExpirationFlagInfo {
 };
 
 bool operator==(const ExpirationFlagInfo &lhs, const ExpirationFlagInfo &rhs) { return lhs.id == rhs.id; }
+
 bool operator<(const ExpirationFlagInfo &lhs, const ExpirationFlagInfo &rhs) { return lhs.id < rhs.id; }
+
 bool operator==(const ExpirationFlagInfo &flag_info, const uint64_t id) { return flag_info.id == id; }
+
 bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t id) { return flag_info.id < id; }
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -119,7 +122,8 @@ AsyncTimer::AsyncTimer(double seconds)
     : expiration_flag_{std::make_shared<std::atomic<bool>>(false)}, flag_id_{kInvalidFlagId}, timer_id_{} {
   MG_ASSERT(seconds <= max_seconds_as_double,
             "The AsyncTimer cannot handle larger time values than {:f}, the specified value: {:f}",
-            max_seconds_as_double, seconds);
+            max_seconds_as_double,
+            seconds);
   MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {:f}", seconds);
 
   static pthread_t background_timer_thread;
@@ -128,8 +132,7 @@ AsyncTimer::AsyncTimer(double seconds)
 
   std::call_once(timer_thread_setup_flag, [] {
     pthread_create(&background_timer_thread, nullptr, TimerBackgroundWorker, &thread_info);
-    while (!thread_info.setup_done.load(std::memory_order_acquire))
-      ;
+    while (!thread_info.setup_done.load(std::memory_order_acquire));
   });
 
   flag_id_ = AddFlag(std::weak_ptr<std::atomic<bool>>{expiration_flag_});
@@ -140,8 +143,10 @@ AsyncTimer::AsyncTimer(double seconds)
   notification_settings._sigev_un._tid = thread_info.thread_id;
   static_assert(sizeof(void *) == sizeof(flag_id_), "ID size must be equal to pointer size!");
   std::memcpy(&notification_settings.sigev_value.sival_ptr, &flag_id_, sizeof(flag_id_));
-  MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0, "Couldn't create timer: ({}) {}",
-            errno, strerror(errno));
+  MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0,
+            "Couldn't create timer: ({}) {}",
+            errno,
+            strerror(errno));
 
   static constexpr auto kSecondsToNanos = 1000 * 1000 * 1000;
   // Casting will truncate down, but that's exactly what we want.

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -315,11 +315,9 @@ void Load(memgraph::coordination::RegisterReplicaOnMainReq *self, memgraph::slk:
 }
 
 // ShowInstancesRpc
-void Save(const memgraph::coordination::ShowInstancesReq &self, memgraph::slk::Builder *builder) { /*empty*/
-}
+void Save(const memgraph::coordination::ShowInstancesReq &self, memgraph::slk::Builder *builder) { /*empty*/ }
 
-void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader) { /*empty*/
-}
+void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader) { /*empty*/ }
 
 void Save(const memgraph::coordination::ShowInstancesRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.instances_status_, builder);
@@ -347,17 +345,13 @@ void Load(memgraph::coordination::GetRoutingTableRes *self, memgraph::slk::Reade
 }
 
 // StateCheckReq
-void Save(const memgraph::coordination::StateCheckReqV1 &self, memgraph::slk::Builder *builder) { /*empty*/
-}
+void Save(const memgraph::coordination::StateCheckReqV1 &self, memgraph::slk::Builder *builder) { /*empty*/ }
 
-void Load(memgraph::coordination::StateCheckReqV1 *self, memgraph::slk::Reader *reader) { /*empty*/
-}
+void Load(memgraph::coordination::StateCheckReqV1 *self, memgraph::slk::Reader *reader) { /*empty*/ }
 
-void Save(const memgraph::coordination::StateCheckReq &self, memgraph::slk::Builder *builder) { /*empty*/
-}
+void Save(const memgraph::coordination::StateCheckReq &self, memgraph::slk::Builder *builder) { /*empty*/ }
 
-void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader) { /*empty*/
-}
+void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader) { /*empty*/ }
 
 // StateCheckRes
 void Save(const memgraph::coordination::StateCheckResV1 &self, memgraph::slk::Builder *builder) {
@@ -367,6 +361,7 @@ void Save(const memgraph::coordination::StateCheckResV1 &self, memgraph::slk::Bu
 void Load(memgraph::coordination::StateCheckResV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->state, reader);
 }
+
 void Save(const memgraph::coordination::StateCheckRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.state, builder);
 }
@@ -375,11 +370,9 @@ void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *re
   memgraph::slk::Load(&self->state, reader);
 }
 
-void Save(const coordination::ReplicationLagReq &self, slk::Builder *builder) { /*empty*/
-}
+void Save(const coordination::ReplicationLagReq &self, slk::Builder *builder) { /*empty*/ }
 
-void Load(coordination::ReplicationLagReq *self, slk::Reader *reader) { /*empty*/
-}
+void Load(coordination::ReplicationLagReq *self, slk::Reader *reader) { /*empty*/ }
 
 void Save(const coordination::ReplicationLagRes &self, slk::Builder *builder) { slk::Save(self.lag_info_, builder); }
 

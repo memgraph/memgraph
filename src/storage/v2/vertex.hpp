@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,8 +55,11 @@ static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!
 static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");
 
 inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
+
 inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }
+
 inline bool operator==(const Vertex &first, const Gid &second) { return first.gid == second; }
+
 inline bool operator<(const Vertex &first, const Gid &second) { return first.gid < second; }
 
 }  // namespace memgraph::storage

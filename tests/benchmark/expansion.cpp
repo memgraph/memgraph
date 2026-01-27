@@ -48,10 +48,15 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     system.emplace();
     auth_checker.emplace();
-    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, nullptr, repl_state.value(), *system
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{},
+                                nullptr,
+                                nullptr,
+                                repl_state.value(),
+                                *system
 #ifdef MG_ENTERPRISE
                                 ,
-                                std::nullopt, nullptr
+                                std::nullopt,
+                                nullptr
 #endif
     );
 

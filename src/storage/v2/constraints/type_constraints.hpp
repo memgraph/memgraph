@@ -36,6 +36,7 @@ class TypeConstraints {
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
+
   struct SingleThreadConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property);
@@ -43,6 +44,7 @@ class TypeConstraints {
 
   struct IndividualConstraint {
     explicit IndividualConstraint(TypeConstraintKind t) : type(t) {}
+
     ~IndividualConstraint();
 
     TypeConstraintKind type;

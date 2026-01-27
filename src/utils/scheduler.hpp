@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,12 +29,14 @@ struct SchedulerInterval {
   explicit SchedulerInterval(std::chrono::duration<TRep, TPeriod> period,
                              std::optional<std::chrono::system_clock::time_point> start_time = {})
       : period_or_cron{PeriodStartTime{period, start_time}} {}
+
   explicit SchedulerInterval(std::string str);
 
   friend bool operator==(const SchedulerInterval &lrh, const SchedulerInterval &rhs) = default;
 
   struct PeriodStartTime {
     PeriodStartTime() {}
+
     template <typename TRep, typename TPeriod>
     PeriodStartTime(std::chrono::duration<TRep, TPeriod> period,
                     std::optional<std::chrono::system_clock::time_point> start_time)
@@ -88,6 +90,7 @@ class Scheduler {
   void SpinOnce();
 
   using time_point = std::chrono::system_clock::time_point;
+
   std::optional<time_point> NextExecution() {
     if (is_paused_) return {};
     const auto next = find_next_.WithLock([](auto &f) { return f(std::chrono::system_clock::now(), false); });

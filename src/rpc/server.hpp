@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,8 +52,8 @@ class Server {
     // Here I could retrieve the type of the response needed
     auto got = callbacks_.insert({TRequestResponse::Request::kType.id, std::move(rpc)});
     MG_ASSERT(got.second, "Callback for that message type already registered");
-    spdlog::trace("[RpcServer] register {} -> {}", TRequestResponse::Request::kType.name,
-                  TRequestResponse::Response::kType.name);
+    spdlog::trace(
+        "[RpcServer] register {} -> {}", TRequestResponse::Request::kType.name, TRequestResponse::Response::kType.name);
   }
 
  private:

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,9 +69,13 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
-    AddProcedure(SampleReadProc, "return_true", mgp::ProcedureType::Read,
+    AddProcedure(SampleReadProc,
+                 "return_true",
+                 mgp::ProcedureType::Read,
                  {mgp::Parameter("param_1", mgp::Type::Int), mgp::Parameter("param_2", mgp::Type::Double, 2.3)},
-                 {mgp::Return("out", mgp::Type::Bool)}, module, memory);
+                 {mgp::Return("out", mgp::Type::Bool)},
+                 module,
+                 memory);
   } catch (const std::exception &e) {
     return 1;
   }
@@ -79,8 +83,13 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
-    mgp::AddProcedure(AddXNodes, "add_x_nodes", mgp::ProcedureType::Write, {mgp::Parameter("param_1", mgp::Type::Int)},
-                      {}, module, memory);
+    mgp::AddProcedure(AddXNodes,
+                      "add_x_nodes",
+                      mgp::ProcedureType::Write,
+                      {mgp::Parameter("param_1", mgp::Type::Int)},
+                      {},
+                      module,
+                      memory);
 
   } catch (const std::exception &e) {
     return 1;
@@ -89,8 +98,10 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
-    mgp::AddFunction(Multiply, "multiply",
-                     {mgp::Parameter("int", mgp::Type::Int), mgp::Parameter("int", mgp::Type::Int, (int64_t)3)}, module,
+    mgp::AddFunction(Multiply,
+                     "multiply",
+                     {mgp::Parameter("int", mgp::Type::Int), mgp::Parameter("int", mgp::Type::Int, (int64_t)3)},
+                     module,
                      memory);
 
   } catch (const std::exception &e) {

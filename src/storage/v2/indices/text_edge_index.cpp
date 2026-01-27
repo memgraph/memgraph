@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,14 +30,15 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
         index_info.index_name,
         // If index already exists, it will be loaded and reused.
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
-        index_info.edge_type, index_info.properties);
+        index_info.edge_type,
+        index_info.properties);
     if (!success) {
-      throw query::TextSearchException("Text edge index {} already exists at path: {}.", index_info.index_name,
-                                       index_path);
+      throw query::TextSearchException(
+          "Text edge index {} already exists at path: {}.", index_info.index_name, index_path);
     }
   } catch (const std::exception &e) {
-    spdlog::error("Failed to create text edge index {} at path: {}. Error: {}", index_info.index_name, index_path,
-                  e.what());
+    spdlog::error(
+        "Failed to create text edge index {} at path: {}. Error: {}", index_info.index_name, index_path, e.what());
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
 }
@@ -92,8 +93,8 @@ void TextEdgeIndex::RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transacti
   if (edge_type_applicable_text_indices.empty()) return;
   const auto edge_properties = edge->properties.ExtractPropertyIds();
   auto applicable_text_indices = GetIndicesMatchingProperties(edge_type_applicable_text_indices, edge_properties);
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, nullptr, nullptr,
-                           TextIndexOp::REMOVE);
+  TrackTextEdgeIndexChange(
+      tx.text_edge_index_change_collector_, applicable_text_indices, edge, nullptr, nullptr, TextIndexOp::REMOVE);
 }
 
 void TextEdgeIndex::UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex,
@@ -106,8 +107,8 @@ void TextEdgeIndex::UpdateOnSetProperty(const Edge *edge, const Vertex *from_ver
       applicable_text_indices.push_back(&index_data);
     }
   }
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex,
-                           TextIndexOp::UPDATE);
+  TrackTextEdgeIndexChange(
+      tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex, TextIndexOp::UPDATE);
 }
 
 void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices,
@@ -122,10 +123,12 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
       auto edge_properties = index_info.properties.empty()
                                  ? edge.Properties(View::NEW).value()
                                  : edge.PropertiesByPropertyIds(index_info.properties, View::NEW).value();
-      TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(), edge.FromVertex().Gid().AsInt(),
+      TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(),
+                                        edge.FromVertex().Gid().AsInt(),
                                         edge.ToVertex().Gid().AsInt(),
                                         SerializeProperties(edge_properties, name_id_mapper),
-                                        StringifyProperties(edge_properties), index_data.context);
+                                        StringifyProperties(edge_properties),
+                                        index_data.context);
     }
   }
   try {
@@ -158,15 +161,19 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
         if (index_info.properties.empty()) {
           properties_to_index = std::move(edge_properties);
         } else {
-          std::ranges::copy_if(index_info.properties, std::back_inserter(properties_to_index),
-                               [&](auto property) { return std::ranges::contains(edge_properties, property); });
+          std::ranges::copy_if(index_info.properties, std::back_inserter(properties_to_index), [&](auto property) {
+            return std::ranges::contains(edge_properties, property);
+          });
         }
         if (properties_to_index.empty()) continue;
 
         auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
-        TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(), vertex.gid.AsInt(), to_vertex->gid.AsInt(),
+        TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
+                                          vertex.gid.AsInt(),
+                                          to_vertex->gid.AsInt(),
                                           SerializeProperties(properties_to_index_map, name_id_mapper),
-                                          StringifyProperties(properties_to_index_map), context);
+                                          StringifyProperties(properties_to_index_map),
+                                          context);
       }
     }
 
@@ -239,8 +246,9 @@ std::string TextEdgeIndex::Aggregate(const std::string &index_name, const std::s
   mgcxx::text_search::DocumentOutput aggregation_result;
   try {
     aggregation_result = mgcxx::text_search::aggregate(
-        context, mgcxx::text_search::SearchInput{
-                     .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
+        context,
+        mgcxx::text_search::SearchInput{
+            .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -306,10 +314,12 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
         auto edge_properties = index_data_ptr->properties.empty()
                                    ? edge_with_vertices.edge->properties.Properties()
                                    : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
-        TextEdgeIndex::AddEdgeToTextIndex(
-            edge_with_vertices.edge->gid.AsInt(), edge_with_vertices.from_vertex->gid.AsInt(),
-            edge_with_vertices.to_vertex->gid.AsInt(), SerializeProperties(edge_properties, name_id_mapper),
-            StringifyProperties(edge_properties), index_data_ptr->context);
+        TextEdgeIndex::AddEdgeToTextIndex(edge_with_vertices.edge->gid.AsInt(),
+                                          edge_with_vertices.from_vertex->gid.AsInt(),
+                                          edge_with_vertices.to_vertex->gid.AsInt(),
+                                          SerializeProperties(edge_properties, name_id_mapper),
+                                          StringifyProperties(edge_properties),
+                                          index_data_ptr->context);
       }
       mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,6 +65,7 @@ class VectorEdgeIndex {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
+
   struct EdgeIndexEntry {
     Vertex *from_vertex;
     Vertex *to_vertex;

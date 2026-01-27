@@ -33,7 +33,9 @@ constexpr auto testSuite = "database_v2_get_info";
 const std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / testSuite};
 
 struct TestConfig {};
+
 struct DefaultConfig : TestConfig {};
+
 struct TenantConfig : TestConfig {};
 
 template <typename TestType>

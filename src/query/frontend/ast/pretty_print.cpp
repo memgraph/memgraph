@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -450,6 +450,7 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
 void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
 
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, dba_, "LabelsTest", op.expression_); }
+
 void ExpressionPrettyPrinter::Visit(EdgeTypesTest &op) { PrintOperator(out_, dba_, "EdgeTypesTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, dba_, "Aggregation", op.op_); }

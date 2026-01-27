@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,9 +48,8 @@ inline auto GetFilePathWithoutDataDir(std::filesystem::path const &orig, std::fi
 }
 
 template <typename T>
-requires(std::is_same_v<T, std::filesystem::path>) bool WriteFiles(const T &path,
-                                                                   std::filesystem::path const &root_data_dir,
-                                                                   replication::Encoder &encoder) {
+  requires(std::is_same_v<T, std::filesystem::path>)
+bool WriteFiles(const T &path, std::filesystem::path const &root_data_dir, replication::Encoder &encoder) {
   if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir))) {
     spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
     return false;
@@ -59,8 +58,8 @@ requires(std::is_same_v<T, std::filesystem::path>) bool WriteFiles(const T &path
 }
 
 template <typename T>
-requires(std::is_same_v<T, std::vector<std::filesystem::path>>) bool WriteFiles(
-    const T &paths, std::filesystem::path const &root_data_dir, replication::Encoder &encoder) {
+  requires(std::is_same_v<T, std::vector<std::filesystem::path>>)
+bool WriteFiles(const T &paths, std::filesystem::path const &root_data_dir, replication::Encoder &encoder) {
   for (const auto &path : paths) {
     // Flush the segment so the file data could start at the beginning of the next segment
     if (!encoder.WriteFile(path, GetFilePathWithoutDataDir(path, root_data_dir))) {

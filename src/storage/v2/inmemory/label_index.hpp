@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@ class InMemoryLabelIndex : public LabelIndex {
     uint64_t timestamp;
 
     bool operator<(const Entry &rhs) { return std::tie(vertex, timestamp) < std::tie(rhs.vertex, rhs.timestamp); }
+
     bool operator==(const Entry &rhs) const {
       return std::tie(vertex, timestamp) == std::tie(rhs.vertex, rhs.timestamp);
     }
@@ -42,6 +43,7 @@ class InMemoryLabelIndex : public LabelIndex {
  public:
   struct IndividualIndex {
     IndividualIndex() {}
+
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
     utils::SkipList<Entry> skiplist{};
@@ -77,6 +79,7 @@ class InMemoryLabelIndex : public LabelIndex {
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++();
@@ -91,6 +94,7 @@ class InMemoryLabelIndex : public LabelIndex {
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }
+
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
@@ -116,7 +120,9 @@ class InMemoryLabelIndex : public LabelIndex {
       }
 
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
+
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++() {
@@ -143,10 +149,12 @@ class InMemoryLabelIndex : public LabelIndex {
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
+
       Iterator end() { return end_; }
     };
 
     Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+
     size_t size() const { return chunks_.size(); }
 
    private:
@@ -162,11 +170,12 @@ class InMemoryLabelIndex : public LabelIndex {
   struct ActiveIndices : LabelIndex::ActiveIndices {
     ActiveIndices(std::shared_ptr<const IndexContainer> index_container = std::make_shared<IndexContainer>())
         : index_container_{std::move(index_container)} {}
+
     /// @throw std::bad_alloc
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
     // Not used for in-memory
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override{};
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {};
 
     bool IndexRegistered(LabelId label) const override;
 

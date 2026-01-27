@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -367,8 +367,8 @@ TEST(Scheduler, CronSpecificDateTime) {
   const auto local_time = next.local_time();
 
   // Execute every second
-  scheduler.SetInterval(fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour,
-                                    local_date.day, local_date.month));
+  scheduler.SetInterval(fmt::format(
+      "{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour, local_date.day, local_date.month));
   scheduler.Run("Test", func);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -395,8 +395,8 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
     const auto local_time = next.local_time();
 
     // Execute every second
-    scheduler.SetInterval(fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour,
-                                      local_date.day, local_date.month));
+    scheduler.SetInterval(fmt::format(
+        "{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour, local_date.day, local_date.month));
     scheduler.Run("Test", func);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -460,7 +460,8 @@ TEST(Scheduler, TimeDrift) {
     } else if (x == 2) {
       // Second - next execution, execute right away
       EXPECT_NEAR(
-          first_now.time_since_epoch().count(), now.time_since_epoch().count(),
+          first_now.time_since_epoch().count(),
+          now.time_since_epoch().count(),
           std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::milliseconds(100)).count());
     } else {
       // From 3. should go back to the original time offset

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -104,6 +104,7 @@ class MemoryTracker final {
     OutOfMemoryExceptionEnabler &operator=(OutOfMemoryExceptionEnabler &&) = delete;
 
     OutOfMemoryExceptionEnabler() { ++counter_; }
+
     ~OutOfMemoryExceptionEnabler() { --counter_; }
 
     static bool CanThrow() { return counter_ > 0; };
@@ -123,6 +124,7 @@ class MemoryTracker final {
     OutOfMemoryExceptionBlocker &operator=(OutOfMemoryExceptionBlocker &&) = delete;
 
     OutOfMemoryExceptionBlocker() { ++counter_; }
+
     ~OutOfMemoryExceptionBlocker() { --counter_; }
 
     static bool IsBlocked() { return counter_ > 0; };

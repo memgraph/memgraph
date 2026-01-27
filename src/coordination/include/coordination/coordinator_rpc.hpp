@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@ struct PromoteToMainReq {
 
   explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
       : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
+
   PromoteToMainReq() = default;
 
   // get uuid here
@@ -49,6 +50,7 @@ struct PromoteToMainRes {
   static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
 
   explicit PromoteToMainRes(bool success) : success(success) {}
+
   PromoteToMainRes() = default;
 
   bool success;
@@ -66,6 +68,7 @@ struct RegisterReplicaOnMainReq {
 
   explicit RegisterReplicaOnMainReq(const utils::UUID &uuid, ReplicationClientInfo replication_client_info)
       : main_uuid(uuid), replication_client_info(std::move(replication_client_info)) {}
+
   RegisterReplicaOnMainReq() = default;
 
   utils::UUID main_uuid;
@@ -81,6 +84,7 @@ struct RegisterReplicaOnMainRes {
   static void Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
 
   explicit RegisterReplicaOnMainRes(bool success) : success(success) {}
+
   RegisterReplicaOnMainRes() = default;
 
   bool success;
@@ -117,6 +121,7 @@ struct DemoteMainToReplicaRes {
   static void Save(const DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
 
   explicit DemoteMainToReplicaRes(bool success) : success(success) {}
+
   DemoteMainToReplicaRes() = default;
 
   bool success;
@@ -148,6 +153,7 @@ struct UnregisterReplicaRes {
   static void Save(const UnregisterReplicaRes &self, memgraph::slk::Builder *builder);
 
   explicit UnregisterReplicaRes(bool success) : success(success) {}
+
   UnregisterReplicaRes() = default;
 
   bool success;
@@ -175,6 +181,7 @@ struct EnableWritingOnMainRes {
   static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
 
   explicit EnableWritingOnMainRes(bool const success) : success(success) {}
+
   EnableWritingOnMainRes() = default;
 
   bool success;
@@ -218,6 +225,7 @@ struct GetDatabaseHistoriesResV1 {
 
   explicit GetDatabaseHistoriesResV1(replication_coordination_glue::InstanceInfoV1 instance_info)
       : instance_info(std::move(instance_info)) {}
+
   GetDatabaseHistoriesResV1() = default;
 
   replication_coordination_glue::InstanceInfoV1 instance_info;
@@ -232,6 +240,7 @@ struct GetDatabaseHistoriesRes {
 
   explicit GetDatabaseHistoriesRes(replication_coordination_glue::InstanceInfo instance_info)
       : instance_info(std::move(instance_info)) {}
+
   GetDatabaseHistoriesRes() = default;
 
   // We cannot downgrade from GetDatabaseHistoriesRes, the caller should provide function for creating both responses
@@ -279,6 +288,7 @@ struct GetRoutingTableReq {
   static void Save(const GetRoutingTableReq &self, memgraph::slk::Builder *builder);
 
   GetRoutingTableReq() = default;
+
   explicit GetRoutingTableReq(std::string db_name) : db_name_(std::move(db_name)) {}
 
   std::string db_name_;
@@ -387,6 +397,7 @@ struct ReplicationLagRes {
   static void Save(const ReplicationLagRes &self, memgraph::slk::Builder *builder);
 
   explicit ReplicationLagRes(std::optional<ReplicationLagInfo> lag_info) : lag_info_(std::move(lag_info)) {}
+
   ReplicationLagRes() = default;
 
   std::optional<ReplicationLagInfo> lag_info_;

@@ -16,7 +16,7 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
-#include "flags/experimental.hpp"
+#include "dbms/rpc.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
@@ -235,8 +235,8 @@ DbmsHandler::DbmsHandler(storage::Config config,
 
 struct DropDatabase : memgraph::system::ISystemAction {
   explicit DropDatabase(utils::UUID uuid) : uuid_{uuid} {}
-  void DoDurability() override { /* Done during DBMS execution */
-  }
+
+  void DoDurability() override { /* Done during DBMS execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -247,6 +247,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
     return client.StreamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
   }
+
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
@@ -257,8 +258,7 @@ struct RenameDatabase : memgraph::system::ISystemAction {
   explicit RenameDatabase(std::string old_name, std::string new_name)
       : old_name_{std::move(old_name)}, new_name_{std::move(new_name)} {}
 
-  void DoDurability() override { /* Done during DBMS execution */
-  }
+  void DoDurability() override { /* Done during DBMS execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -366,6 +366,10 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   // Check if trying to rename default database
   if (old_name == kDefaultDB) {
     return std::unexpected{RenameError::DEFAULT_DB};
+  }
+
+  if (old_name == new_name) {
+    return std::unexpected{RenameError::SAME_NAME};
   }
 
   // Perform the rename operation in the handler
@@ -525,8 +529,8 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
       spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
       auto storage_accessor = db_acc->Access(memgraph::storage::WRITE);
       auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-      db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker,
-                                               db_acc->name());
+      db_acc->trigger_store()->RestoreTriggers(
+          &ic->ast_cache, &dba, ic->config.query, ic->auth_checker, db_acc->name());
     }
   }
 }

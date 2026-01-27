@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,17 +25,20 @@ namespace memgraph::coordination {
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
                                                            CoordinatorInstance const &coordinator_instance) {
   server.Register<ShowInstancesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                                        uint64_t const request_version, slk::Reader *req_reader,
+                                        uint64_t const request_version,
+                                        slk::Reader *req_reader,
                                         slk::Builder *res_builder) -> void {
-    CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, request_version, req_reader,
-                                                                      res_builder);
+    CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(
+        coordinator_instance, request_version, req_reader, res_builder);
   });
 
   server.Register<GetRoutingTableRpc>(
       [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(coordinator_instance, request_version,
-                                                                            req_reader, res_builder);
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
+            coordinator_instance, request_version, req_reader, res_builder);
       });
 }
 

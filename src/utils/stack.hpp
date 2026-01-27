@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,10 +54,13 @@ class Stack {
     uint64_t pad;  // Padding to ensure Block size is a multiple of page size
     TObj obj[TSize];
   };
+
   struct EmptyLock {
     void lock() {}
+
     void unlock() {}
   };
+
   struct NoOpDeleter {
     void operator()(const TObj & /*unused*/) const {}
   };
@@ -171,6 +174,7 @@ class Stack {
   }
 
   Stack(Stack &&other) noexcept : head_(other.head_) { other.head_ = nullptr; }
+
   Stack &operator=(Stack &&other) noexcept {
     while (head_ != nullptr) {
       Block *prev = head_->prev;

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,9 @@ class EnsureGIL final {
 
  public:
   EnsureGIL() noexcept : gil_state_(PyGILState_Ensure()) {}
+
   ~EnsureGIL() noexcept { PyGILState_Release(gil_state_); }
+
   EnsureGIL(const EnsureGIL &) = delete;
   EnsureGIL(EnsureGIL &&) = delete;
   EnsureGIL &operator=(const EnsureGIL &) = delete;
@@ -59,7 +61,9 @@ class [[nodiscard]] Object final {
 
  public:
   Object() = default;
+
   Object(std::nullptr_t) {}
+
   /// Construct by taking the ownership of `PyObject *`.
   explicit Object(PyObject *ptr) noexcept : ptr_(ptr) {}
 
@@ -222,8 +226,8 @@ struct [[nodiscard]] ExceptionInfo final {
   if (skip_first_line && traceback_root) {
     traceback_root = traceback_root.GetAttr("tb_next");
   }
-  auto list = format_exception_fn.Call(exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None,
-                                       traceback_root ? traceback_root.Ptr() : Py_None);
+  auto list = format_exception_fn.Call(
+      exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None, traceback_root ? traceback_root.Ptr() : Py_None);
   MG_ASSERT(list);
   std::stringstream ss;
   auto len = PyList_GET_SIZE(list.Ptr());

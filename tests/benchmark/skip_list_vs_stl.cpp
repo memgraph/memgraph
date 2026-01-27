@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "utils/spin_lock.hpp"
 
 const int kThreadsNum = 8;
-const uint64_t kMaxNum = 10000000;
+const uint64_t kMaxNum = 10'000'000;
 
 ///////////////////////////////////////////////////////////////////////////////
 // memgraph::utils::SkipList set Insert
@@ -241,8 +241,11 @@ struct MapObject {
 };
 
 bool operator==(const MapObject &a, const MapObject &b) { return a.key == b.key; }
+
 bool operator<(const MapObject &a, const MapObject &b) { return a.key < b.key; }
+
 bool operator==(const MapObject &a, uint64_t b) { return a.key == b; }
+
 bool operator<(const MapObject &a, uint64_t b) { return a.key < b; }
 
 ///////////////////////////////////////////////////////////////////////////////

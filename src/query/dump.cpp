@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -248,8 +248,8 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
 
     // Convert PropertyValue to ExternalPropertyValue to map keys from PropertyId to strings, preserving property order
     // compatibility with previous database dumps.
-    DumpPropertyValue(&os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()),
-                      dba);
+    DumpPropertyValue(
+        &os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()), dba);
   });
   *os << "}";
 }
@@ -529,14 +529,14 @@ PullPlanDump::PullChunk PullPlanDump::CreateEnumsPullChunk() {
   auto enums = dba_->ShowEnums();
   auto to_create = [](auto &&p) {
     // rv::c_str is required! https://github.com/ericniebler/range-v3/issues/1699
-    return fmt::format("CREATE ENUM {} VALUES {{ {} }};", p.first,
-                       p.second | rv::join(rv::c_str(", ")) | r::to<std::string>);
+    return fmt::format(
+        "CREATE ENUM {} VALUES {{ {} }};", p.first, p.second | rv::join(rv::c_str(", ")) | r::to<std::string>);
   };
   auto results = enums | rv::transform(to_create) | r::to_vector;
 
   // Dump all enums
-  return [global_index = 0U, results = std::move(results)](AnyStream *stream,
-                                                           std::optional<int> n) mutable -> std::optional<size_t> {
+  return [global_index = 0U, results = std::move(results)](
+             AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     size_t local_counter = 0;
     while (global_index < results.size() && (!n || local_counter < *n)) {
       stream->Result({TypedValue(results[global_index])});
@@ -978,7 +978,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
-  return [this, maybe_current_vertex_iter = std::optional<VertexAccessorIterableIterator>{},
+  return [this,
+          maybe_current_vertex_iter = std::optional<VertexAccessorIterableIterator>{},
           // we need to save the iterable which contains list of accessor so
           // our saved iterator is valid in the next run
           maybe_edge_iterable = std::shared_ptr<EdgeAccessorIterable>{nullptr},

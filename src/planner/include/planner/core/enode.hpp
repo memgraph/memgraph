@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,6 +64,7 @@ struct ENodeBase {
   auto canonicalize_in_place(UnionFind &uf) -> bool;
 
   auto children() const -> utils::small_vector<EClassId> const & { return children_; }
+
   auto disambiguator() const -> uint64_t { return disambiguator_; }
 
   [[nodiscard]] auto compute_hash() const -> std::size_t;
@@ -88,7 +89,7 @@ struct ENodeBase {
  * @tparam Symbol Must satisfy ENodeSymbol concept (hashable, trivially copyable, ==)
  */
 template <typename Symbol>
-requires ENodeSymbol<Symbol>
+  requires ENodeSymbol<Symbol>
 struct ENode : private detail::ENodeBase {
   ENode(Symbol sym, utils::small_vector<EClassId> kids, uint64_t const disambig = 0)
       : ENodeBase{disambig, std::move(kids)}, symbol_(std::move(sym)) {}

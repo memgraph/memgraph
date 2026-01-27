@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,28 +60,31 @@ TEST(ExternalPropertyValueSerializationTest, TemporalData) {
 
   test_temporal_data_conversion(memgraph::storage::TemporalType::Date, 20);
   test_temporal_data_conversion(memgraph::storage::TemporalType::LocalDateTime, -20);
-  test_temporal_data_conversion(memgraph::storage::TemporalType::Duration, 10000);
+  test_temporal_data_conversion(memgraph::storage::TemporalType::Duration, 10'000);
 }
 
 TEST(ExternalPropertyValueSerializationTest, ZonedTemporalData) {
-  const auto test_zoned_temporal_data_conversion = [](const auto type, const auto microseconds,
-                                                      const memgraph::utils::Timezone &timezone) {
-    CheckJsonConversion(
-        memgraph::storage::ExternalPropertyValue{memgraph::storage::ZonedTemporalData{type, microseconds, timezone}});
-  };
+  const auto test_zoned_temporal_data_conversion =
+      [](const auto type, const auto microseconds, const memgraph::utils::Timezone &timezone) {
+        CheckJsonConversion(memgraph::storage::ExternalPropertyValue{
+            memgraph::storage::ZonedTemporalData{type, microseconds, timezone}});
+      };
 
   const auto sample_duration = memgraph::utils::AsSysTime(20);
-  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
-                                      memgraph::utils::Timezone("Europe/Zagreb"));
-  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+  test_zoned_temporal_data_conversion(
+      memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration, memgraph::utils::Timezone("Europe/Zagreb"));
+  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                      sample_duration,
                                       memgraph::utils::Timezone(std::chrono::minutes{60}));
 }
 
 namespace {
 
 std::vector<memgraph::storage::ExternalPropertyValue> GetExternalPropertyValueListWithBasicTypes() {
-  return {memgraph::storage::ExternalPropertyValue{}, memgraph::storage::ExternalPropertyValue{true},
-          memgraph::storage::ExternalPropertyValue{"string"}, memgraph::storage::ExternalPropertyValue{1},
+  return {memgraph::storage::ExternalPropertyValue{},
+          memgraph::storage::ExternalPropertyValue{true},
+          memgraph::storage::ExternalPropertyValue{"string"},
+          memgraph::storage::ExternalPropertyValue{1},
           memgraph::storage::ExternalPropertyValue{1.0}};
 }
 

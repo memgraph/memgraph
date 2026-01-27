@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@ struct IndicesCollection {
 
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
+
   explicit ActiveIndices(std::unique_ptr<LabelIndex::ActiveIndices> label,
                          std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
                          std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type,

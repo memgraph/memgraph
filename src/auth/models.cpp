@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -336,6 +336,7 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
 }
 
 uint64_t Permissions::grants() const { return grants_; }
+
 uint64_t Permissions::denies() const { return denies_; }
 
 bool operator==(const Permissions &first, const Permissions &second) {
@@ -598,11 +599,13 @@ FineGrainedAccessHandler::FineGrainedAccessHandler(FineGrainedAccessPermissions 
     : label_permissions_(std::move(labelPermissions)), edge_type_permissions_(std::move(edgeTypePermissions)) {}
 
 const FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() const { return label_permissions_; }
+
 FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() { return label_permissions_; }
 
 const FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() const {
   return edge_type_permissions_;
 }
+
 FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() { return edge_type_permissions_; }
 
 nlohmann::json FineGrainedAccessHandler::Serialize() const {
@@ -648,6 +651,7 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 #endif
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
+
 Role::Role(const std::string &rolename, const Permissions &permissions)
     : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
 #ifdef MG_ENTERPRISE
@@ -662,10 +666,13 @@ Role::Role(const std::string &rolename, const Permissions &permissions,
 #endif
 
 const std::string &Role::rolename() const { return rolename_; }
+
 const Permissions &Role::permissions() const { return permissions_; }
+
 Permissions &Role::permissions() { return permissions_; }
 #ifdef MG_ENTERPRISE
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
+
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
 
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
@@ -754,8 +761,8 @@ Role Role::Deserialize(const nlohmann::json &data) {
     } else {
       spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
     }
-    return {*role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access),
-            std::move(usr_imp)};
+    return {
+        *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
   }
 #endif
   return {*role_name_it, permissions};
@@ -864,6 +871,7 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
 User::User() = default;
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
+
 User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
            utils::UUID uuid)
     : username_(utils::ToLowerCase(username)),
@@ -942,8 +950,8 @@ void User::AddMultiTenantRole(Role role, const std::string &db_name) {
   }
 
   // Check if user already has this role
-  if (auto it = std::find_if(roles().begin(), roles().end(),
-                             [&role](const auto &in) { return role.rolename() == in.rolename(); });
+  if (auto it = std::find_if(
+          roles().begin(), roles().end(), [&role](const auto &in) { return role.rolename() == in.rolename(); });
       it != roles().end()) {
     // Role is already present (the original role has access to the database)
     // Add access if the user's role does't already have access to the database
@@ -1070,6 +1078,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
 const std::string &User::username() const { return username_; }
 
 const Permissions &User::permissions() const { return permissions_; }
+
 Permissions &User::permissions() { return permissions_; }
 #ifdef MG_ENTERPRISE
 const FineGrainedAccessHandler &User::fine_grained_access_handler() const { return fine_grained_access_handler_; }
@@ -1161,9 +1170,12 @@ User User::Deserialize(const nlohmann::json &data) {
       spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
     }
 
-    return {*username_it,         std::move(password_hash),
-            permissions,          std::move(fine_grained_access_handler),
-            std::move(db_access), uuid,
+    return {*username_it,
+            std::move(password_hash),
+            permissions,
+            std::move(fine_grained_access_handler),
+            std::move(db_access),
+            uuid,
             std::move(usr_imp)};
   }
 #endif
@@ -1190,6 +1202,7 @@ void UserImpersonation::GrantAll() {
   // Set granted to all
   granted_ = GrantAllUsers{};
 }
+
 // Overrides the previous granted set, but not the denied set
 void UserImpersonation::Grant(const std::vector<User> &users) {
   granted_ = std::set<UserId>{};
@@ -1381,6 +1394,7 @@ const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessLabelPermissions(
   result = combined_permissions;
   return result;
 }
+
 const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
   if (roles_.empty()) return empty_permissions;

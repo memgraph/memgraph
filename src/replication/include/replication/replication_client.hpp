@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,8 +52,10 @@ struct ReplicationClient {
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
       replica_checker_.SetInterval(replica_check_frequency_);
       replica_checker_.Run("Replica Checker",
-                           [this, succ_cb = std::forward<FS>(success_callback),
-                            fail_cb = std::forward<FF>(fail_callback), failed_attempts = 0UL]() mutable {
+                           [this,
+                            succ_cb = std::forward<FS>(success_callback),
+                            fail_cb = std::forward<FF>(fail_callback),
+                            failed_attempts = 0UL]() mutable {
                              // Measure callbacks also to see how long it takes between scheduled runs
                              utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
                              try {

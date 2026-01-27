@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -243,6 +243,7 @@ ClientOutputStream::ClientOutputStream(Client &client) : client_(client) {}
 bool ClientOutputStream::Write(const uint8_t *data, size_t len, bool have_more) {
   return client_.Write(data, len, have_more);
 }
+
 bool ClientOutputStream::Write(std::string_view str, bool have_more) { return client_.Write(str, have_more); }
 
 }  // namespace memgraph::communication

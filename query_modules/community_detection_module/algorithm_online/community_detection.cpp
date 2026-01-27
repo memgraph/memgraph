@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -164,6 +164,7 @@ std::unordered_set<std::uint64_t> LabelRankT::MostProbableLabels(std::uint64_t n
 
   return most_probable_labels;
 }
+
 /* #endregion */
 
 /* #region label_propagation_steps */
@@ -266,6 +267,7 @@ std::pair<bool, std::uint64_t> LabelRankT::Iteration(const std::vector<uint64_t>
 
   return {none_updated, most_updates};
 }
+
 /* #endregion */
 
 std::unordered_map<std::uint64_t, std::int64_t> LabelRankT::CalculateLabels(

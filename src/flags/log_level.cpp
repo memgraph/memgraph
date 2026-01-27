@@ -42,10 +42,12 @@ spdlog::level::level_enum ParseLogLevel() {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
-inline constexpr std::array log_level_mappings{
-    std::pair{"TRACE"sv, spdlog::level::trace}, std::pair{"DEBUG"sv, spdlog::level::debug},
-    std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
-    std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
+inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::level::trace},
+                                               std::pair{"DEBUG"sv, spdlog::level::debug},
+                                               std::pair{"INFO"sv, spdlog::level::info},
+                                               std::pair{"WARNING"sv, spdlog::level::warn},
+                                               std::pair{"ERROR"sv, spdlog::level::err},
+                                               std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
 const std::string &memgraph::flags::GetAllowedLogLevels() {
   static const std::string allowed_levels = memgraph::utils::GetAllowedEnumValuesString(log_level_mappings);

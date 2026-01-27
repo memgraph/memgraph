@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,7 +53,7 @@ TEST(ZlibCompressorTest, CompressEmptyDataTest) {
 TEST(ZlibCompressorTest, LargeDataTest) {
   auto const *compressor = memgraph::utils::Compressor::GetInstance();
 
-  const size_t LARGE_DATA_SIZE = 100000;
+  const size_t LARGE_DATA_SIZE = 100'000;
   std::string input_data(LARGE_DATA_SIZE, 'A');
 
   auto compressed =

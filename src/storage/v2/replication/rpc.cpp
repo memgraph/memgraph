@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,12 +21,15 @@ namespace storage::replication {
 void PrepareCommitReq::Save(const PrepareCommitReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void PrepareCommitReq::Load(PrepareCommitReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
+
 void PrepareCommitRes::Save(const PrepareCommitRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void PrepareCommitRes::Load(PrepareCommitRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
@@ -34,11 +37,13 @@ void PrepareCommitRes::Load(PrepareCommitRes *self, memgraph::slk::Reader *reade
 void FinalizeCommitReq::Save(const FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
   slk::Save(self, builder);
 }
+
 void FinalizeCommitReq::Load(FinalizeCommitReq *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
 
 void FinalizeCommitRes::Save(const FinalizeCommitRes &self, memgraph::slk::Builder *builder) {
   slk::Save(self, builder);
 }
+
 void FinalizeCommitRes::Load(FinalizeCommitRes *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
 
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
@@ -46,25 +51,39 @@ void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builde
 }
 
 void HeartbeatReq::Load(HeartbeatReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void HeartbeatRes::Load(HeartbeatRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void SnapshotReq::Save(const SnapshotReq &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void SnapshotReq::Load(SnapshotReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void SnapshotRes::Save(const SnapshotRes &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void SnapshotRes::Load(SnapshotRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void WalFilesReq::Save(const WalFilesReq &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void WalFilesReq::Load(WalFilesReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void WalFilesRes::Save(const WalFilesRes &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void WalFilesRes::Load(WalFilesRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void CurrentWalReq::Save(const CurrentWalReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void CurrentWalReq::Load(CurrentWalReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void CurrentWalRes::Save(const CurrentWalRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void CurrentWalRes::Load(CurrentWalRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
 }  // namespace storage::replication

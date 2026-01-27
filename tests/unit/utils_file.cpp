@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -273,7 +273,7 @@ TEST_F(InputFileSetPositionTest, RepeatedSeekAndReadCycle) {
 // wrong fd position (where lseek moved it) instead of from buffer_start_ + buffer_size_.
 TEST_F(InputFileSetPositionTest, SeekWithinBufferThenExhaustBuffer) {
   // Create a file larger than kFileBufferSize (262144 bytes)
-  constexpr size_t kLargeFileSize = memgraph::utils::kFileBufferSize + 100000;
+  constexpr size_t kLargeFileSize = memgraph::utils::kFileBufferSize + 100'000;
   auto large_file = test_dir_ / "large_file.bin";
 
   // Fill with sequential bytes (mod 256 to fit in uint8_t)
@@ -578,20 +578,31 @@ TEST_F(OutputFileSetPositionTest, RelativeToCurrentMultipleTimes) {
   EXPECT_EQ(contents[61], 61);
 }
 
-const std::vector<std::string> kDirsAll = {"existing_dir_777", "existing_dir_770", "existing_dir_700",
-                                           "existing_dir_000", "symlink_dir_777",  "symlink_dir_770",
-                                           "symlink_dir_700",  "symlink_dir_000"};
+const std::vector<std::string> kDirsAll = {"existing_dir_777",
+                                           "existing_dir_770",
+                                           "existing_dir_700",
+                                           "existing_dir_000",
+                                           "symlink_dir_777",
+                                           "symlink_dir_770",
+                                           "symlink_dir_700",
+                                           "symlink_dir_000"};
 
-const std::vector<std::string> kFilesAll = {"existing_file_666", "existing_file_660", "existing_file_600",
-                                            "existing_file_000", "symlink_file_666",  "symlink_file_660",
-                                            "symlink_file_600",  "symlink_file_000"};
+const std::vector<std::string> kFilesAll = {"existing_file_666",
+                                            "existing_file_660",
+                                            "existing_file_600",
+                                            "existing_file_000",
+                                            "symlink_file_666",
+                                            "symlink_file_660",
+                                            "symlink_file_600",
+                                            "symlink_file_000"};
 
 const std::map<std::string, fs::perms> kPermsAll = {
     {"777", fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all},
     {"770", fs::perms::owner_all | fs::perms::group_all},
     {"700", fs::perms::owner_all},
-    {"666", fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write |
-                fs::perms::others_read | fs::perms::others_write},
+    {"666",
+     fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write |
+         fs::perms::others_read | fs::perms::others_write},
     {"660", fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write},
     {"600", fs::perms::owner_read | fs::perms::owner_write},
     {"000", fs::perms::none},
@@ -610,9 +621,9 @@ void CreateFile(const fs::path &path) {
 void CreateFiles(const fs::path &path) {
   CreateFile(path / "existing_file_666");
   fs::create_symlink(path / "existing_file_666", path / "symlink_file_666");
-  fs::permissions(path / "existing_file_666", fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read |
-                                                  fs::perms::group_write | fs::perms::others_read |
-                                                  fs::perms::others_write);
+  fs::permissions(path / "existing_file_666",
+                  fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write |
+                      fs::perms::others_read | fs::perms::others_write);
 
   CreateFile(path / "existing_file_660");
   fs::create_symlink(path / "existing_file_660", path / "symlink_file_660");
@@ -634,6 +645,7 @@ class GetUniqueDownloadPathTest : public testing::Test {
     test_dir_ = std::filesystem::temp_directory_path() / "get_unique_path_test";
     std::filesystem::create_directories(test_dir_);
   }
+
   void TearDown() override {
     if (std::filesystem::exists(test_dir_)) {
       std::filesystem::remove_all(test_dir_);
@@ -741,7 +753,7 @@ TEST_F(GetUniqueDownloadPathTest, MaxSuffixReached) {
   CreateFile(base);
 
   // Create files up to and including _10000
-  for (int i = 1; i <= 10000; ++i) {
+  for (int i = 1; i <= 10'000; ++i) {
     CreateFile(test_dir_ / std::format("file_{}.txt", i));
   }
 
@@ -941,7 +953,7 @@ TEST_F(UtilsFileTest, OutputFileMove) {
 }
 
 TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
-  for (int i = 0; i < 100000; ++i) {
+  for (int i = 0; i < 100'000; ++i) {
     memgraph::utils::OutputFile handle;
     handle.Open(storage / "existing_dir_777" / "existing_file_777",
                 memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
@@ -961,7 +973,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
 
   static constexpr size_t number_of_writes = 500;
   std::thread writer_thread([&] {
-    std::default_random_engine engine{586478780};
+    std::default_random_engine engine{586'478'780};
     uint8_t current_number = 0;
     for (size_t i = 0; i < number_of_writes; ++i) {
       handle.Write(&current_number, 1);
@@ -980,7 +992,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> max_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {
     reader_threads.emplace_back([&, thread_id = i] {
-      std::default_random_engine engine{586478780 + thread_id};
+      std::default_random_engine engine{586'478'780 + thread_id};
       for (size_t i = 0; i < number_of_reads; ++i) {
         handle.DisableFlushing();
         auto [buffer, buffer_size] = handle.CurrentBuffer();
@@ -1033,7 +1045,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   handle.Close();
   // Check if any of the threads read the entire data.
   ASSERT_TRUE(max_read_counts.WithLock([&](auto &read_counts) {
-    return std::any_of(read_counts.cbegin(), read_counts.cend(),
-                       [](const auto read_count) { return read_count == number_of_writes; });
+    return std::any_of(
+        read_counts.cbegin(), read_counts.cend(), [](const auto read_count) { return read_count == number_of_writes; });
   }));
 }

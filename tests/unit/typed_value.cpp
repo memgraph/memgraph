@@ -52,8 +52,8 @@ class AllTypesFixture : public testing::Test {
     values_.emplace_back(42);
     values_.emplace_back(3.14);
     values_.emplace_back("something");
-    values_.emplace_back(std::vector<TypedValue>{TypedValue(true), TypedValue("something"), TypedValue(42),
-                                                 TypedValue(0.5), TypedValue()});
+    values_.emplace_back(std::vector<TypedValue>{
+        TypedValue(true), TypedValue("something"), TypedValue(42), TypedValue(0.5), TypedValue()});
     values_.emplace_back(std::map<std::string, TypedValue>{{"a", TypedValue(true)},
                                                            {"b", TypedValue("something")},
                                                            {"c", TypedValue(42)},
@@ -147,7 +147,7 @@ TEST(TypedValue, Equals) {
 
   // compare two ints close to 2 ^ 62
   // this will fail if they are converted to float at any point
-  EXPECT_PROP_NE(TypedValue(4611686018427387905), TypedValue(4611686018427387900));
+  EXPECT_PROP_NE(TypedValue(4'611'686'018'427'387'905), TypedValue(4'611'686'018'427'387'900));
 
   EXPECT_PROP_NE(TypedValue(0.5), TypedValue(0.12));
   EXPECT_PROP_EQ(TypedValue(0.123), TypedValue(0.123));
@@ -515,8 +515,14 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   std::vector<TypedValue> in{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
   std::vector<TypedValue> out1{TypedValue(2), TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
   std::vector<TypedValue> out2{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"), TypedValue(2)};
-  std::vector<TypedValue> out3{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"),
-                               TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
+  std::vector<TypedValue> out3{TypedValue(1),
+                               TypedValue(2),
+                               TypedValue(true),
+                               TypedValue("a"),
+                               TypedValue(1),
+                               TypedValue(2),
+                               TypedValue(true),
+                               TypedValue("a")};
   EXPECT_PROP_EQ(TypedValue(2) + TypedValue(in), TypedValue(out1));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));

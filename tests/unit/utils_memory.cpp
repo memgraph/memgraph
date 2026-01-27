@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@ class TestMemory final : public memgraph::utils::MemoryResource {
 
  private:
   static constexpr size_t kPadSize = 32;
+
   void *do_allocate(size_t bytes, size_t alignment) override {
     new_count_++;
     EXPECT_TRUE(alignment != 0U && (alignment & (alignment - 1U)) == 0U) << "Alignment must be power of 2";
@@ -55,8 +56,8 @@ class TestMemory final : public memgraph::utils::MemoryResource {
   void do_deallocate(void *ptr, size_t bytes, size_t alignment) override {
     delete_count_++;
     // Deallocate the original ptr, before alignment adjustment.
-    return memgraph::utils::NewDeleteResource()->deallocate(static_cast<char *>(ptr) - alignment,
-                                                            alignment + bytes + kPadSize, 2U * alignment);
+    return memgraph::utils::NewDeleteResource()->deallocate(
+        static_cast<char *>(ptr) - alignment, alignment + bytes + kPadSize, 2U * alignment);
   }
 
   bool do_is_equal(const memgraph::utils::MemoryResource &other) const noexcept override { return this == &other; }
@@ -235,10 +236,13 @@ class ContainerWithAllocatorLast final {
   using allocator_type = memgraph::utils::Allocator<int>;
 
   ContainerWithAllocatorLast() = default;
+
   explicit ContainerWithAllocatorLast(int value) : value_(value) {}
+
   ContainerWithAllocatorLast(int value, allocator_type alloc) : alloc_(alloc), value_(value) {}
 
   ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other) : value_(other.value_) {}
+
   ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other, allocator_type alloc)
       : alloc_(alloc), value_(other.value_) {}
 
@@ -252,10 +256,13 @@ class ContainerWithAllocatorFirst final {
   using allocator_type = memgraph::utils::Allocator<int>;
 
   ContainerWithAllocatorFirst() = default;
+
   explicit ContainerWithAllocatorFirst(int value) : value_(value) {}
+
   ContainerWithAllocatorFirst(std::allocator_arg_t, allocator_type alloc, int value) : alloc_(alloc), value_(value) {}
 
   ContainerWithAllocatorFirst(const ContainerWithAllocatorFirst &other) : value_(other.value_) {}
+
   ContainerWithAllocatorFirst(std::allocator_arg_t, allocator_type alloc, const ContainerWithAllocatorFirst &other)
       : alloc_(alloc), value_(other.value_) {}
 

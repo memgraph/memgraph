@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <cmath>
 #include <iosfwd>
 #include <memory>
+#include <ranges>
 #include <string_view>
 #include <utility>
 
@@ -174,8 +175,8 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -313,8 +314,8 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -439,8 +440,8 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -567,8 +568,8 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -1414,11 +1415,12 @@ double ToDouble(const TypedValue &value) {
 
 namespace {
 bool IsTemporalType(const TypedValue::Type type) {
-  static constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
-                                             TypedValue::Type::LocalDateTime, TypedValue::Type::ZonedDateTime,
+  static constexpr std::array temporal_types{TypedValue::Type::Date,
+                                             TypedValue::Type::LocalTime,
+                                             TypedValue::Type::LocalDateTime,
+                                             TypedValue::Type::ZonedDateTime,
                                              TypedValue::Type::Duration};
-  return std::any_of(temporal_types.begin(), temporal_types.end(),
-                     [type](const auto temporal_type) { return temporal_type == type; });
+  return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
 };
 }  // namespace
 
@@ -1886,7 +1888,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return utils::FnvCollection<TypedValue::TVector, TypedValue, Hash>{}(value.ValueList());
     }
     case TypedValue::Type::Map: {
-      size_t hash = 6543457;
+      size_t hash = 6'543'457;
       for (const auto &kv : value.ValueMap()) {
         hash ^= std::hash<std::string_view>{}(kv.first);
         hash ^= this->operator()(kv.second);

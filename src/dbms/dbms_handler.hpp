@@ -22,21 +22,14 @@
 #include <optional>
 #include <system_error>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 
 #include "auth/auth.hpp"
 #include "constants.hpp"
 #include "dbms/database.hpp"
-#include "dbms/inmemory/replication_handlers.hpp"
-#include "dbms/rpc.hpp"
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/transaction.hpp"
-#include "system/system.hpp"
-#include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
 #endif
 #include "dbms/database_protector.hpp"
@@ -98,11 +91,13 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
       {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
       {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
       {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
-  res["label_node_count_histogram"] = {
-      {"1-9", stats.label_node_count_histogram[0]},       {"10-99", stats.label_node_count_histogram[1]},
-      {"100-999", stats.label_node_count_histogram[2]},   {"1K-9.99K", stats.label_node_count_histogram[3]},
-      {"10K-99.9K", stats.label_node_count_histogram[4]}, {"100K-999K", stats.label_node_count_histogram[5]},
-      {"1M+", stats.label_node_count_histogram[6]}};
+  res["label_node_count_histogram"] = {{"1-9", stats.label_node_count_histogram[0]},
+                                       {"10-99", stats.label_node_count_histogram[1]},
+                                       {"100-999", stats.label_node_count_histogram[2]},
+                                       {"1K-9.99K", stats.label_node_count_histogram[3]},
+                                       {"10K-99.9K", stats.label_node_count_histogram[4]},
+                                       {"100K-999K", stats.label_node_count_histogram[5]},
+                                       {"1M+", stats.label_node_count_histogram[6]}};
 
   return res;
 }
@@ -182,8 +177,10 @@ class DbmsHandler {
     spdlog::debug("Trying to create db '{}' on replica which already exists.", *name_view);
 
     auto db = Get_(*name_view);
-    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}", *name_view,
-                  std::string(db->uuid()), std::string(config.uuid));
+    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}",
+                  *name_view,
+                  std::string(db->uuid()),
+                  std::string(config.uuid));
     if (db->uuid() == config.uuid) {  // Same db
       return db;
     }
@@ -192,7 +189,8 @@ class DbmsHandler {
 
     // TODO: Fix this hack
     if (*name_view == kDefaultDB) {
-      spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
+      spdlog::debug("Last commit timestamp for DB {} is {}",
+                    kDefaultDB,
                     db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       // This seems correct, if database made progress
       if (db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
@@ -207,8 +205,10 @@ class DbmsHandler {
       return db;
     }
 
-    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}", *name_view,
-                  std::string(db->uuid()), std::string(config.uuid));
+    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}",
+                  *name_view,
+                  std::string(db->uuid()),
+                  std::string(config.uuid));
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt
@@ -315,6 +315,7 @@ class DbmsHandler {
   }
 
   auto ReplicationState() { return repl_state_.Lock(); }
+
   auto ReplicationState() const { return repl_state_.ReadLock(); }
 
   /**
@@ -579,17 +580,21 @@ class DbmsHandler {
     MG_ASSERT(conf, "No configuration for the default database.");
     const auto &tmp_conf = conf->disk;
     std::vector<std::filesystem::path> to_link{
-        tmp_conf.main_storage_directory,         tmp_conf.label_index_directory,
-        tmp_conf.label_property_index_directory, tmp_conf.unique_constraints_directory,
-        tmp_conf.name_id_mapper_directory,       tmp_conf.id_name_mapper_directory,
-        tmp_conf.durability_directory,           tmp_conf.wal_directory,
+        tmp_conf.main_storage_directory,
+        tmp_conf.label_index_directory,
+        tmp_conf.label_property_index_directory,
+        tmp_conf.unique_constraints_directory,
+        tmp_conf.name_id_mapper_directory,
+        tmp_conf.id_name_mapper_directory,
+        tmp_conf.durability_directory,
+        tmp_conf.wal_directory,
     };
 
     // Add in-memory paths
     // Some directories are redundant (skip those)
     using namespace std::string_view_literals;
-    constexpr std::array<std::string_view, 5> skip{"audit_log"sv, "auth"sv, "databases"sv, "internal_modules"sv,
-                                                   "settings"sv};
+    constexpr std::array<std::string_view, 5> skip{
+        "audit_log"sv, "auth"sv, "databases"sv, "internal_modules"sv, "settings"sv};
     for (auto const &item : std::filesystem::directory_iterator{*dir}) {
       const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
       auto const dir_name_str = dir_name.string();

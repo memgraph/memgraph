@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -27,7 +27,7 @@ struct TargetArguments {
 /// Wrapper around the module executable.
 class Module final {
  private:
-  const int kStackSizeBytes = 262144;
+  const int kStackSizeBytes = 262'144;
 
  public:
   explicit Module(const std::filesystem::path &module_executable_path);
