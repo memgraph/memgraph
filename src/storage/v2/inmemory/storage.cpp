@@ -856,7 +856,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
-  if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
+  if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
     FinalizeCommitPhase(durability_commit_timestamp);
     // No WAL file, hence no need to finalize it
     return {};
@@ -2257,7 +2257,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &vertices_,
                                                             &edges_,
                                                             uuid(),
-                                                            repl_storage_state_.epoch_,
+                                                            repl_storage_state_.epoch_.id(),
                                                             repl_storage_state_.history,
                                                             &file_retainer_,
                                                             &abort_snapshot_);
@@ -2707,7 +2707,7 @@ StorageInfo InMemoryStorage::GetInfo() {
   return info;
 }
 
-bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
+bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
       storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
     return false;
@@ -2716,7 +2716,7 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
   if (!wal_file_) {
     wal_file_ = std::make_unique<durability::WalFile>(recovery_.wal_directory_,
                                                       uuid(),
-                                                      epoch.id(),
+                                                      epoch_id,
                                                       config_.salient.items,
                                                       name_id_mapper_.get(),
                                                       wal_seq_num_++,
@@ -3203,7 +3203,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &vertices_,
                                                         &edges_,
                                                         storage_uuid,
-                                                        epoch,
+                                                        epoch.id(),
                                                         epochHistory,
                                                         &file_retainer_,
                                                         &abort_snapshot_);
@@ -3459,7 +3459,13 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto dir_cleanup = utils::OnScopeExit{[&] { (void)locker_acc.RemovePath(recovery_.snapshot_directory_); }};
 
   // Add currently available snapshots
-  auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
+  auto const maybe_snapshot_files =
+      durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
+  if (!maybe_snapshot_files.has_value()) {
+    return res;
+  }
+
+  auto const &snapshot_files = *maybe_snapshot_files;
   std::error_code ec;
   for (const auto &snapshot_file : snapshot_files) {
     auto const &snapshot_path = snapshot_file.path;
