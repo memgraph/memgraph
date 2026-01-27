@@ -153,13 +153,16 @@ class IOContextThreadPool final {
     if (numa_aware_) {
       for (auto &numa_ctx : numa_io_contexts_) {
         if (numa_ctx->numa_node_ == numa_node) {
+          spdlog::trace("GetIOContextForNUMA: returning IO context for NUMA node {}", numa_node);
           return numa_ctx->io_context_;
         }
       }
       // Fallback to first NUMA node
       spdlog::warn("NUMA node {} not found, using first NUMA node's IO context", numa_node);
+      spdlog::trace("GetIOContextForNUMA: falling back to first NUMA node (node 0)");
       return numa_io_contexts_[0]->io_context_;
     }
+    spdlog::trace("GetIOContextForNUMA: NUMA-aware mode disabled, using shared IO context");
     return *shared_io_context_;
   }
 
@@ -168,20 +171,29 @@ class IOContextThreadPool final {
     if (numa_aware_) {
       // Try to detect which CPU received the connection
       int incoming_cpu = utils::numa::GetIncomingCPU(socket_fd);
+      spdlog::trace("GetIOContextForIncomingCPU: socket_fd={}, detected incoming_cpu={}", socket_fd, incoming_cpu);
       if (incoming_cpu >= 0) {
         int numa_node = utils::numa::GetNUMANodeForCPU(incoming_cpu);
+        spdlog::trace("GetIOContextForIncomingCPU: incoming_cpu={} mapped to numa_node={}", incoming_cpu, numa_node);
         if (numa_node >= 0) {
+          spdlog::trace("GetIOContextForIncomingCPU: routing connection to NUMA node {} (detected from incoming CPU)",
+                        numa_node);
           return GetIOContextForNUMA(numa_node);
         }
       }
       // Fallback: use current thread's NUMA node
       int current_numa = utils::numa::GetCurrentNUMANode();
+      spdlog::trace("GetIOContextForIncomingCPU: using fallback, current_numa={}", current_numa);
       if (current_numa >= 0) {
+        spdlog::trace("GetIOContextForIncomingCPU: routing connection to NUMA node {} (current thread's NUMA node)",
+                      current_numa);
         return GetIOContextForNUMA(current_numa);
       }
       // Final fallback: first NUMA node
+      spdlog::trace("GetIOContextForIncomingCPU: using final fallback, routing to first NUMA node (node 0)");
       return numa_io_contexts_[0]->io_context_;
     }
+    spdlog::trace("GetIOContextForIncomingCPU: NUMA-aware mode disabled, using shared IO context");
     return *shared_io_context_;
   }
 

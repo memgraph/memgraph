@@ -15,6 +15,8 @@
 #include <bit>
 #include <limits>
 
+#include <spdlog/spdlog.h>
+
 #include "utils/barrier.hpp"
 #include "utils/thread.hpp"
 #include "utils/tsc.hpp"
@@ -104,86 +106,133 @@ uint16_t PriorityThreadPool::GetNextWorkerID(int current_numa_node) {
 
 PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count)
     : hot_threads_{mixed_work_threads_count, std::nullopt}, task_id_{kMaxLowPriorityId} {
+  spdlog::trace("PriorityThreadPool constructor: mixed_work_threads_count={}, high_priority_threads_count={}",
+                mixed_work_threads_count, high_priority_threads_count);
+
   pool_.reserve(mixed_work_threads_count + high_priority_threads_count);
   workers_.resize(mixed_work_threads_count);
   hp_workers_.resize(high_priority_threads_count);
+  spdlog::trace("PriorityThreadPool: reserved pool for {} threads, resized workers to {}, hp_workers to {}",
+                mixed_work_threads_count + high_priority_threads_count, mixed_work_threads_count,
+                high_priority_threads_count);
+
   SimpleBarrier barrier{static_cast<size_t>(mixed_work_threads_count + high_priority_threads_count)};
+  spdlog::trace("PriorityThreadPool: created barrier for {} threads",
+                mixed_work_threads_count + high_priority_threads_count);
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
     hot_threads_.RegisterWorker(static_cast<uint16_t>(i), 0);
+    spdlog::trace("PriorityThreadPool: registering mixed worker {} to NUMA node 0", i);
     pool_.emplace_back([this, i, &barrier]() {
       workers_[i] = std::make_unique<Worker>();
       barrier.arrive_and_wait();
+      spdlog::trace("PriorityThreadPool: mixed worker {} started and passed barrier", i);
       workers_[i]->operator()<Priority::LOW>(static_cast<uint16_t>(i), workers_, hot_threads_);
     });
+    spdlog::trace("PriorityThreadPool: created mixed worker thread {}", i);
   }
 
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
       hp_workers_[i] = std::make_unique<Worker>();
       barrier.arrive_and_wait();
+      spdlog::trace("PriorityThreadPool: high priority worker {} started and passed barrier", i);
       hp_workers_[i]->operator()<Priority::HIGH>(static_cast<uint16_t>(i), workers_, hot_threads_);
     });
+    spdlog::trace("PriorityThreadPool: created high priority worker thread {}", i);
   }
+
+  spdlog::trace("PriorityThreadPool constructor completed: {} total threads created",
+                mixed_work_threads_count + high_priority_threads_count);
 }
 
 PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
                                        const numa::NUMATopology &topology)
     : hot_threads_{mixed_work_threads_count, topology}, task_id_{kMaxLowPriorityId}, numa_topology_{topology} {
+  spdlog::trace(
+      "PriorityThreadPool constructor (NUMA-aware): mixed_work_threads_count={}, high_priority_threads_count={}, "
+      "numa_nodes={}",
+      mixed_work_threads_count, high_priority_threads_count, topology.nodes.size());
+
   workers_.resize(mixed_work_threads_count);
   hp_workers_.resize(high_priority_threads_count);
   node_to_workers_.resize(topology.nodes.size());
+  spdlog::trace("PriorityThreadPool: resized workers to {}, hp_workers to {}, node_to_workers to {} nodes",
+                mixed_work_threads_count, high_priority_threads_count, topology.nodes.size());
+
   SimpleBarrier barrier{static_cast<size_t>(mixed_work_threads_count + high_priority_threads_count)};
+  spdlog::trace("PriorityThreadPool: created barrier for {} threads",
+                mixed_work_threads_count + high_priority_threads_count);
 
   int assigned = 0;
   for (const auto &node : topology.nodes) {
     auto cores = node.GetPrimaryCores();
+    spdlog::trace("PriorityThreadPool: processing NUMA node {} with {} primary cores", node.node_id, cores.size());
     for ([[maybe_unused]] int cpu : cores) {
       if (assigned >= mixed_work_threads_count) break;
       int idx = assigned++;
       hot_threads_.RegisterWorker(static_cast<uint16_t>(idx), node.node_id);
       node_to_workers_[node.node_id].push_back(static_cast<uint16_t>(idx));
+      spdlog::trace("PriorityThreadPool: registering mixed worker {} to NUMA node {} (primary core)", idx,
+                    node.node_id);
 
       pool_.emplace_back([this, idx, node_id = node.node_id, &barrier, &topology]() {
         numa::PinThreadToNUMANode(node_id, topology);
         workers_[idx] = std::make_unique<Worker>();
         workers_[idx]->numa_node_ = node_id;
         barrier.arrive_and_wait();
+        spdlog::trace("PriorityThreadPool: mixed worker {} (NUMA node {}) started and passed barrier", idx, node_id);
         workers_[idx]->operator()<Priority::LOW>(static_cast<uint16_t>(idx), workers_, hot_threads_);
       });
+      spdlog::trace("PriorityThreadPool: created mixed worker thread {} on NUMA node {}", idx, node.node_id);
     }
   }
 
   for (const auto &node : topology.nodes) {
     auto cores = node.GetHyperthreads();
+    spdlog::trace("PriorityThreadPool: processing NUMA node {} with {} hyperthread cores", node.node_id, cores.size());
     for ([[maybe_unused]] int cpu : cores) {
       if (assigned >= mixed_work_threads_count) break;
       int idx = assigned++;
       hot_threads_.RegisterWorker(static_cast<uint16_t>(idx), node.node_id);
       node_to_workers_[node.node_id].push_back(static_cast<uint16_t>(idx));
+      spdlog::trace("PriorityThreadPool: registering mixed worker {} to NUMA node {} (hyperthread)", idx, node.node_id);
 
       pool_.emplace_back([this, idx, node_id = node.node_id, &barrier, &topology]() {
         numa::PinThreadToNUMANode(node_id, topology);
         workers_[idx] = std::make_unique<Worker>();
         workers_[idx]->numa_node_ = node_id;
         barrier.arrive_and_wait();
+        spdlog::trace("PriorityThreadPool: mixed worker {} (NUMA node {}) started and passed barrier", idx, node_id);
         workers_[idx]->operator()<Priority::LOW>(static_cast<uint16_t>(idx), workers_, hot_threads_);
       });
+      spdlog::trace("PriorityThreadPool: created mixed worker thread {} on NUMA node {} (hyperthread)", idx,
+                    node.node_id);
     }
   }
 
   // TODO Fix this logic (handle any number of threads)
 
+  spdlog::trace("PriorityThreadPool: creating {} high priority workers", high_priority_threads_count);
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
     int node_id = topology.nodes[i % topology.nodes.size()].node_id;
+    spdlog::trace("PriorityThreadPool: assigning high priority worker {} to NUMA node {}", i, node_id);
     pool_.emplace_back([this, i, node_id, &barrier, &topology]() {
       numa::PinThreadToNUMANode(node_id, topology);
       hp_workers_[i] = std::make_unique<Worker>();
       hp_workers_[i]->numa_node_ = node_id;
       barrier.arrive_and_wait();
+      spdlog::trace("PriorityThreadPool: high priority worker {} (NUMA node {}) started and passed barrier", i,
+                    node_id);
       hp_workers_[i]->operator()<Priority::HIGH>(static_cast<uint16_t>(i), workers_, hot_threads_);
     });
+    spdlog::trace("PriorityThreadPool: created high priority worker thread {} on NUMA node {}", i, node_id);
   }
+
+  spdlog::trace(
+      "PriorityThreadPool constructor (NUMA-aware) completed: {} mixed workers, {} high priority workers, "
+      "total {} threads",
+      assigned, high_priority_threads_count, assigned + high_priority_threads_count);
 }
 
 void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, Priority priority) {

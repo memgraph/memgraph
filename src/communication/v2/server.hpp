@@ -216,14 +216,33 @@ inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_cod
     return OnError(ec, "accept");
   }
 
+  // Get connection details for logging
+  boost::system::error_code endpoint_ec;
+  auto remote_endpoint = socket.remote_endpoint(endpoint_ec);
+  auto local_endpoint = socket.local_endpoint(endpoint_ec);
+  int socket_fd = socket.native_handle();
+
+  spdlog::trace(
+      "OnAccept: new connection accepted, socket_fd={}, remote={}, local={}", socket_fd,
+      endpoint_ec ? "unknown" : remote_endpoint.address().to_string() + ":" + std::to_string(remote_endpoint.port()),
+      endpoint_ec ? "unknown" : local_endpoint.address().to_string() + ":" + std::to_string(local_endpoint.port()));
+
   // Detect which NUMA node should handle this connection
   // Use the socket's native handle to detect incoming CPU
   // Note: The socket is already bound to an io_context, so we detect the NUMA node
   // for potential future optimization (e.g., routing work to the appropriate NUMA node)
-  (void)socket.native_handle();  // Detect but don't use yet - future optimization
+  int incoming_cpu = utils::numa::GetIncomingCPU(socket_fd);
+  if (incoming_cpu >= 0) {
+    int numa_node = utils::numa::GetNUMANodeForCPU(incoming_cpu);
+    spdlog::trace("OnAccept: connection detected on incoming_cpu={}, numa_node={}", incoming_cpu, numa_node);
+  } else {
+    spdlog::trace("OnAccept: could not detect incoming CPU for socket_fd={}", socket_fd);
+  }
 
   auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
+  spdlog::trace("OnAccept: session created and starting for socket_fd={}", socket_fd);
   session->Start();
+  spdlog::trace("OnAccept: session started successfully for socket_fd={}", socket_fd);
 
   DoAccept();
 }
