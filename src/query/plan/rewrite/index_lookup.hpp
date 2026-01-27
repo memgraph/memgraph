@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -150,8 +151,13 @@ struct HashPair {
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
+                      const Parameters &parameters)
+      : symbol_table_(symbol_table),
+        ast_storage_(ast_storage),
+        db_(db),
+        index_hints_(std::move(index_hints)),
+        parameters_(parameters) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -367,17 +373,41 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
-    // With expand to existing we only get real gains with BFS, because we use a
-    // different algorithm then, so prefer expand to existing.
-    // TODO: Perhaps take average node degree into consideration, instead of
-    // unconditionally creating an indexed scan.
+
+    // Check if we have indexes for both source and destination
+    // We only use STShortestPath if we know both cardinalities (both have indexes)
+    bool source_has_index = HasIndexedSource(expand.input());
+
+    // Try to create an indexed scan for destination nodes
     std::unique_ptr<LogicalOperator> indexed_scan =
         expand.type_ == EdgeAtom::Type::BREADTH_FIRST
             ? GenScanByIndex(dst_scan)
             : GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    if (indexed_scan) {
-      expand.set_input(std::move(indexed_scan));
-      expand.common_.existing_node = true;
+
+    bool destination_has_index = (indexed_scan != nullptr);
+
+    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
+      // For BFS: only use STShortestPath if we have indexes for both source and destination
+      if (source_has_index && destination_has_index) {
+        // Estimate cardinalities
+        double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
+        double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
+
+        // Use cost-based decision with the formula
+        if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
+          expand.set_input(std::move(indexed_scan));
+          expand.common_.existing_node = true;
+        }
+        // If STShortestPath is not beneficial, don't set existing_node
+        // This means SingleSourceShortestPath will be used instead
+      }
+      // If we don't have indexes for both, don't use STShortestPath
+    } else {
+      // For non-BFS: use indexed scan if available (existing behavior)
+      if (indexed_scan) {
+        expand.set_input(std::move(indexed_scan));
+        expand.common_.existing_node = true;
+      }
     }
     return true;
   }
@@ -846,6 +876,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
   IndexHints index_hints_;
+  const Parameters &parameters_;
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
@@ -907,7 +938,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_, parameters_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -1435,10 +1466,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (type_info == ScanAllByLabelProperties::kType) {
       auto *scan_op = dynamic_cast<ScanAllByLabelProperties *>(op);
-      Parameters empty_params;
+
       auto maybe_propertyvalue_ranges =
           scan_op->expression_ranges_ | ranges::views::transform([&](ExpressionRange const &er) {
-            return er.ResolveAtPlantime(empty_params, db_->GetStorageAccessor()->GetNameIdMapper());
+            return er.ResolveAtPlantime(parameters_, db_->GetStorageAccessor()->GetNameIdMapper());
           }) |
           ranges::to_vector;
 
@@ -1727,8 +1758,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db, IndexHints index_hints) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
+                                                        TDbAccessor *db, IndexHints index_hints,
+                                                        const Parameters &parameters) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter
