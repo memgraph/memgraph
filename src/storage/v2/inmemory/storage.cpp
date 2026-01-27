@@ -1194,7 +1194,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_);
   }
-  // TODO: can and should this be moved earlier?
+
+  // Mark transaction as finished for commit ordering and MVCC visibility.
+  // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers
+  // to vertices. GC protects these by using last_processed_commit_ts_ as a safety horizon
+  // (see CollectGarbage implementation).
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
 
   if (config_.enable_schema_info) {
@@ -2601,6 +2605,23 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // ones.
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+
+  // Also consider unprocessed schema updates as a safety horizon.
+  // `pending_schema_updates_` contains raw pointers to vertices (in SchemaInfoEdge.from/.to
+  // and SchemaInfoPostProcess.vertex_cache). We cannot delete these vertices until their
+  // schema updates have been processed. Use the highest queued commit timestamp as an
+  // additional safety horizon to prevent use-after-free.
+  if (config_.salient.items.enable_schema_info) {
+    std::lock_guard<std::mutex> const lock{schema_queue_mutex_};
+    if (!pending_schema_updates_.empty()) {
+      // Use the highest queued commit timestamp as safety horizon to protect vertices
+      // referenced by queued schema updates.
+      uint64_t highest_queued_commit_ts = pending_schema_updates_.rbegin()->first;
+      if (highest_queued_commit_ts < oldest_active_start_timestamp) {
+        oldest_active_start_timestamp = highest_queued_commit_ts;
+      }
+    }
+  }
 
   // Process waiting list for interleaved delta chains ready to move to GC
   waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
