@@ -291,6 +291,5 @@ namespace memgraph::storage {
 struct SchemaInfoPostProcess {
   std::unordered_set<SchemaInfoEdge> edges;
   std::unordered_map<const Vertex *, VertexKey> vertex_cache;
-  std::unordered_set<Vertex *> vertices_with_label_modifications;
 };
 }  // namespace memgraph::storage
