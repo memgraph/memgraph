@@ -394,7 +394,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
 
         // Use cost-based decision with the formula
-        if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
+        if (ShouldUseSTShortestPathV1(source_cardinality, destination_cardinality, expand.common_.direction)) {
           expand.set_input(std::move(indexed_scan));
           expand.common_.existing_node = true;
         }
@@ -1408,13 +1408,54 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
            type_info == ScanAllById::kType;
   }
 
+  // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
+  // compared to SingleSourceShortestPath (multi-source BFS).
+  // assumes STShortestPaths is source*destination complexity
+  bool ShouldUseSTShortestPathV1(double source_cardinality, double destination_cardinality,
+                                 EdgeAtom::Direction direction) {
+    const double V = db_->VerticesCount();
+    const double E = db_->EdgesCount();
+
+    if (V == 0 || E == 0 || source_cardinality == 0 || destination_cardinality == 0) {
+      return false;
+    }
+
+    // Hard safety caps — pairwise explosion guard
+    if (source_cardinality * destination_cardinality > 128) {
+      return false;
+    }
+
+    // 1. Estimate branching factor b
+    const bool is_undirected = (direction == EdgeAtom::Direction::BOTH);
+    const double b = is_undirected ? (2.0 * E / V) : (E / V);
+
+    // No exponential benefit if b <= 1
+    if (b <= 1.0) {
+      return false;
+    }
+
+    // 2. Estimate depth d
+    double d = std::log(V) / std::log(b);
+    d = std::clamp(d, 2.0, 12.0);
+
+    // 3. Pairwise decision rule:
+    // |S| * |T| * b^(d/2) < |S| * b^d
+    // => |T| < b^(d/2)
+    const double b_half_depth = std::pow(b, d / 2.0);
+
+    // Safety margin to counter planner optimism
+    constexpr double kSafety = 8.0;
+
+    return destination_cardinality < (b_half_depth / kSafety);
+  }
+
   // Estimates whether STShortestPath (bidirectional BFS) is beneficial compared to SingleSourceShortestPath.
   // Parameters:
   //   source_cardinality: |S| - number of source nodes
   //   destination_cardinality: |T| - number of destination nodes
   //   direction: edge direction (BOTH = undirected, IN/OUT = directed)
-  bool ShouldUseSTShortestPath(double source_cardinality, double destination_cardinality,
-                               EdgeAtom::Direction direction) {
+  bool ShouldUseSTShortestPathV2(double source_cardinality, double destination_cardinality,
+                                 EdgeAtom::Direction direction) {
     const double V = db_->VerticesCount();
     const double E = db_->EdgesCount();
 
