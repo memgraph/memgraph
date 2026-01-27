@@ -12,7 +12,9 @@
 #include "utils/numa.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <string>
 
@@ -24,22 +26,30 @@
 
 #include <linux/if_packet.h>
 #include <linux/sockios.h>
-#include <cstring>
 
 #include <spdlog/spdlog.h>
-
-#include "utils/logging.hpp"
 
 namespace memgraph::utils::numa {
 
 namespace {
+
+// Robust integer parsing to avoid std::invalid_argument exceptions from sysfs files
+std::optional<int> TryParseInt(const std::string &s) {
+  try {
+    if (s.empty()) return std::nullopt;
+    return std::stoi(s);
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
 // Helper to read a single integer from a file
 std::optional<int> ReadIntFromFile(const std::string &path) {
   std::ifstream file(path);
   if (!file.is_open()) return std::nullopt;
-  int value = 0;
+  std::string value;
   file >> value;
-  return value;
+  return TryParseInt(value);
 }
 
 // Helper to read a string from a file
@@ -50,52 +60,28 @@ std::optional<std::string> ReadStringFromFile(const std::string &path) {
   std::getline(file, value);
   return value;
 }
-}  // namespace
 
-std::vector<int> ParseCPUList(const std::string &cpu_list_str) {
-  std::vector<int> cpus;
-  std::istringstream iss(cpu_list_str);
-  std::string range;
+// Cached topology - initialized once at startup
+std::optional<NUMATopology> g_cached_topology;
+std::once_flag g_topology_init_flag;
 
-  while (std::getline(iss, range, ',')) {
-    range.erase(0, range.find_first_not_of(" \t"));
-    range.erase(range.find_last_not_of(" \t") + 1);
-
-    size_t dash_pos = range.find('-');
-    if (dash_pos != std::string::npos) {
-      // Range like "0-7"
-      int start = std::stoi(range.substr(0, dash_pos));
-      int end = std::stoi(range.substr(dash_pos + 1));
-      for (int i = start; i <= end; ++i) {
-        cpus.push_back(i);
-      }
-    } else {
-      // Single CPU
-      cpus.push_back(std::stoi(range));
-    }
-  }
-
-  return cpus;
-}
-
-std::optional<NUMATopology> DetectTopology() {
+// Internal function that performs the actual topology detection
+std::optional<NUMATopology> DetectTopologyInternal() {
   NUMATopology topology;
 
   // First, discover all NUMA nodes
   std::vector<int> numa_nodes;
-  for (int node = 0; node < 256; ++node) {  // Reasonable limit
-    std::string cpulist_path = "/sys/devices/system/node/node" + std::to_string(node) + "/cpulist";
-    std::ifstream file(cpulist_path);
-    if (!file.is_open()) break;  // No more NUMA nodes
+  for (int node = 0; node < 1024; ++node) {  // Modern systems can have many nodes
+    std::string node_path = "/sys/devices/system/node/node" + std::to_string(node);
+    if (access(node_path.c_str(), F_OK) != 0) break;
     numa_nodes.push_back(node);
   }
 
   if (numa_nodes.empty()) {
-    spdlog::warn("No NUMA nodes detected, assuming single NUMA node (node 0)");
+    spdlog::warn("No NUMA nodes detected via sysfs, assuming single NUMA node (node 0)");
     numa_nodes.push_back(0);
   }
 
-  // For each NUMA node, get its CPUs
   for (int node_id : numa_nodes) {
     NUMANode numa_node;
     numa_node.node_id = node_id;
@@ -106,46 +92,37 @@ std::optional<NUMATopology> DetectTopology() {
 
     std::vector<int> node_cpus = ParseCPUList(*cpulist_str);
 
-    // For each CPU, get its physical core and determine if it's a hyperthread
     for (const int cpu_id : node_cpus) {
       CPUCore core;
       core.logical_id = cpu_id;
       core.numa_node = node_id;
 
-      // Get physical core ID
       std::string core_id_path = "/sys/devices/system/cpu/cpu" + std::to_string(cpu_id) + "/topology/core_id";
       auto core_id = ReadIntFromFile(core_id_path);
-      if (core_id) {
-        core.physical_core = *core_id;
-      } else {
-        core.physical_core = cpu_id;  // Fallback
-      }
+      core.physical_core = core_id.value_or(cpu_id);
 
-      // Determine if this is a hyperthread by checking siblings
-      // If a core has multiple logical CPUs, all but the first are hyperthreads
       std::string siblings_path =
           "/sys/devices/system/cpu/cpu" + std::to_string(cpu_id) + "/topology/thread_siblings_list";
       auto siblings_str = ReadStringFromFile(siblings_path);
       if (siblings_str) {
         std::vector<int> siblings = ParseCPUList(*siblings_str);
-        // Sort siblings to get the primary (lowest ID)
         if (!siblings.empty()) {
           std::sort(siblings.begin(), siblings.end());
+          core.is_hyperthread = (siblings[0] != cpu_id);
+        } else {
+          core.is_hyperthread = false;
         }
-        core.is_hyperthread = (siblings[0] != cpu_id);
       } else {
-        core.is_hyperthread = false;  // Assume primary if we can't determine
+        core.is_hyperthread = false;
       }
 
       numa_node.cpus.push_back(core);
     }
 
-    // Sort CPUs within the node (primary cores first, then hyperthreads)
     std::sort(numa_node.cpus.begin(), numa_node.cpus.end());
-    topology.nodes.push_back(numa_node);
+    topology.nodes.push_back(std::move(numa_node));
   }
 
-  // Calculate totals
   topology.total_cores = 0;
   topology.total_hyperthreads = 0;
   for (const auto &node : topology.nodes) {
@@ -158,41 +135,103 @@ std::optional<NUMATopology> DetectTopology() {
     }
   }
 
-  spdlog::info("Detected {} NUMA node(s) with {} total cores ({} hyperthreads)", topology.nodes.size(),
+  spdlog::info("Detected {} NUMA node(s) with {} total physical cores ({} hyperthreads)", topology.nodes.size(),
                topology.total_cores, topology.total_hyperthreads);
 
   return topology;
 }
 
+const std::optional<NUMATopology> &GetCachedTopology() {
+  std::call_once(g_topology_init_flag, []() {
+    g_cached_topology = DetectTopologyInternal();
+    if (g_cached_topology) {
+      spdlog::info("NUMA topology cached successfully");
+    }
+  });
+  return g_cached_topology;
+}
+
+}  // namespace
+
+// --- Struct Implementations ---
+
+std::vector<int> NUMANode::GetPrimaryCores() const {
+  std::vector<int> result;
+  for (const auto &cpu : cpus) {
+    if (!cpu.is_hyperthread) result.push_back(cpu.logical_id);
+  }
+  return result;
+}
+
+std::vector<int> NUMANode::GetHyperthreads() const {
+  std::vector<int> result;
+  for (const auto &cpu : cpus) {
+    if (cpu.is_hyperthread) result.push_back(cpu.logical_id);
+  }
+  return result;
+}
+
+const NUMANode *NUMATopology::GetNode(int node_id) const {
+  for (const auto &node : nodes) {
+    if (node.node_id == node_id) return &node;
+  }
+  return nullptr;
+}
+
+// --- API Implementation ---
+
+void InitializeTopologyCache() { GetCachedTopology(); }
+
+std::optional<NUMATopology> DetectTopology() { return GetCachedTopology(); }
+
+std::vector<int> ParseCPUList(const std::string &cpu_list_str) {
+  std::vector<int> cpus;
+  if (cpu_list_str.empty()) return cpus;
+
+  std::istringstream iss(cpu_list_str);
+  std::string range;
+
+  while (std::getline(iss, range, ',')) {
+    size_t dash_pos = range.find('-');
+    if (dash_pos != std::string::npos) {
+      auto start_opt = TryParseInt(range.substr(0, dash_pos));
+      auto end_opt = TryParseInt(range.substr(dash_pos + 1));
+      if (start_opt && end_opt) {
+        for (int i = *start_opt; i <= *end_opt; ++i) {
+          cpus.push_back(i);
+        }
+      }
+    } else {
+      auto cpu_opt = TryParseInt(range);
+      if (cpu_opt) cpus.push_back(*cpu_opt);
+    }
+  }
+  return cpus;
+}
+
 int GetNUMANodeForCPU(int cpu_id) {
   if (cpu_id < 0) return -1;
-
-  // Read /sys/devices/system/node/node*/cpulist to find which NUMA node contains this CPU
-  for (int node = 0; node < 256; ++node) {  // Reasonable limit
-    std::string path = "/sys/devices/system/node/node" + std::to_string(node) + "/cpulist";
-    std::ifstream file(path);
-    if (!file.is_open()) break;  // No more NUMA nodes
-
-    std::string line;
-    if (std::getline(file, line)) {
-      std::vector<int> cpus = ParseCPUList(line);
-      for (const int cpu : cpus) {
-        if (cpu == cpu_id) {
-          return node;
-        }
+  const auto &topology = GetCachedTopology();
+  if (topology) {
+    for (const auto &node : topology->nodes) {
+      for (const auto &cpu : node.cpus) {
+        if (cpu.logical_id == cpu_id) return node.node_id;
       }
     }
   }
-  return -1;  // Unknown
+  return -1;
 }
 
 bool PinThreadToCPU(int cpu_id) {
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(cpu_id, &cpuset);
+  // Use dynamic allocation for systems with > 1024 CPUs
+  cpu_set_t *cpuset = CPU_ALLOC(cpu_id + 1);
+  size_t size = CPU_ALLOC_SIZE(cpu_id + 1);
+  CPU_ZERO_S(size, cpuset);
+  CPU_SET_S(cpu_id, size, cpuset);
 
-  pthread_t thread = pthread_self();
-  int result = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  int result = pthread_setaffinity_np(pthread_self(), size, cpuset);
+  CPU_FREE(cpuset);
+
   if (result != 0) {
     spdlog::warn("Failed to pin thread to CPU {}: {}", cpu_id, strerror(result));
     return false;
@@ -201,20 +240,30 @@ bool PinThreadToCPU(int cpu_id) {
 }
 
 bool PinThreadToNUMANode(int numa_node) {
-  auto topology = DetectTopology();
+  const auto &topology = GetCachedTopology();
   if (!topology) return false;
+  return PinThreadToNUMANode(numa_node, *topology);
+}
 
-  const NUMANode *node = topology->GetNode(numa_node);
-  if (!node) return false;
+bool PinThreadToNUMANode(int numa_node, const NUMATopology &topology) {
+  const NUMANode *node = topology.GetNode(numa_node);
+  if (!node || node->cpus.empty()) return false;
 
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
+  int max_cpu = 0;
   for (const auto &cpu : node->cpus) {
-    CPU_SET(cpu.logical_id, &cpuset);
+    max_cpu = std::max(cpu.logical_id, max_cpu);
   }
 
-  pthread_t thread = pthread_self();
-  int result = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  cpu_set_t *cpuset = CPU_ALLOC(max_cpu + 1);
+  size_t size = CPU_ALLOC_SIZE(max_cpu + 1);
+  CPU_ZERO_S(size, cpuset);
+  for (const auto &cpu : node->cpus) {
+    CPU_SET_S(cpu.logical_id, size, cpuset);
+  }
+
+  int result = pthread_setaffinity_np(pthread_self(), size, cpuset);
+  CPU_FREE(cpuset);
+
   if (result != 0) {
     spdlog::warn("Failed to pin thread to NUMA node {}: {}", numa_node, strerror(result));
     return false;
@@ -225,37 +274,25 @@ bool PinThreadToNUMANode(int numa_node) {
 int GetCurrentCPU() {
 #ifdef SYS_getcpu
   unsigned cpu = 0;
-  unsigned node = 0;
-  if (syscall(SYS_getcpu, &cpu, &node, nullptr) == 0) {
+  if (syscall(SYS_getcpu, &cpu, nullptr, nullptr) == 0) {
     return static_cast<int>(cpu);
   }
 #endif
-  // Fallback: try to read from /proc/self/stat
-  // Field 39 (0-indexed) is the CPU number
-  std::ifstream stat_file("/proc/self/stat");
-  if (stat_file.is_open()) {
-    std::string line;
-    std::getline(stat_file, line);
-    std::istringstream iss(line);
-    std::string token;
-    // Skip first 38 fields
-    for (int i = 0; i < 38 && iss >> token; ++i) {
-    }
-    if (iss >> token) {
-      return std::stoi(token);
-    }
-  }
-  return -1;  // Unknown
+  return -1;
 }
 
 int GetCurrentNUMANode() {
-  int cpu = GetCurrentCPU();
-  if (cpu < 0) return -1;
-  return GetNUMANodeForCPU(cpu);
+  unsigned cpu, node;
+#ifdef SYS_getcpu
+  // getcpu(cpu, node, cache_is_unused)
+  if (syscall(SYS_getcpu, &cpu, &node, nullptr) == 0) {
+    return static_cast<int>(node);
+  }
+#endif
+  return -1;
 }
 
 int GetIncomingCPU(int socket_fd) {
-  // SO_INCOMING_CPU is available on Linux 3.19+
   int cpu = -1;
   socklen_t len = sizeof(cpu);
   if (getsockopt(socket_fd, SOL_SOCKET, SO_INCOMING_CPU, &cpu, &len) == 0) {
@@ -265,9 +302,9 @@ int GetIncomingCPU(int socket_fd) {
 }
 
 int GetNAPIID(int socket_fd) {
-  // NAPI_ID is available via SO_INCOMING_NAPI_ID (Linux 4.12+)
   int napi_id = -1;
   socklen_t len = sizeof(napi_id);
+  // Note: SO_INCOMING_NAPI_ID is the correct constant for newer kernels
   if (getsockopt(socket_fd, SOL_SOCKET, SO_INCOMING_NAPI_ID, &napi_id, &len) == 0) {
     return napi_id;
   }
