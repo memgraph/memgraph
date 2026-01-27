@@ -287,6 +287,7 @@ macro(build_protobuf)
 endmacro()
 #mg_build_if_needed(build_protobuf "protobuf")
 mg_create_linkable_if_no_cmake(protobuf STATIC "${MG_TOOLCHAIN_ROOT}/lib/libprotobuf.a" "${MG_TOOLCHAIN_ROOT}/include")
+target_link_libraries(protobuf INTERFACE abseil::abseil)
 
 macro(build_pulsar)
     import_external_library(pulsar STATIC

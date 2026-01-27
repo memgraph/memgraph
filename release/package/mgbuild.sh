@@ -6,39 +6,20 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
-DEFAULT_TOOLCHAIN="v7"
+DEFAULT_TOOLCHAIN="v8"
 SUPPORTED_TOOLCHAINS=(
-    v4 v5 v6 v7
+    v7 v8
 )
 DEFAULT_OS="all"
 
 SUPPORTED_OS=(
     all
     centos-9 centos-10
-    debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-36 fedora-38 fedora-39 fedora-41
-    rocky-9.3
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
-)
-SUPPORTED_OS_V4=(
-    centos-9
-    debian-10 debian-11 debian-11-arm
-    fedora-36
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
-)
-SUPPORTED_OS_V5=(
-    centos-9
-    debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-38 fedora-39
-    rocky-9.3
-    ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
-)
-
-SUPPORTED_OS_V6=(
-    centos-9 centos-10
-    debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-41
+    debian-12 debian-12-arm debian-13 debian-13-arm
+    fedora-42 fedora-42-arm fedora-43 fedora-43-arm
+    rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-26.04 ubuntu-26.04-arm
 )
 
 SUPPORTED_OS_V7=(
@@ -47,6 +28,15 @@ SUPPORTED_OS_V7=(
     fedora-42 fedora-42-arm
     rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+)
+
+SUPPORTED_OS_V8=(
+    centos-9 centos-10
+    debian-12 debian-12-arm debian-13 debian-13-arm
+    fedora-42 fedora-42-arm fedora-43 fedora-43-arm
+    rocky-10
+    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-26.04 ubuntu-26.04-arm
 )
 
 DEFAULT_BUILD_TYPE="Release"
@@ -241,14 +231,14 @@ check_support() {
       fi
     ;;
     os)
-      for e in "${SUPPORTED_OS_V7[@]}"; do
+      for e in "${SUPPORTED_OS[@]}"; do
         if [[ "$e" == "$2" ]]; then
           is_supported=true
           break
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Error: OS $2 isn't supported!\nChoose from  ${SUPPORTED_OS_V7[*]}"
+        echo -e "Error: OS $2 isn't supported!\nChoose from  ${SUPPORTED_OS[*]}"
         exit 1
       fi
     ;;
@@ -265,14 +255,10 @@ check_support() {
       fi
     ;;
     os_toolchain_combo)
-      if [[ "$3" == "v4" ]]; then
-        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V4[@]}")
-      elif [[ "$3" == "v5" ]]; then
-        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V5[@]}")
-      elif [[ "$3" == "v6" ]]; then
-        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V6[@]}")
-      elif [[ "$3" == "v7" ]]; then
+      if [[ "$3" == "v7" ]]; then
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V7[@]}")
+      elif [[ "$3" == "v8" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V8[@]}")
       else
         echo -e "Error: $3 isn't a supported toolchain_version!\nChoose from ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
@@ -779,22 +765,12 @@ package_memgraph() {
 
 package_docker() {
   # TODO(gitbuda): Write the below ifs in a better way (make it automatic with new toolchain versions).
-  if [[ "$toolchain_version" == "v4" ]]; then
-    if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
-      echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
-      exit 1
-    fi
-  elif [[ "$toolchain_version" == "v5" ]]; then
-    if [[ "$os" != "debian-12" && "$os" != "debian-12-arm" ]]; then
-      echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
-      exit 1
-    fi
-  else
-    if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
-      echo -e "Error: When passing '--toolchain v6' the 'docker' command accepts only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm'"
-      exit 1
-    fi
+
+  if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
+    echo -e "Error: When packaging docker only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm' are supported"
+    exit 1
   fi
+
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local generate_sbom=false
