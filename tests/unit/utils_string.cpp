@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -175,8 +175,8 @@ TEST(String, Substr) {
 TEST(String, DoubleToString) {
   EXPECT_EQ(DoubleToString(0), "0");
   EXPECT_EQ(DoubleToString(1), "1");
-  EXPECT_EQ(DoubleToString(1234567890123456), "1234567890123456");
-  EXPECT_EQ(DoubleToString(static_cast<double>(12345678901234567)), "12345678901234568");
+  EXPECT_EQ(DoubleToString(1'234'567'890'123'456), "1234567890123456");
+  EXPECT_EQ(DoubleToString(static_cast<double>(12'345'678'901'234'567)), "12345678901234568");
   EXPECT_EQ(DoubleToString(0.5), "0.5");
   EXPECT_EQ(DoubleToString(1.0), "1");
   EXPECT_EQ(DoubleToString(5.8), "5.8");

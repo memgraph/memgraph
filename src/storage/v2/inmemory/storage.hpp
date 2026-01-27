@@ -39,6 +39,7 @@
 #include "utils/synchronized.hpp"
 
 import memgraph.utils.aws;
+
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
 }  // namespace memgraph::dbms
@@ -83,6 +84,7 @@ struct IndexPerformanceTracker {
   }
 
   bool impacts_vertex_indexes() { return impacts_vertex_indexes_; }
+
   bool impacts_edge_indexes() { return impacts_edge_indexes_; }
 
  private:
@@ -115,6 +117,7 @@ class InMemoryStorage final : public Storage {
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
+
   static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
     switch (error) {
       using enum CreateSnapshotError;
@@ -299,8 +302,8 @@ class InMemoryStorage final : public Storage {
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(edge_type, property, lower,
-                                                                                      upper);
+      return transaction_.active_indices_.edge_type_properties_->ApproximateEdgeCount(
+          edge_type, property, lower, upper);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property) const override {
@@ -611,15 +614,15 @@ class InMemoryStorage final : public Storage {
       if (repl_args.is_main) {
         storage_->ttl_.Resume();
       }
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
-                                          std::nullopt, std::nullopt, false);
+      transaction_.md_deltas.emplace_back(
+          MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE, std::nullopt, std::nullopt, false);
     }
 
     void StopTtl() override {
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       storage_->ttl_.Pause();
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
-                                          std::nullopt, std::nullopt, false);
+      transaction_.md_deltas.emplace_back(
+          MetadataDelta::ttl_operation, durability::TtlOperationType::STOP, std::nullopt, std::nullopt, false);
     }
 
     void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs repl_args = {}) override {
@@ -657,8 +660,11 @@ class InMemoryStorage final : public Storage {
       // Configure TTL
       if (!ttl.Running()) ttl.Configure(ttl_info.should_run_edge_ttl);
       ttl.SetInterval(ttl_info.period, ttl_info.start_time);
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
-                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation,
+                                          durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period,
+                                          ttl_info.start_time,
+                                          ttl_info.should_run_edge_ttl);
     }
 
     void DisableTtl(TTLReplicationArgs repl_args = {}) override {
@@ -679,8 +685,8 @@ class InMemoryStorage final : public Storage {
 
       ttl.Disable();
 
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
-                                          std::nullopt, std::nullopt, false);
+      transaction_.md_deltas.emplace_back(
+          MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE, std::nullopt, std::nullopt, false);
     }
 
     storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
@@ -896,6 +902,7 @@ class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
   void ResetCommitTimestamp() { commit_timestamp_.reset(); }
 
   const Transaction &GetTransaction() const { return transaction_; }
+
   Transaction &GetTransaction() { return transaction_; }
 };
 

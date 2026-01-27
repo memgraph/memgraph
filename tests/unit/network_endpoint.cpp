@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,9 +20,9 @@ TEST(Endpoint, IPv4) {
   endpoint_t endpoint;
 
   // test constructor
-  endpoint = endpoint_t("127.0.0.1", 12347);
+  endpoint = endpoint_t("127.0.0.1", 12'347);
   EXPECT_EQ(endpoint.GetAddress(), "127.0.0.1");
-  EXPECT_EQ(endpoint.GetPort(), 12347);
+  EXPECT_EQ(endpoint.GetPort(), 12'347);
   EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP4);
 }
 
@@ -30,9 +30,9 @@ TEST(Endpoint, IPv6) {
   endpoint_t endpoint;
 
   // test constructor
-  endpoint = endpoint_t("ab:cd:ef::3", 12347);
+  endpoint = endpoint_t("ab:cd:ef::3", 12'347);
   EXPECT_EQ(endpoint.GetAddress(), "ab:cd:ef::3");
-  EXPECT_EQ(endpoint.GetPort(), 12347);
+  EXPECT_EQ(endpoint.GetPort(), 12'347);
   EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP6);
 }
 
@@ -40,14 +40,14 @@ TEST(Endpoint, DNSResolution) {
   endpoint_t endpoint;
 
   // test constructor
-  endpoint = endpoint_t("localhost", 12347);
+  endpoint = endpoint_t("localhost", 12'347);
   if (endpoint.GetIpFamily() == endpoint_t::IpFamily::IP4) {
     EXPECT_EQ(endpoint.GetResolvedIPAddress(), "127.0.0.1");
-    EXPECT_EQ(endpoint.GetPort(), 12347);
+    EXPECT_EQ(endpoint.GetPort(), 12'347);
     EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP4);
   } else {
     EXPECT_EQ(endpoint.GetResolvedIPAddress(), "::1");
-    EXPECT_EQ(endpoint.GetPort(), 12347);
+    EXPECT_EQ(endpoint.GetPort(), 12'347);
     EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP6);
   }
 }

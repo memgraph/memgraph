@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@ namespace memgraph::query {
 class UserProfileQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   UserProfileQuery() = default;
@@ -30,18 +31,24 @@ class UserProfileQuery : public memgraph::query::Query {
 
   struct LimitValueResult {
     enum class Type : uint8_t { UNLIMITED, MEMORY_LIMIT, QUANTITY };
+
     union {
       Type type{Type::UNLIMITED};
+
       struct {
         Type type;
+
         union {
           memgraph::query::Expression *expr;
           uint64_t value;
         };
+
         size_t scale;
       } mem_limit;
+
       struct {
         Type type;
+
         union {
           memgraph::query::Expression *expr;
           uint64_t value;

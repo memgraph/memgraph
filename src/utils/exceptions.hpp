@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -182,6 +182,7 @@ class ParseException final : public BasicException {
 };
 
 inline std::string GetExceptionName(const std::exception &e) { return typeid(e).name(); }
+
 inline std::string GetExceptionName(const utils::BasicException &be) { return be.name(); }
 
 }  // namespace memgraph::utils

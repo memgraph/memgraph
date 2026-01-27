@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,4 +15,4 @@
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_access_timeout_sec, 1, "Query's storage level access timeout in seconds.",
-                        FLAG_IN_RANGE(1, 1000000));
+                        FLAG_IN_RANGE(1, 1'000'000));

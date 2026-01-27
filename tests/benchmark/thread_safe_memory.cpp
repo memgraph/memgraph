@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -231,6 +231,6 @@ static void BM_ReleasePerformance(benchmark::State &state) {
   }
 }
 
-BENCHMARK(BM_ReleasePerformance)->RangeMultiplier(10)->Range(100, 10000)->UseRealTime()->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_ReleasePerformance)->RangeMultiplier(10)->Range(100, 10'000)->UseRealTime()->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_MAIN();

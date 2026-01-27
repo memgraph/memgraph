@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 using namespace std::chrono_literals;
 
 TEST(ThreadPool, Basic) {
-  static constexpr size_t adder_count = 500000;
+  static constexpr size_t adder_count = 500'000;
   static constexpr std::array<size_t, 5> pool_sizes{1, 2, 4, 8, 100};
 
   for (const auto pool_size : pool_sizes) {
@@ -60,7 +60,7 @@ TEST(ThreadPool, MoveOnlyLambda) {
 
 // High concurrency test with move-only lambdas
 TEST(ThreadPool, MoveOnlyLambdaHighConcurrency) {
-  static constexpr size_t task_count = 100000;
+  static constexpr size_t task_count = 100'000;
   static constexpr std::array<size_t, 4> pool_sizes{1, 4, 8, 32};
 
   for (const auto pool_size : pool_sizes) {

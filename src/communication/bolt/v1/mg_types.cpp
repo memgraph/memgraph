@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "communication/bolt/v1/mg_types.hpp"
+
 namespace memgraph::communication::bolt {
 
 auto BoltMapToMgTypeInfo(map_t const &value) -> std::optional<mg_type_info> {

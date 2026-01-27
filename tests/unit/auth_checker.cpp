@@ -239,8 +239,8 @@ TEST(AuthChecker, Generate) {
   // Still empty auth, so the above should have su permissions
   using enum memgraph::query::AuthQuery::Privilege;
   EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, "", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph",
-                                       &memgraph::query::session_long_policy));
+  EXPECT_TRUE(empty_user->IsAuthorized(
+      {FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_TRUE(
       empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
 
@@ -251,8 +251,8 @@ TEST(AuthChecker, Generate) {
   // ~Empty user should now fail~
   // NOTE: Cache invalidation has been disabled, so this will pass; change if it is ever turned on
   EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, "", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph",
-                                       &memgraph::query::session_long_policy));
+  EXPECT_TRUE(empty_user->IsAuthorized(
+      {FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_TRUE(
       empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
 

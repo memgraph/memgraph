@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,8 @@ TEST(SlkAdvanced, PropertyValueList) {
       memgraph::storage::ExternalPropertyValue(
           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
       memgraph::storage::ExternalPropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               sample_duration,
                                                memgraph::utils::Timezone(std::chrono::minutes{60})))};
   ASSERT_EQ(original[0].type(), memgraph::storage::ExternalPropertyValue::Type::String);
   ASSERT_EQ(original[1].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
@@ -63,11 +64,14 @@ TEST(SlkAdvanced, PropertyValueMap) {
       {"real", memgraph::storage::ExternalPropertyValue(1.123423)},
       {"truth", memgraph::storage::ExternalPropertyValue(true)},
       {"nothing", memgraph::storage::ExternalPropertyValue()},
-      {"date", memgraph::storage::ExternalPropertyValue(
-                   memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
-      {"zoned_temporal", memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
-                             memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
-                             memgraph::utils::Timezone("Europe/Zagreb")))}};
+      {"date",
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
+      {"zoned_temporal",
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                                sample_duration,
+                                                memgraph::utils::Timezone("Europe/Zagreb")))}};
   ASSERT_EQ(original["hello"].type(), memgraph::storage::ExternalPropertyValue::Type::String);
   ASSERT_EQ(original["number"].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
   ASSERT_EQ(original["real"].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
@@ -98,7 +102,8 @@ TEST(SlkAdvanced, PropertyValueComplex) {
       memgraph::storage::ExternalPropertyValue(
           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
       memgraph::storage::ExternalPropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               sample_duration,
                                                memgraph::utils::Timezone("Europe/Zagreb")))};
   ASSERT_EQ(vec_v[0].type(), memgraph::storage::ExternalPropertyValue::Type::String);
   ASSERT_EQ(vec_v[1].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
@@ -114,11 +119,14 @@ TEST(SlkAdvanced, PropertyValueComplex) {
       {"real", memgraph::storage::ExternalPropertyValue(1.123423)},
       {"truth", memgraph::storage::ExternalPropertyValue(true)},
       {"nothing", memgraph::storage::ExternalPropertyValue()},
-      {"date", memgraph::storage::ExternalPropertyValue(
-                   memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
-      {"zoned_temporal", memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
-                             memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
-                             memgraph::utils::Timezone("Europe/Zagreb")))}};
+      {"date",
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
+      {"zoned_temporal",
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                                sample_duration,
+                                                memgraph::utils::Timezone("Europe/Zagreb")))}};
   ASSERT_EQ(map_v["hello"].type(), memgraph::storage::ExternalPropertyValue::Type::String);
   ASSERT_EQ(map_v["number"].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
   ASSERT_EQ(map_v["real"].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
@@ -149,13 +157,13 @@ TEST(SlkAdvanced, ReplicationClientConfigs) {
 
   ReplicationClientInfoVec original{ReplicationClientInfo{.instance_name = "replica1",
                                                           .replication_mode = ReplicationMode::SYNC,
-                                                          .replication_server = Endpoint{"127.0.0.1", 10000}},
+                                                          .replication_server = Endpoint{"127.0.0.1", 10'000}},
                                     ReplicationClientInfo{.instance_name = "replica2",
                                                           .replication_mode = ReplicationMode::ASYNC,
-                                                          .replication_server = Endpoint{"127.0.0.1", 10010}},
+                                                          .replication_server = Endpoint{"127.0.0.1", 10'010}},
                                     ReplicationClientInfo{.instance_name = "replica3",
                                                           .replication_mode = ReplicationMode::ASYNC,
-                                                          .replication_server = Endpoint{"127.0.0.1", 10011}}};
+                                                          .replication_server = Endpoint{"127.0.0.1", 10'011}}};
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();

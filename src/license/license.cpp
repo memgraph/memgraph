@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,10 +84,10 @@ std::string LicenseTypeToString(const LicenseType license_type) {
 }
 
 void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings) {
-  settings.RegisterSetting(std::string{kEnterpriseLicenseSettingKey}, "",
-                           [&] { license_checker.RevalidateLicense(settings); });
-  settings.RegisterSetting(std::string{kOrganizationNameSettingKey}, "",
-                           [&] { license_checker.RevalidateLicense(settings); });
+  settings.RegisterSetting(
+      std::string{kEnterpriseLicenseSettingKey}, "", [&] { license_checker.RevalidateLicense(settings); });
+  settings.RegisterSetting(
+      std::string{kOrganizationNameSettingKey}, "", [&] { license_checker.RevalidateLicense(settings); });
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -217,14 +217,22 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       auto default_deleted_vertices = mgp::value_make_list(mgp::list_make_empty(0, memory));
       auto default_deleted_edges = mgp::value_make_list(mgp::list_make_empty(0, memory));
 
-      mgp::proc_add_opt_arg(pagerank_proc, kArgumentCreatedVertices,
-                            mgp::type_nullable(mgp::type_list(mgp::type_node())), default_created_vertices);
-      mgp::proc_add_opt_arg(pagerank_proc, kArgumentCreatedEdges,
-                            mgp::type_nullable(mgp::type_list(mgp::type_relationship())), default_created_edges);
-      mgp::proc_add_opt_arg(pagerank_proc, kArgumentDeletedVertices,
-                            mgp::type_nullable(mgp::type_list(mgp::type_node())), default_deleted_vertices);
-      mgp::proc_add_opt_arg(pagerank_proc, kArgumentDeletedEdges,
-                            mgp::type_nullable(mgp::type_list(mgp::type_relationship())), default_deleted_edges);
+      mgp::proc_add_opt_arg(pagerank_proc,
+                            kArgumentCreatedVertices,
+                            mgp::type_nullable(mgp::type_list(mgp::type_node())),
+                            default_created_vertices);
+      mgp::proc_add_opt_arg(pagerank_proc,
+                            kArgumentCreatedEdges,
+                            mgp::type_nullable(mgp::type_list(mgp::type_relationship())),
+                            default_created_edges);
+      mgp::proc_add_opt_arg(pagerank_proc,
+                            kArgumentDeletedVertices,
+                            mgp::type_nullable(mgp::type_list(mgp::type_node())),
+                            default_deleted_vertices);
+      mgp::proc_add_opt_arg(pagerank_proc,
+                            kArgumentDeletedEdges,
+                            mgp::type_nullable(mgp::type_list(mgp::type_relationship())),
+                            default_deleted_edges);
 
       mgp::value_destroy(default_created_vertices);
       mgp::value_destroy(default_created_edges);

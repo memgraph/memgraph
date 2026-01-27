@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
 namespace memgraph::storage {
 
 std::string ToLowerCasePreservingBooleanOperators(std::string_view input) {
@@ -181,21 +182,24 @@ mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &
   switch (search_mode) {
     case text_search_mode::SPECIFIED_PROPERTIES:
       return mgcxx::text_search::search(
-          context, mgcxx::text_search::SearchInput{.search_query = ToLowerCasePreservingBooleanOperators(search_query),
-                                                   .return_fields = {"metadata"},
-                                                   .limit = limit});
+          context,
+          mgcxx::text_search::SearchInput{.search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                          .return_fields = {"metadata"},
+                                          .limit = limit});
     case text_search_mode::REGEX:
       return mgcxx::text_search::regex_search(
-          context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
-                                                   .search_query = ToLowerCasePreservingBooleanOperators(search_query),
-                                                   .return_fields = {"metadata"},
-                                                   .limit = limit});
+          context,
+          mgcxx::text_search::SearchInput{.search_fields = {"all"},
+                                          .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                          .return_fields = {"metadata"},
+                                          .limit = limit});
     case text_search_mode::ALL_PROPERTIES:
       return mgcxx::text_search::search(
-          context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
-                                                   .search_query = ToLowerCasePreservingBooleanOperators(search_query),
-                                                   .return_fields = {"metadata"},
-                                                   .limit = limit});
+          context,
+          mgcxx::text_search::SearchInput{.search_fields = {"all"},
+                                          .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                          .return_fields = {"metadata"},
+                                          .limit = limit});
     default:
       throw query::TextSearchException(
           "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "

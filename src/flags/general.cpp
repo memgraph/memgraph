@@ -18,6 +18,7 @@
 #include "utils/string.hpp"
 
 #include <iostream>
+#include <ranges>
 #include <thread>
 
 // Short help flag.
@@ -78,7 +79,7 @@ DEFINE_bool(storage_wal_enabled, false,
             "WAL periodic snapshots must be enabled.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3, "The number of snapshots that should always be kept.",
-                        FLAG_IN_RANGE(1, 1000000));
+                        FLAG_IN_RANGE(1, 1'000'000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, memgraph::storage::Config::Durability().wal_file_size_kibibytes,
                         "Minimum file size of each WAL file.",
@@ -88,7 +89,7 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
                         memgraph::storage::Config::Durability().wal_file_flush_every_n_tx,
                         "Issue a 'fsync' call after this amount of transactions are written to the "
                         "WAL file. Set to 1 for fully synchronous operation.",
-                        FLAG_IN_RANGE(1, 1000000));
+                        FLAG_IN_RANGE(1, 1'000'000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
@@ -206,8 +207,7 @@ auto memgraph::flags::ParseQueryModulesDirectory() -> std::vector<std::filesyste
   const auto directories = memgraph::utils::Split(FLAGS_query_modules_directory, ",");
   std::vector<std::filesystem::path> query_modules_directories;
   query_modules_directories.reserve(directories.size());
-  std::transform(directories.begin(), directories.end(), std::back_inserter(query_modules_directories),
-                 [](const auto &dir) { return dir; });
+  std::ranges::copy(directories, std::back_inserter(query_modules_directories));
 
   return query_modules_directories;
 }

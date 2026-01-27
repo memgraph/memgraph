@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -148,7 +148,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object.uuid()), hash);
       ASSERT_TRUE(auth_object.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object.permissions().denies(), 0);
     const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission();
     ASSERT_TRUE(etp.has_value());
@@ -205,7 +205,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_no_license.uuid()), hash);
       ASSERT_TRUE(auth_object_no_license.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object_no_license.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
     ASSERT_FALSE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
@@ -225,7 +225,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community.uuid()), hash);
       ASSERT_TRUE(auth_object_community.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object_community.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community.permissions().denies(), 0);
     ASSERT_FALSE(
         auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
@@ -245,7 +245,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community_resaved.uuid()), hash);
       ASSERT_TRUE(auth_object_community_resaved.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
     ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
                      .edge_type_permissions()
@@ -276,7 +276,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object.uuid()), hash);
       ASSERT_TRUE(auth_object.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object.permissions().denies(), 0);
     ASSERT_FALSE(auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
     ASSERT_FALSE(auth_object.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
@@ -294,7 +294,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_no_license.uuid()), hash);
       ASSERT_TRUE(auth_object_no_license.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object_no_license.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
     ASSERT_FALSE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
@@ -314,7 +314,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community.uuid()), hash);
       ASSERT_TRUE(auth_object_community.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object_community.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community.permissions().denies(), 0);
     ASSERT_FALSE(
         auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
@@ -334,7 +334,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_EQ(memgraph::utils::UUID::arr_t(auth_object_community_resaved.uuid()), hash);
       ASSERT_TRUE(auth_object_community_resaved.CheckPasswordExplicit("password"));
     }
-    ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134217727);
+    ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
     ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
                      .edge_type_permissions()
@@ -1216,8 +1216,9 @@ TEST(AuthModule, UserProfiles) {
 
   // Test profile creation
   ASSERT_TRUE(user_profiles.Create("profile", {}));
-  ASSERT_TRUE(user_profiles.Create("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                      memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(user_profiles.Create(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
   // Test profile creation with usernames
   ASSERT_TRUE(user_profiles.Create("profile_with_users", {}, {"user1", "user2", "user3"}));

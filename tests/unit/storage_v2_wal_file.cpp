@@ -79,6 +79,9 @@ class DeltaGenerator final {
       {
         data_.emplace_back(memgraph::storage::durability::WalVertexCreate{gid});
       }
+      {
+        data_.emplace_back(memgraph::storage::durability::WalVertexCreate{gid});
+      }
       return &it;
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -387,8 +387,9 @@ std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
   }
   if (vertex.properties.size() > 0) {
     os << "{";
-    utils::PrintIterable(os, vertex.properties, ", ",
-                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+    utils::PrintIterable(os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
+      stream << pair.first << ": " << pair.second;
+    });
     os << "}";
   }
   if (!vertex.element_id.empty()) {
@@ -401,8 +402,9 @@ std::ostream &operator<<(std::ostream &os, const Edge &edge) {
   os << "[" << edge.type;
   if (edge.properties.size() > 0) {
     os << " {";
-    utils::PrintIterable(os, edge.properties, ", ",
-                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+    utils::PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+      stream << pair.first << ": " << pair.second;
+    });
     os << "}";
   }
   return os << "]";
@@ -412,8 +414,9 @@ std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge) {
   os << "[" << edge.type;
   if (edge.properties.size() > 0) {
     os << " {";
-    utils::PrintIterable(os, edge.properties, ", ",
-                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+    utils::PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+      stream << pair.first << ": " << pair.second;
+    });
     os << "}";
   }
   return os << "]";
@@ -457,8 +460,9 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
       return os << "]";
     case Value::Type::Map:
       os << "{";
-      utils::PrintIterable(os, value.ValueMap(), ", ",
-                           [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+      utils::PrintIterable(os, value.ValueMap(), ", ", [](auto &stream, const auto &pair) {
+        stream << pair.first << ": " << pair.second;
+      });
       return os << "}";
     case Value::Type::Vertex:
       return os << value.ValueVertex();

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,9 +53,9 @@ DEFINE_VALIDATED_string(
       return true;
     });
 
-DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
+DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10'000,
                        "Timeout (in milliseconds) used when waiting for a response from the auth module.",
-                       FLAG_IN_RANGE(100, 1800000));
+                       FLAG_IN_RANGE(100, 1'800'000));
 
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");

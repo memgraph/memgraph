@@ -907,6 +907,7 @@ class PropertyValueImpl {
       utils::small_vector<float> vector_;
     } vector_index_id_v;
 
+
     struct {
       Type type_ = Type::IntList;
       int_list_t val_;
@@ -986,6 +987,7 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, V
 
   auto extract_type = [](const std::optional<std::variant<int, double>> &val,
                          const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list,
+                        
                          auto index) {
     if (val) {
       if (std::holds_alternative<int>(*val)) {
@@ -1844,9 +1846,9 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdTy
             int>{}(value.ValueIntList());
       }
       case DoubleList: {
-        return memgraph::utils::FnvCollection<
-            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::double_list_t,
-            double>{}(value.ValueDoubleList());
+        return memgraph::utils::
+            FnvCollection<typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::double_list_t,
+                double>{}(value.ValueDoubleList());
       }
       case NumericList: {
         return memgraph::utils::FnvCollection<

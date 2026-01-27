@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,9 +58,11 @@ STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t);
 
 struct LabelPropKey {
   LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}
+
   friend auto operator<=>(LabelPropKey const &, LabelPropKey const &) = default;
 
   auto label() const -> LabelId { return label_; }
+
   auto property() const -> PropertyId { return property_; }
 
  private:
@@ -71,9 +73,11 @@ struct LabelPropKey {
 struct EdgeTypePropKey {
   EdgeTypePropKey(EdgeTypeId const &edge_type, PropertyId const &property)
       : edge_type_(edge_type), property_(property) {}
+
   friend auto operator<=>(EdgeTypePropKey const &, EdgeTypePropKey const &) = default;
 
   auto edge_type() const -> EdgeTypeId { return edge_type_; }
+
   auto property() const -> PropertyId { return property_; }
 
  private:

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,8 +49,8 @@ class RaftStateTest : public ::testing::Test {
 
   int32_t const coordinator_id = 21;
   uint16_t const bolt_port = 6687;
-  uint16_t const coordinator_port = 40112;
-  uint16_t const management_port = 21345;
+  uint16_t const coordinator_port = 40'112;
+  uint16_t const management_port = 21'345;
 };
 
 TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
@@ -81,6 +81,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 }
 
 class RaftStateParamTest : public RaftStateTest, public ::testing::WithParamInterface<bool> {};
+
 INSTANTIATE_TEST_SUITE_P(BoolParams, RaftStateParamTest, ::testing::Values(true, false));
 
 TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
@@ -90,33 +91,36 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
   data_instances.emplace_back(
       DataInstanceConfig{
           .instance_name = "instance1",
-          .mgt_server = Endpoint{"0.0.0.0", 10011},
+          .mgt_server = Endpoint{"0.0.0.0", 10'011},
           .bolt_server = Endpoint{"0.0.0.0", 7687},
           .replication_client_info = ReplicationClientInfo{.instance_name = "instance1",
                                                            .replication_mode = ReplicationMode::ASYNC,
-                                                           .replication_server = Endpoint{"0.0.0.0", 10001}}},
-      ReplicationRole::MAIN, curr_uuid);
+                                                           .replication_server = Endpoint{"0.0.0.0", 10'001}}},
+      ReplicationRole::MAIN,
+      curr_uuid);
 
   data_instances.emplace_back(
       DataInstanceConfig{
           .instance_name = "instance2",
-          .mgt_server = Endpoint{"0.0.0.0", 10012},
+          .mgt_server = Endpoint{"0.0.0.0", 10'012},
           .bolt_server = Endpoint{"0.0.0.0", 7688},
           .replication_client_info = ReplicationClientInfo{.instance_name = "instance2",
                                                            .replication_mode = ReplicationMode::ASYNC,
-                                                           .replication_server = Endpoint{"0.0.0.0", 10002}}},
-      ReplicationRole::REPLICA, curr_uuid);
+                                                           .replication_server = Endpoint{"0.0.0.0", 10'002}}},
+      ReplicationRole::REPLICA,
+      curr_uuid);
 
   data_instances.emplace_back(
       DataInstanceConfig{
           .instance_name = "instance3",
-          .mgt_server = Endpoint{"0.0.0.0", 10013},
+          .mgt_server = Endpoint{"0.0.0.0", 10'013},
           .bolt_server = Endpoint{"0.0.0.0", 7689},
           .replication_client_info = ReplicationClientInfo{.instance_name = "instance3",
                                                            .replication_mode = ReplicationMode::ASYNC,
-                                                           .replication_server = Endpoint{"0.0.0.0", 10003}}},
+                                                           .replication_server = Endpoint{"0.0.0.0", 10'003}}},
 
-      ReplicationRole::REPLICA, curr_uuid);
+      ReplicationRole::REPLICA,
+      curr_uuid);
 
   auto coord_instances = std::vector<CoordinatorInstanceContext>{};
   coord_instances.emplace_back(1, fmt::format("localhost:{}", bolt_port));
@@ -132,9 +136,13 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
       {"instance3", std::map<std::string, int64_t>{{"a", 12}, {"b", 15}, {"c", 0}}},
   };
 
-  auto const routing_table =
-      CreateRoutingTable(data_instances, coord_instances, is_instance_main, enabled_reads_on_main, max_read_replica_lag,
-                         target_db_name, replicas_lag);
+  auto const routing_table = CreateRoutingTable(data_instances,
+                                                coord_instances,
+                                                is_instance_main,
+                                                enabled_reads_on_main,
+                                                max_read_replica_lag,
+                                                target_db_name,
+                                                replicas_lag);
 
   ASSERT_EQ(routing_table.size(), 3);
 

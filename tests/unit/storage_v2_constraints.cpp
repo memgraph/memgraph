@@ -136,8 +136,9 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1),
-                                                                          std::make_pair(this->label2, this->prop1)));
+    EXPECT_THAT(
+        acc->ListAllConstraints().existence,
+        UnorderedElementsAre(std::make_pair(this->label1, this->prop1), std::make_pair(this->label2, this->prop1)));
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
@@ -1004,8 +1005,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
-              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1,
-                                   std::set<PropertyId>{this->prop1, this->prop2}}));
+              (ConstraintViolation{
+                  ConstraintViolation::Type::UNIQUE, this->label1, std::set<PropertyId>{this->prop1, this->prop2}}));
   }
 
   // Then change the second property of both vertex to null. Property values of

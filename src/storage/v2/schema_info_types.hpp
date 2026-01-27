@@ -67,8 +67,10 @@ struct EdgeKey {
   VertexKey to;
 
   EdgeKey() = default;
+
   // Do not pass by value, since move is expensive on vectors with only a few elements
   EdgeKey(EdgeTypeId id, const VertexKey &from, const VertexKey &to) : type{id}, from{from}, to(to) {}
+
   explicit EdgeKey(EdgeKeyRef ref) : type{ref.type}, from{ref.from}, to(ref.to) {}
 
   bool operator==(const EdgeKey &other) const {
@@ -252,12 +254,15 @@ struct hash<memgraph::storage::EdgeKey> {
 template <>
 struct equal_to<memgraph::storage::EdgeKey> {
   using is_transparent = void;
+
   size_t operator()(const memgraph::storage::EdgeKey &lhs, const memgraph::storage::EdgeKey &rhs) const {
     return lhs == rhs;
   }
+
   size_t operator()(const memgraph::storage::EdgeKey &lhs, const memgraph::storage::EdgeKeyRef &rhs) const {
     return lhs == rhs;
   }
+
   size_t operator()(const memgraph::storage::EdgeKeyRef &lhs, const memgraph::storage::EdgeKey &rhs) const {
     return rhs == lhs;
   }

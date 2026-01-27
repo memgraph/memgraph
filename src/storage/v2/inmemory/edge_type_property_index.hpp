@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,6 +50,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     }
 
     bool operator==(const PropertyValue &rhs) const { return value == rhs; }
+
     auto operator<=>(const PropertyValue &rhs) const { return value <=> rhs; }
   };
 
@@ -69,6 +70,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       EdgeAccessor const &operator*() const { return current_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++();
@@ -83,6 +85,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }
+
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
@@ -119,7 +122,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       }
 
       EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
 
       Iterator &operator++() {
@@ -146,10 +151,12 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
           : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
 
       Iterator begin() { return begin_; }
+
       Iterator end() { return end_; }
     };
 
     Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+
     size_t size() const { return chunks_.size(); }
 
    private:

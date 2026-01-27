@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -215,7 +215,9 @@ TEST(AsyncTimer, AssignmentToExpiredTimer) {
 
 TEST(AsyncTimer, DestructionWhileRunning) {
   // Create and immediately destroy a timer
-  { AsyncTimer timer_to_destroy{ToSeconds(kDefaultTimerDuration)}; }
+  {
+    AsyncTimer timer_to_destroy{ToSeconds(kDefaultTimerDuration)};
+  }
 
   // Create another timer to ensure the system still works
   AsyncTimer timer_to_wait{ToSeconds(kMediumTimer + std::chrono::milliseconds(10))};

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@ class VerticesIterable final {
   enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
 
   Type type_;
+
   union {
     AllVerticesIterable all_vertices_;
     InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
@@ -42,6 +43,7 @@ class VerticesIterable final {
 
   class Iterator final {
     Type type_;
+
     union {
       AllVerticesIterable::Iterator all_it_;
       InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;

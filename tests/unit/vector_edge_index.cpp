@@ -39,14 +39,15 @@ class VectorEdgeIndexTest : public testing::Test {
   std::unique_ptr<Storage> storage;
 
   void SetUp() override { storage = std::make_unique<InMemoryStorage>(config_); }
+
   void TearDown() override { storage.reset(); }
 
   void CreateEdgeIndex(std::uint16_t dimension, std::size_t capacity) {
     auto unique_acc = this->storage->UniqueAccess();
     const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
     const auto property = unique_acc->NameToProperty(test_property.data());
-    const auto spec = VectorEdgeIndexSpec{test_index.data(), edge_type,          property, metric,
-                                          dimension,         resize_coefficient, capacity, scalar_kind};
+    const auto spec = VectorEdgeIndexSpec{
+        test_index.data(), edge_type, property, metric, dimension, resize_coefficient, capacity, scalar_kind};
     EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }

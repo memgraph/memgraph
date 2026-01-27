@@ -74,7 +74,9 @@ struct VersionDependantUpgradable {};
 // Common structures used by more than one WAL Delta
 
 using CompositeStr = std::vector<std::string>;
+
 inline auto UpgradeForCompositeIndices(std::string v) -> CompositeStr { return std::vector{std::move(v)}; };
+
 using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
                                                             CompositeStr, UpgradeForCompositeIndices>;
 
@@ -97,12 +99,14 @@ struct VertexOpInfo {
   using ctr_types = std::tuple<Gid>;
   Gid gid;
 };
+
 struct VertexLabelOpInfo {
   friend bool operator==(const VertexLabelOpInfo &, const VertexLabelOpInfo &) = default;
   using ctr_types = std::tuple<Gid, std::string>;
   Gid gid;
   std::string label;
 };
+
 struct EdgeOpInfo {
   friend bool operator==(const EdgeOpInfo &, const EdgeOpInfo &) = default;
   using ctr_types = std::tuple<Gid, std::string, Gid, Gid>;
@@ -111,17 +115,20 @@ struct EdgeOpInfo {
   Gid from_vertex;
   Gid to_vertex;
 };
+
 struct LabelOpInfo {
   friend bool operator==(const LabelOpInfo &, const LabelOpInfo &) = default;
   using ctr_types = std::tuple<std::string>;
   std::string label;
 };
+
 struct LabelPropertyOpInfo {
   friend bool operator==(const LabelPropertyOpInfo &, const LabelPropertyOpInfo &) = default;
   using ctr_types = std::tuple<std::string, std::string>;
   std::string label;
   std::string property;
 };
+
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
   using ctr_types = std::tuple<std::string, CompositePropertyPaths>;
@@ -135,22 +142,26 @@ struct LabelUnorderedPropertiesOpInfo {
   std::string label;
   std::set<std::string, std::less<>> properties;
 };
+
 struct EdgeTypeOpInfo {
   friend bool operator==(const EdgeTypeOpInfo &, const EdgeTypeOpInfo &) = default;
   using ctr_types = std::tuple<std::string>;
   std::string edge_type;
 };
+
 struct EdgeTypePropertyOpInfo {
   friend bool operator==(const EdgeTypePropertyOpInfo &, const EdgeTypePropertyOpInfo &) = default;
   using ctr_types = std::tuple<std::string, std::string>;
   std::string edge_type;
   std::string property;
 };
+
 struct EdgePropertyOpInfo {
   friend bool operator==(const EdgePropertyOpInfo &, const EdgePropertyOpInfo &) = default;
   using ctr_types = std::tuple<std::string>;
   std::string property;
 };
+
 struct TypeConstraintOpInfo {
   friend bool operator==(const TypeConstraintOpInfo &, const TypeConstraintOpInfo &) = default;
   using ctr_types = std::tuple<std::string, std::string, TypeConstraintKind>;
@@ -161,9 +172,13 @@ struct TypeConstraintOpInfo {
 
 // Wal Deltas after Decode
 struct WalVertexCreate : VertexOpInfo {};
+
 struct WalVertexDelete : VertexOpInfo {};
+
 struct WalVertexAddLabel : VertexLabelOpInfo {};
+
 struct WalVertexRemoveLabel : VertexLabelOpInfo {};
+
 struct WalVertexSetProperty {
   friend bool operator==(const WalVertexSetProperty &, const WalVertexSetProperty &) = default;
   using ctr_types = std::tuple<Gid, std::string, ExternalPropertyValue>;
@@ -171,12 +186,14 @@ struct WalVertexSetProperty {
   std::string property;
   ExternalPropertyValue value;
 };
+
 struct WalEdgeSetProperty {
   friend bool operator==(const WalEdgeSetProperty &lhs, const WalEdgeSetProperty &rhs) {
     // Since kEdgeSetDeltaWithVertexInfo version delta holds from vertex gid; this is an extra information (no need to
     // check it)
     return std::tie(lhs.gid, lhs.property, lhs.value) == std::tie(rhs.gid, rhs.property, rhs.value);
   }
+
   using ctr_types =
       std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
   Gid gid;
@@ -184,7 +201,9 @@ struct WalEdgeSetProperty {
   ExternalPropertyValue value;
   std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
 };
+
 struct WalEdgeCreate : EdgeOpInfo {};
+
 struct WalEdgeDelete : EdgeOpInfo {};
 
 enum class TransactionAccessType : uint8_t {
@@ -205,25 +224,39 @@ struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
   using ctr_types = std::tuple<>;
 };
+
 struct WalLabelIndexCreate : LabelOpInfo {};
+
 struct WalLabelIndexDrop : LabelOpInfo {};
+
 struct WalLabelIndexStatsClear : LabelOpInfo {};
+
 struct WalLabelPropertyIndexStatsClear : LabelOpInfo {
 };  // Special case, this clear is done on all label/property pairs that contain the defined label
+
 struct WalEdgeTypeIndexCreate : EdgeTypeOpInfo {};
+
 struct WalEdgeTypeIndexDrop : EdgeTypeOpInfo {};
+
 struct WalLabelIndexStatsSet {
   friend bool operator==(const WalLabelIndexStatsSet &, const WalLabelIndexStatsSet &) = default;
   using ctr_types = std::tuple<std::string, std::string>;
   std::string label;
   std::string json_stats;
 };
+
 struct WalLabelPropertyIndexCreate : LabelOrderedPropertiesOpInfo {};
+
 struct WalLabelPropertyIndexDrop : LabelOrderedPropertiesOpInfo {};
+
 struct WalPointIndexCreate : LabelPropertyOpInfo {};
+
 struct WalPointIndexDrop : LabelPropertyOpInfo {};
+
 struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
+
 struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
+
 struct WalLabelPropertyIndexStatsSet {
   friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
   using ctr_types = std::tuple<std::string, CompositePropertyPaths, std::string>;
@@ -231,14 +264,23 @@ struct WalLabelPropertyIndexStatsSet {
   CompositePropertyPaths composite_property_paths;
   std::string json_stats;
 };
+
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
+
 struct WalEdgeTypePropertyIndexDrop : EdgeTypePropertyOpInfo {};
+
 struct WalEdgePropertyIndexCreate : EdgePropertyOpInfo {};
+
 struct WalEdgePropertyIndexDrop : EdgePropertyOpInfo {};
+
 struct WalUniqueConstraintCreate : LabelUnorderedPropertiesOpInfo {};
+
 struct WalUniqueConstraintDrop : LabelUnorderedPropertiesOpInfo {};
+
 struct WalTypeConstraintCreate : TypeConstraintOpInfo {};
+
 struct WalTypeConstraintDrop : TypeConstraintOpInfo {};
+
 struct WalTextIndexCreate {
   friend bool operator==(const WalTextIndexCreate &, const WalTextIndexCreate &) = default;
   using ctr_types =
@@ -251,6 +293,7 @@ struct WalTextIndexCreate {
 inline auto UpgradeDropTextIndexRemoveLabel(std::pair<std::string, std::string> name_and_label) -> std::string {
   return name_and_label.first;  // Extract only the index_name, discard the label
 };
+
 using UpgradableDropTextIndex =
     VersionDependantUpgradable<kTextIndexWithProperties, std::pair<std::string, std::string>, std::string,
                                UpgradeDropTextIndexRemoveLabel>;
@@ -261,6 +304,7 @@ struct WalTextIndexDrop {
   std::string index_name;
   std::optional<std::string> label;  //!< Optional label, only used for versions < kTextIndexWithProperties
 };
+
 struct WalTextEdgeIndexCreate {
   friend bool operator==(const WalTextEdgeIndexCreate &, const WalTextEdgeIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::vector<std::string>>;
@@ -268,18 +312,21 @@ struct WalTextEdgeIndexCreate {
   std::string edge_type;
   std::vector<std::string> properties;  //!< Properties to index, if empty all properties are indexed
 };
+
 struct WalEnumCreate {
   friend bool operator==(const WalEnumCreate &, const WalEnumCreate &) = default;
   using ctr_types = std::tuple<std::string, std::vector<std::string>>;
   std::string etype;
   std::vector<std::string> evalues;
 };
+
 struct WalEnumAlterAdd {
   friend bool operator==(const WalEnumAlterAdd &, const WalEnumAlterAdd &) = default;
   using ctr_types = std::tuple<std::string, std::string>;
   std::string etype;
   std::string evalue;
 };
+
 struct WalEnumAlterUpdate {
   friend bool operator==(const WalEnumAlterUpdate &, const WalEnumAlterUpdate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string>;
@@ -287,6 +334,7 @@ struct WalEnumAlterUpdate {
   std::string evalue_old;
   std::string evalue_new;
 };
+
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
@@ -300,6 +348,7 @@ struct WalVectorIndexCreate {
   std::size_t capacity;
   std::optional<std::uint8_t> scalar_kind;  //!< Optional scalar kind, if not set, scalar is not used
 };
+
 struct WalVectorEdgeIndexCreate {
   friend bool operator==(const WalVectorEdgeIndexCreate &, const WalVectorEdgeIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
@@ -313,6 +362,7 @@ struct WalVectorEdgeIndexCreate {
   std::size_t capacity;
   std::uint8_t scalar_kind;
 };
+
 struct WalVectorIndexDrop {
   friend bool operator==(const WalVectorIndexDrop &, const WalVectorIndexDrop &) = default;
   using ctr_types = std::tuple<std::string>;
@@ -340,7 +390,8 @@ struct WalDeltaData {
                           [](auto const &, auto const &) { return false; },
 
                       },
-                      a.data_, b.data_);
+                      a.data_,
+                      b.data_);
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,

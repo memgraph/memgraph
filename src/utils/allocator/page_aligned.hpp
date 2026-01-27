@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,11 +33,11 @@ struct PageAlignedAllocator {
     // Round up to the nearest multiple of PAGE_SIZE
     size = ((size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
     // we must use new/delete as it will correctly throw appropriate exception
-    void *ptr = operator new (size, std::align_val_t{PAGE_SIZE});
+    void *ptr = operator new(size, std::align_val_t{PAGE_SIZE});
     return static_cast<T *>(ptr);
   }
 
-  void deallocate(T *p, std::size_t) const noexcept { operator delete (p, std::align_val_t{PAGE_SIZE}); }
+  void deallocate(T *p, std::size_t) const noexcept { operator delete(p, std::align_val_t{PAGE_SIZE}); }
 
   constexpr friend bool operator==(PageAlignedAllocator const &, PageAlignedAllocator const &) noexcept { return true; }
 };

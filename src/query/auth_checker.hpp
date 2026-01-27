@@ -110,18 +110,23 @@ class AllowEverythingAuthChecker final : public AuthChecker {
  public:
   struct User : query::QueryUserOrRole {
     User() : query::QueryUserOrRole{{}, {}} {}
+
     User(std::string name) : query::QueryUserOrRole{std::move(name), {}} {}
+
     bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
                       std::optional<std::string_view> /*db_name*/, UserPolicy * /*policy*/) const override {
       return true;
     }
+
     std::shared_ptr<QueryUserOrRole> clone() const override { return std::make_shared<User>(*this); }
+
     std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 #ifdef MG_ENTERPRISE
     bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
                         std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
       return true;
     }
+
     std::string GetDefaultDB() const override { return std::string{dbms::kDefaultDB}; }
 #endif
   };

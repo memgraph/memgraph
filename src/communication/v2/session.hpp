@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -153,8 +153,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         utils::Overloaded{[shared_this = shared_from_this(), data, len, have_more](TCPSocket &socket) mutable {
                             boost::system::error_code ec;
                             while (len > 0) {
-                              const auto sent = socket.send(boost::asio::buffer(data, len),
-                                                            MSG_NOSIGNAL | (have_more ? MSG_MORE : 0U), ec);
+                              const auto sent = socket.send(
+                                  boost::asio::buffer(data, len), MSG_NOSIGNAL | (have_more ? MSG_MORE : 0U), ec);
                               if (ec) {
                                 spdlog::trace("Failed to write to TCP socket: {}", ec.message());
                                 shared_this->OnError(ec);
@@ -357,7 +357,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       spdlog::info("{} client {} closed the connection.", service_name_, remote_endpoint_);
       DoShutdown();
     } catch (const std::exception &e) {
-      spdlog::error("Exception was thrown while processing event in {} session associated with {}", service_name_,
+      spdlog::error("Exception was thrown while processing event in {} session associated with {}",
+                    service_name_,
                     remote_endpoint_);
       spdlog::debug("Exception message: {}", e.what());
       DoShutdown();

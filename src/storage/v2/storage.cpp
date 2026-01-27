@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -181,13 +181,13 @@ std::vector<EventInfo> Storage::GetMetrics() noexcept {
   const auto *kHistogramName = "Histogram";
 
   for (auto i = 0; i < metrics::CounterEnd(); i++) {
-    result.emplace_back(metrics::GetCounterName(i), metrics::GetCounterType(i), kCounterName,
-                        metrics::global_counters[i]);
+    result.emplace_back(
+        metrics::GetCounterName(i), metrics::GetCounterType(i), kCounterName, metrics::global_counters[i]);
   }
 
   for (auto i = 0; i < metrics::GaugeEnd(); i++) {
-    result.emplace_back(metrics::GetGaugeName(i), metrics::GetGaugeTypeString(i), kGaugeName,
-                        metrics::global_gauges[i]);
+    result.emplace_back(
+        metrics::GetGaugeName(i), metrics::GetGaugeTypeString(i), kGaugeName, metrics::global_gauges[i]);
   }
 
   for (auto i = 0; i < metrics::HistogramEnd(); i++) {
@@ -443,8 +443,8 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
   std::unordered_set<Gid> src_edge_ids;
   std::unordered_set<Gid> dest_edge_ids;
 
-  auto try_adding_partial_delete_vertices = [this, &vertices](auto &partial_delete_vertices, auto &edge_ids,
-                                                              auto &item) {
+  auto try_adding_partial_delete_vertices = [this, &vertices](
+                                                auto &partial_delete_vertices, auto &edge_ids, auto &item) {
     // For the nodes on the other end of the edge, they might not get deleted in the system but only cut out
     // of the edge. Therefore, information is gathered in this step to account for every vertices' in and out
     // edges and what must be deleted
@@ -505,7 +505,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
   std::vector<EdgeAccessor> deleted_edges{};
 
   auto clear_edges = [this, &deleted_edges, &deleted_edge_ids, &schema_acc](
-                         auto *vertex_ptr, auto *attached_edges_to_vertex, auto deletion_delta,
+                         auto *vertex_ptr,
+                         auto *attached_edges_to_vertex,
+                         auto deletion_delta,
                          auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     // This has to be called before any object gets locked
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
@@ -527,9 +529,17 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 
       // MarkEdgeAsDeleted allocates additional memory
       // and CreateAndLinkDelta needs memory
-      utils::AtomicMemoryBlock([&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order, &vertex_ptr,
-                                &deleted_edges, deletion_delta = deletion_delta, edge_type = edge_type,
-                                opposing_vertex = opposing_vertex, edge_ref = edge_ref, &schema_acc, this]() {
+      utils::AtomicMemoryBlock([&attached_edges_to_vertex,
+                                &deleted_edge_ids,
+                                &reverse_vertex_order,
+                                &vertex_ptr,
+                                &deleted_edges,
+                                deletion_delta = deletion_delta,
+                                edge_type = edge_type,
+                                opposing_vertex = opposing_vertex,
+                                edge_ref = edge_ref,
+                                &schema_acc,
+                                this]() {
         attached_edges_to_vertex->pop_back();
         if (this->storage_->config_.salient.items.properties_on_edges) {
           auto *edge_ptr = edge_ref.ptr;
@@ -585,7 +595,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
   std::vector<EdgeAccessor> deleted_edges{};
 
   auto clear_edges_on_other_direction = [this, &deleted_edges, &partially_detached_edge_ids, &schema_acc](
-                                            auto *vertex_ptr, auto *edges_attached_to_vertex, auto &set_for_erasure,
+                                            auto *vertex_ptr,
+                                            auto *edges_attached_to_vertex,
+                                            auto &set_for_erasure,
                                             auto deletion_delta,
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
@@ -602,8 +614,15 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 
     // Creating deltas and erasing edge only at the end -> we might have incomplete state as
     // delta might cause OOM, so we don't remove edges from edges_attached_to_vertex
-    utils::AtomicMemoryBlock([&mid, &edges_attached_to_vertex, &deleted_edges, &partially_detached_edge_ids, this,
-                              vertex_ptr, deletion_delta, reverse_vertex_order, &schema_acc]() {
+    utils::AtomicMemoryBlock([&mid,
+                              &edges_attached_to_vertex,
+                              &deleted_edges,
+                              &partially_detached_edge_ids,
+                              this,
+                              vertex_ptr,
+                              deletion_delta,
+                              reverse_vertex_order,
+                              &schema_acc]() {
       for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
         auto const &[edge_type, opposing_vertex, edge_ref] = *it;
         std::unique_lock<utils::RWSpinLock> guard;
@@ -645,15 +664,15 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 
   // remove edges from vertex collections which we aggregated for just detaching
   for (auto *vertex_ptr : info.partial_src_vertices) {
-    auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
-                                                      Delta::AddOutEdgeTag(), false);
+    auto maybe_error = clear_edges_on_other_direction(
+        vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids, Delta::AddOutEdgeTag(), false);
     if (!maybe_error) {
       return maybe_error;
     }
   }
   for (auto *vertex_ptr : info.partial_dest_vertices) {
-    auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids,
-                                                      Delta::AddInEdgeTag(), true);
+    auto maybe_error = clear_edges_on_other_direction(
+        vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids, Delta::AddInEdgeTag(), true);
     if (!maybe_error) {
       return maybe_error;
     }
@@ -733,8 +752,8 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   }
 
   try {
-    storage_->indices_.text_edge_index_.CreateIndex(text_edge_index_info, Vertices(View::NEW),
-                                                    storage_->name_id_mapper_.get());
+    storage_->indices_.text_edge_index_.CreateIndex(
+        text_edge_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
   }

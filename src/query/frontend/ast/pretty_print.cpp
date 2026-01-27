@@ -467,6 +467,7 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
 void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
 
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, dba_, "LabelsTest", op.expression_); }
+
 void ExpressionPrettyPrinter::Visit(EdgeTypesTest &op) { PrintOperator(out_, dba_, "EdgeTypesTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, dba_, "Aggregation", op.op_); }

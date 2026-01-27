@@ -454,8 +454,8 @@ TYPED_TEST(TTLFixture, Edge) {
 
   // Wait for first TTL deletion (vertex with older timestamp and possibly edges)
   // TTL runs every 700ms, so we expect deletion within ~1.4s max
-  ASSERT_TRUE(WaitForVertexAndEdgeCount(this->db_, expected_vertices_first, expected_edges_first,
-                                        std::chrono::milliseconds(1400)))
+  ASSERT_TRUE(WaitForVertexAndEdgeCount(
+      this->db_, expected_vertices_first, expected_edges_first, std::chrono::milliseconds(1400)))
       << "Failed to observe first TTL deletion (expected " << expected_vertices_first << " vertices and "
       << expected_edges_first << " edges)";
 

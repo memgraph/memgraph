@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,6 +38,7 @@ struct SalientConfig {
   utils::UUID uuid;
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
   utils::CompressionLevel property_store_compression_level{utils::CompressionLevel::MID};
+
   struct Items {
     bool properties_on_edges{true};
     bool enable_edges_metadata{false};
@@ -85,7 +86,7 @@ struct Config {
     uint64_t snapshot_retention_count{3};  // PER DATABASE
 
     uint64_t wal_file_size_kibibytes{20 * 1024};  // PER DATABASE
-    uint64_t wal_file_flush_every_n_tx{100000};   // PER DATABASE
+    uint64_t wal_file_flush_every_n_tx{100'000};  // PER DATABASE
 
     bool snapshot_on_exit{false};                      // PER DATABASE
     bool restore_replication_state_on_startup{false};  // PER INSTANCE

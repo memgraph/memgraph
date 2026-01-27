@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@ namespace memgraph::utils {
 
 struct ResettableCounter {
   ResettableCounter(std::size_t N) : counter_{N}, orig_{N} {}
+
   bool operator()() const {
     --counter_;
     if (counter_ != 0) return false;

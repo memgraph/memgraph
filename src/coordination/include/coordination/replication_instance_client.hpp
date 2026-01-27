@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,6 +75,7 @@ class ReplicationInstanceClient {
 
   auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::InstanceInfo>;
   auto SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo>;
+
   auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
   friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {

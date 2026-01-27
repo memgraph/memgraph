@@ -87,8 +87,9 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::TEMPORAL_DATA));
-      data.emplace("value", nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
-                                                    {"microseconds", temporal_data.microseconds}}));
+      data.emplace("value",
+                   nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
+                                           {"microseconds", temporal_data.microseconds}}));
       return data;
     }
     case Type::ZonedTemporalData: {

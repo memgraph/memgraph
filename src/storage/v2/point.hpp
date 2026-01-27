@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -133,9 +133,13 @@ struct Point2d {
   }
 
   [[nodiscard]] auto crs() const -> CoordinateReferenceSystem { return crs_; }
+
   [[nodiscard]] auto x() const -> double { return x_longitude_; }
+
   [[nodiscard]] auto y() const -> double { return y_latitude_; }
+
   [[nodiscard]] auto longitude() const -> double { return x_longitude_; }
+
   [[nodiscard]] auto latitude() const -> double { return y_latitude_; }
 
   friend bool operator==(Point2d const &, Point2d const &) = default;
@@ -160,11 +164,17 @@ struct Point3d {
   }
 
   [[nodiscard]] auto crs() const -> CoordinateReferenceSystem { return crs_; }
+
   [[nodiscard]] auto x() const -> double { return x_longitude_; }
+
   [[nodiscard]] auto y() const -> double { return y_latitude_; }
+
   [[nodiscard]] auto z() const -> double { return z_height_; }
+
   [[nodiscard]] auto longitude() const -> double { return x_longitude_; }
+
   [[nodiscard]] auto latitude() const -> double { return y_latitude_; }
+
   [[nodiscard]] auto height() const -> double { return z_height_; }
 
   friend bool operator==(Point3d const &A, Point3d const &B) = default;

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,6 +54,7 @@ class Database {
    * @return storage::Storage*
    */
   storage::Storage *storage() { return storage_.get(); }
+
   storage::Storage const *storage() const { return storage_.get(); }
 
   /**
@@ -87,6 +88,7 @@ class Database {
    * @return std::string
    */
   std::string name() const { return storage_->name(); }
+
   auto name_view() const { return storage_->name_view(); }
 
   /**

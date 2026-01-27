@@ -80,7 +80,7 @@ std::chrono::milliseconds operator+(const memgraph::utils::SchedulerInterval &si
 class DurabilityTest : public ::testing::TestWithParam<bool> {
  protected:
   const uint64_t kNumBaseVertices = 1000;
-  const uint64_t kNumBaseEdges = 10000;
+  const uint64_t kNumBaseEdges = 10'000;
   const uint64_t kNumExtendedVertices = 100;
   const uint64_t kNumExtendedEdges = 1000;
 
@@ -186,7 +186,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label+property index statistics.
       auto acc = store->Access(memgraph::storage::WRITE);
-      acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}},
+      acc->SetIndexStats(label_indexed,
+                         std::array{memgraph::storage::PropertyPath{property_id}},
                          memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}}));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -200,14 +201,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label+properties index statistics.
       auto acc = store->Access(memgraph::storage::WRITE);
-      acc->SetIndexStats(
-          label_indexed,
-          std::array{memgraph::storage::PropertyPath{property_b}, memgraph::storage::PropertyPath{property_a},
-                     memgraph::storage::PropertyPath{property_c}},
-          memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
-      ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_b},
-                                                               memgraph::storage::PropertyPath{property_a},
-                                                               memgraph::storage::PropertyPath{property_c}}));
+      acc->SetIndexStats(label_indexed,
+                         std::array{memgraph::storage::PropertyPath{property_b},
+                                    memgraph::storage::PropertyPath{property_a},
+                                    memgraph::storage::PropertyPath{property_c}},
+                         memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed,
+                                     std::array{memgraph::storage::PropertyPath{property_b},
+                                                memgraph::storage::PropertyPath{property_a},
+                                                memgraph::storage::PropertyPath{property_c}}));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
@@ -224,8 +226,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           label_indexed,
           std::array{memgraph::storage::PropertyPath{nested1_property, nested2_property, nested3_property}},
           memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
-      ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{
-                                                        nested1_property, nested2_property, nested3_property}}));
+      ASSERT_TRUE(acc->GetIndexStats(
+          label_indexed,
+          std::array{memgraph::storage::PropertyPath{nested1_property, nested2_property, nested3_property}}));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
@@ -340,8 +343,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // first 10 have nested properties
       if (i < 10) {
         memgraph::storage::PropertyValue::map_t map_value{
-            {nested2_property, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
-                                   {nested3_property, memgraph::storage::PropertyValue(1)}})}};
+            {nested2_property,
+             memgraph::storage::PropertyValue(
+                 memgraph::storage::PropertyValue::map_t{{nested3_property, memgraph::storage::PropertyValue(1)}})}};
         ASSERT_TRUE(vertex.SetProperty(nested1_property, memgraph::storage::PropertyValue(map_value)).has_value());
       }
 
@@ -419,8 +423,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label+property index statistics.
       auto acc = store->Access(memgraph::storage::WRITE);
-      acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}},
-                         memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
+      acc->SetIndexStats(label_indexed,
+                         std::array{memgraph::storage::PropertyPath{property_count}},
+                         memgraph::storage::LabelPropertyIndexStats{456'798, 312'345, 12312312.2, 123123.2, 67876.9});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}}));
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
@@ -622,9 +627,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(
                           std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_b},
-                                                                         memgraph::storage::PropertyPath{property_a},
-                                                                         memgraph::storage::PropertyPath{property_c}}),
+                          std::make_pair(base_label_indexed,
+                                         std::vector{memgraph::storage::PropertyPath{property_b},
+                                                     memgraph::storage::PropertyPath{property_a},
+                                                     memgraph::storage::PropertyPath{property_c}}),
                           std::make_pair(base_label_indexed, std::vector{property_path})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
@@ -649,9 +655,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(
                           std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_b},
-                                                                         memgraph::storage::PropertyPath{property_a},
-                                                                         memgraph::storage::PropertyPath{property_c}}),
+                          std::make_pair(base_label_indexed,
+                                         std::vector{memgraph::storage::PropertyPath{property_b},
+                                                     memgraph::storage::PropertyPath{property_a},
+                                                     memgraph::storage::PropertyPath{property_c}}),
                           std::make_pair(base_label_indexed, std::vector{property_path}),
                           std::make_pair(extended_label_indexed,
                                          std::vector{memgraph::storage::PropertyPath{property_count}})));
@@ -668,9 +675,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(
                           std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_b},
-                                                                         memgraph::storage::PropertyPath{property_a},
-                                                                         memgraph::storage::PropertyPath{property_c}}),
+                          std::make_pair(base_label_indexed,
+                                         std::vector{memgraph::storage::PropertyPath{property_b},
+                                                     memgraph::storage::PropertyPath{property_a},
+                                                     memgraph::storage::PropertyPath{property_c}}),
                           std::make_pair(base_label_indexed, std::vector{property_path})));
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
@@ -686,9 +694,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(
                           std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_id}}),
-                          std::make_pair(base_label_indexed, std::vector{memgraph::storage::PropertyPath{property_b},
-                                                                         memgraph::storage::PropertyPath{property_a},
-                                                                         memgraph::storage::PropertyPath{property_c}}),
+                          std::make_pair(base_label_indexed,
+                                         std::vector{memgraph::storage::PropertyPath{property_b},
+                                                     memgraph::storage::PropertyPath{property_a},
+                                                     memgraph::storage::PropertyPath{property_c}}),
                           std::make_pair(base_label_indexed, std::vector{property_path})));
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
@@ -714,22 +723,23 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_EQ(l_stats, stats);
     };
 
-    auto check_label_property_stats = [&](auto label, const auto &properties,
-                                          const memgraph::storage::LabelPropertyIndexStats &stats) {
-      const auto lp_stats = acc->GetIndexStats(label, std::array{properties});
-      ASSERT_TRUE(lp_stats);
-      ASSERT_EQ(lp_stats, stats);
-    };
+    auto check_label_property_stats =
+        [&](auto label, const auto &properties, const memgraph::storage::LabelPropertyIndexStats &stats) {
+          const auto lp_stats = acc->GetIndexStats(label, std::array{properties});
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats, stats);
+        };
 
     {
       switch (type) {
         case DatasetType::ONLY_BASE:
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED: {
           check_label_stats(base_label_unindexed, property_id, memgraph::storage::LabelIndexStats{1, 2});
-          check_label_property_stats(base_label_indexed, memgraph::storage::PropertyPath{property_id},
+          check_label_property_stats(base_label_indexed,
+                                     memgraph::storage::PropertyPath{property_id},
                                      memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
-          check_label_property_stats(base_label_indexed, property_path,
-                                     memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+          check_label_property_stats(
+              base_label_indexed, property_path, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
           ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
@@ -737,10 +747,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         }
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED: {
           check_label_stats(base_label_unindexed, property_id, memgraph::storage::LabelIndexStats{1, 2});
-          check_label_property_stats(base_label_indexed, memgraph::storage::PropertyPath{property_id},
+          check_label_property_stats(base_label_indexed,
+                                     memgraph::storage::PropertyPath{property_id},
                                      memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
-          check_label_property_stats(base_label_indexed, property_path,
-                                     memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+          check_label_property_stats(
+              base_label_indexed, property_path, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
           ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
@@ -752,8 +763,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_EXTENDED: {
           check_label_stats(extended_label_unused, property_count, memgraph::storage::LabelIndexStats{123, 9.87});
           check_label_property_stats(
-              extended_label_indexed, memgraph::storage::PropertyPath{property_count},
-              memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
+              extended_label_indexed,
+              memgraph::storage::PropertyPath{property_count},
+              memgraph::storage::LabelPropertyIndexStats{456'798, 312'345, 12312312.2, 123123.2, 67876.9});
           break;
         }
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
@@ -765,14 +777,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         }
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS: {
           check_label_stats(base_label_unindexed, property_id, memgraph::storage::LabelIndexStats{1, 2});
-          check_label_property_stats(base_label_indexed, memgraph::storage::PropertyPath{property_id},
+          check_label_property_stats(base_label_indexed,
+                                     memgraph::storage::PropertyPath{property_id},
                                      memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
-          check_label_property_stats(base_label_indexed, property_path,
-                                     memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+          check_label_property_stats(
+              base_label_indexed, property_path, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
           check_label_stats(extended_label_unused, property_count, memgraph::storage::LabelIndexStats{123, 9.87});
           check_label_property_stats(
-              extended_label_indexed, memgraph::storage::PropertyPath{property_count},
-              memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
+              extended_label_indexed,
+              memgraph::storage::PropertyPath{property_count},
+              memgraph::storage::LabelPropertyIndexStats{456'798, 312'345, 12312312.2, 123123.2, 67876.9});
           break;
         }
       }
@@ -786,10 +800,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
-          ASSERT_THAT(info.unique, UnorderedElementsAre(
-                                       std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
-          ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
-                                                                      memgraph::storage::TypeConstraintKind::POINT)));
+          ASSERT_THAT(
+              info.unique,
+              UnorderedElementsAre(std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
+          ASSERT_THAT(info.type,
+                      UnorderedElementsAre(std::make_tuple(
+                          base_label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(extended_label_unused, property_count)));
@@ -800,13 +816,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED:
-          ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id),
-                                                           std::make_pair(extended_label_unused, property_count)));
+          ASSERT_THAT(info.existence,
+                      UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id),
+                                           std::make_pair(extended_label_unused, property_count)));
           ASSERT_THAT(info.unique,
                       UnorderedElementsAre(std::make_pair(base_label_unindexed, std::set{property_id, property_extra}),
                                            std::make_pair(extended_label_unused, std::set{property_count})));
-          ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
-                                                                      memgraph::storage::TypeConstraintKind::POINT)));
+          ASSERT_THAT(info.type,
+                      UnorderedElementsAre(std::make_tuple(
+                          base_label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)));
           break;
       }
     }
@@ -892,8 +910,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         auto has_property_nested = i < 10;
         if (has_property_nested) {
           memgraph::storage::PropertyValue::map_t map_value{
-              {property_nested2, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
-                                     {property_nested3, memgraph::storage::PropertyValue(1)}})}};
+              {property_nested2,
+               memgraph::storage::PropertyValue(
+                   memgraph::storage::PropertyValue::map_t{{property_nested3, memgraph::storage::PropertyValue(1)}})}};
           ASSERT_EQ((*properties)[property_nested1], memgraph::storage::PropertyValue(map_value));
         }
         auto has_property_text = i == 0;
@@ -1030,7 +1049,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumBaseVertices / 3);
-        for (auto vertex : acc->Vertices(base_label_indexed, std::array{memgraph::storage::PropertyPath{property_id}},
+        for (auto vertex : acc->Vertices(base_label_indexed,
+                                         std::array{memgraph::storage::PropertyPath{property_id}},
                                          std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
                                          memgraph::storage::View::OLD)) {
           vertices.push_back(vertex);
@@ -1062,7 +1082,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable = acc->Vertices(base_label_indexed, std::array{memgraph::storage::PropertyPath{property_id}},
+          auto iterable = acc->Vertices(base_label_indexed,
+                                        std::array{memgraph::storage::PropertyPath{property_id}},
                                         std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
                                         memgraph::storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
@@ -1156,9 +1177,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumExtendedVertices / 3);
-        for (auto vertex : acc->Vertices(
-                 extended_label_indexed, std::array{memgraph::storage::PropertyPath{property_count}},
-                 std::array{memgraph::storage::PropertyValueRange::IsNotNull()}, memgraph::storage::View::OLD)) {
+        for (auto vertex : acc->Vertices(extended_label_indexed,
+                                         std::array{memgraph::storage::PropertyPath{property_count}},
+                                         std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                         memgraph::storage::View::OLD)) {
           vertices.emplace_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumExtendedVertices / 3);
@@ -1188,9 +1210,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable = acc->Vertices(
-              extended_label_indexed, std::array{memgraph::storage::PropertyPath{property_count}},
-              std::array{memgraph::storage::PropertyValueRange::IsNotNull()}, memgraph::storage::View::OLD);
+          auto iterable = acc->Vertices(extended_label_indexed,
+                                        std::array{memgraph::storage::PropertyPath{property_count}},
+                                        std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                        memgraph::storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -2304,8 +2327,10 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(v1);
       auto labels = v1->Labels(memgraph::storage::View::OLD);
       ASSERT_TRUE(labels.has_value());
-      ASSERT_THAT(*labels, UnorderedElementsAre(db.storage()->NameToLabel("l11"), db.storage()->NameToLabel("l12"),
-                                                db.storage()->NameToLabel("l13")));
+      ASSERT_THAT(
+          *labels,
+          UnorderedElementsAre(
+              db.storage()->NameToLabel("l11"), db.storage()->NameToLabel("l12"), db.storage()->NameToLabel("l13")));
       auto props = v1->Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(props.has_value());
       ASSERT_EQ(props->size(), 0);
@@ -2320,8 +2345,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.has_value());
       if (GetParam()) {
-        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
-                                                                     memgraph::storage::PropertyValue("nandare"))));
+        ASSERT_THAT(*edge_props,
+                    UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
+                                                        memgraph::storage::PropertyValue("nandare"))));
       } else {
         ASSERT_EQ(edge_props->size(), 0);
       }
@@ -2334,8 +2360,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_THAT(*labels, UnorderedElementsAre(db.storage()->NameToLabel("l21")));
       auto props = v2->Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(props.has_value());
-      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("hello"),
-                                                              memgraph::storage::PropertyValue("world"))));
+      ASSERT_THAT(*props,
+                  UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("hello"),
+                                                      memgraph::storage::PropertyValue("world"))));
       auto in_edges = v2->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.has_value());
       ASSERT_EQ(in_edges->edges.size(), 1);
@@ -2344,8 +2371,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.has_value());
       if (GetParam()) {
-        ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
-                                                                     memgraph::storage::PropertyValue("nandare"))));
+        ASSERT_THAT(*edge_props,
+                    UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("test"),
+                                                        memgraph::storage::PropertyValue("nandare"))));
       } else {
         ASSERT_EQ(edge_props->size(), 0);
       }
@@ -2361,8 +2389,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_EQ(labels->size(), 0);
       auto props = v3->Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(props.has_value());
-      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("v3"),
-                                                              memgraph::storage::PropertyValue(42))));
+      ASSERT_THAT(*props,
+                  UnorderedElementsAre(
+                      std::make_pair(db.storage()->NameToProperty("v3"), memgraph::storage::PropertyValue(42))));
       auto in_edges = v3->InEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(in_edges.has_value());
       ASSERT_EQ(in_edges->edges.size(), 0);
@@ -2493,7 +2522,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
                 .storage_directory = storage_directory,
                 .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                 .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
-                .wal_file_size_kibibytes = 100000,
+                .wal_file_size_kibibytes = 100'000,
                 .wal_file_flush_every_n_tx = kFlushWalEvery,
             },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
@@ -2667,7 +2696,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
-  VerifyDataset(db.storage(), DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS, GetParam(),
+  VerifyDataset(db.storage(),
+                DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS,
+                GetParam(),
                 config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -2702,7 +2733,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
           memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
       // Create one million vertices.
-      for (uint64_t i = 0; i < 1000000; ++i) {
+      for (uint64_t i = 0; i < 1'000'000; ++i) {
         auto acc = db.Access(memgraph::storage::WRITE);
         acc->CreateVertex();
         MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
@@ -3046,7 +3077,9 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   memgraph::dbms::Database db{config, repl_state};
   // The extended dataset shouldn't be recovered because its WAL transaction was
   // corrupt.
-  VerifyDataset(db.storage(), DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS, GetParam(),
+  VerifyDataset(db.storage(),
+                DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS,
+                GetParam(),
                 config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -3369,7 +3402,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
-  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(),
+  VerifyDataset(db.storage(),
+                DatasetType::BASE_WITH_EXTENDED,
+                GetParam(),
                 /* ignoring schema after recovery */ false,
                 /* verify_info = */ false);
   {
@@ -3382,8 +3417,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     auto props = vertex->Properties(memgraph::storage::View::OLD);
     ASSERT_TRUE(props.has_value());
     if (GetParam()) {
-      ASSERT_THAT(*props, UnorderedElementsAre(std::make_pair(db.storage()->NameToProperty("meaning"),
-                                                              memgraph::storage::PropertyValue(42))));
+      ASSERT_THAT(*props,
+                  UnorderedElementsAre(
+                      std::make_pair(db.storage()->NameToProperty("meaning"), memgraph::storage::PropertyValue(42))));
     } else {
       ASSERT_EQ(props->size(), 0);
     }
@@ -3673,6 +3709,7 @@ TEST_P(DurabilityTest, ParallelWalRecovery) {
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 }
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
@@ -3775,9 +3812,22 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
 
   // Recover snapshot.
   const auto info = recovery.RecoverData(
-      uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count, name_id_mapper.get(), &indices,
-      &constraints, config, &wal_seq_num, &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; },
-      "memgraph", &ttl);
+      uuid,
+      repl_storage_state,
+      &vertices,
+      &edges,
+      &edges_metadata,
+      &edge_count,
+      name_id_mapper.get(),
+      &indices,
+      &constraints,
+      config,
+      &wal_seq_num,
+      &enum_store,
+      nullptr /* schema_info */,
+      [](auto in) { return std::nullopt; },
+      "memgraph",
+      &ttl);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
@@ -3819,8 +3869,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateEdgeIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"));
-    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(),
-                  config.salient.items.enable_schema_info);
+    VerifyDataset(
+        db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(), config.salient.items.enable_schema_info);
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -3834,8 +3884,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
-  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(),
-                config.salient.items.enable_schema_info);
+  VerifyDataset(
+      db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(), config.salient.items.enable_schema_info);
 
   // Try to use the storage.
   {
@@ -3862,13 +3912,15 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateEdgeIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"));
-    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(),
-                  config.salient.items.enable_schema_info);
+    VerifyDataset(
+        db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(), config.salient.items.enable_schema_info);
     CreateEdgePropertyIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("id"));
-    CreateEdgeVectorIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"),
-                          db.storage()->NameToProperty("vector"));
+    CreateEdgeVectorIndex(
+        db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("vector"));
     CreateEdgeTextIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("text"));
-    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam(),
+    VerifyDataset(db.storage(),
+                  DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED,
+                  GetParam(),
                   config.salient.items.enable_schema_info);
   }
 
@@ -3883,7 +3935,9 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
-  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam(),
+  VerifyDataset(db.storage(),
+                DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED,
+                GetParam(),
                 config.salient.items.enable_schema_info);
 
   // Try to use the storage.
@@ -3911,10 +3965,12 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
     CreateEdgePropertyIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("id"));
-    CreateEdgeVectorIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"),
-                          db.storage()->NameToProperty("vector"));
+    CreateEdgeVectorIndex(
+        db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("vector"));
     CreateEdgeTextIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("text"));
-    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam(),
+    VerifyDataset(db.storage(),
+                  DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED,
+                  GetParam(),
                   config.salient.items.enable_schema_info);
   }
 
@@ -3929,7 +3985,9 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
-  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam(),
+  VerifyDataset(db.storage(),
+                DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED,
+                GetParam(),
                 config.salient.items.enable_schema_info);
 
   // Try to use the storage.

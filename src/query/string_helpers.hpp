@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@ inline auto CypherConstructionFor(storage::Point2d const &value) -> std::string 
 }
 
 inline auto CypherConstructionFor(storage::Point3d const &value) -> std::string {
-  return fmt::format("POINT({{ x:{}, y:{}, z:{}, srid: {} }})", value.x(), value.y(), value.z(),
-                     CrsToSrid(value.crs()).value_of());
+  return fmt::format(
+      "POINT({{ x:{}, y:{}, z:{}, srid: {} }})", value.x(), value.y(), value.z(), CrsToSrid(value.crs()).value_of());
 }
 }  // namespace memgraph::query

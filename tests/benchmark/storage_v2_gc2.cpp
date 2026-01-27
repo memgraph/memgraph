@@ -24,14 +24,16 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 // large compared to GC interval to make the output relevant.
 
 DEFINE_int32(num_poperties, 10'000, "number of set property per transaction");
-DEFINE_int32(num_iterations, 5'000, "number of iterations");
+DEFINE_int32(num_iterations, 5000, "number of iterations");
 
 std::pair<std::string, memgraph::storage::Config> TestConfigurations[] = {
     //{"NoGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::NONE}}},
-    {"100msPeriodicGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
-                                                         .interval = std::chrono::milliseconds(100)}}},
-    {"1000msPeriodicGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
-                                                          .interval = std::chrono::milliseconds(1000)}}}};
+    {"100msPeriodicGc",
+     memgraph::storage::Config{
+         .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}},
+    {"1000msPeriodicGc",
+     memgraph::storage::Config{
+         .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(1000)}}}};
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);

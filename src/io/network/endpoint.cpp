@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -120,7 +120,9 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
 
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
-      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}. Error occurred: {}", address, port,
+      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}. Error occurred: {}",
+                    address,
+                    port,
                     gai_strerror(status));
       return std::nullopt;
     }
@@ -179,8 +181,8 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
   }
 
   if (port < 0) {
-    spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.", *port,
-                                         "https://memgr.ph/ports"));
+    spdlog::error(utils::MessageWithLink(
+        "Invalid port number {}. The port number must be a positive integer.", *port, "https://memgr.ph/ports"));
     return false;
   }
 
@@ -194,12 +196,15 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
 }
 
 [[nodiscard]] auto Endpoint::GetAddress() const -> std::string const & { return address_; }
+
 [[nodiscard]] auto Endpoint::GetAddress() -> std::string & { return address_; }
 
 [[nodiscard]] auto Endpoint::GetPort() const -> uint16_t const & { return port_; }
+
 [[nodiscard]] auto Endpoint::GetPort() -> uint16_t & { return port_; }
 
 void Endpoint::SetAddress(std::string address) { address_ = std::move(address); }
+
 void Endpoint::SetPort(uint16_t port) { port_ = port; }
 
 void to_json(nlohmann::json &j, Endpoint const &config) {

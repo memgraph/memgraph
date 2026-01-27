@@ -46,6 +46,7 @@
 
 namespace r = ranges;
 
+
 struct PropertyPathFormatter {
   std::span<memgraph::storage::PropertyPath const> data;
   memgraph::storage::NameIdMapper *name_mapper;
@@ -384,11 +385,11 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   {
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
-    for (auto &spec : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(spec, vertices_acc, name_id_mapper, snapshot_info);
+    for (auto &recovery_info : indices_metadata.vector_indices) {
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, snapshot_info);
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(spec.spec.label_id.AsUint()),
-                   name_id_mapper->IdToName(spec.spec.property.AsUint()));
+                   name_id_mapper->IdToName(recovery_info.spec.label_id.AsUint()),
+                   name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
     }
     spdlog::info("Vector indices are recreated.");
   }

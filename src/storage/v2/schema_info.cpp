@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -284,9 +284,9 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     // Revert local changes
     auto &tracking_11 = edge_lookup(EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.pre});
     ++tracking_11.n;
-    auto &tracking_12 =
-        edge_lookup(EdgeKeyRef{edge_type, (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
-                               (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
+    auto &tracking_12 = edge_lookup(EdgeKeyRef{edge_type,
+                                               (from_state == ANOTHER_TX) ? *from_l_diff.pre : *from_l_diff.post,
+                                               (to_state == ANOTHER_TX) ? *to_l_diff.pre : *to_l_diff.post});
     --tracking_12.n;
     // Edge props
     if (property_on_edges) {
@@ -303,9 +303,9 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     }
 
     // Revert committed changes
-    auto &tracking_21 =
-        edge_lookup(EdgeKeyRef{edge_type, (from_state == ANOTHER_TX) ? *from_l_diff.post : *from_l_diff.pre,
-                               (to_state == ANOTHER_TX) ? *to_l_diff.post : *to_l_diff.pre});
+    auto &tracking_21 = edge_lookup(EdgeKeyRef{edge_type,
+                                               (from_state == ANOTHER_TX) ? *from_l_diff.post : *from_l_diff.pre,
+                                               (to_state == ANOTHER_TX) ? *to_l_diff.post : *to_l_diff.pre});
     --tracking_21.n;
     // Edge props
     if (property_on_edges) {
@@ -345,8 +345,7 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
 template <template <class...> class TContainer>
 nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
-  return ToJson(
-      name_id_mapper, enum_store, [](auto /*value*/) { return true; }, [](auto /*value*/) { return true; });
+  return ToJson(name_id_mapper, enum_store, [](auto /*value*/) { return true; }, [](auto /*value*/) { return true; });
 }
 
 template <template <class...> class TContainer>
@@ -459,11 +458,14 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small
   // Update vertex stats
   UpdateLabels(vertex, old_labels, new_labels);
   // Update edge stats
-  auto update_edge = [&](EdgeTypeId edge_type, EdgeRef edge_ref, Vertex *from, Vertex *to,
+  auto update_edge = [&](EdgeTypeId edge_type,
+                         EdgeRef edge_ref,
+                         Vertex *from,
+                         Vertex *to,
                          const utils::small_vector<LabelId> *old_from_labels,
                          const utils::small_vector<LabelId> *old_to_labels) {
-    auto &old_tracking = edge_lookup(EdgeKeyRef(edge_type, old_from_labels ? *old_from_labels : from->labels,
-                                                old_to_labels ? *old_to_labels : to->labels));
+    auto &old_tracking = edge_lookup(EdgeKeyRef(
+        edge_type, old_from_labels ? *old_from_labels : from->labels, old_to_labels ? *old_to_labels : to->labels));
     auto &new_tracking = edge_lookup(EdgeKeyRef(edge_type, from->labels, to->labels));
     --old_tracking.n;
     ++new_tracking.n;
@@ -712,10 +714,13 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     Properties edge_props{};
     if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, start_ts_, commit_ts_);
 
-    tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? *other_labels.first : vertex->labels,
+    tracking_->UpdateEdgeStats(edge_ref,
+                               edge_type,
+                               (edge_dir == InEdge) ? *other_labels.first : vertex->labels,
                                (edge_dir == InEdge) ? vertex->labels : *other_labels.first,
                                (edge_dir == InEdge) ? *other_labels.first : old_labels,
-                               (edge_dir == InEdge) ? old_labels : *other_labels.first, edge_props.types);
+                               (edge_dir == InEdge) ? old_labels : *other_labels.first,
+                               edge_props.types);
 
     SchemaInfoEdge pp_item{edge_ref, edge_type, from_vertex, to_vertex};
     if (other_labels.second || edge_props.needs_pp) {
@@ -740,10 +745,13 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
   constexpr bool OutEdge = !InEdge;
   auto process = [&](auto &edge, const auto edge_dir) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
-    tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
+    tracking_->UpdateEdgeStats(edge_ref,
+                               edge_type,
+                               (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
                                (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
                                (edge_dir == InEdge) ? other_vertex->labels : old_labels,
-                               (edge_dir == InEdge) ? old_labels : other_vertex->labels, properties_on_edges_);
+                               (edge_dir == InEdge) ? old_labels : other_vertex->labels,
+                               properties_on_edges_);
   };
 
   for (const auto &edge : vertex->in_edges) {
@@ -796,7 +804,8 @@ void SchemaInfo::VertexModifyingAccessor::AddLabel(Vertex *vertex, LabelId label
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   // For vertex with edges, this needs to be a unique access....
   DMG_ASSERT(vertex->in_edges.empty() && vertex->out_edges.empty(),
-             "Trying to remove label from vertex with edges; LINE {}", __LINE__);
+             "Trying to remove label from vertex with edges; LINE {}",
+             __LINE__);
   // Move all stats and edges to new label
   auto old_labels = vertex->labels;
   auto itr = std::find(old_labels.begin(), old_labels.end(), label);
@@ -811,7 +820,8 @@ void SchemaInfo::VertexModifyingAccessor::RemoveLabel(Vertex *vertex, LabelId la
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   // For vertex with edges, this needs to be a unique access....
   DMG_ASSERT(vertex->in_edges.empty() && vertex->out_edges.empty(),
-             "Trying to remove label from vertex with edges; LINE {}", __LINE__);
+             "Trying to remove label from vertex with edges; LINE {}",
+             __LINE__);
   // Move all stats and edges to new label
   auto old_labels = vertex->labels;
   old_labels.push_back(label);

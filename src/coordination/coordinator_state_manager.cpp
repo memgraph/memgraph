@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,11 +66,11 @@ void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluste
 
 void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
   auto const servers_vec =
-      ranges::views::transform(
-          cluster_config.get_servers(),
-          [](auto const &server) {
-            return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
-          }) |
+      ranges::views::transform(cluster_config.get_servers(),
+                               [](auto const &server) {
+                                 return std::tuple{
+                                     static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
+                               }) |
       ranges::to_vector;
   j = nlohmann::json{{kServers, servers_vec},
                      {kPrevLogIdx, cluster_config.get_prev_log_idx()},
@@ -80,8 +80,8 @@ void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
 }
 
 auto CoordinatorStateManager::HandleVersionMigration() -> void {
-  auto const version = GetOrSetDefaultVersion(durability_, kStateManagerDurabilityVersionKey,
-                                              static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
+  auto const version = GetOrSetDefaultVersion(
+      durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
 
   if constexpr (kActiveStateManagerDurabilityVersion == StateManagerDurabilityVersion::kV2) {
     if (version == static_cast<int>(StateManagerDurabilityVersion::kV1)) {
@@ -107,8 +107,11 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   };
 
   bool constexpr learner{false};
-  my_srv_config_ = std::make_shared<srv_config>(config.coordinator_id_, 0, coord_instance_aux.coordinator_server,
-                                                nlohmann::json(coord_instance_aux).dump(), learner);
+  my_srv_config_ = std::make_shared<srv_config>(config.coordinator_id_,
+                                                0,
+                                                coord_instance_aux.coordinator_server,
+                                                nlohmann::json(coord_instance_aux).dump(),
+                                                learner);
 
   cluster_config_ = std::make_shared<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
@@ -146,7 +149,8 @@ auto CoordinatorStateManager::GetCoordinatorInstancesAux() const -> std::vector<
   coord_instances_aux.reserve(cluster_config_servers.size());
 
   try {
-    std::ranges::transform(cluster_config_servers, std::back_inserter(coord_instances_aux),
+    std::ranges::transform(cluster_config_servers,
+                           std::back_inserter(coord_instances_aux),
                            [](auto const &server) -> CoordinatorInstanceAux {
                              auto j = nlohmann::json::parse(server->get_aux());
                              return j.template get<CoordinatorInstanceAux>();

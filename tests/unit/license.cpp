@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,8 +46,8 @@ TEST_F(LicenseTest, EncodeDecode) {
   const std::array licenses = {
       memgraph::license::License{"Organization", 1, 2, memgraph::license::LicenseType::OEM},
       memgraph::license::License{"", -1, 0, memgraph::license::LicenseType::ENTERPRISE},
-      memgraph::license::License{"Some very long name for the organization Ltd", -999, -9999,
-                                 memgraph::license::LicenseType::ENTERPRISE},
+      memgraph::license::License{
+          "Some very long name for the organization Ltd", -999, -9999, memgraph::license::LicenseType::ENTERPRISE},
   };
 
   for (const auto &license : licenses) {
@@ -92,8 +92,8 @@ TEST_F(LicenseTest, Expiration) {
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
     const auto delta = std::chrono::seconds(1);
     const auto valid_until = now + delta;
-    memgraph::license::License license{organization_name, valid_until.count(), 0,
-                                       memgraph::license::LicenseType::ENTERPRISE};
+    memgraph::license::License license{
+        organization_name, valid_until.count(), 0, memgraph::license::LicenseType::ENTERPRISE};
 
     settings->SetValue("enterprise.license", memgraph::license::Encode(license));
     settings->SetValue("organization.name", organization_name);
@@ -161,15 +161,19 @@ TEST_F(LicenseTest, LicenseType) {
     CheckLicenseValidity(false);
   }
   {
-    memgraph::license::License license_oem{organization_name, std::numeric_limits<int64_t>::min(),
-                                           std::numeric_limits<int64_t>::max(), memgraph::license::LicenseType::OEM};
+    memgraph::license::License license_oem{organization_name,
+                                           std::numeric_limits<int64_t>::min(),
+                                           std::numeric_limits<int64_t>::max(),
+                                           memgraph::license::LicenseType::OEM};
     const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(false);
   }
   {
-    memgraph::license::License license_oem{organization_name, std::numeric_limits<int64_t>::max(),
-                                           std::numeric_limits<int64_t>::min(), memgraph::license::LicenseType::OEM};
+    memgraph::license::License license_oem{organization_name,
+                                           std::numeric_limits<int64_t>::max(),
+                                           std::numeric_limits<int64_t>::min(),
+                                           memgraph::license::LicenseType::OEM};
     const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(false);

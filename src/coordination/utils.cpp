@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,8 @@ auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, 
   }
   logger.Log(
       nuraft_log_level::INFO,
-      fmt::format("Assuming first start of durability as key value {} for version is missing, storing version {}.", key,
+      fmt::format("Assuming first start of durability as key value {} for version is missing, storing version {}.",
+                  key,
                   default_value));
   MG_ASSERT(durability.Put(key, std::to_string(default_value)), "Failed to store durability version.");
   return default_value;

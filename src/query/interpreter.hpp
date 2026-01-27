@@ -58,6 +58,7 @@ struct QueryAllocator {
     return upstream_resource();
 #endif
   }
+
   auto resource_without_pool() -> utils::MemoryResource * {
 #ifndef MG_MEMORY_PROFILE
     return &monotonic;
@@ -65,6 +66,7 @@ struct QueryAllocator {
     return upstream_resource();
 #endif
   }
+
   auto resource_without_pool_or_mono() -> utils::MemoryResource * { return upstream_resource(); }
 
  private:
@@ -230,6 +232,7 @@ struct CurrentDB {
   CurrentDB() = default;  // TODO: remove, we should always have an implicit default obtainable from somewhere
                           //       ATM: it is provided by the DatabaseAccess
                           //       future: should be a name + ptr to dbms_handler, lazy fetch when needed
+
   explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {}
 
   CurrentDB(CurrentDB const &) = delete;
@@ -238,6 +241,7 @@ struct CurrentDB {
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
+
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
     db_acc_ = std::move(new_db);
@@ -274,6 +278,7 @@ class Interpreter final {
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
   Interpreter &operator=(Interpreter &&) = delete;
+
   ~Interpreter() { Abort(); }
 
   struct PrepareResult {
@@ -312,7 +317,9 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
+
   void ResetDB() { current_db_.ResetDB(); }
+
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #else
   void SetCurrentDB();
@@ -470,6 +477,7 @@ class Interpreter final {
     } thread_safe_;
 
     QueryExecution() = default;
+
     explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
 
     QueryExecution(const QueryExecution &) = delete;
@@ -487,6 +495,7 @@ class Interpreter final {
     std::vector<Notification> notifications;
 
     static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
+
     static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
       return std::make_unique<QueryExecution>(thread_safe_);
     }
@@ -533,8 +542,9 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
-    return std::count_if(query_executions_.begin(), query_executions_.end(),
-                         [](const auto &execution) { return execution && execution->prepared_query; });
+    return std::count_if(query_executions_.begin(), query_executions_.end(), [](const auto &execution) {
+      return execution && execution->prepared_query;
+    });
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};

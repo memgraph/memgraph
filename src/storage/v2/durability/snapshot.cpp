@@ -63,6 +63,7 @@ using namespace std::chrono_literals;
 
 namespace r = ranges;
 
+
 namespace {
 constexpr auto kCheckIfSnapshotAborted = 3s;
 }  // namespace
@@ -4112,6 +4113,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
         auto capacity = snapshot.ReadUint();
         if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
+        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})",
+                     *index_name,
         SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})",
                      *index_name,
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -10191,7 +10194,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     if (!abort_snapshot->load(std::memory_order_acquire)) {
       timer.ResetStartTime();
       return false;
-    } 
+    }
     file_retainer->DeleteFile(path);
     return true;
   };

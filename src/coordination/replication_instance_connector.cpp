@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,8 +71,11 @@ auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_
 }
 
 auto ReplicationInstanceConnector::StartStateCheck() -> void { client_.StartStateCheck(); }
+
 auto ReplicationInstanceConnector::StopStateCheck() -> void { client_.StopStateCheck(); }
+
 auto ReplicationInstanceConnector::PauseStateCheck() -> void { client_.PauseStateCheck(); }
+
 auto ReplicationInstanceConnector::ResumeStateCheck() -> void { client_.ResumeStateCheck(); }
 
 auto ReplicationInstanceConnector::GetClient() const -> ReplicationInstanceClient const & { return client_; }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -284,15 +284,15 @@ TEST(SkipListRangeChunking, BigDatasetRangeChunking) {
 
   // Insert large dataset from 0 to 100000
   auto accessor = skiplist.access();
-  for (int i = 0; i <= 100000; ++i) {
+  for (int i = 0; i <= 100'000; ++i) {
     auto res = accessor.insert(i);
     ASSERT_TRUE(res.second);
   }
 
-  ASSERT_EQ(accessor.size(), 100001);
+  ASSERT_EQ(accessor.size(), 100'001);
 
   // Test chunking with range [10000, 90000]
-  auto chunks = accessor.create_chunks(16, std::optional<int>{10000}, std::optional<int>{90000});
+  auto chunks = accessor.create_chunks(16, std::optional<int>{10'000}, std::optional<int>{90'000});
   ASSERT_GT(chunks.size(), 0);
 
   // Process chunks and verify we only get elements in the range
@@ -309,8 +309,8 @@ TEST(SkipListRangeChunking, BigDatasetRangeChunking) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within range
-        ASSERT_GE(*it, 10000);
-        ASSERT_LE(*it, 90000);
+        ASSERT_GE(*it, 10'000);
+        ASSERT_LE(*it, 90'000);
       }
 
       total_processed.fetch_add(local_count, std::memory_order_relaxed);
@@ -325,13 +325,13 @@ TEST(SkipListRangeChunking, BigDatasetRangeChunking) {
   threads.clear();
 
   // Verify we got all elements in the range
-  ASSERT_EQ(total_processed.load(), 80001);  // 90000 - 10000 + 1 = 80001 elements
-  ASSERT_EQ(collected_elements.size(), 80001);
+  ASSERT_EQ(total_processed.load(), 80'001);  // 90000 - 10000 + 1 = 80001 elements
+  ASSERT_EQ(collected_elements.size(), 80'001);
 
   // Verify all elements are unique and in range
   std::sort(collected_elements.begin(), collected_elements.end());
   for (size_t i = 0; i < collected_elements.size(); ++i) {
-    ASSERT_EQ(collected_elements[i], 10000 + static_cast<int>(i));
+    ASSERT_EQ(collected_elements[i], 10'000 + static_cast<int>(i));
   }
 }
 
@@ -340,15 +340,15 @@ TEST(SkipListRangeChunking, BigDatasetLowerBoundOnly) {
 
   // Insert large dataset from 0 to 100000
   auto accessor = skiplist.access();
-  for (int i = 0; i <= 100000; ++i) {
+  for (int i = 0; i <= 100'000; ++i) {
     auto res = accessor.insert(i);
     ASSERT_TRUE(res.second);
   }
 
-  ASSERT_EQ(accessor.size(), 100001);
+  ASSERT_EQ(accessor.size(), 100'001);
 
   // Test chunking with only lower bound (from 50000 onwards)
-  auto chunks = accessor.create_chunks(12, std::optional<int>{50000}, std::optional<int>{std::nullopt});
+  auto chunks = accessor.create_chunks(12, std::optional<int>{50'000}, std::optional<int>{std::nullopt});
   ASSERT_GT(chunks.size(), 0);
 
   // Process chunks and verify we only get elements >= 50000
@@ -365,10 +365,10 @@ TEST(SkipListRangeChunking, BigDatasetLowerBoundOnly) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is >= lower bound
-        ASSERT_GE(*it, 50000);
+        ASSERT_GE(*it, 50'000);
       }
       EXPECT_GT(local_count, 0);
-      EXPECT_LT(local_count, 50000 / 12 * 3);
+      EXPECT_LT(local_count, 50'000 / 12 * 3);
 
       total_processed.fetch_add(local_count, std::memory_order_relaxed);
 
@@ -382,13 +382,13 @@ TEST(SkipListRangeChunking, BigDatasetLowerBoundOnly) {
   threads.clear();
 
   // Verify we got all elements >= 50000
-  ASSERT_EQ(total_processed.load(), 50001);  // 100000 - 50000 + 1 = 50001 elements
-  ASSERT_EQ(collected_elements.size(), 50001);
+  ASSERT_EQ(total_processed.load(), 50'001);  // 100000 - 50000 + 1 = 50001 elements
+  ASSERT_EQ(collected_elements.size(), 50'001);
 
   // Verify all elements are unique and >= 50000
   std::sort(collected_elements.begin(), collected_elements.end());
   for (size_t i = 0; i < collected_elements.size(); ++i) {
-    ASSERT_EQ(collected_elements[i], 50000 + static_cast<int>(i));
+    ASSERT_EQ(collected_elements[i], 50'000 + static_cast<int>(i));
   }
 }
 
@@ -397,15 +397,15 @@ TEST(SkipListRangeChunking, BigDatasetUpperBoundOnly) {
 
   // Insert large dataset from 0 to 100000
   auto accessor = skiplist.access();
-  for (int i = 0; i <= 100000; ++i) {
+  for (int i = 0; i <= 100'000; ++i) {
     auto res = accessor.insert(i);
     ASSERT_TRUE(res.second);
   }
 
-  ASSERT_EQ(accessor.size(), 100001);
+  ASSERT_EQ(accessor.size(), 100'001);
 
   // Test chunking with only upper bound (up to 75000)
-  auto chunks = accessor.create_chunks(12, std::optional<int>{std::nullopt}, std::optional<int>{75000});
+  auto chunks = accessor.create_chunks(12, std::optional<int>{std::nullopt}, std::optional<int>{75'000});
   ASSERT_GT(chunks.size(), 0);
 
   // Process chunks and verify we only get elements <= 75000
@@ -422,11 +422,11 @@ TEST(SkipListRangeChunking, BigDatasetUpperBoundOnly) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is <= upper bound
-        ASSERT_LE(*it, 75000);
+        ASSERT_LE(*it, 75'000);
       }
 
       EXPECT_GT(local_count, 0);
-      EXPECT_LT(local_count, 75000 / 12 * 3);
+      EXPECT_LT(local_count, 75'000 / 12 * 3);
       total_processed.fetch_add(local_count, std::memory_order_relaxed);
 
       // Thread-safe collection of elements
@@ -439,8 +439,8 @@ TEST(SkipListRangeChunking, BigDatasetUpperBoundOnly) {
   threads.clear();
 
   // Verify we got all elements <= 75000
-  ASSERT_EQ(total_processed.load(), 75001);  // 75000 - 0 + 1 = 75001 elements
-  ASSERT_EQ(collected_elements.size(), 75001);
+  ASSERT_EQ(total_processed.load(), 75'001);  // 75000 - 0 + 1 = 75001 elements
+  ASSERT_EQ(collected_elements.size(), 75'001);
 
   // Verify all elements are unique and <= 75000
   std::sort(collected_elements.begin(), collected_elements.end());
@@ -454,15 +454,15 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentOperations) {
 
   // Insert initial large dataset
   auto accessor = skiplist.access();
-  for (int i = 0; i <= 50000; ++i) {
+  for (int i = 0; i <= 50'000; ++i) {
     auto res = accessor.insert(i);
     ASSERT_TRUE(res.second);
   }
 
-  ASSERT_EQ(accessor.size(), 50001);
+  ASSERT_EQ(accessor.size(), 50'001);
 
   // Create chunks for range [10000, 40000]
-  auto chunks = accessor.create_chunks(8, std::optional<int>{10000}, std::optional<int>{40000});
+  auto chunks = accessor.create_chunks(8, std::optional<int>{10'000}, std::optional<int>{40'000});
   ASSERT_GT(chunks.size(), 0);
 
   // Start concurrent insertion threads
@@ -473,7 +473,7 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentOperations) {
   for (int t = 0; t < 4; ++t) {
     insertion_threads.emplace_back([&skiplist, &stop_insertions, &inserted_count, t]() {
       auto thread_accessor = skiplist.access();
-      int new_value = 100000 + t * 10000;
+      int new_value = 100'000 + t * 10'000;
       while (!stop_insertions.load(std::memory_order_acquire)) {
         auto res = thread_accessor.insert(new_value++);
         if (res.second) {
@@ -498,15 +498,15 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentOperations) {
       for (auto it = chunk.begin(); it != chunk.end(); ++it) {
         local_count++;
         // Verify element is within the specified range
-        ASSERT_GE(*it, 10000);
-        ASSERT_LE(*it, 40000);
+        ASSERT_GE(*it, 10'000);
+        ASSERT_LE(*it, 40'000);
         if (local_count % 1000 == 0) {
           // Make sure the iterator and insertions are interleaved
           std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
       }
       EXPECT_GT(local_count, 0);
-      EXPECT_LT(local_count, 30000 / 8 * 3);
+      EXPECT_LT(local_count, 30'000 / 8 * 3);
       total_processed.fetch_add(local_count, std::memory_order_relaxed);
     });
   }
@@ -523,7 +523,7 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentOperations) {
   }
 
   // Verify we processed exactly the elements in the range
-  ASSERT_EQ(total_processed.load(), 30001);  // 40000 - 10000 + 1 = 30001 elements
+  ASSERT_EQ(total_processed.load(), 30'001);  // 40000 - 10000 + 1 = 30001 elements
 }
 
 TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
@@ -531,17 +531,17 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
   {
     // Insert initial large dataset
     auto accessor = skiplist.access();
-    for (int i = 0; i <= 50000; ++i) {
+    for (int i = 0; i <= 50'000; ++i) {
       auto res = accessor.insert(i);
       ASSERT_TRUE(res.second);
     }
 
-    ASSERT_EQ(accessor.size(), 50001);
+    ASSERT_EQ(accessor.size(), 50'001);
   }
 
   auto accessor = skiplist.access();
   // Create chunks for range [10000, 40000]
-  auto chunks = accessor.create_chunks(8, std::optional<int>{10000}, std::optional<int>{40000});
+  auto chunks = accessor.create_chunks(8, std::optional<int>{10'000}, std::optional<int>{40'000});
   ASSERT_GT(chunks.size(), 0);
 
   // Start concurrent deletion and insertion threads
@@ -555,7 +555,7 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
   for (int t = 0; t < 2; ++t) {
     deletion_threads.emplace_back([&skiplist, &stop_operations, &deleted_count, t]() {
       auto thread_accessor = skiplist.access();
-      int start_value = 10000 + t * 15000;  // Different ranges for each thread
+      int start_value = 10'000 + t * 15'000;  // Different ranges for each thread
       int current_value = start_value;
       while (!stop_operations.load(std::memory_order_acquire)) {
         bool removed = thread_accessor.remove(current_value);
@@ -563,7 +563,7 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
           ++deleted_count;
         }
         current_value += 2;  // Skip every other element
-        if (current_value > 40000) {
+        if (current_value > 40'000) {
           current_value = start_value;  // Wrap around
         }
         std::this_thread::sleep_for(std::chrono::microseconds(1));
@@ -576,7 +576,7 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
   for (int t = 0; t < 2; ++t) {
     insertion_threads.emplace_back([&skiplist, &stop_operations, &inserted_count, t]() {
       auto thread_accessor = skiplist.access();
-      int new_value = 100000 + t * 10000;
+      int new_value = 100'000 + t * 10'000;
       while (!stop_operations.load(std::memory_order_acquire)) {
         auto res = thread_accessor.insert(new_value++);
         if (res.second) {
@@ -592,7 +592,7 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
   for (int t = 0; t < 2; ++t) {
     reinsertion_threads.emplace_back([&skiplist, &stop_operations, &reinserted_count, t]() {
       auto thread_accessor = skiplist.access();
-      int start_value = 10000 + t * 15000;
+      int start_value = 10'000 + t * 15'000;
       int current_value = start_value;
       while (!stop_operations.load(std::memory_order_acquire)) {
         auto res = thread_accessor.insert(current_value);
@@ -600,7 +600,7 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
           ++reinserted_count;
         }
         current_value += 3;  // Different pattern from deletions
-        if (current_value > 40000) {
+        if (current_value > 40'000) {
           current_value = start_value;  // Wrap around
         }
         std::this_thread::sleep_for(std::chrono::microseconds(2));
@@ -625,15 +625,15 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
         local_count++;
         local_elements.push_back(*it);
         // Verify element is within the specified range
-        ASSERT_GE(*it, 10000);
-        ASSERT_LE(*it, 40000);
+        ASSERT_GE(*it, 10'000);
+        ASSERT_LE(*it, 40'000);
         if (local_count % 500 == 0) {
           // Make sure the iterator and operations are interleaved
           std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
       }
       EXPECT_GT(local_count, 0);
-      EXPECT_LT(local_count, 30000 / 8 * 3);
+      EXPECT_LT(local_count, 30'000 / 8 * 3);
       total_processed.fetch_add(local_count, std::memory_order_relaxed);
 
       // Thread-safe collection of elements
@@ -661,13 +661,13 @@ TEST(SkipListRangeChunking, BigDatasetConcurrentDeletionsAndInsertions) {
   std::cout << "Unique elements collected: " << collected_elements.size() << '\n';
 
   // Verify we processed elements in the range (exact count may vary due to concurrent operations)
-  ASSERT_GE(total_processed.load(), 10000);  // At least some elements should be processed
-  ASSERT_LE(total_processed.load(), 30001);  // At most all elements in range
+  ASSERT_GE(total_processed.load(), 10'000);  // At least some elements should be processed
+  ASSERT_LE(total_processed.load(), 30'001);  // At most all elements in range
 
   // Verify all collected elements are in the correct range
   for (const auto &item : collected_elements) {
-    ASSERT_GE(item, 10000);
-    ASSERT_LE(item, 40000);
+    ASSERT_GE(item, 10'000);
+    ASSERT_LE(item, 40'000);
   }
 }
 
@@ -680,12 +680,12 @@ TEST(SkipListRangeChunking, CompleteCoverageChunking) {
 
   // Insert elements using accessor
   auto accessor = skiplist.access();
-  for (int i = 0; i < 10000; ++i) {
+  for (int i = 0; i < 10'000; ++i) {
     auto res = accessor.insert(i);
     ASSERT_TRUE(res.second);
   }
 
-  ASSERT_EQ(accessor.size(), 10000);
+  ASSERT_EQ(accessor.size(), 10'000);
 
   // Create chunks with complete coverage (no range bounds)
   auto chunks = accessor.create_chunks(4);
@@ -709,7 +709,7 @@ TEST(SkipListRangeChunking, CompleteCoverageChunking) {
 
   threads.clear();
 
-  ASSERT_EQ(total_processed.load(), 10000);
+  ASSERT_EQ(total_processed.load(), 10'000);
 }
 
 TEST(SkipListRangeChunking, CompleteCoverageConcurrentOperations) {
@@ -736,7 +736,7 @@ TEST(SkipListRangeChunking, CompleteCoverageConcurrentOperations) {
   for (int t = 0; t < 2; ++t) {
     insertion_threads.emplace_back([&skiplist, &stop_insertions, &inserted_count, t]() {
       auto thread_accessor = skiplist.access();
-      int new_value = 10000 + t * 1000;
+      int new_value = 10'000 + t * 1000;
       while (!stop_insertions.load(std::memory_order_acquire)) {
         auto res = thread_accessor.insert(new_value++);
         if (res.second) {
@@ -783,12 +783,12 @@ TEST(SkipListRangeChunking, CompleteCoveragePerformanceComparison) {
 
   // Insert dataset
   auto accessor = skiplist.access();
-  for (int i = 0; i < 20000; ++i) {
+  for (int i = 0; i < 20'000; ++i) {
     auto res = accessor.insert(i);
     ASSERT_TRUE(res.second);
   }
 
-  ASSERT_EQ(accessor.size(), 20000);
+  ASSERT_EQ(accessor.size(), 20'000);
 
   // Test parallel chunking
   auto chunks = accessor.create_chunks(8);
@@ -819,8 +819,8 @@ TEST(SkipListRangeChunking, CompleteCoveragePerformanceComparison) {
     (void)*it;  // Suppress unused variable warning
   }
 
-  ASSERT_EQ(total_processed.load(), 20000);
-  ASSERT_EQ(serial_count, 20000);
+  ASSERT_EQ(total_processed.load(), 20'000);
+  ASSERT_EQ(serial_count, 20'000);
 }
 
 TEST(SkipListRangeChunking, CompleteCoverageEdgeCases) {

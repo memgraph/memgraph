@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     std::swap(ptr, other.ptr);
     std::swap(space, other.space);
   }
+
   PageSlabMemoryResource &operator=(PageSlabMemoryResource &&other) noexcept {
     if (this == &other) return *this;
     std::swap(*this, other);
@@ -54,6 +55,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
  private:
   struct header {
     explicit header(header *next, std::align_val_t alignment) : next(next), alignment{alignment} {}
+
     header *next = nullptr;
     std::align_val_t alignment;
   };
@@ -69,7 +71,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     auto max_slab_capacity = PAGE_SIZE - earliest_slab_position;
     if (max_slab_capacity < bytes) [[unlikely]] {
       auto required_bytes = bytes + earliest_slab_position;
-      auto *newmem = reinterpret_cast<header *>(operator new (required_bytes, std::align_val_t{alignment}));
+      auto *newmem = reinterpret_cast<header *>(operator new(required_bytes, std::align_val_t{alignment}));
       // add to the allocation list
       pages = std::construct_at<header>(newmem, pages, std::align_val_t{alignment});
       return reinterpret_cast<std::byte *>(pages) + earliest_slab_position;
@@ -77,7 +79,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
 
     // 2. can it fit in existing slab?
     if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
-      auto *newmem = reinterpret_cast<header *>(operator new (PAGE_SIZE, std::align_val_t{PAGE_SIZE}));
+      auto *newmem = reinterpret_cast<header *>(operator new(PAGE_SIZE, std::align_val_t{PAGE_SIZE}));
       pages = std::construct_at<header>(newmem, pages, std::align_val_t{PAGE_SIZE});
       ptr = reinterpret_cast<std::byte *>(pages) + header_size;
       space = PAGE_SIZE - header_size;
@@ -94,8 +96,9 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     space -= bytes;
     return res;
   }
-  void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) final { /*noop*/
-  }
+
+  void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) final { /*noop*/ }
+
   bool do_is_equal(memory_resource const &other) const noexcept final { return std::addressof(other) == this; }
 
  private:

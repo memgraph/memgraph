@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@ struct SystemRecoveryReq {
   static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
   SystemRecoveryReq() = default;
+
   SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
                     std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
                     std::vector<auth::User> users, std::vector<auth::Role> roles,
@@ -58,6 +59,7 @@ struct SystemRecoveryRes {
   static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
   SystemRecoveryRes() = default;
+
   explicit SystemRecoveryRes(Result res) : result(res) {}
 
   Result result;

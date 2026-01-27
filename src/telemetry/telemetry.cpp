@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,15 +67,16 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
   scheduler_.Pause();  // Don't run until all collects have been added
   scheduler_.SetInterval(
       std::min(kFirstShotAfter, refresh_interval));  // use user-defined interval if shorter than first shot
-  scheduler_.Run("Telemetry", [this, final_interval = refresh_interval,
-                               update_interval = kFirstShotAfter < refresh_interval]() mutable {
-    CollectData();
-    // First run after 60s; all subsequent runs at the user-defined interval
-    if (update_interval) {
-      update_interval = false;
-      scheduler_.SetInterval(final_interval);
-    }
-  });
+  scheduler_.Run(
+      "Telemetry",
+      [this, final_interval = refresh_interval, update_interval = kFirstShotAfter < refresh_interval]() mutable {
+        CollectData();
+        // First run after 60s; all subsequent runs at the user-defined interval
+        if (update_interval) {
+          update_interval = false;
+          scheduler_.SetInterval(final_interval);
+        }
+      });
 }
 
 void Telemetry::Start() { scheduler_.Resume(); }
@@ -116,7 +117,8 @@ void Telemetry::SendData() {
     }
   }
 
-  if (requests::RequestPostJson(url_, payload,
+  if (requests::RequestPostJson(url_,
+                                payload,
                                 /* timeout_in_seconds = */ 2 * 60)) {
     for (const auto &key : keys) {
       if (!storage_.Delete(key)) {
@@ -154,12 +156,14 @@ void Telemetry::CollectData(const std::string &event) {
     SendData();
   }
 }
+
 nlohmann::json Telemetry::GetUptime() const { return timer_.Elapsed().count(); }
 
 void Telemetry::AddQueryModuleCollector() {
   AddCollector("query_module_counters",
                []() -> nlohmann::json { return memgraph::query::plan::CallProcedure::GetAndResetCounters(); });
 }
+
 void Telemetry::AddEventsCollector() {
   AddCollector("event_counters", []() -> nlohmann::json {
     nlohmann::json ret;
@@ -169,6 +173,7 @@ void Telemetry::AddEventsCollector() {
     return ret;
   });
 }
+
 void Telemetry::AddClientCollector() {
   AddCollector("client", []() -> nlohmann::json { return memgraph::communication::bolt_metrics.ToJson(); });
 }

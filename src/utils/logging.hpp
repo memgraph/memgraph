@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,8 +49,7 @@ namespace memgraph::logging {
     if (!(expr)) [[unlikely]] { /* NOLINT(readability-simplify-boolean-expr) */                              \
       [&]() __attribute__((noinline, cold, noreturn)) {                                                      \
         ::memgraph::logging::AssertFailed(std::source_location::current(), #expr, GET_MESSAGE(__VA_ARGS__)); \
-      }                                                                                                      \
-      ();                                                                                                    \
+      }();                                                                                                   \
     }                                                                                                        \
   } while (false)
 

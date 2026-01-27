@@ -256,6 +256,12 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
                                                               column_families,
                                                               &column_handles,
                                                               &kvstore_->db_));
+    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_,
+                                                              rocksdb::TransactionDBOptions(),
+                                                              config.disk.main_storage_directory,
+                                                              column_families,
+                                                              &column_handles,
+                                                              &kvstore_->db_));
     kvstore_->vertex_chandle = column_handles[0];
     kvstore_->edge_chandle = column_handles[1];
     kvstore_->default_chandle = column_handles[2];

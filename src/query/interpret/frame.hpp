@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,14 +30,14 @@ struct FrameWriter {
       : frame_(frame), frame_change_collector_{change_collector}, res_(res) {}
 
   template <typename T>
-  requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>) auto Write(const Symbol &symbol, T &&value)
-      -> TypedValue & {
+    requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>)
+  auto Write(const Symbol &symbol, T &&value) -> TypedValue & {
     return Write(symbol, TypedValue(std::forward<T>(value), res_));
   }
 
   template <typename T>
-  requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>) auto WriteAt(const Symbol &symbol, T &&value)
-      -> TypedValue & {
+    requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>)
+  auto WriteAt(const Symbol &symbol, T &&value) -> TypedValue & {
     return WriteAt(symbol, TypedValue(std::forward<T>(value), res_));
   }
 
@@ -65,6 +65,7 @@ class Frame {
   Frame(int64_t size, allocator_type alloc) : elems_(size, alloc) { MG_ASSERT(size >= 0); }
 
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
+
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
   auto elems() const -> const utils::pmr::vector<TypedValue> & { return elems_; }

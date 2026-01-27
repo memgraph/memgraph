@@ -210,6 +210,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   /// @brief The result of plan generation is the root of the generated operator
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
+
   /// @brief Generates the operator tree based on explicitly set rules.
   PlanResult Plan(const QueryParts &query_parts) {
     auto &context = *context_;
@@ -355,9 +356,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           PatternComprehensionContext pc_ctx{pending_comprehensions, this, current_view};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
-            input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                       context.bound_symbols, *context.ast_storage, pc_ctx,
-                                       query_parts.commit_frequency, context.in_exists_subquery);
+            input_op = impl::GenReturn(*ret,
+                                       std::move(input_op),
+                                       *context.symbol_table,
+                                       context.is_write_query,
+                                       context.bound_symbols,
+                                       *context.ast_storage,
+                                       pc_ctx,
+                                       query_parts.commit_frequency,
+                                       context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             plan_and_apply_comprehensions();
             input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
@@ -365,9 +372,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             context.is_write_query = true;
             write_occurred = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
-            input_op =
-                impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                              context.bound_symbols, *context.ast_storage, pc_ctx, nullptr, context.in_exists_subquery);
+            input_op = impl::GenWith(*with,
+                                     std::move(input_op),
+                                     *context.symbol_table,
+                                     context.is_write_query,
+                                     context.bound_symbols,
+                                     *context.ast_storage,
+                                     pc_ctx,
+                                     nullptr,
+                                     context.in_exists_subquery);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (IsWriteClause(clause)) {
@@ -394,39 +407,60 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             // TODO: When we add support for write and eager procedures, we will
             // need to plan this operator with Accumulate and pass in
             // storage::View::NEW.
-            input_op = std::make_unique<plan::CallProcedure>(
-                std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
-                result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_,
-                procedure_id++, call_proc->void_procedure_);
+            input_op = std::make_unique<plan::CallProcedure>(std::move(input_op),
+                                                             call_proc->procedure_name_,
+                                                             call_proc->arguments_,
+                                                             call_proc->result_fields_,
+                                                             result_symbols,
+                                                             call_proc->memory_limit_,
+                                                             call_proc->memory_scale_,
+                                                             call_proc->is_write_,
+                                                             procedure_id++,
+                                                             call_proc->void_procedure_);
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);
-            input_op = std::make_unique<plan::LoadCsv>(
-                std::move(input_op), load_csv->file_, load_csv->configs_, load_csv->with_header_, load_csv->ignore_bad_,
-                load_csv->delimiter_, load_csv->quote_, load_csv->nullif_, row_sym);
+            input_op = std::make_unique<plan::LoadCsv>(std::move(input_op),
+                                                       load_csv->file_,
+                                                       load_csv->configs_,
+                                                       load_csv->with_header_,
+                                                       load_csv->ignore_bad_,
+                                                       load_csv->delimiter_,
+                                                       load_csv->quote_,
+                                                       load_csv->nullif_,
+                                                       row_sym);
           } else if (auto *load_parquet = utils::Downcast<query::LoadParquet>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_parquet->row_var_);
             context.bound_symbols.insert(row_sym);
-            input_op = std::make_unique<plan::LoadParquet>(std::move(input_op), load_parquet->file_,
-                                                           load_parquet->configs_, row_sym);
+            input_op = std::make_unique<plan::LoadParquet>(
+                std::move(input_op), load_parquet->file_, load_parquet->configs_, row_sym);
           } else if (auto *load_jsonl = utils::Downcast<query::LoadJsonl>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_jsonl->row_var_);
             context.bound_symbols.insert(row_sym);
-            input_op = std::make_unique<plan::LoadJsonl>(std::move(input_op), load_jsonl->file_, load_jsonl->configs_,
-                                                         row_sym);
+            input_op = std::make_unique<plan::LoadJsonl>(
+                std::move(input_op), load_jsonl->file_, load_jsonl->configs_, row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
             context.is_write_query = true;
             write_occurred = true;
             plan_and_apply_comprehensions();
-            input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
-                                           single_query_part, merge_id, pending_comprehensions);
+            input_op = HandleForeachClause(foreach,
+                                           std::move(input_op),
+                                           *context.symbol_table,
+                                           context.bound_symbols,
+                                           single_query_part,
+                                           merge_id,
+                                           pending_comprehensions);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-            input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
-                                      *context.symbol_table, *context_->ast_storage, pending_comprehensions,
-                                      write_occurred, call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
+            input_op = HandleSubquery(std::move(input_op),
+                                      single_query_part.subqueries[subquery_id++],
+                                      *context.symbol_table,
+                                      *context_->ast_storage,
+                                      pending_comprehensions,
+                                      write_occurred,
+                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
             if (context.is_write_query && !has_periodic_commit) {
-              input_op = std::make_unique<Accumulate>(std::move(input_op),
-                                                      input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
+              input_op = std::make_unique<Accumulate>(
+                  std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
             }
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
@@ -476,8 +510,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     MatchContext match_ctx{matching, symbol_table, pc_bound_symbols, view};
     new_input = PlanMatching(match_ctx, std::move(new_input));
-    new_input = ApplyNestedPatternComprehensions(std::move(new_input), matching.nested_pattern_comprehensions,
-                                                 symbol_table, pc_bound_symbols, view);
+    new_input = ApplyNestedPatternComprehensions(
+        std::move(new_input), matching.nested_pattern_comprehensions, symbol_table, pc_bound_symbols, view);
     new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
     return new_input;
   }
@@ -487,6 +521,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
   storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
+
   std::vector<storage::PropertyId> GetProperties(const std::vector<PropertyIx> &props) {
     std::vector<storage::PropertyId> property_ids;
     property_ids.reserve(props.size());
@@ -661,8 +696,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       std::vector<Symbol> path_elements;
       for (const PatternAtom *atom : pattern.atoms_) path_elements.emplace_back(symbol_table.at(*atom->identifier_));
       bound_symbols.insert(symbol_table.at(*pattern.identifier_));
-      last_op = std::make_unique<ConstructNamedPath>(std::move(last_op), symbol_table.at(*pattern.identifier_),
-                                                     path_elements);
+      last_op = std::make_unique<ConstructNamedPath>(
+          std::move(last_op), symbol_table.at(*pattern.identifier_), path_elements);
     }
 
     return last_op;
@@ -684,8 +719,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     for (const auto &nested : nested_comprehensions) {
       auto nested_op = PlanPatternComprehension(nested, symbol_table, bound_symbols, view);
       auto nested_symbols = nested_op->ModifiedSymbols(symbol_table);
-      input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(nested_op), nested_symbols,
-                                               nested.result_symbol);
+      input_op = std::make_unique<RollUpApply>(
+          std::move(input_op), std::move(nested_op), nested_symbols, nested.result_symbol);
     }
     return input_op;
   }
@@ -702,12 +737,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
     } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
       if (!set->property_lookup_->use_nested_property_update_) {
-        return std::make_unique<plan::SetProperty>(std::move(input_op), GetProperty(set->property_lookup_->property_),
-                                                   set->property_lookup_, set->expression_);
+        return std::make_unique<plan::SetProperty>(std::move(input_op),
+                                                   GetProperty(set->property_lookup_->property_),
+                                                   set->property_lookup_,
+                                                   set->expression_);
       } else {
         return std::make_unique<plan::SetNestedProperty>(std::move(input_op),
                                                          GetProperties(set->property_lookup_->property_path_),
-                                                         set->property_lookup_, set->expression_);
+                                                         set->property_lookup_,
+                                                         set->expression_);
       }
     } else if (auto *set = utils::Downcast<query::SetProperties>(clause)) {
       auto op = set->update_ ? plan::SetProperties::Op::UPDATE : plan::SetProperties::Op::REPLACE;
@@ -747,8 +785,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     // regular match.
     auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
 
-    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                               match_context.new_symbols, named_paths, filters, match_context.view);
+    last_op = HandleExpansions(std::move(last_op),
+                               matching,
+                               symbol_table,
+                               storage,
+                               bound_symbols,
+                               match_context.new_symbols,
+                               named_paths,
+                               filters,
+                               match_context.view);
 
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
     // We bound all named path symbols, so just add them to new_symbols.
@@ -777,8 +822,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
-    auto on_create = GenCreateForPattern(*merge.pattern_, std::move(once_with_symbols), *context_->symbol_table,
-                                         context_->bound_symbols);
+    auto on_create = GenCreateForPattern(
+        *merge.pattern_, std::move(once_with_symbols), *context_->symbol_table, context_->bound_symbols);
     for (auto &set : merge.on_create_) {
       on_create = HandleWriteClause(set, on_create, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_create, "Expected SET in MERGE ... ON CREATE");
@@ -797,12 +842,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
                                                     Filters &filters, storage::View view) {
     if (flags::run_time::GetCartesianProductEnabled()) {
-      return HandleExpansionsWithCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                           new_symbols, named_paths, filters, view);
+      return HandleExpansionsWithCartesian(
+          std::move(last_op), matching, symbol_table, storage, bound_symbols, new_symbols, named_paths, filters, view);
     }
 
-    return HandleExpansionsWithoutCartesian(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                            new_symbols, named_paths, filters, view);
+    return HandleExpansionsWithoutCartesian(
+        std::move(last_op), matching, symbol_table, storage, bound_symbols, new_symbols, named_paths, filters, view);
   }
 
   std::unique_ptr<LogicalOperator> HandleExpansionsWithCartesian(
@@ -833,9 +878,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         continue;
       }
 
-      last_op =
-          GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_expansion_groups, symbol_table,
-                                                storage, bound_symbols, new_symbols, named_paths, filters, view);
+      last_op = GenerateExpansionOnAlreadySeenSymbols(std::move(last_op),
+                                                      matching,
+                                                      visited_expansion_groups,
+                                                      symbol_table,
+                                                      storage,
+                                                      bound_symbols,
+                                                      new_symbols,
+                                                      named_paths,
+                                                      filters,
+                                                      view);
 
       if (visited_expansion_groups.contains(expansion.expansion_group_id)) {
         continue;
@@ -860,9 +912,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         new_bound_symbols = bound_symbols;
       }
       new_bound_symbols.insert(starting_symbols.begin(), starting_symbols.end());
-      std::unique_ptr<LogicalOperator> expansion_group = GenerateExpansionGroup(
-          std::move(starting_expansion_operator), matching, symbol_table, storage, new_bound_symbols,
-          new_expansion_group_symbols, named_paths, filters, view, expansion.expansion_group_id);
+      std::unique_ptr<LogicalOperator> expansion_group = GenerateExpansionGroup(std::move(starting_expansion_operator),
+                                                                                matching,
+                                                                                symbol_table,
+                                                                                storage,
+                                                                                new_bound_symbols,
+                                                                                new_expansion_group_symbols,
+                                                                                named_paths,
+                                                                                filters,
+                                                                                view,
+                                                                                expansion.expansion_group_id);
 
       visited_expansion_groups.insert(expansion.expansion_group_id);
 
@@ -896,8 +955,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       // we aggregate all the so far new symbols so we can test them in the next iteration against the new
       // expansion group
       if (has_more_expansions) {
-        cross_branch_new_symbols.insert(cross_branch_new_symbols.end(), new_expansion_group_symbols.begin(),
-                                        new_expansion_group_symbols.end());
+        cross_branch_new_symbols.insert(
+            cross_branch_new_symbols.end(), new_expansion_group_symbols.begin(), new_expansion_group_symbols.end());
       }
     }
 
@@ -912,8 +971,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
     for (const auto &expansion : matching.expansions) {
-      last_op = GenerateOperatorsForExpansion(std::move(last_op), matching, expansion, symbol_table, storage,
-                                              bound_symbols, new_symbols, named_paths, filters, view);
+      last_op = GenerateOperatorsForExpansion(std::move(last_op),
+                                              matching,
+                                              expansion,
+                                              symbol_table,
+                                              storage,
+                                              bound_symbols,
+                                              new_symbols,
+                                              named_paths,
+                                              filters,
+                                              view);
     }
 
     return last_op;
@@ -940,8 +1007,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             expansion.edge && bound_symbols.contains(impl::GetSymbol(expansion.node2, symbol_table));
 
         if (src_node_already_seen || edge_already_seen || dest_node_already_seen) {
-          last_op = GenerateExpansionGroup(std::move(last_op), matching, symbol_table, storage, bound_symbols,
-                                           new_symbols, named_paths, filters, view, expansion.expansion_group_id);
+          last_op = GenerateExpansionGroup(std::move(last_op),
+                                           matching,
+                                           symbol_table,
+                                           storage,
+                                           bound_symbols,
+                                           new_symbols,
+                                           named_paths,
+                                           filters,
+                                           view,
+                                           expansion.expansion_group_id);
           visited_expansion_groups.insert(expansion.expansion_group_id);
           added_new_expansions = true;
           break;
@@ -965,8 +1040,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       }
 
       // When we picked a pattern to expand, we expand it through the end
-      last_op = GenerateOperatorsForExpansion(std::move(last_op), matching, expansion, symbol_table, storage,
-                                              bound_symbols, new_symbols, named_paths, filters, view);
+      last_op = GenerateOperatorsForExpansion(std::move(last_op),
+                                              matching,
+                                              expansion,
+                                              symbol_table,
+                                              storage,
+                                              bound_symbols,
+                                              new_symbols,
+                                              named_paths,
+                                              filters,
+                                              view);
     }
     return last_op;
   }
@@ -986,8 +1069,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
       auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);
 
-      last_op = std::make_unique<ScanAllByEdge>(std::move(last_op), edge_symbol, node1_symbol, node2_symbol,
-                                                expansion.direction, edge_types, view);
+      last_op = std::make_unique<ScanAllByEdge>(
+          std::move(last_op), edge_symbol, node1_symbol, node2_symbol, expansion.direction, edge_types, view);
 
       new_symbols.emplace_back(node1_symbol);
       new_symbols.emplace_back(edge_symbol);
@@ -1018,8 +1101,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     }
 
     if (expansion.edge) {
-      last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
-                          named_paths, new_symbols, view);
+      last_op = GenExpand(std::move(last_op),
+                          expansion,
+                          symbol_table,
+                          bound_symbols,
+                          matching,
+                          storage,
+                          filters,
+                          named_paths,
+                          new_symbols,
+                          view);
     } else if (!last_op) {
       // If we hit here: already seen node + it's not a path or expansion
       last_op = std::make_unique<Once>(std::vector<Symbol>{node1_symbol});
@@ -1108,7 +1199,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
         }
       }
 
-      filters.erase(std::remove_if(filters.begin(), filters.end(),
+      filters.erase(std::remove_if(filters.begin(),
+                                   filters.end(),
                                    [&inner_symbols](FilterInfo &fi) {
                                      for (const auto &symbol : inner_symbols) {
                                        if (fi.used_symbols.contains(symbol)) return true;
@@ -1134,13 +1226,30 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
       // TODO: Pass weight lambda.
       MG_ASSERT(view == storage::View::OLD, "ExpandVariable should only be planned with storage::View::OLD");
-      last_op = std::make_unique<ExpandVariable>(std::move(last_op), node1_symbol, node_symbol, edge_symbol,
-                                                 edge->type_, expansion.direction, edge_types, expansion.is_flipped,
-                                                 edge->lower_bound_, edge->upper_bound_, existing_node, filter_lambda,
-                                                 weight_lambda, total_weight, edge->limit_);
+      last_op = std::make_unique<ExpandVariable>(std::move(last_op),
+                                                 node1_symbol,
+                                                 node_symbol,
+                                                 edge_symbol,
+                                                 edge->type_,
+                                                 expansion.direction,
+                                                 edge_types,
+                                                 expansion.is_flipped,
+                                                 edge->lower_bound_,
+                                                 edge->upper_bound_,
+                                                 existing_node,
+                                                 filter_lambda,
+                                                 weight_lambda,
+                                                 total_weight,
+                                                 edge->limit_);
     } else {
-      last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node_symbol, edge_symbol,
-                                         expansion.direction, edge_types, existing_node, view);
+      last_op = std::make_unique<Expand>(std::move(last_op),
+                                         node1_symbol,
+                                         node_symbol,
+                                         edge_symbol,
+                                         expansion.direction,
+                                         edge_types,
+                                         existing_node,
+                                         view);
     }
 
     // Bind the expanded edge and node.
@@ -1200,8 +1309,9 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
         const auto &[sym, pc] = *it;
         // Check if all external symbols are now bound
-        bool deps_satisfied = std::all_of(pc.external_symbols.begin(), pc.external_symbols.end(),
-                                          [&](const Symbol &s) { return bound_symbols.contains(s); });
+        bool deps_satisfied = std::all_of(pc.external_symbols.begin(), pc.external_symbols.end(), [&](const Symbol &s) {
+          return bound_symbols.contains(s);
+        });
         if (deps_satisfied) {
           auto pc_op = Plan(pc, storage::View::OLD);
           auto symbols = pc_op->ModifiedSymbols(symbol_table);
@@ -1218,16 +1328,16 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     for (auto *clause : foreach->clauses_) {
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
-        op = HandleForeachClause(nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id,
-                                 pending_comprehensions);
+        op = HandleForeachClause(
+            nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id, pending_comprehensions);
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++]);
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }
     }
-    return std::make_unique<plan::Foreach>(std::move(input_op), std::move(op), foreach->named_expression_->expression_,
-                                           symbol);
+    return std::make_unique<plan::Foreach>(
+        std::move(input_op), std::move(op), foreach->named_expression_->expression_, symbol);
   }
 
   std::unique_ptr<LogicalOperator> HandleSubquery(
@@ -1261,8 +1371,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
     } else {
       // this periodic commit is from CALL IN TRANSACTIONS OF x ROWS
-      last_op = std::make_unique<PeriodicSubquery>(std::move(last_op), std::move(subquery_op), commit_frequency,
-                                                   subquery_has_return);
+      last_op = std::make_unique<PeriodicSubquery>(
+          std::move(last_op), std::move(subquery_op), commit_frequency, subquery_has_return);
     }
 
     return last_op;
@@ -1287,8 +1397,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                                                            // Could do in the future when we have parse-time constants
       Filters operator_filters;
       operator_filters.CollectFilterExpression(filter_expr, symbol_table);
-      last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr,
-                                         std::move(operator_filters));
+      last_op = std::make_unique<Filter>(
+          std::move(last_op), std::move(pattern_filters), filter_expr, std::move(operator_filters));
     }
     return last_op;
   }
@@ -1306,8 +1416,15 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
-                               named_paths, filters, storage::View::OLD);
+    last_op = HandleExpansions(std::move(last_op),
+                               matching,
+                               symbol_table,
+                               storage,
+                               expand_symbols,
+                               new_symbols,
+                               named_paths,
+                               filters,
+                               storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
     last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
@@ -1325,14 +1442,21 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
     std::vector<Symbol> new_symbols;
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, bound_symbols, new_symbols,
-                               named_paths, filters, storage::View::OLD);
-    last_op = ApplyNestedPatternComprehensions(std::move(last_op), matching.nested_pattern_comprehensions, symbol_table,
-                                               bound_symbols, storage::View::OLD);
+    last_op = HandleExpansions(std::move(last_op),
+                               matching,
+                               symbol_table,
+                               storage,
+                               bound_symbols,
+                               new_symbols,
+                               named_paths,
+                               filters,
+                               storage::View::OLD);
+    last_op = ApplyNestedPatternComprehensions(
+        std::move(last_op), matching.nested_pattern_comprehensions, symbol_table, bound_symbols, storage::View::OLD);
     last_op = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
     auto list_collection_symbols = last_op->ModifiedSymbols(symbol_table);
-    last_op = std::make_unique<RollUpApply>(std::make_unique<Once>(), std::move(last_op), list_collection_symbols,
-                                            matching.result_symbol, true);
+    last_op = std::make_unique<RollUpApply>(
+        std::make_unique<Once>(), std::move(last_op), list_collection_symbols, matching.result_symbol, true);
 
     return last_op;
   }

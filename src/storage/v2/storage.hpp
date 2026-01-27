@@ -187,6 +187,7 @@ struct PlanInvalidatorDefault : public PlanInvalidator {
   auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func) -> std::function<bool(uint64_t)> override {
     return func;
   }
+
   bool invalidate_now(std::function<bool()> func) override { return func(); };
 };
 
@@ -208,6 +209,7 @@ class Storage {
   virtual ~Storage() = default;
 
   std::string name() const { return config_.salient.name.str(); }
+
   auto name_view() const { return config_.salient.name.str_view(); }
 
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
@@ -218,8 +220,10 @@ class Storage {
    public:
     static constexpr struct SharedAccess {
     } shared_access;
+
     static constexpr struct UniqueAccess {
     } unique_access;
+
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
@@ -269,8 +273,8 @@ class Storage {
                                       std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
 
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
-      return Vertices(label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()),
-                      view);
+      return Vertices(
+          label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()), view);
     };
 
     virtual VerticesChunkedIterable ChunkedVertices(View view, size_t num_chunks) = 0;
@@ -489,6 +493,7 @@ class Storage {
     StorageMode GetCreationStorageMode() const noexcept;
 
     std::string id() const { return storage_->name(); }
+
     auto id_view() const { return storage_->name_view(); }
 
     std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
@@ -592,6 +597,7 @@ class Storage {
       DMG_ASSERT(unique_guard_.owns_lock());
       return storage_->enum_store_;
     }
+
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
     auto CreateEnum(std::string_view name, std::span<std::string const> values)
@@ -732,20 +738,25 @@ class Storage {
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) = 0;
+
   std::unique_ptr<Accessor> Access(StorageAccessType rw_type) { return Access(rw_type, std::nullopt, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                  std::optional<std::chrono::milliseconds> timeout) = 0;
+
   std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
     return UniqueAccess(override_isolation_level, std::nullopt);
   }
+
   std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess({}, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
                                                    std::optional<std::chrono::milliseconds> timeout) = 0;
+
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level) {
     return ReadOnlyAccess(override_isolation_level, std::nullopt);
   }
+
   std::unique_ptr<Accessor> ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
@@ -773,8 +784,10 @@ class Storage {
 
   auto GetActiveIndices() const -> ActiveIndices {
     return ActiveIndices{
-        indices_.label_index_->GetActiveIndices(),         indices_.label_property_index_->GetActiveIndices(),
-        indices_.edge_type_index_->GetActiveIndices(),     indices_.edge_type_property_index_->GetActiveIndices(),
+        indices_.label_index_->GetActiveIndices(),
+        indices_.label_property_index_->GetActiveIndices(),
+        indices_.edge_type_index_->GetActiveIndices(),
+        indices_.edge_type_property_index_->GetActiveIndices(),
         indices_.edge_property_index_->GetActiveIndices(),
     };
   }

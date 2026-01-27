@@ -34,6 +34,7 @@
 using Streams = memgraph::query::stream::Streams;
 using StreamInfo = memgraph::query::stream::KafkaStream::StreamInfo;
 using StreamStatus = memgraph::query::stream::StreamStatus<memgraph::query::stream::KafkaStream>;
+
 namespace {
 const static std::string kTopicName{"TrialTopic"};
 
@@ -44,12 +45,14 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
                     std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy) const override {
     return true;
   }
+
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override { return {}; }
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
                       std::optional<std::string_view> db_name = std::nullopt) const override {
     return true;
   }
+
   std::string GetDefaultDB() const override { return "memgraph"; }
 #endif
 
@@ -158,8 +161,9 @@ class StreamsTestFixture : public ::testing::Test {
   void CheckStreamStatus(const StreamCheckData &check_data) {
     SCOPED_TRACE(fmt::format("Checking status of '{}'", check_data.name));
     const auto &stream_statuses = proxyStreams_->streams_->GetStreamInfo();
-    auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(),
-                           [&check_data](const auto &stream_status) { return stream_status.name == check_data.name; });
+    auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(), [&check_data](const auto &stream_status) {
+      return stream_status.name == check_data.name;
+    });
     ASSERT_NE(it, stream_statuses.end());
     const auto &status = *it;
     EXPECT_EQ(check_data.info.common_info.batch_interval, status.info.batch_interval);
@@ -391,7 +395,8 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidConfig) {
   EXPECT_THROW_WITH_MSG(
       this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
           stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_),
-      memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
+      memgraph::integrations::kafka::SettingCustomConfigFailed,
+      checker);
 }
 
 TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
@@ -408,5 +413,6 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
   EXPECT_THROW_WITH_MSG(
       this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
           stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_),
-      memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
+      memgraph::integrations::kafka::SettingCustomConfigFailed,
+      checker);
 }
