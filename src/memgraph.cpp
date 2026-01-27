@@ -97,16 +97,6 @@ void WarnDeprecatedFlags() {
     const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
     if (!info.is_default) spdlog::warn("{}", message);
   };
-
-  warn_if_set("auth_module_executable",
-              "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
-              "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic:{your module's path}.");
-  warn_if_set("bolt_session_inactivity_timeout",
-              "The bolt_session_inactivity_timeout flag is deprecated. The feature has been removed, inactivity "
-              "timeout is not supported as of v3.0.");
-  warn_if_set("storage_parallel_index_recovery",
-              "storage_parallel_index_recovery flag is deprecated. Check storage_mode_parallel_schema_recovery for "
-              "more details.");
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp

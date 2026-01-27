@@ -97,10 +97,6 @@ DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creat
 DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
               "The number of edges and vertices stored in a batch in a snapshot file.");
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
-DEFINE_bool(storage_parallel_index_recovery, false,
-            "Controls whether the index creation can be done in a multithreaded fashion.");
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_parallel_schema_recovery, false,
             "Controls whether the indices and constraints creation can be done in a multithreaded fashion.");
