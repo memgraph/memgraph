@@ -10956,7 +10956,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   spdlog::info("Snapshot creation successful!");
 
   auto const old_snapshot_files =
-      EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid_str, file_retainer, storage);
+      EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage);
 
   // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
