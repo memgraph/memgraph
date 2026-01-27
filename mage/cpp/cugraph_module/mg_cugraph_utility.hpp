@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,13 +16,13 @@
 #include <cugraph/graph_generators.hpp>
 #include <cugraph/legacy/graph.hpp>
 
-#include <raft/core/handle.hpp>
+#include <cuda_runtime.h>
 #include <raft/core/device_span.hpp>
+#include <raft/core/handle.hpp>
 #include <raft/random/rng_state.hpp>
 #include <rmm/device_uvector.hpp>
-#include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
-#include <cuda_runtime.h>
+#include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <mg_exceptions.hpp>
 #include <set>
@@ -35,21 +35,22 @@
 // - RMM uses cudaMallocAsync via the configured pool
 namespace {
 struct CudaPoolInitializer {
-    rmm::mr::cuda_async_memory_resource async_mr;
+  rmm::mr::cuda_async_memory_resource async_mr;
 
-    CudaPoolInitializer() {
-        // Configure CUDA's default pool
-        cudaMemPool_t pool;
-        cudaDeviceGetDefaultMemPool(&pool, 0);
-        uint64_t threshold = 0;
-        cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
+  CudaPoolInitializer() {
+    // Configure CUDA's default pool
+    cudaMemPool_t pool;
+    cudaDeviceGetDefaultMemPool(&pool, 0);
+    uint64_t threshold = 0;
+    cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
 
-        // Tell RMM to use async memory resource
-        rmm::mr::set_current_device_resource(&async_mr);
-    }
+    // Tell RMM to use async memory resource
+    rmm::mr::set_current_device_resource(&async_mr);
+  }
 };
+
 static CudaPoolInitializer cuda_pool_init;
-}
+}  // namespace
 
 #include <mg_utils.hpp>
 
@@ -87,10 +88,10 @@ auto CreateCugraphFromMemgraph(const mg_graph::GraphView<> &mg_graph, const mg_g
 
   if (graph_type == mg_graph::GraphType::kUndirectedGraph) {
     std::vector<mg_graph::Edge<>> undirected_edges;
-    std::transform(mg_edges.begin(), mg_edges.end(), std::back_inserter(undirected_edges),
-                   [](const auto &edge) -> mg_graph::Edge<> {
-                     return {edge.id, edge.to, edge.from};
-                   });
+    std::transform(mg_edges.begin(),
+                   mg_edges.end(),
+                   std::back_inserter(undirected_edges),
+                   [](const auto &edge) -> mg_graph::Edge<> { return {edge.id, edge.to, edge.from}; });
     mg_edges.reserve(2 * mg_edges.size());
     mg_edges.insert(mg_edges.end(), undirected_edges.begin(), undirected_edges.end());
   }
@@ -163,7 +164,7 @@ auto CreateCugraphFromMemgraph(const mg_graph::GraphView<> &mg_graph, const mg_g
           std::move(cu_dst),
           std::move(edge_properties),
           cugraph::graph_properties_t{graph_type == mg_graph::GraphType::kDirectedGraph, false},
-          false,       // renumber - NOT needed, we already renumbered to 0..M-1
+          false,  // renumber - NOT needed, we already renumbered to 0..M-1
           std::nullopt,
           std::nullopt,
           false);
@@ -183,13 +184,13 @@ auto CreateCugraphFromMemgraph(const mg_graph::GraphView<> &mg_graph, const mg_g
 ///@return Optional edge property view for weights
 ///
 template <typename TEdgeT = int64_t>
-std::optional<cugraph::edge_property_view_t<TEdgeT, double const*>> GetEdgeWeightView(
-    std::vector<cugraph::edge_arithmetic_property_t<TEdgeT>>& edge_props) {
+std::optional<cugraph::edge_property_view_t<TEdgeT, double const *>> GetEdgeWeightView(
+    std::vector<cugraph::edge_arithmetic_property_t<TEdgeT>> &edge_props) {
   if (edge_props.empty()) {
     return std::nullopt;
   }
   // Edge properties are stored as variants - get the double version
-  auto& prop = edge_props[0];
+  auto &prop = edge_props[0];
   if (std::holds_alternative<cugraph::edge_property_t<TEdgeT, double>>(prop)) {
     return std::get<cugraph::edge_property_t<TEdgeT, double>>(prop).view();
   }
@@ -247,7 +248,8 @@ auto CreateCugraphLegacyFromMemgraph(const mg_graph::GraphView<> &mg_graph, raft
   rmm::device_buffer weights_buffer(mg_weight.data(), sizeof(TWeightT) * (mg_weight.size()), stream, mr);
 
   cugraph::legacy::GraphSparseContents<TVertexT, TEdgeT, TWeightT> csr_contents{
-      static_cast<TVertexT>(n_vertices), static_cast<TEdgeT>(n_edges),
+      static_cast<TVertexT>(n_vertices),
+      static_cast<TEdgeT>(n_edges),
       std::make_unique<rmm::device_buffer>(std::move(offsets_buffer)),
       std::make_unique<rmm::device_buffer>(std::move(dsts_buffer)),
       std::make_unique<rmm::device_buffer>(std::move(weights_buffer))};
@@ -265,17 +267,13 @@ auto CreateCugraphLegacyFromMemgraph(const mg_graph::GraphView<> &mg_graph, raft
 ///@param a Probability of the first partition
 ///@param b Probability of the second partition
 ///@param c Probability of the third partition
-<<<<<<< HEAD
-///@param seed Random seed applied
-=======
->>>>>>> feat(cugraph): upgrade to RAPIDS 25.12 / CUDA 13.1 with comprehensive e2e tests (#710)
 ///@param clip_and_flip Clip and flip
 ///@param handle Handle for GPU communication
 ///@return Edges in edge list format
 ///
 template <typename TVertexT = int64_t>
-auto GenerateCugraphRMAT(raft::random::RngState& rng_state, std::size_t scale, std::size_t num_edges,
-                         double a, double b, double c, bool clip_and_flip, raft::handle_t const &handle) {
+auto GenerateCugraphRMAT(raft::random::RngState &rng_state, std::size_t scale, std::size_t num_edges, double a,
+                         double b, double c, bool clip_and_flip, raft::handle_t const &handle) {
   auto stream = handle.get_stream();
 
   // cuGraph 25.x RMAT API takes RngState reference
@@ -292,13 +290,8 @@ auto GenerateCugraphRMAT(raft::random::RngState& rng_state, std::size_t scale, s
   handle.sync_stream();
 
   for (std::size_t i = 0; i < num_edges; ++i) {
-    mg_edges.emplace_back(static_cast<std::uint64_t>(h_src[i]),
-                          static_cast<std::uint64_t>(h_dst[i]));
+    mg_edges.emplace_back(static_cast<std::uint64_t>(h_src[i]), static_cast<std::uint64_t>(h_dst[i]));
   }
   return mg_edges;
 }
-<<<<<<< HEAD
-=======
-
->>>>>>> feat(cugraph): upgrade to RAPIDS 25.12 / CUDA 13.1 with comprehensive e2e tests (#710)
 }  // namespace mg_cugraph
