@@ -241,10 +241,7 @@ struct QueryLogWrapper {
   std::string_view db_name;
 };
 
-// clang-format off
 #if FMT_VERSION > 90000
-// clang-format on
-
 template <>
 class fmt::formatter<QueryLogWrapper> : public fmt::ostream_formatter {};
 #endif
@@ -8687,9 +8684,8 @@ void Interpreter::Commit() {
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
   bool const is_main = (*locked_repl_state)->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
-  // if I was main with write txn which became replica and this is a write txn, abort.
-  // Abort also if I am main but unwriteable
-  if ((!is_main && !curr_txn->deltas.empty()) || (is_main && !(*locked_repl_state)->IsMainWriteable())) {
+  // if I was main with write txn which became replica, abort.
+  if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
   auto maybe_commit_error =
