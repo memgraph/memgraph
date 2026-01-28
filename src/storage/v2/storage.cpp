@@ -612,23 +612,23 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
           return !set_for_erasure.contains(edge_gid);
         });
 
-    // Creating deltas and erasing edge only at the end -> we might have incomplete state as
-    // delta might cause OOM, so we don't remove edges from edges_attached_to_vertex
-    utils::AtomicMemoryBlock([&mid,
-                              &edges_attached_to_vertex,
-                              &deleted_edges,
-                              &partially_detached_edge_ids,
-                              this,
-                              vertex_ptr,
-                              deletion_delta,
-                              reverse_vertex_order,
-                              &schema_acc]() {
-      for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
-        auto const &[edge_type, opposing_vertex, edge_ref] = *it;
-        std::unique_lock<utils::RWSpinLock> guard;
+    // Process edges one-by-one to ensure MVCC checks happen with locks held.
+    // Deltas are created per edge, but erasing edges from the vector happens at
+    // the end. If OOM occurs, some edges may have deltas created but remain in
+    // the vector.
+    for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
+      auto const &[edge_type, opposing_vertex, edge_ref] = *it;
+
+      std::unique_lock<utils::RWSpinLock> guard;
+      if (storage_->config_.salient.items.properties_on_edges) {
+        auto edge_ptr = edge_ref.ptr;
+        guard = std::unique_lock{edge_ptr->lock};
+        if (!PrepareForWrite(&transaction_, edge_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+      }
+
+      utils::AtomicMemoryBlock([&, edge_type = edge_type, opposing_vertex = opposing_vertex, edge_ref = edge_ref]() {
         if (storage_->config_.salient.items.properties_on_edges) {
           auto edge_ptr = edge_ref.ptr;
-          guard = std::unique_lock{edge_ptr->lock};
           // this can happen only if we marked edges for deletion with no nodes,
           // so the method detaching nodes will not do anything
           MarkEdgeAsDeleted(edge_ptr);
@@ -655,9 +655,10 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
         }
-      }
-      edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
-    });
+      });
+    }
+
+    edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
 
     return std::make_optional<ReturnType>();
   };
