@@ -6,12 +6,12 @@ query: >
 
 output:
   - node_id: 0
-    katz_centrality: 0.564
+    katz_centrality: 1.211
   - node_id: 1
-    katz_centrality: 0.4489
+    katz_centrality: 1.11
   - node_id: 2
-    katz_centrality: 0.4144
+    katz_centrality: 1.1
   - node_id: 3
-    katz_centrality: 0.4604
+    katz_centrality: 1.111
   - node_id: 4
-    katz_centrality: 0.3108
+    katz_centrality: 1.0

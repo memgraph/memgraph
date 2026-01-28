@@ -1,0 +1,94 @@
+ARG RAPIDS_VERSION=25.12
+ARG CUDA_VERSION=13
+ARG CUDA_VERSION_MINOR=13.1.0
+ARG PY_VERSION_DEFAULT=3.12
+ARG MG_VERSION=3.7.2
+
+FROM nvcr.io/nvidia/rapidsai/base:${RAPIDS_VERSION}-cuda${CUDA_VERSION}-py${PY_VERSION_DEFAULT} AS cugraph-dev
+
+FROM nvidia/cuda:${CUDA_VERSION_MINOR}-runtime-ubuntu24.04 AS prod
+
+USER root
+
+ARG TARGETARCH
+ARG PY_VERSION_DEFAULT=3.12
+ARG MEMGRAPH_REF
+ARG BUILD_TYPE
+ENV BUILD_TYPE=${BUILD_TYPE}
+ARG DEBIAN_FRONTEND=noninteractive
+ARG MG_VERSION
+ARG PY_VERSION_DEFAULT
+ARG CACHE_PRESENT
+ENV MG_VERSION=${MG_VERSION}
+ENV PY_VERSION=${PY_VERSION_DEFAULT}
+ENV MEMGRAPH_REF=${MEMGRAPH_REF}
+ARG CUSTOM_MIRROR
+
+COPY --from=cugraph-dev /opt/conda/lib/libcugraph.so /opt/conda/lib/libcugraph.so
+COPY --from=cugraph-dev /opt/conda/lib/libcugraph_c.so /opt/conda/lib/libcugraph_c.so
+COPY --from=cugraph-dev /opt/conda/lib/librmm.so /opt/conda/lib/librmm.so
+COPY --from=cugraph-dev /opt/conda/lib/librapids_logger.so /opt/conda/lib/librapids_logger.so
+COPY --from=cugraph-dev /opt/conda/include /opt/conda/include
+
+# install custom openssl packages
+COPY openssl/ /tmp/openssl/
+RUN if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
+      apt-get update && apt-get install -y \
+      /tmp/openssl/*.deb \
+      --no-install-recommends && \
+      rm -rf /var/lib/apt/lists/* /tmp/openssl /var/tmp/*; \
+    fi
+
+# Install runtime requirements for MAGE
+COPY install_runtime_requirements.sh /install_runtime_requirements.sh
+RUN chmod +x /install_runtime_requirements.sh && \
+    /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
+      --py-version ${PY_VERSION} --custom-mirror ${CUSTOM_MIRROR} \
+      --cuda ${CUDA} && \
+    rm /install_runtime_requirements.sh
+
+# install memgraph
+COPY memgraph.deb .
+
+# fix `memgraph` UID and GID for compatibility with previous Debian releases
+RUN groupadd -g 103 memgraph && \
+    useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
+    dpkg -i memgraph.deb && \
+    rm memgraph.deb
+
+
+# Copy modules
+RUN mkdir -p /usr/lib/memgraph/query_modules/
+COPY mage.tar.gz /tmp/mage.tar.gz
+RUN tar -xzvf /tmp/mage.tar.gz -C /usr/lib/memgraph/ && rm /tmp/mage.tar.gz
+
+# copy script to convert to dev container
+COPY make-dev-container.sh /make-dev-container.sh
+COPY python/requirements.txt /tmp/requirements.txt
+COPY python/requirements-gpu.txt /tmp/requirements-gpu.txt
+COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
+
+USER memgraph
+COPY --chown=memgraph:memgraph install_python_requirements.sh /home/memgraph/install_python_requirements.sh
+COPY --chown=memgraph:memgraph ./wheels /tmp/wheels
+RUN cd $HOME && \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+      pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
+    fi && \
+    chmod +x /home/memgraph/install_python_requirements.sh && \
+    ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda true --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
+    rm /home/memgraph/install_python_requirements.sh && \
+    rm -rf /tmp/wheels
+
+RUN if [ -n "$CUSTOM_MIRROR" ]; then \
+    sed -E -i \
+        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
+        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
+
+USER memgraph
+EXPOSE 7687
+
+ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
+CMD [""]

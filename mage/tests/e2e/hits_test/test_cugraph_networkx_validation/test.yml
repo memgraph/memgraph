@@ -1,0 +1,34 @@
+# HITS values validated against NetworkX ground truth
+query: >
+  CALL cugraph.hits.get() YIELD node, hubs, authorities
+  RETURN node.id AS node_id, hubs, authorities
+  ORDER BY node_id ASC;
+
+output:
+  - node_id: 1
+    hubs: 0.0501401
+    authorities: 0.0477461
+  - node_id: 2
+    hubs: 0.0907038
+    authorities: 0.0954923
+  - node_id: 3
+    hubs: 0.131268
+    authorities: 0.125
+  - node_id: 4
+    hubs: 0.146761
+    authorities: 0.154508
+  - node_id: 5
+    hubs: 0.0501401
+    authorities: 0.0477461
+  - node_id: 6
+    hubs: 0.0907038
+    authorities: 0.0954923
+  - node_id: 7
+    hubs: 0.131268
+    authorities: 0.125
+  - node_id: 8
+    hubs: 0.146761
+    authorities: 0.154508
+  - node_id: 9
+    hubs: 0.162255
+    authorities: 0.154508
