@@ -25,9 +25,13 @@ constexpr char const *kProcedurePagerank = "get";
 constexpr char const *kArgumentMaxIterations = "max_iterations";
 constexpr char const *kArgumentDampingFactor = "damping_factor";
 constexpr char const *kArgumentStopEpsilon = "stop_epsilon";
+constexpr char const *kArgumentWeightProperty = "weight_property";
 
 constexpr char const *kResultFieldNode = "node";
 constexpr char const *kResultFieldPageRank = "pagerank";
+
+const double kDefaultWeight = 1.0;
+constexpr char const *kDefaultWeightProperty = "weight";
 
 void InsertPagerankRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory, const std::uint64_t node_id,
                           double rank) {
@@ -51,8 +55,10 @@ void PagerankProc(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memo
     auto max_iterations = static_cast<std::size_t>(mgp::value_get_int(mgp::list_at(args, 0)));
     auto damping_factor = mgp::value_get_double(mgp::list_at(args, 1));
     auto stop_epsilon = mgp::value_get_double(mgp::list_at(args, 2));
+    auto weight_property = mgp::value_get_string(mgp::list_at(args, 3));
 
-    auto mg_graph = mg_utility::GetGraphView(graph, result, memory, mg_graph::GraphType::kDirectedGraph);
+    auto mg_graph = mg_utility::GetWeightedGraphView(
+        graph, result, memory, mg_graph::GraphType::kDirectedGraph, weight_property, kDefaultWeight);
     if (mg_graph->Empty()) return;
 
     // Define handle and operation stream
@@ -60,8 +66,9 @@ void PagerankProc(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memo
     auto stream = handle.get_stream();
 
     // PageRank requires store_transposed = true
-    auto [cu_graph, edge_props, renumber_map] = mg_cugraph::CreateCugraphFromMemgraph<vertex_t, edge_t, weight_t, true, false>(
-        *mg_graph.get(), mg_graph::GraphType::kDirectedGraph, handle);
+    auto [cu_graph, edge_props, renumber_map] =
+        mg_cugraph::CreateCugraphFromMemgraph<vertex_t, edge_t, weight_t, true, false>(
+            *mg_graph.get(), mg_graph::GraphType::kDirectedGraph, handle);
 
     auto cu_graph_view = cu_graph.view();
     auto n_vertices = cu_graph_view.number_of_vertices();
@@ -103,16 +110,19 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   mgp_value *default_max_iterations;
   mgp_value *default_damping_factor;
   mgp_value *default_stop_epsilon;
+  mgp_value *default_weight_property;
   try {
     auto *pagerank_proc = mgp::module_add_read_procedure(module, kProcedurePagerank, PagerankProc);
 
     default_max_iterations = mgp::value_make_int(100, memory);
     default_damping_factor = mgp::value_make_double(0.85, memory);
     default_stop_epsilon = mgp::value_make_double(1e-5, memory);
+    default_weight_property = mgp::value_make_string(kDefaultWeightProperty, memory);
 
     mgp::proc_add_opt_arg(pagerank_proc, kArgumentMaxIterations, mgp::type_int(), default_max_iterations);
     mgp::proc_add_opt_arg(pagerank_proc, kArgumentDampingFactor, mgp::type_float(), default_damping_factor);
     mgp::proc_add_opt_arg(pagerank_proc, kArgumentStopEpsilon, mgp::type_float(), default_stop_epsilon);
+    mgp::proc_add_opt_arg(pagerank_proc, kArgumentWeightProperty, mgp::type_string(), default_weight_property);
 
     mgp::proc_add_result(pagerank_proc, kResultFieldNode, mgp::type_node());
     mgp::proc_add_result(pagerank_proc, kResultFieldPageRank, mgp::type_float());
@@ -120,12 +130,14 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp_value_destroy(default_max_iterations);
     mgp_value_destroy(default_damping_factor);
     mgp_value_destroy(default_stop_epsilon);
+    mgp_value_destroy(default_weight_property);
     return 1;
   }
 
   mgp_value_destroy(default_max_iterations);
   mgp_value_destroy(default_damping_factor);
   mgp_value_destroy(default_stop_epsilon);
+  mgp_value_destroy(default_weight_property);
   return 0;
 }
 
