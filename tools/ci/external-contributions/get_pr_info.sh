@@ -6,7 +6,7 @@
 
 set -e
 
-if [ "$#" -ne 2 ]; then
+if [ "$#" -ne 3 ]; then
     echo "Usage: $0 <PR_NUMBER> <GITHUB_TOKEN> <BASE_MASTER>"
     echo "Example: $0 123 \${{ github.token }}"
     exit 1

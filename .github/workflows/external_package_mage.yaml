@@ -1,4 +1,4 @@
-name: "Package mage"
+name: "Package mage (External)"
 
 on:
   #push:
