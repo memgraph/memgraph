@@ -15,6 +15,7 @@
 #include <set>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 namespace memgraph::storage {
@@ -35,32 +36,50 @@ class UniqueConstraints {
 
   using ConstraintValue = std::vector<std::pair<std::vector<PropertyValue>, Vertex const *>>;
 
-  /// Information collected during abort processing, organized by constraint for efficient iteration.
-  /// For each constraint key, stores a list of (property_values, vertex) pairs to remove.
-  using AbortableInfo = std::map<LabelId, std::map<std::set<PropertyId>, ConstraintValue>>;
+  /// Information collected during validation processing, organized by constraint for efficient iteration.
+  /// For each constraint key, stores a list of (property_values, vertex) pairs to process.
+  using ValidationInfo = std::map<LabelId, std::map<SortedPropertyIds, ConstraintValue>>;
 
   struct ActiveConstraints;
 
-  /// Processor that collects abort information during delta processing.
-  /// Organized by constraint key so AbortEntries can iterate constraints (not vertices) in outer loop.
-  struct AbortProcessor {
-    explicit AbortProcessor() = default;
+  /// Processor that collects validation information during delta processing.
+  /// Organized by constraint key so bulk operations can iterate constraints (not vertices) in outer loop.
+  /// Used for both commit (bulk insert) and abort (bulk remove) operations.
+  struct ValidationProcessor {
+    explicit ValidationProcessor() = default;
 
-    explicit AbortProcessor(AbortableInfo &&interesting) : abortable_info_(std::move(interesting)) {}
+    explicit ValidationProcessor(ValidationInfo &&info) : validation_info_(std::move(info)) {}
 
     void Collect(Vertex const *vertex);
 
-    AbortableInfo abortable_info_;
+    ValidationInfo validation_info_;
   };
 
   struct ActiveConstraints {
     virtual ~ActiveConstraints() = default;
     virtual auto ListConstraints(uint64_t start_timestamp) const
-        -> std::vector<std::pair<LabelId, std::set<PropertyId>>> = 0;
-    virtual void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) = 0;
-    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
-    virtual void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const = 0;
-    virtual void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) = 0;
+        -> std::vector<std::pair<LabelId, SortedPropertyIds>> = 0;
+
+    /// Get a ValidationProcessor initialized with the current constraint structure.
+    /// The processor can then be used to collect entries via Collect() and
+    /// bulk process them via CommitEntries() or AbortEntries().
+    virtual auto GetValidationProcessor() const -> ValidationProcessor = 0;
+
+    /// Validate and commit entries in a single pass.
+    /// For in-memory: validates then inserts each entry with single accessor per constraint.
+    /// For disk: no-op (disk handles validation differently), returns success.
+    /// @param info The collected validation info with property values
+    /// @param start_timestamp Transaction start timestamp for entry insertion
+    /// @param tx Transaction for MVCC visibility checks (can be nullptr for disk)
+    /// @param commit_timestamp Commit timestamp for MVCC visibility checks
+    /// @return Success or constraint violation error
+    virtual auto ValidateAndCommitEntries(ValidationInfo &&info, uint64_t start_timestamp, const Transaction *tx,
+                                          uint64_t commit_timestamp) -> std::expected<void, ConstraintViolation> = 0;
+
+    /// Bulk remove all collected entries from their respective constraint skip lists.
+    /// Uses one accessor per constraint for efficiency.
+    virtual void AbortEntries(ValidationInfo &&info, uint64_t exact_start_timestamp) = 0;
+
     virtual bool empty() const = 0;
 
     virtual void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
@@ -86,12 +105,12 @@ class UniqueConstraints {
     PROPERTIES_SIZE_LIMIT_EXCEEDED,
   };
 
-  virtual DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
+  virtual DeletionStatus DropConstraint(LabelId label, SortedPropertyIds const &properties) = 0;
 
   virtual void Clear() = 0;
 
  protected:
-  static DeletionStatus CheckPropertiesBeforeDeletion(const std::set<PropertyId> &properties) {
+  static DeletionStatus CheckPropertiesBeforeDeletion(SortedPropertyIds const &properties) {
     if (properties.empty()) {
       return UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES;
     }

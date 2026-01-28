@@ -13,9 +13,12 @@
 
 #include <compare>
 #include <cstdint>
+#include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #include <boost/functional/hash.hpp>
 
@@ -55,6 +58,55 @@ STORAGE_DEFINE_ID_TYPE(PropertyId, uint32_t, int32_t);
 STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t);
 
 #undef STORAGE_DEFINE_ID_TYPE
+
+/// A sorted vector of unique PropertyIds - guarantees monotonic ordering with no duplicates.
+/// Constructed from a set, initializer_list, or span to ensure sorting invariant.
+class SortedPropertyIds {
+ public:
+  SortedPropertyIds() = default;
+
+  SortedPropertyIds(std::set<PropertyId> const &properties) : properties_(properties.begin(), properties.end()) {}
+
+  // Move from set
+  SortedPropertyIds(std::set<PropertyId> &&properties)
+      : properties_(std::make_move_iterator(properties.begin()), std::make_move_iterator(properties.end())) {}
+
+  // Construct from initializer_list (sorts and deduplicates)
+  SortedPropertyIds(std::initializer_list<PropertyId> properties) : properties_(properties) { SortAndDeduplicate(); }
+
+  // Construct from span (sorts and deduplicates)
+  explicit SortedPropertyIds(std::span<PropertyId const> properties)
+      : properties_(properties.begin(), properties.end()) {
+    SortAndDeduplicate();
+  }
+
+  auto begin() const { return properties_.begin(); }
+
+  auto end() const { return properties_.end(); }
+
+  auto size() const { return properties_.size(); }
+
+  bool empty() const { return properties_.empty(); }
+
+  auto operator[](std::size_t i) const { return properties_[i]; }
+
+  operator std::span<PropertyId const>() const { return properties_; }
+
+  auto as_span() const -> std::span<PropertyId const> { return properties_; }
+
+  auto to_set() const -> std::set<PropertyId> { return {properties_.begin(), properties_.end()}; }
+
+  friend bool operator==(SortedPropertyIds const &, SortedPropertyIds const &) = default;
+  friend auto operator<=>(SortedPropertyIds const &, SortedPropertyIds const &) = default;
+
+ private:
+  void SortAndDeduplicate() {
+    std::sort(properties_.begin(), properties_.end());
+    properties_.erase(std::unique(properties_.begin(), properties_.end()), properties_.end());
+  }
+
+  std::vector<PropertyId> properties_;
+};
 
 struct LabelPropKey {
   LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}

@@ -249,7 +249,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    ASSERT_EQ(constraint_acc->DropUniqueConstraint(lbl, {prop2}),
+    ASSERT_EQ(constraint_acc->DropUniqueConstraint(lbl, SortedPropertyIds{prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_TRUE(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }

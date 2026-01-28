@@ -364,13 +364,13 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
   }
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label1, SortedPropertyIds{this->prop1}),
               UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label1, SortedPropertyIds{this->prop1}),
               UniqueConstraints::DeletionStatus::NOT_FOUND);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -382,13 +382,13 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
   }
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label2, {this->prop1}),
+    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label2, SortedPropertyIds{this->prop1}),
               UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label2, {this->prop2}),
+    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label2, SortedPropertyIds{this->prop2}),
               UniqueConstraints::DeletionStatus::NOT_FOUND);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -844,7 +844,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
-              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1}}));
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, SortedPropertyIds{this->prop1}}));
   }
 
   {
@@ -879,7 +879,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     auto res = acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
-              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1}}));
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, SortedPropertyIds{this->prop1}}));
   }
 }
 
@@ -889,7 +889,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
     // This should fail since unique constraint cannot be created for an empty
     // property set.
     auto constraint_acc = this->CreateConstraintAccessor();
-    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {});
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, SortedPropertyIds{});
     ASSERT_TRUE(res.has_value());
     ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::EMPTY_PROPERTIES);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -897,7 +897,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
 
   {  // Removing a constraint with empty property set should also fail.
     auto constraint_acc = this->DropConstraintAccessor();
-    ASSERT_EQ(constraint_acc->DropUniqueConstraint(this->label1, {}),
+    ASSERT_EQ(constraint_acc->DropUniqueConstraint(this->label1, SortedPropertyIds{}),
               UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -1124,9 +1124,9 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
 
     auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
     ASSERT_FALSE(res.has_value());
-    EXPECT_EQ(
-        std::get<ConstraintViolation>(res.error()),
-        (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1, this->prop2}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
+              (ConstraintViolation{
+                  ConstraintViolation::Type::UNIQUE, this->label1, SortedPropertyIds{this->prop1, this->prop2}}));
   }
 }
 
@@ -1168,7 +1168,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
     auto res = acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(std::get<ConstraintViolation>(res.error()),
-              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, std::set{this->prop1}}));
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, this->label1, SortedPropertyIds{this->prop1}}));
 
     ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -1194,7 +1194,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
 
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    ASSERT_EQ(constraint_acc->DropUniqueConstraint(this->label1, {this->prop2, this->prop1}),
+    ASSERT_EQ(constraint_acc->DropUniqueConstraint(this->label1, SortedPropertyIds{this->prop2, this->prop1}),
               UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -1823,7 +1823,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintCreateDropCreate) {
   // Drop the constraint
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label1, {this->prop1}),
+    EXPECT_EQ(constraint_acc->DropUniqueConstraint(this->label1, SortedPropertyIds{this->prop1}),
               UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -2068,7 +2068,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
   // Drop first constraint
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    auto res = constraint_acc->DropUniqueConstraint(this->label1, {this->prop1});
+    auto res = constraint_acc->DropUniqueConstraint(this->label1, SortedPropertyIds{this->prop1});
     ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
@@ -2077,7 +2077,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintMetrics) {
   // Drop second constraint
   {
     auto constraint_acc = this->DropConstraintAccessor();
-    auto res = constraint_acc->DropUniqueConstraint(this->label1, {this->prop2});
+    auto res = constraint_acc->DropUniqueConstraint(this->label1, SortedPropertyIds{this->prop2});
     ASSERT_EQ(res, UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }

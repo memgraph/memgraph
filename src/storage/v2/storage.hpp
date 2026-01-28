@@ -102,7 +102,7 @@ struct IndicesInfo {
 
 struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
-  std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+  std::vector<std::pair<LabelId, SortedPropertyIds>> unique;
   std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> type;
 };
 
@@ -574,10 +574,10 @@ class Storage {
         LabelId label, PropertyId property) = 0;
 
     virtual std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
+    CreateUniqueConstraint(LabelId label, SortedPropertyIds const &properties) = 0;
 
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
-                                                                   const std::set<PropertyId> &properties) = 0;
+                                                                   SortedPropertyIds const &properties) = 0;
 
     virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) = 0;
