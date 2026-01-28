@@ -305,8 +305,9 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     // uncommitted edges created by tx3
     auto edges = v1_2->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.has_value());
-    CompareEdges(edges.value(), std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a"),
-                                           tx2->NameToEdgeType("Edge2b")});
+    CompareEdges(
+        edges.value(),
+        std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a"), tx2->NameToEdgeType("Edge2b")});
   }
 
   {
@@ -314,8 +315,9 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     // uncommitted edges created by tx2
     auto edges = v1_3->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.has_value());
-    CompareEdges(edges.value(), std::array{tx3->NameToEdgeType("Edge1"), tx3->NameToEdgeType("Edge3a"),
-                                           tx3->NameToEdgeType("Edge3b")});
+    CompareEdges(
+        edges.value(),
+        std::array{tx3->NameToEdgeType("Edge1"), tx3->NameToEdgeType("Edge3a"), tx3->NameToEdgeType("Edge3b")});
   }
 
   auto tx4 = storage->Access(memgraph::storage::WRITE);
@@ -353,8 +355,9 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     auto edges = v1_3->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.has_value());
     EXPECT_EQ(edges->edges.size(), 3);
-    CompareEdges(edges.value(), std::array{tx3->NameToEdgeType("Edge1"), tx3->NameToEdgeType("Edge3a"),
-                                           tx3->NameToEdgeType("Edge3b")});
+    CompareEdges(
+        edges.value(),
+        std::array{tx3->NameToEdgeType("Edge1"), tx3->NameToEdgeType("Edge3a"), tx3->NameToEdgeType("Edge3b")});
   }
 
   {
@@ -372,8 +375,9 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     // edge, but not tx3's uncommitted edge.
     auto edges = v1_5->OutEdges(ms::View::OLD);
     ASSERT_TRUE(edges.has_value());
-    CompareEdges(edges.value(), std::array{tx5->NameToEdgeType("Edge1"), tx5->NameToEdgeType("Edge2a"),
-                                           tx5->NameToEdgeType("Edge2b")});
+    CompareEdges(
+        edges.value(),
+        std::array{tx5->NameToEdgeType("Edge1"), tx5->NameToEdgeType("Edge2a"), tx5->NameToEdgeType("Edge2b")});
   }
 
   // tx3 now commits
@@ -406,8 +410,9 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     // edge, but not tx3's uncommitted edge.
     auto edges = v1_5->OutEdges(ms::View::OLD);
     ASSERT_TRUE(edges.has_value());
-    CompareEdges(edges.value(), std::array{tx5->NameToEdgeType("Edge1"), tx5->NameToEdgeType("Edge2a"),
-                                           tx5->NameToEdgeType("Edge2b")});
+    CompareEdges(
+        edges.value(),
+        std::array{tx5->NameToEdgeType("Edge1"), tx5->NameToEdgeType("Edge2a"), tx5->NameToEdgeType("Edge2b")});
   }
 
   {
@@ -419,8 +424,11 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     auto edges = v1_6->OutEdges(ms::View::OLD);
     ASSERT_TRUE(edges.has_value());
     CompareEdges(edges.value(),
-                 std::array{tx6->NameToEdgeType("Edge1"), tx6->NameToEdgeType("Edge2a"), tx6->NameToEdgeType("Edge2b"),
-                            tx6->NameToEdgeType("Edge3a"), tx6->NameToEdgeType("Edge3b")});
+                 std::array{tx6->NameToEdgeType("Edge1"),
+                            tx6->NameToEdgeType("Edge2a"),
+                            tx6->NameToEdgeType("Edge2b"),
+                            tx6->NameToEdgeType("Edge3a"),
+                            tx6->NameToEdgeType("Edge3b")});
   }
 }
 
@@ -528,8 +536,9 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
     // tx2 can see the committed Edge1 and Edge2a and Edge2b it created
     auto edges = v1_2->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.has_value());
-    CompareEdges(edges.value(), std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a"),
-                                           tx2->NameToEdgeType("Edge2b")});
+    CompareEdges(
+        edges.value(),
+        std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a"), tx2->NameToEdgeType("Edge2b")});
   }
 
   {
@@ -647,4 +656,92 @@ TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
     ASSERT_TRUE(edges.has_value());
     ASSERT_EQ(edges->edges.size(), 0);
   }
+}
+
+TEST(StorageV2InterleavedIsolation, ConcurrentEdgeCreationSucceeds) {
+  std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
+
+  ms::Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Tx_1: Create an edge but don't commit
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_tx1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v2_tx1.has_value());
+
+  auto edge_type_1 = tx1->NameToEdgeType("TYPE1");
+  auto edge1 = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, edge_type_1);
+  ASSERT_TRUE(edge1.has_value());
+
+  // Tx_2: Try to create another edge while Tx_1's edge is uncommitted
+  // This should SUCCEED because both operations are commutative
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx2.has_value());
+  ASSERT_TRUE(v2_tx2.has_value());
+
+  auto edge_type_2 = tx2->NameToEdgeType("TYPE2");
+  auto edge2 = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, edge_type_2);
+  ASSERT_TRUE(edge2.has_value());
+
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+TEST(StorageV2InterleavedIsolation, EdgeCreationFailsAfterLabelChange) {
+  std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
+
+  ms::Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Tx_1: Add label, then create an edge
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_tx1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v2_tx1.has_value());
+
+  auto label = tx1->NameToLabel("LABEL1");
+  ASSERT_TRUE(v1_tx1->AddLabel(label).has_value());
+
+  auto edge_type_1 = tx1->NameToEdgeType("TYPE1");
+  auto edge1 = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, edge_type_1);
+  ASSERT_TRUE(edge1.has_value());
+
+  // Tx_2: Try to create another edge while Tx_1 has uncommitted label change + edge
+  // This is SERIALIZATION_ERROR because Tx_1 has uncommited non-commutative operations
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx2.has_value());
+  ASSERT_TRUE(v2_tx2.has_value());
+
+  auto edge_type_2 = tx2->NameToEdgeType("TYPE2");
+  auto edge2 = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, edge_type_2);
+  ASSERT_FALSE(edge2.has_value());
+  ASSERT_EQ(edge2.error(), ms::Error::SERIALIZATION_ERROR);
+
+  tx1->Abort();
+  tx2->Abort();
 }
