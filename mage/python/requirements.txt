@@ -19,6 +19,7 @@ pyarrow==19.0.1
 psycopg2-binary==2.9.10
 pyodbc==5.2.0
 python-Levenshtein==0.26.1
+rdflib==7.0.0
 scikit-learn==1.5.2
 scipy==1.13.1
 sentence-transformers==5.1.1

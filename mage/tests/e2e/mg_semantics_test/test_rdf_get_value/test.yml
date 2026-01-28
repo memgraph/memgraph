@@ -1,0 +1,11 @@
+query: >
+    MATCH (item:Resource { name: "item1" })
+    UNWIND item.label AS langLabel
+    WITH mg_semantics.rdf_get_value(langLabel) AS extractedValue
+    RETURN extractedValue
+    ORDER BY extractedValue
+
+output:
+    - extractedValue: "Cotton T-Shirt"
+    - extractedValue: "T-shirt en coton"
+
