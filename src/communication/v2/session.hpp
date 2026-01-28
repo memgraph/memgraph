@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -379,13 +378,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     input_buffer_.write_end()->Written(bytes_transferred);
 
-    // Track receive time and thread ID for timing instrumentation
-    auto receive_time = std::chrono::high_resolution_clock::now();
-    if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
-      session_.SetReceiveTime(receive_time);
-      session_.SetReceiveThreadId(std::this_thread::get_id());
-    }
-
     DoWork();
   }
 
@@ -397,13 +389,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     input_buffer_.write_end()->Written(bytes_transferred);
-
-    // Track receive time and thread ID for timing instrumentation
-    auto receive_time = std::chrono::high_resolution_clock::now();
-    if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
-      session_.SetReceiveTime(receive_time);
-      session_.SetReceiveThreadId(std::this_thread::get_id());
-    }
 
     try {
       // Execute until all data has been read
@@ -417,22 +402,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
-    // Track thread pool enqueue time
-    auto enqueue_time = std::chrono::high_resolution_clock::now();
-    if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
-      session_.SetThreadPoolEnqueueTime(enqueue_time);
-      session_.SetEnqueueThreadId(std::this_thread::get_id());
-    }
-
     session_context_->AddTask(
         [shared_this = shared_from_this()](const auto thread_priority) {
-          // Track thread pool dequeue time (when task starts executing)
-          auto dequeue_time = std::chrono::high_resolution_clock::now();
-          if constexpr (std::is_same_v<TSession, memgraph::glue::SessionHL>) {
-            shared_this->session_.SetThreadPoolDequeueTime(dequeue_time);
-            shared_this->session_.SetDequeueThreadId(std::this_thread::get_id());
-          }
-
           try {
             while (true) {
               if (shared_this->session_.Execute()) {

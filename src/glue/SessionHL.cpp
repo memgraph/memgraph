@@ -9,16 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <sys/syscall.h>
-#include <unistd.h>
-#include <atomic>
-#include <chrono>
-#include <fstream>
-#include <mutex>
 #include <optional>
-#include <sstream>
 #include <string>
-#include <thread>
 
 #include <spdlog/spdlog.h>
 
@@ -351,105 +343,13 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
 }
 
 bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
-  auto pull_start = std::chrono::high_resolution_clock::now();
-
-  // Track initial CPU and NUMA node
-  int initial_cpu = GetCurrentCPU();
-  int initial_numa_node = GetNUMANodeForCPU(initial_cpu);
-
-  // Calculate time from receive to start of Pull
-  double receive_to_pull_us = 0.0;
-  double thread_pool_queue_wait_us = 0.0;
-  double receive_to_enqueue_us = 0.0;
-  double dequeue_to_pull_start_us = 0.0;
-  if (receive_time_.has_value()) {
-    receive_to_pull_us =
-        static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(pull_start - *receive_time_).count());
-  }
-  if (thread_pool_enqueue_time_.has_value() && thread_pool_dequeue_time_.has_value()) {
-    thread_pool_queue_wait_us = static_cast<double>(
-        std::chrono::duration_cast<std::chrono::microseconds>(*thread_pool_dequeue_time_ - *thread_pool_enqueue_time_)
-            .count());
-  }
-  if (receive_time_.has_value() && thread_pool_enqueue_time_.has_value()) {
-    receive_to_enqueue_us = static_cast<double>(
-        std::chrono::duration_cast<std::chrono::microseconds>(*thread_pool_enqueue_time_ - *receive_time_).count());
-  }
-  if (thread_pool_dequeue_time_.has_value()) {
-    dequeue_to_pull_start_us = static_cast<double>(
-        std::chrono::duration_cast<std::chrono::microseconds>(pull_start - *thread_pool_dequeue_time_).count());
-  }
-
   try {
     using TEncoder =
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
     TypedValueResultStream<TEncoder> stream(&encoder_, storage);
-
-    auto query_exec_start = std::chrono::high_resolution_clock::now();
-    auto summary = DecodeSummary(interpreter_.Pull(&stream, n, qid));
-    auto query_exec_end = std::chrono::high_resolution_clock::now();
-
-    auto pull_end = std::chrono::high_resolution_clock::now();
-
-    // Track final CPU and NUMA node
-    int final_cpu = GetCurrentCPU();
-    int final_numa_node = GetNUMANodeForCPU(final_cpu);
-
-    // Calculate migrations and NUMA changes
-    int cpu_migrations = (initial_cpu != final_cpu) ? 1 : 0;
-    int numa_node_changes = (initial_numa_node != final_numa_node) ? 1 : 0;
-
-    // Track thread migration (receive thread vs pull thread)
-    auto pull_thread_id = std::this_thread::get_id();
-    int receive_thread_id_hash = 0;
-    int pull_thread_id_hash = static_cast<int>(std::hash<std::thread::id>{}(pull_thread_id));
-    int thread_migration = 0;
-    if (receive_thread_id_.has_value()) {
-      receive_thread_id_hash = static_cast<int>(std::hash<std::thread::id>{}(*receive_thread_id_));
-      thread_migration = (receive_thread_id_hash != pull_thread_id_hash) ? 1 : 0;
-    }
-
-    // Calculate timing breakdown
-    double query_execution_us = static_cast<double>(
-        std::chrono::duration_cast<std::chrono::microseconds>(query_exec_end - query_exec_start).count());
-    double pull_total_us =
-        static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(pull_end - pull_start).count());
-    double receive_to_pull_end_us = 0.0;
-    if (receive_time_.has_value()) {
-      receive_to_pull_end_us =
-          static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(pull_end - *receive_time_).count());
-    }
-
-    // Store stats
-    PullStats stats{.receive_to_pull_start_us = receive_to_pull_us,
-                    .thread_pool_queue_wait_us = thread_pool_queue_wait_us,
-                    .query_execution_us = query_execution_us,
-                    .pull_total_us = pull_total_us,
-                    .receive_to_pull_end_us = receive_to_pull_end_us,
-                    .initial_cpu = initial_cpu,
-                    .final_cpu = final_cpu,
-                    .initial_numa_node = initial_numa_node,
-                    .final_numa_node = final_numa_node,
-                    .cpu_migrations = cpu_migrations,
-                    .numa_node_changes = numa_node_changes,
-                    .receive_thread_id_hash = receive_thread_id_hash,
-                    .pull_thread_id_hash = pull_thread_id_hash,
-                    .thread_migration = thread_migration,
-                    .receive_to_enqueue_us = receive_to_enqueue_us,
-                    .dequeue_to_pull_start_us = dequeue_to_pull_start_us};
-    pull_stats_.push_back(stats);
-
-    // Reset timing state
-    receive_time_.reset();
-    thread_pool_enqueue_time_.reset();
-    thread_pool_dequeue_time_.reset();
-    receive_thread_id_.reset();
-    enqueue_thread_id_.reset();
-    dequeue_thread_id_.reset();
-
-    return summary;
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -655,11 +555,6 @@ SessionHL::~SessionHL() {
   // User-related resource monitoring
   interpreter_.ResetUser();
 #endif
-
-  // Save stats to file on shutdown
-  if (!pull_stats_.empty()) {
-    SaveStatsToFile();
-  }
 }
 
 bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
@@ -687,116 +582,6 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   decoded_summary.emplace("run_id", memgraph::glue::run_id_);
 
   return decoded_summary;
-}
-
-int SessionHL::GetCurrentCPU() {
-  // Use sched_getcpu() if available, otherwise fall back to syscall
-#ifdef SYS_getcpu
-  unsigned cpu = 0;
-  unsigned node = 0;
-  if (syscall(SYS_getcpu, &cpu, &node, nullptr) == 0) {
-    return static_cast<int>(cpu);
-  }
-#endif
-  // Fallback: try to read from /proc/self/stat
-  // Field 39 (0-indexed) is the CPU number
-  std::ifstream stat_file("/proc/self/stat");
-  if (stat_file.is_open()) {
-    std::string line;
-    std::getline(stat_file, line);
-    std::istringstream iss(line);
-    std::string token;
-    // Skip first 38 fields
-    for (int i = 0; i < 38 && iss >> token; ++i) {
-    }
-    if (iss >> token) {
-      return std::stoi(token);
-    }
-  }
-  return -1;  // Unknown
-}
-
-int SessionHL::GetNUMANodeForCPU(int cpu) {
-  if (cpu < 0) return -1;
-
-  // Read /sys/devices/system/node/node*/cpulist to find which NUMA node contains this CPU
-  for (int node = 0; node < 256; ++node) {  // Reasonable limit
-    std::string path = "/sys/devices/system/node/node" + std::to_string(node) + "/cpulist";
-    std::ifstream file(path);
-    if (!file.is_open()) break;  // No more NUMA nodes
-
-    std::string line;
-    if (std::getline(file, line)) {
-      // Parse CPU list (can be ranges like "0-7,16-23")
-      std::istringstream iss(line);
-      std::string range;
-      while (std::getline(iss, range, ',')) {
-        size_t dash_pos = range.find('-');
-        if (dash_pos != std::string::npos) {
-          int start = std::stoi(range.substr(0, dash_pos));
-          int end = std::stoi(range.substr(dash_pos + 1));
-          if (cpu >= start && cpu <= end) {
-            return node;
-          }
-        } else {
-          if (std::stoi(range) == cpu) {
-            return node;
-          }
-        }
-      }
-    }
-  }
-  return -1;  // Unknown
-}
-
-void SessionHL::SaveStatsToFile() const {
-  // Use a single shared file for all sessions
-  static std::mutex file_mutex;
-  static const std::string filename = "pull_stats.csv";
-  static std::atomic<bool> header_written{false};
-
-  std::lock_guard<std::mutex> lock(file_mutex);
-
-  // Check if file exists to determine if we need to write header
-  bool file_exists = false;
-  {
-    std::ifstream check_file(filename);
-    file_exists = check_file.good();
-    check_file.close();
-  }
-
-  std::ofstream file(filename, std::ios::app);
-  if (!file.is_open()) {
-    spdlog::warn("Failed to open stats file {} for writing", filename);
-    return;
-  }
-
-  // Write CSV header only if file is new
-  if (!file_exists || !header_written.load()) {
-    file << "receive_to_pull_start_us,thread_pool_queue_wait_us,query_execution_us,pull_total_us,receive_to_pull_end_"
-            "us,initial_cpu,final_cpu,initial_numa_node,final_numa_node,cpu_migrations,numa_node_changes,receive_"
-            "thread_id_hash,pull_thread_id_hash,thread_migration,receive_to_enqueue_us,dequeue_to_pull_start_us\n";
-    header_written.store(true);
-  }
-
-  // Write stats
-  for (const auto &stats : pull_stats_) {
-    file << stats.receive_to_pull_start_us << "," << stats.thread_pool_queue_wait_us << "," << stats.query_execution_us
-         << "," << stats.pull_total_us << "," << stats.receive_to_pull_end_us << "," << stats.initial_cpu << ","
-         << stats.final_cpu << "," << stats.initial_numa_node << "," << stats.final_numa_node << ","
-         << stats.cpu_migrations << "," << stats.numa_node_changes << "," << stats.receive_thread_id_hash << ","
-         << stats.pull_thread_id_hash << "," << stats.thread_migration << "," << stats.receive_to_enqueue_us << ","
-         << stats.dequeue_to_pull_start_us << "\n";
-  }
-
-  if (!file.good()) {
-    spdlog::warn("Error writing to stats file {}", filename);
-  }
-  file.close();
-
-  if (!pull_stats_.empty()) {
-    spdlog::info("Saved {} pull stats to {}", pull_stats_.size(), filename);
-  }
 }
 
 #ifdef MG_ENTERPRISE

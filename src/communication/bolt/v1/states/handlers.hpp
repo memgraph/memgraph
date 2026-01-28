@@ -34,7 +34,6 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 
-// Include SessionHL for timing instrumentation
 #include "glue/SessionHL.hpp"
 
 namespace memgraph::metrics {

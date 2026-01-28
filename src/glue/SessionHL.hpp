@@ -117,23 +117,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline bool Execute() { return Execute_(*this); }
 
-  // Timing instrumentation methods
-  void SetReceiveTime(std::chrono::high_resolution_clock::time_point time) { receive_time_ = time; }
-
-  void SetThreadPoolEnqueueTime(std::chrono::high_resolution_clock::time_point time) {
-    thread_pool_enqueue_time_ = time;
-  }
-
-  void SetThreadPoolDequeueTime(std::chrono::high_resolution_clock::time_point time) {
-    thread_pool_dequeue_time_ = time;
-  }
-
-  void SetReceiveThreadId(std::thread::id thread_id) { receive_thread_id_ = thread_id; }
-
-  void SetEnqueueThreadId(std::thread::id thread_id) { enqueue_thread_id_ = thread_id; }
-
-  void SetDequeueThreadId(std::thread::id thread_id) { dequeue_thread_id_ = thread_id; }
-
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
 
@@ -159,44 +142,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
-
-  // Timing instrumentation for query execution variability analysis
-  std::optional<std::chrono::high_resolution_clock::time_point> receive_time_;
-  std::optional<std::chrono::high_resolution_clock::time_point> thread_pool_enqueue_time_;
-  std::optional<std::chrono::high_resolution_clock::time_point> thread_pool_dequeue_time_;
-  std::optional<std::thread::id> receive_thread_id_;
-  std::optional<std::thread::id> enqueue_thread_id_;
-  std::optional<std::thread::id> dequeue_thread_id_;
-
-  // Stats storage
-  struct PullStats {
-    double receive_to_pull_start_us;
-    double thread_pool_queue_wait_us;
-    double query_execution_us;
-    double pull_total_us;
-    double receive_to_pull_end_us;
-    // NUMA-related metrics
-    int initial_cpu;
-    int final_cpu;
-    int initial_numa_node;
-    int final_numa_node;
-    int cpu_migrations;
-    int numa_node_changes;
-    // Thread migration metrics
-    int receive_thread_id_hash;
-    int pull_thread_id_hash;
-    int thread_migration;  // 1 if receive and pull threads are different, 0 if same
-    // Detailed timing breakdown
-    double receive_to_enqueue_us;     // Time from receive to enqueue
-    double dequeue_to_pull_start_us;  // Time from dequeue to Pull start
-  };
-  std::vector<PullStats> pull_stats_;
-
-  // Helper functions for NUMA tracking
-  static int GetCurrentCPU();
-  static int GetNUMANodeForCPU(int cpu);
-
-  void SaveStatsToFile() const;
 };
 
 }  // namespace memgraph::glue
