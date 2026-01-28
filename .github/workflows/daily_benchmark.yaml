@@ -97,7 +97,8 @@ jobs:
           docker update \
           --cpuset-cpus="$numagroup" \
           --cpuset-mems="0" \
-          mgbuild_v7_ubuntu-24.04
+          "mgbuild_${TOOLCHAIN}_${OS}"
+
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet

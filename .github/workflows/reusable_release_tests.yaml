@@ -636,7 +636,7 @@ jobs:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Benchmark Tests"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 70
+    timeout-minutes: 80
 
     steps:
       - name: Set up repository
@@ -679,6 +679,16 @@ jobs:
           --os $OS \
           --arch $ARCH \
           init-tests
+
+      - name: Force container into first numa group
+        run: |
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Using numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
+
 
       - name: Run micro benchmarks
         run: |
