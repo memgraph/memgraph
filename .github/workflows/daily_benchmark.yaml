@@ -99,7 +99,6 @@ jobs:
           --cpuset-mems="0" \
           "mgbuild_${TOOLCHAIN}_${OS}"
 
-
       - name: Run and upload load_parquet benchmark
         id: load-parquet
         continue-on-error: true

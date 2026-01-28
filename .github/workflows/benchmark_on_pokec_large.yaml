@@ -72,7 +72,6 @@ jobs:
             --cpuset-mems="0" \
             "mgbuild_${TOOLCHAIN}_${OS}"
 
-
         - name: Run mgbench
           run: |
             ./release/package/mgbuild.sh \
