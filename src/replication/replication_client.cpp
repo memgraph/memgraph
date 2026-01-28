@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@ ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
 void ReplicationClient::Shutdown() {
   replica_checker_.Stop();
   thread_pool_.ShutDown();
+  rpc_client_.Shutdown();
 }
 
 ReplicationClient::~ReplicationClient() {
@@ -41,8 +42,7 @@ ReplicationClient::~ReplicationClient() {
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
-  replica_checker_.Stop();
-  thread_pool_.ShutDown();
+  Shutdown();
 }
 
 }  // namespace memgraph::replication

@@ -39,7 +39,7 @@ class InfoTest : public testing::Test {
     config_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     if (std::is_same_v<StorageType, InMemoryStorage>) {
-      this->storage = memgraph::dbms::CreateInMemoryStorage(config_, repl_state_);
+      this->storage = memgraph::dbms::CreateInMemoryStorage(config_);
     } else {
       this->storage = std::make_unique<StorageType>(config_);
     }
@@ -83,8 +83,6 @@ class InfoTest : public testing::Test {
   }
 
   memgraph::storage::Config config_;
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state_{
-      storage_directory};
   std::unique_ptr<memgraph::storage::Storage> storage;
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};

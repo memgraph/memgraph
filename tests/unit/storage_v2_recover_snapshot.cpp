@@ -87,9 +87,7 @@ class RecoverSnapshotTest : public ::testing::Test {
 // NO WALs
 TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
   // Create initial storage and add some data
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config_)};
-  memgraph::dbms::Database db{config_, repl_state};
+  memgraph::dbms::Database db{config_};
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Add some data
@@ -215,9 +213,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotCreatesOldDirectory) {
 // NO WALs
 TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
   // Create initial storage and add some data
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config_)};
-  std::optional<memgraph::dbms::Database> db = std::make_optional<memgraph::dbms::Database>(config_, repl_state);
+  std::optional<memgraph::dbms::Database> db = std::make_optional<memgraph::dbms::Database>(config_);
   ASSERT_TRUE(db.has_value()) << "Database should be created";
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
 
@@ -240,7 +236,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 
   // Restart storage
   db.reset();
-  db.emplace(config_, repl_state);
+  db.emplace(config_);
   ASSERT_TRUE(db.has_value()) << "Database should be created";
   storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
 
@@ -315,9 +311,7 @@ TEST_F(RecoverSnapshotTest, RecoverSnapshotFromLocalStorage) {
 // Verify the data is correct
 TEST_F(RecoverSnapshotTest, RecoverSnapshotWithWALs) {
   // Create initial storage and add some data
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config_)};
-  std::optional<memgraph::dbms::Database> db = std::make_optional<memgraph::dbms::Database>(config_, repl_state);
+  std::optional<memgraph::dbms::Database> db = std::make_optional<memgraph::dbms::Database>(config_);
   ASSERT_TRUE(db.has_value()) << "Database should be created";
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
 

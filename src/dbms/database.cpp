@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,9 +51,7 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
   query::PlanCacheLRU &plan_cache;
 };
 
-Database::Database(storage::Config config,
-                   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
-                   std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : trigger_store_(config.durability.storage_directory / "triggers"),
       streams_{config.durability.storage_directory / "streams"},
       plan_cache_{FLAGS_query_plan_cache_max_size} {
@@ -65,8 +63,7 @@ Database::Database(storage::Config config,
     storage_ =
         std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
   } else {
-    storage_ =
-        dbms::CreateInMemoryStorage(std::move(config), repl_state, std::move(invalidator), database_protector_factory);
+    storage_ = dbms::CreateInMemoryStorage(std::move(config), std::move(invalidator), database_protector_factory);
   }
 }
 

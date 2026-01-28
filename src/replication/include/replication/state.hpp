@@ -142,12 +142,14 @@ struct ReplicationState {
 
   std::optional<nlohmann::json> GetTelemetryJson() const;
 
+  void Shutdown();
+
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
-  std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
+  std::atomic<RolePersisted> role_persisted_ = RolePersisted::UNKNOWN_OR_NO;
   bool part_of_ha_cluster_{false};
 };
 

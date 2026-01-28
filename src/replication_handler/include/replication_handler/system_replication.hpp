@@ -38,10 +38,15 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
 void Register(RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
               auth::SynchedAuth &auth);
 
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, RoleReplicaData &data, auth::SynchedAuth &auth,
-                    system::System &system);
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system);
 #else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, RoleReplicaData &data);
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    RoleReplicaData &data);
 #endif
 
 }  // namespace memgraph::replication

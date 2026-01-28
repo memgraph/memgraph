@@ -39,11 +39,9 @@ class Database {
    * @brief Construct a new Database object
    *
    * @param config storage configuration
-   * @param repl_state replication state
    * @param database_protector_factory factory function to create database protectors for async operations
    */
   explicit Database(storage::Config config,
-                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
                     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   /**

@@ -12,18 +12,16 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
-#include "replication/replication_server.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
-#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/schema_info.hpp"
+
 #include "utils/file.hpp"
 #include "utils/observer.hpp"
 
@@ -210,77 +208,83 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
   }
 }
 
-void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
-                  std::string_view rpc_req) {
+void LogWrongMain(utils::UUID const &current_main_uuid, const utils::UUID &main_req_id, std::string_view rpc_req) {
   spdlog::error("Received {} with main_id: {} != current_main_uuid: {}",
                 rpc_req,
                 std::string(main_req_id),
-                current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
+                std::string(current_main_uuid));
 }
 
 }  // namespace
 
 TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
 
-void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
+void InMemoryReplicationHandlers::Register(
+    dbms::DbmsHandler *dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data) {
   auto &server = *data.server;
+  auto const &current_main_uuid = data.uuid_;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
-      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version,
-                            auto *req_reader,
-                            auto *res_builder) {
+      [&current_main_uuid, dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         InMemoryReplicationHandlers::HeartbeatHandler(
-            dbms_handler, data.uuid_, request_version, req_reader, res_builder);
+            dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
-      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version,
-                            auto *req_reader,
-                            auto *res_builder) {
+      [&current_main_uuid, dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         InMemoryReplicationHandlers::PrepareCommitHandler(
-            dbms_handler, data.uuid_, request_version, req_reader, res_builder);
+            dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
-      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version,
-                            auto *req_reader,
-                            auto *res_builder) {
+      [&current_main_uuid, dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         InMemoryReplicationHandlers::FinalizeCommitHandler(
-            dbms_handler, data.uuid_, request_version, req_reader, res_builder);
+            dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
-      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                            uint64_t const request_version,
-                            auto *req_reader,
-                            auto *res_builder) {
+      [&current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+                                         uint64_t const request_version,
+                                         auto *req_reader,
+                                         auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for SnapshotHandler");
         InMemoryReplicationHandlers::SnapshotHandler(
-            *file_replication_handler, dbms_handler, data.uuid_, request_version, req_reader, res_builder);
+            *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
-      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                            uint64_t const request_version,
-                            auto *req_reader,
-                            auto *res_builder) {
+      [&current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+                                         uint64_t const request_version,
+                                         auto *req_reader,
+                                         auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for WalFilesHandler");
         InMemoryReplicationHandlers::WalFilesHandler(
-            *file_replication_handler, dbms_handler, data.uuid_, request_version, req_reader, res_builder);
+            *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
-      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                            uint64_t const request_version,
-                            auto *req_reader,
-                            auto *res_builder) {
+      [&current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+                                         uint64_t const request_version,
+                                         auto *req_reader,
+                                         auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handle not prepared for CurrentWalHandler");
         InMemoryReplicationHandlers::CurrentWalHandler(
-            *file_replication_handler, dbms_handler, data.uuid_, request_version, req_reader, res_builder);
+            *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
-      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                            uint64_t const request_version,
-                            auto *req_reader,
-                            auto *res_builder) {
-        InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, request_version, req_reader, res_builder);
+      [&repl_state](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                    uint64_t const request_version,
+                    auto *req_reader,
+                    auto *res_builder) {
+        InMemoryReplicationHandlers::SwapMainUUIDHandler(repl_state, request_version, req_reader, res_builder);
       });
 }
 
@@ -304,30 +308,31 @@ auto InMemoryReplicationHandlers::TakeSnapshotLock(auto &snapshot_guard, storage
   return snapshot_guard.try_lock_for(timeout);
 }
 
-void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
-                                                      replication::RoleReplicaData &role_replica_data,
-                                                      uint64_t const request_version, slk::Reader *req_reader,
-                                                      slk::Builder *res_builder) {
-  auto replica_state = dbms_handler->ReplicationState();
-  if (!replica_state->IsReplica()) {
+void InMemoryReplicationHandlers::SwapMainUUIDHandler(
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  auto locked_repl_state = repl_state.Lock();
+
+  if (!locked_repl_state->IsReplica()) {
     spdlog::error("Setting main uuid must be performed on replica.");
     rpc::SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{false}, request_version, res_builder);
     return;
   }
 
+  auto &replica_data = locked_repl_state->GetReplicaRole();
+
   replication_coordination_glue::SwapMainUUIDReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
-  replica_state->TryPersistRoleReplica(role_replica_data.config, req.uuid);
-  role_replica_data.uuid_ = req.uuid;
+  locked_repl_state->TryPersistRoleReplica(replica_data.config, req.uuid);
+  replica_data.uuid_ = req.uuid;
 
   rpc::SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{true}, request_version, res_builder);
 }
 
 void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,
-                                                   const std::optional<utils::UUID> &current_main_uuid,
-                                                   uint64_t const request_version, slk::Reader *req_reader,
-                                                   slk::Builder *res_builder) {
+                                                   utils::UUID const &current_main_uuid, uint64_t const request_version,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -363,7 +368,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 }
 
 void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_handler,
-                                                       const std::optional<utils::UUID> &current_main_uuid,
+                                                       utils::UUID const &current_main_uuid,
                                                        uint64_t const request_version, slk::Reader *req_reader,
                                                        slk::Builder *res_builder) {
   storage::replication::PrepareCommitReq req;
@@ -394,6 +399,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
   // Abort prev txn if needed
   // It could happen that the main instance died before sending finalize for the previous commit and then
   // the new instance becomes main and sends prepare
@@ -442,7 +448,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 }
 
 void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
-                                                        const std::optional<utils::UUID> &current_main_uuid,
+                                                        utils::UUID const &current_main_uuid,
                                                         uint64_t const request_version, slk::Reader *req_reader,
                                                         slk::Builder *res_builder) {
   storage::replication::FinalizeCommitReq req;
@@ -536,8 +542,7 @@ void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage 
 // passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
 // signal to the caller that it shouldn't update the commit timestamp value.
 void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler const &file_replication_handler,
-                                                  DbmsHandler *dbms_handler,
-                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
                                                   uint64_t const request_version, slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
@@ -707,8 +712,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 // If loading one of WAL files partially succeeded, then recovery cannot be continue but commit timestamp can be
 // obtained.
 void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler const &file_replication_handler,
-                                                  dbms::DbmsHandler *dbms_handler,
-                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
                                                   uint64_t const request_version, slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
@@ -809,7 +813,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
 // main
 void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler const &file_replication_handler,
                                                     dbms::DbmsHandler *dbms_handler,
-                                                    const std::optional<utils::UUID> &current_main_uuid,
+                                                    utils::UUID const &current_main_uuid,
                                                     uint64_t const request_version, slk::Reader *req_reader,
                                                     slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;

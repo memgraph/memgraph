@@ -54,9 +54,7 @@ class CreateSnapshotTest : public testing::Test {
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -87,9 +85,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -99,9 +95,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -128,9 +122,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
 
 TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -165,9 +157,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
 
 TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
@@ -178,9 +168,7 @@ TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
 
 TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,8 +15,6 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/isolation_level.hpp"
 #include "utils/on_scope_exit.hpp"
 
 int main(int argc, char *argv[]) {
@@ -38,16 +36,20 @@ int main(int argc, char *argv[]) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state(
       memgraph::storage::ReplicationStateRootPath(db_config));
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(db_config, repl_state);
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(db_config);
   auto db_acc_opt = db_gk.access();
   MG_ASSERT(db_acc_opt, "Failed to access db");
   auto &db_acc = *db_acc_opt;
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
-                                                          repl_state, system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          repl_state,
+                                                          system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt, nullptr
+                                                          std::nullopt,
+                                                          nullptr
 #endif
   );
   memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};

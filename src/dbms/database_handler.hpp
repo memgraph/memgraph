@@ -64,10 +64,9 @@ class DatabaseHandler : public Handler<Database> {
    * @param config Storage configuration
    * @return HandlerT::NewResult
    */
-  HandlerT::NewResult New(storage::Config config,
-                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state) {
+  HandlerT::NewResult New(storage::Config config) {
     // Control that no one is using the same data directory
-    if (std::any_of(begin(), end(), [&](auto &elem) {
+    if (std::ranges::any_of(*this, [&](auto &elem) {
           auto db_acc = elem.second.access();
           MG_ASSERT(db_acc.has_value(), "Gatekeeper in invalid state");
           return db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;
@@ -85,8 +84,7 @@ class DatabaseHandler : public Handler<Database> {
       return nullptr;
     };
 
-    return HandlerT::New(
-        std::piecewise_construct, *config.salient.name.str_view(), config, repl_state, database_protector_factory);
+    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, database_protector_factory);
   }
 
   /**
@@ -97,7 +95,7 @@ class DatabaseHandler : public Handler<Database> {
   std::vector<std::string> All() const {
     std::vector<std::string> res;
     res.reserve(std::distance(cbegin(), cend()));
-    std::for_each(cbegin(), cend(), [&](const auto &elem) {
+    std::ranges::for_each(*this, [&](const auto &elem) {
       const auto is_marked_for_deletion = elem.second.is_marked_for_deletion();
       if (is_marked_for_deletion.has_value() && !is_marked_for_deletion.value()) res.push_back(elem.first);
     });
