@@ -753,20 +753,20 @@ class InMemoryStorage final : public Storage {
   void UpdateLabelCount(LabelId label, int64_t change) override;
 
   bool SetParameter(std::string_view name, std::string_view value,
-                    storage::ParameterScope scope = storage::ParameterScope::GLOBAL) {
+                    storage::ParameterScope scope) override {
     return parameters_.SetParameter(name, value, scope);
   }
 
   std::optional<std::string> GetParameter(std::string_view name,
-                                          storage::ParameterScope scope = storage::ParameterScope::GLOBAL) const {
+                                          storage::ParameterScope scope) const override {
     return parameters_.GetParameter(name, scope);
   }
 
-  bool UnsetParameter(std::string_view name, storage::ParameterScope scope = storage::ParameterScope::GLOBAL) {
+  bool UnsetParameter(std::string_view name, storage::ParameterScope scope) override {
     return parameters_.UnsetParameter(name, scope);
   }
 
-  std::vector<storage::ParameterInfo> GetAllParameters(storage::ParameterScope scope = storage::ParameterScope::GLOBAL) const {
+  std::vector<storage::ParameterInfo> GetAllParameters(storage::ParameterScope scope) const override {
     return parameters_.GetAllParameters(scope);
   }
 

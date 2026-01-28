@@ -585,6 +585,16 @@ class DiskStorage final : public Storage {
     // Disk storage doesn't track and cache live label counts, so this is a no-op
   }
 
+  bool SetParameter(std::string_view /*name*/, std::string_view /*value*/,
+                    ParameterScope /*scope*/) override;
+
+  std::optional<std::string> GetParameter(std::string_view /*name*/,
+                                          ParameterScope /*scope*/) const override;
+
+  bool UnsetParameter(std::string_view /*name*/, ParameterScope /*scope*/) override;
+  
+  std::vector<ParameterInfo> GetAllParameters(ParameterScope /*scope*/) const override;
+
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }

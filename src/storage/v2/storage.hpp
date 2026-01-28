@@ -33,6 +33,7 @@
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
+#include "storage/v2/parameters.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/resource_lock.hpp"
@@ -645,6 +646,21 @@ class Storage {
 
     virtual std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const = 0;
 
+    bool SetParameter(std::string_view name, std::string_view value,
+                      ParameterScope scope = ParameterScope::GLOBAL) {
+      return storage_->SetParameter(name, value, scope);
+    }
+    std::optional<std::string> GetParameter(std::string_view name,
+                                            ParameterScope scope = ParameterScope::GLOBAL) const {
+      return storage_->GetParameter(name, scope);
+    }
+    bool UnsetParameter(std::string_view name, ParameterScope scope = ParameterScope::GLOBAL) {
+      return storage_->UnsetParameter(name, scope);
+    }
+    std::vector<ParameterInfo> GetAllParameters(ParameterScope scope = ParameterScope::GLOBAL) const {
+      return storage_->GetAllParameters(scope);
+    }
+
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 
     bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
@@ -758,6 +774,16 @@ class Storage {
   virtual std::unordered_map<LabelId, uint64_t> GetLabelCounts() const = 0;
 
   virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
+
+  virtual bool SetParameter(std::string_view name, std::string_view value,
+                            ParameterScope scope) = 0;
+
+  virtual std::optional<std::string> GetParameter(std::string_view name,
+                                                   ParameterScope scope) const = 0;
+
+  virtual bool UnsetParameter(std::string_view name, ParameterScope scope) = 0;
+  
+  virtual std::vector<ParameterInfo> GetAllParameters(ParameterScope scope) const = 0;
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 

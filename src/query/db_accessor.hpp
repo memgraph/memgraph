@@ -883,6 +883,23 @@ class DbAccessor final {
 
   auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
 
+  bool SetParameter(std::string_view name, std::string_view value,
+                    storage::ParameterScope scope = storage::ParameterScope::GLOBAL) {
+    return accessor_->SetParameter(name, value, scope);
+  }
+  std::optional<std::string> GetParameter(std::string_view name,
+                                          storage::ParameterScope scope = storage::ParameterScope::GLOBAL) const {
+    return accessor_->GetParameter(name, scope);
+  }
+  bool UnsetParameter(std::string_view name,
+                      storage::ParameterScope scope = storage::ParameterScope::GLOBAL) {
+    return accessor_->UnsetParameter(name, scope);
+  }
+  std::vector<storage::ParameterInfo> GetAllParameters(
+      storage::ParameterScope scope = storage::ParameterScope::GLOBAL) const {
+    return accessor_->GetAllParameters(scope);
+  }
+
 #ifdef MG_ENTERPRISE
   // TTL operations - pushed into accessor
   void StartTtl() { accessor_->StartTtl(); }

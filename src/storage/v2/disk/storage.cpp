@@ -2372,6 +2372,22 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           *std::move(active_constraints)};
 }
 
+bool DiskStorage::SetParameter(std::string_view /*name*/, std::string_view /*value*/, ParameterScope /*scope*/) {
+  throw utils::NotYetImplemented("Parameters are not implemented for disk storage.");
+}
+
+std::optional<std::string> DiskStorage::GetParameter(std::string_view /*name*/, ParameterScope /*scope*/) const {
+  throw utils::NotYetImplemented("Parameters are not implemented for disk storage.");
+}
+
+bool DiskStorage::UnsetParameter(std::string_view /*name*/, ParameterScope /*scope*/) {
+  throw utils::NotYetImplemented("Parameters are not implemented for disk storage.");
+}
+
+std::vector<ParameterInfo> DiskStorage::GetAllParameters(ParameterScope /*scope*/) const {
+  throw utils::NotYetImplemented("Parameters are not implemented for disk storage.");
+}
+
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type,
