@@ -8098,12 +8098,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 
     if (current_db_.db_acc_) {
-      // fix parameters, enums requires storage to map to correct enum value
-      parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
-      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query, parsed_query.user_parameters);
+      // fix parameters, enums requires storage to map to correct enum value + global storage parameters
+      auto *storage = current_db_.db_acc_->get()->storage();
+      parsed_query.user_parameters = params_getter(storage);
+      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query, parsed_query.user_parameters, storage);
     }
 
-#ifdef MG_ENTERPRISE
+#ifdef MG_ENTERPRISE  
     // TODO(antoniofilipovic) extend to cover Lab queries
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->get().IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query)) {

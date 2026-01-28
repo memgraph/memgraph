@@ -24,6 +24,7 @@
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "serialization/typed_value.hpp"
 #include "utils/flag_validation.hpp"
 
 #include "query/plan_v2/ast_converter.hpp"
@@ -37,20 +38,28 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            const storage::Storage *storage) -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
-  // Check that all user-specified parameters are provided.
-  // TODO: parameters should be pre populated with user_parameters, hence positions
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
     auto it = user_parameters.find(param_key);
 
-    if (it == user_parameters.end()) {
-      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
+    if (it != user_parameters.end()) {
+      parameters.Add(param_index, it->second);
+      continue;
     }
-
-    parameters.Add(param_index, it->second);
+    // If not provided by user, try global (storage) parameters if db_accessor is provided
+    if (storage) {
+      auto opt = storage->GetParameter(param_key, storage::ParameterScope::GLOBAL);
+      if (opt) {
+        auto value = serialization::DeserializeTypedValue(nlohmann::json::parse(*opt));
+        parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+      }
+      else {
+        throw utils::BasicException("Parameter '{}' not provided.", param_key);
+      }
+    }
   }
   return parameters;
 }

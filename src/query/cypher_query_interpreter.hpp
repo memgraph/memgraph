@@ -59,8 +59,12 @@ class LogicalPlan {
 
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters;
+/// Optional resolver for parameters not provided by the user (e.g. fallback to storage global parameters).
+using GlobalParameterResolver =
+    std::function<std::optional<storage::ExternalPropertyValue>(std::string_view)>;
+
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            const storage::Storage *storage = nullptr) -> Parameters;
 
 class PlanWrapper {
  public:
