@@ -370,10 +370,25 @@ def validate_in_order(context, ignore_order):
             assert False
 
 
-@then("the result should be")
-def expected_result_step(context):
-    validate(context, False)
-    check_exception(context)
+def has_aggregation_functions(query):
+    """
+    Check if query contains aggregation functions that produce non-deterministic order.
+    Returns True if query contains collect, map, or project aggregations.
+    """
+    import re
+
+    query_upper = query.upper()
+    # Look for aggregation functions: collect, map, project
+    # Use word boundaries to avoid matching substrings
+    patterns = [
+        r"\bCOLLECT\s*\(",
+        r"\bMAP\s*\(",
+        r"\bPROJECT\s*\(",
+    ]
+    for pattern in patterns:
+        if re.search(pattern, query_upper):
+            return True
+    return False
 
 
 def should_ignore_row_order(context):
@@ -390,19 +405,54 @@ def should_ignore_row_order(context):
     return "ORDER BY" not in last_query.upper()
 
 
+def should_ignore_aggregation_order(context):
+    """
+    Check if aggregation order should be ignored for validation.
+    Returns True if parallel execution is enabled and the query contains aggregation functions
+    (collect, map, project) that produce non-deterministic order.
+    """
+    parallel_execution = getattr(context.config, "parallel_execution", False)
+    if not parallel_execution:
+        return False
+
+    # Check if the last executed query contains aggregation functions
+    last_query = getattr(context, "last_executed_query", "")
+    return has_aggregation_functions(last_query)
+
+
+@then("the result should be")
+def expected_result_step(context):
+    # For parallel execution with aggregations, ignore order within aggregated collections
+    ignore_agg_order = should_ignore_aggregation_order(context)
+    if ignore_agg_order:
+        context.log.info("Parallel execution with aggregations: ignoring order within aggregated collections")
+    validate(context, ignore_agg_order)
+    check_exception(context)
+
+
 @then("the result should be, in order")
 def expected_result_step(context):
     # For parallel execution without ORDER BY, result order is non-deterministic
-    if should_ignore_row_order(context):
+    ignore_row_order = should_ignore_row_order(context)
+    # For parallel execution with aggregations, ignore order within aggregated collections
+    ignore_agg_order = should_ignore_aggregation_order(context)
+
+    if ignore_row_order:
         context.log.info("Parallel execution without ORDER BY: ignoring row order")
-        validate(context, False)
+        if ignore_agg_order:
+            context.log.info("Parallel execution with aggregations: ignoring order within aggregated collections")
+        validate(context, ignore_agg_order)
     else:
-        validate_in_order(context, False)
+        if ignore_agg_order:
+            context.log.info("Parallel execution with aggregations: ignoring order within aggregated collections")
+        validate_in_order(context, ignore_agg_order)
     check_exception(context)
 
 
 @then("the result should be (ignoring element order for lists)")
 def expected_result_step(context):
+    # Always ignore order for lists (explicitly requested)
+    # Note: This already handles aggregation order since aggregations produce lists/maps
     validate(context, True)
     check_exception(context)
 

@@ -66,6 +66,30 @@ def normalize_result(result: List[Dict[str, Any]], order_matters: bool = False) 
     return normalized
 
 
+def compare_with_tolerance(val1: Any, val2: Any, rel_tol: float = 1e-9, abs_tol: float = 1e-9) -> bool:
+    """
+    Compare two values with tolerance for floating point numbers.
+    Recursively handles nested structures (tuples, lists).
+    """
+    # Handle floating point numbers
+    if isinstance(val1, (float, int)) and isinstance(val2, (float, int)):
+        # Convert int to float for comparison
+        f1, f2 = float(val1), float(val2)
+        # Use relative and absolute tolerance (similar to math.isclose)
+        if abs(f1 - f2) <= max(rel_tol * max(abs(f1), abs(f2)), abs_tol):
+            return True
+        return False
+
+    # Handle tuples (which are used in normalized results)
+    if isinstance(val1, tuple) and isinstance(val2, tuple):
+        if len(val1) != len(val2):
+            return False
+        return all(compare_with_tolerance(v1, v2, rel_tol, abs_tol) for v1, v2 in zip(val1, val2))
+
+    # For other types, use exact equality
+    return val1 == val2
+
+
 def verify_parallel_matches_serial(memgraph, query: str, params: dict = None, order_matters: bool = False):
     """
     Executes query twice: once normally, once with USING PARALLEL EXECUTION.
@@ -80,7 +104,17 @@ def verify_parallel_matches_serial(memgraph, query: str, params: dict = None, or
     norm_serial = normalize_result(serial_result, order_matters)
     norm_parallel = normalize_result(parallel_result, order_matters)
 
-    assert norm_parallel == norm_serial, f"Mismatch!\nSerial: {norm_serial}\nParallel: {norm_parallel}"
+    # Compare with tolerance for floating point numbers
+    if len(norm_parallel) != len(norm_serial):
+        assert (
+            False
+        ), f"Mismatch in length!\nSerial: {len(norm_serial)} items\nParallel: {len(norm_parallel)} items\nSerial: {norm_serial}\nParallel: {norm_parallel}"
+
+    for i, (parallel_item, serial_item) in enumerate(zip(norm_parallel, norm_serial)):
+        if not compare_with_tolerance(parallel_item, serial_item):
+            assert (
+                False
+            ), f"Mismatch at index {i}!\nSerial: {serial_item}\nParallel: {parallel_item}\nFull Serial: {norm_serial}\nFull Parallel: {norm_parallel}"
 
 
 class TestParallelCorrectness:

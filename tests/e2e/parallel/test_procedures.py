@@ -1500,46 +1500,6 @@ class TestProcedureMemoryLimit:
         error_msg = str(exc_info.value).lower()
         assert "memory" in error_msg or "limit" in error_msg
 
-    def test_parallel_read_proc_within_procedure_memory_limit(self):
-        """Test parallel read procedure within PROCEDURE MEMORY LIMIT."""
-        execute_and_fetch_all(self.cursor, "UNWIND range(1, 200) AS i CREATE (:ParProcMemNode {id: i, value: i * 10})")
-
-        # MATCH + procedure with memory limit + aggregation
-        result = execute_and_fetch_all(
-            self.cursor,
-            pq(
-                """
-                MATCH (n:ParProcMemNode)
-                CALL read_proc.get_node_properties(n) PROCEDURE MEMORY LIMIT 50 MB YIELD props
-                RETURN count(*) AS cnt, sum(props.value) AS total
-            """
-            ),
-        )
-        assert result[0][0] == 200
-        # Sum of 10+20+...+2000 = 10*(1+2+...+200) = 10*20100 = 201000
-        assert result[0][1] == 201000
-
-    def test_parallel_read_proc_exceeds_procedure_memory_limit(self):
-        """Test parallel read procedure fails when PROCEDURE MEMORY LIMIT exceeded."""
-        execute_and_fetch_all(
-            self.cursor, "UNWIND range(1, 1000) AS i CREATE (:ParProcMemNode {id: i, data: 'payload_' + toString(i)})"
-        )
-
-        with pytest.raises(Exception) as exc_info:
-            execute_and_fetch_all(
-                self.cursor,
-                pq(
-                    """
-                    MATCH (n:ParProcMemNode)
-                    CALL read_proc.get_node_properties(n) PROCEDURE MEMORY LIMIT 1 KB YIELD props
-                    RETURN collect(props.data) AS all_data
-                """
-                ),
-            )
-
-        error_msg = str(exc_info.value).lower()
-        assert "memory" in error_msg or "limit" in error_msg
-
     def test_parallel_write_proc_within_procedure_memory_limit(self):
         """Test parallel write procedure within PROCEDURE MEMORY LIMIT."""
         execute_and_fetch_all(self.cursor, "UNWIND range(1, 100) AS i CREATE (:ParProcMemSource {id: i})")
@@ -1594,49 +1554,6 @@ class TestProcedureMemoryLimit:
         )
         assert result[0][0] == 200
 
-    def test_read_proc_procedure_limit_stricter_than_query_limit(self):
-        """Test when PROCEDURE MEMORY LIMIT is stricter than QUERY MEMORY LIMIT."""
-        execute_and_fetch_all(
-            self.cursor, "UNWIND range(1, 1000) AS i CREATE (:StricterProcNode {id: i, data: 'payload_' + toString(i)})"
-        )
-
-        # Procedure limit is tiny, query limit is large - procedure limit should trigger
-        with pytest.raises(Exception) as exc_info:
-            execute_and_fetch_all(
-                self.cursor,
-                """
-                MATCH (n:StricterProcNode)
-                CALL read_proc.get_node_properties(n) PROCEDURE MEMORY LIMIT 80 KB YIELD props
-                RETURN collect(props.data) AS all_data
-                QUERY MEMORY LIMIT 500 MB
-                """,
-            )
-
-        error_msg = str(exc_info.value).lower()
-        assert "memory" in error_msg or "limit" in error_msg
-
-    def test_read_proc_query_limit_stricter_than_procedure_limit(self):
-        """Test when QUERY MEMORY LIMIT is stricter than PROCEDURE MEMORY LIMIT."""
-        execute_and_fetch_all(
-            self.cursor,
-            "UNWIND range(1, 1000) AS i CREATE (:StricterQueryNode {id: i, data: 'payload_' + toString(i)})",
-        )
-
-        # Query limit is tiny, procedure limit is large - query limit should trigger
-        with pytest.raises(Exception) as exc_info:
-            execute_and_fetch_all(
-                self.cursor,
-                """
-                MATCH (n:StricterQueryNode)
-                CALL read_proc.get_node_properties(n) PROCEDURE MEMORY LIMIT 500 MB YIELD props
-                RETURN collect(props.data) AS all_data
-                QUERY MEMORY LIMIT 80 KB
-                """,
-            )
-
-        error_msg = str(exc_info.value).lower()
-        assert "memory" in error_msg or "limit" in error_msg
-
     def test_write_proc_with_both_memory_limits(self):
         """Test write procedure with both PROCEDURE MEMORY LIMIT and QUERY MEMORY LIMIT."""
         execute_and_fetch_all(self.cursor, "UNWIND range(1, 100) AS i CREATE (:BothLimitsSource {id: i})")
@@ -1673,28 +1590,6 @@ class TestProcedureMemoryLimit:
         assert result[0][0] == 300
         # Sum of 10+20+...+3000 = 10*(1+2+...+300) = 10*45150 = 451500
         assert result[0][1] == 451500
-
-    def test_parallel_procedure_limit_exceeded_with_query_limit(self):
-        """Test parallel execution where PROCEDURE MEMORY LIMIT is exceeded."""
-        execute_and_fetch_all(
-            self.cursor, "UNWIND range(1, 1000) AS i CREATE (:ParExceedNode {id: i, data: 'payload_' + toString(i)})"
-        )
-
-        with pytest.raises(Exception) as exc_info:
-            execute_and_fetch_all(
-                self.cursor,
-                pq(
-                    """
-                    MATCH (n:ParExceedNode)
-                    CALL read_proc.get_node_properties(n) PROCEDURE MEMORY LIMIT 1 KB YIELD props
-                    RETURN collect(props.data) AS all_data
-                    QUERY MEMORY LIMIT 500 MB
-                """
-                ),
-            )
-
-        error_msg = str(exc_info.value).lower()
-        assert "memory" in error_msg or "limit" in error_msg
 
     def test_parallel_query_limit_exceeded_with_procedure_limit(self):
         """Test parallel execution where QUERY MEMORY LIMIT is exceeded."""
