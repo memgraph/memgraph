@@ -2609,17 +2609,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // Also consider unprocessed schema updates as a safety horizon.
   // `pending_schema_updates_` contains raw pointers to vertices (in SchemaInfoEdge.from/.to
   // and SchemaInfoPostProcess.vertex_cache). We cannot delete these vertices until their
-  // schema updates have been processed. Use the highest queued commit timestamp as an
-  // additional safety horizon to prevent use-after-free.
+  // schema updates have been processed.
   if (config_.salient.items.enable_schema_info) {
     std::lock_guard<std::mutex> const lock{schema_queue_mutex_};
     if (!pending_schema_updates_.empty()) {
-      // Use the highest queued commit timestamp as safety horizon to protect vertices
-      // referenced by queued schema updates.
-      uint64_t highest_queued_commit_ts = pending_schema_updates_.rbegin()->first;
-      if (highest_queued_commit_ts < oldest_active_start_timestamp) {
-        oldest_active_start_timestamp = highest_queued_commit_ts;
+      // Establish earliest start time
+      uint64_t min_queued_start_ts = std::numeric_limits<uint64_t>::max();
+      for (const auto &[commit_ts, update_data] : pending_schema_updates_) {
+        min_queued_start_ts = std::min(min_queued_start_ts, update_data.start_ts);
       }
+      oldest_active_start_timestamp = std::min(min_queued_start_ts, oldest_active_start_timestamp);
     }
   }
 
