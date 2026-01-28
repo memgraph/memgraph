@@ -79,7 +79,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   }
 
   // Get WAL files, ordered by timestamp, from oldest to newest
-  auto const wal_files = durability::GetWalFiles(
+  auto const maybe_wal_files = durability::GetWalFiles(
       main_storage->recovery_.wal_directory_, std::string{main_storage->uuid()}, current_wal_seq_num);
 
   if (transaction_guard.owns_lock()) {
@@ -109,7 +109,9 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   };
 
   // There is a WAL chain and the data is newer than what the replica has
-  if (!wal_files.empty() && wal_files.back().to_timestamp > replica_commit) {
+  if (maybe_wal_files.has_value() && !maybe_wal_files->empty() &&
+      maybe_wal_files->back().to_timestamp > replica_commit) {
+    auto const &wal_files = *maybe_wal_files;
     auto wal_chain_info = GetWalChainInfo(wal_files, replica_commit);
 
     // Finished the WAL chain, but still missing some data
@@ -164,12 +166,12 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 }
 
 std::optional<durability::SnapshotDurabilityInfo> GetLatestSnapshot(const InMemoryStorage *main_storage) {
-  auto snapshot_files =
+  auto const maybe_snapshot_files =
       durability::GetSnapshotFiles(main_storage->recovery_.snapshot_directory_, std::string{main_storage->uuid()});
-  if (snapshot_files.empty()) {
+  if (!maybe_snapshot_files.has_value() || maybe_snapshot_files->empty()) {
     return std::nullopt;
   }
-  return snapshot_files.back();
+  return maybe_snapshot_files->back();
 }
 
 auto GetWalChainInfo(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t const replica_commit)

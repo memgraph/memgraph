@@ -10,7 +10,7 @@
     <a href="https://github.com/memgraph/memgraph/blob/master/licenses/BSL.txt">
       <img src="https://img.shields.io/badge/license-BSL-yellowgreen" alt="license" title="license"/>
     </a>
-    <a href="https://github.com/memgraph/memgraph/blob/master/licenses/MEL.txt" alt="Documentation">
+    <a href="https://github.com/memgraph/memgraph/blob/master/licenses/MEL.pdf" alt="Documentation">
       <img src="https://img.shields.io/badge/license-MEL-yellow" alt="license" title="license"/>
     </a>
     <a href="https://docs.memgraph.com/mage/" alt="Documentation">
