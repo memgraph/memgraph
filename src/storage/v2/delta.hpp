@@ -184,7 +184,7 @@ class TaggedVertexPtr {
 
   Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x1UL); }
 
-  bool IsInterleaved() const { return (reinterpret_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
+  bool IsInterleaved() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
 
   void Set(Vertex *vertex, bool is_interleaved = false) {
     uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
