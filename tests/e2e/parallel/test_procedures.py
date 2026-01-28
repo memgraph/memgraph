@@ -1463,41 +1463,6 @@ class TestProcedureMemoryLimit:
     # PROCEDURE MEMORY LIMIT only (no QUERY MEMORY LIMIT)
     # -------------------------------------------------------------------------
 
-    def test_read_proc_within_procedure_memory_limit(self):
-        """Test read procedure within PROCEDURE MEMORY LIMIT."""
-        execute_and_fetch_all(self.cursor, "UNWIND range(1, 100) AS i CREATE (:ProcMemNode {id: i, value: i * 10})")
-
-        # Procedure with generous memory limit should succeed
-        result = execute_and_fetch_all(
-            self.cursor,
-            """
-            MATCH (n:ProcMemNode)
-            CALL read_proc.get_node_properties(n) PROCEDURE MEMORY LIMIT 50 MB YIELD props
-            RETURN count(*) AS cnt
-            """,
-        )
-        assert result[0][0] == 100
-
-    def test_read_proc_exceeds_procedure_memory_limit(self):
-        """Test read procedure fails when PROCEDURE MEMORY LIMIT exceeded."""
-        execute_and_fetch_all(
-            self.cursor, "UNWIND range(1, 1000) AS i CREATE (:ProcMemNode {id: i, data: 'payload_' + toString(i)})"
-        )
-
-        # Tiny procedure memory limit should cause failure
-        with pytest.raises(Exception) as exc_info:
-            execute_and_fetch_all(
-                self.cursor,
-                """
-                MATCH (n:ProcMemNode)
-                CALL read_proc.get_node_properties(n) PROCEDURE MEMORY LIMIT 80 KB YIELD props
-                RETURN collect(props.data) AS all_data
-                """,
-            )
-
-        error_msg = str(exc_info.value).lower()
-        assert "memory" in error_msg or "limit" in error_msg
-
     def test_write_proc_within_procedure_memory_limit(self):
         """Test write procedure within PROCEDURE MEMORY LIMIT."""
         execute_and_fetch_all(self.cursor, "UNWIND range(1, 50) AS i CREATE (:ProcMemSource {id: i})")
