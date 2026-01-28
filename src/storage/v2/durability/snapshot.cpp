@@ -10073,10 +10073,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     uint64_t to_timestamp;
     std::filesystem::path path;
 
-    bool operator<(LoadWalInfo const &other) const {
-      return std::tie(seq_num, from_timestamp, to_timestamp, path) <
-             std::tie(other.seq_num, other.from_timestamp, other.to_timestamp, other.path);
-    }
+    auto operator<=>(LoadWalInfo const &other) const = default;
   };
 
   std::vector<LoadWalInfo> wal_files;
@@ -10086,7 +10083,10 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
-      if (info.uuid != uuid) continue;
+      if (info.uuid != uuid) {
+        file_retainer->DeleteFile(item.path());
+        continue;
+      }
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       // We want to find out what happened with the corrupted snapshot file, not delete it
@@ -10102,7 +10102,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                "https://memgr.ph/snapshots"));
   }
 
-  std::sort(wal_files.begin(), wal_files.end());
+  std::ranges::sort(wal_files);
 
   auto const old_durable_ts = std::invoke([transaction, &old_snapshot_files]() -> uint64_t {
     if (!old_snapshot_files.empty()) {
@@ -10126,9 +10126,9 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   }
 }
 
-auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory,
-                                        const std::string &current_snapshot_path, const std::string &uuid,
-                                        utils::FileRetainer *file_retainer, Storage *storage) -> OldSnapshotFiles {
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &uuid,
+                                        const std::string &current_snapshot_path, utils::FileRetainer *file_retainer,
+                                        Storage *storage) -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
@@ -10136,13 +10136,15 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
     if (item.path() == current_snapshot_path) continue;
     try {
       auto info = ReadSnapshotInfo(item.path());
-      if (info.uuid != uuid) continue;
+      if (info.uuid != uuid) {
+        old_snapshot_files.emplace_back(0, item.path());
+        continue;
+      }
       old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      // We want to find out what happened with the corrupted snapshot file, not delete it
-      spdlog::warn("Found a corrupt snapshot file {} because of: {}. Corrupted snapshot file will not be deleted.",
-                   item.path(),
-                   e.what());
+      // We use logical timestamp of 0 so that corrupted files get deleted before healthy ones
+      old_snapshot_files.emplace_back(0, item.path());
+      spdlog::warn("Found a corrupt snapshot file {} because of: {}", item.path(), e.what());
     }
   }
 
@@ -10174,12 +10176,14 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
 }
 
-std::optional<std::filesystem::path> CreateSnapshot(
-    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
-    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-    utils::UUID const &uuid, const memgraph::replication::ReplicationEpoch &epoch,
-    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
-    std::atomic_bool *abort_snapshot) {
+std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
+                                                    const std::filesystem::path &snapshot_directory,
+                                                    const std::filesystem::path &wal_directory,
+                                                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                                    utils::UUID const &uuid, std::string_view const epoch_id,
+                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                                                    utils::FileRetainer *file_retainer,
+                                                    std::atomic_bool *abort_snapshot) {
   utils::Timer timer;
 
   // Ensure that the storage directory exists.
@@ -10856,7 +10860,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid_str);
-    snapshot.WriteString(epoch.id());
+    snapshot.WriteString(epoch_id);
     snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                      : transaction->start_timestamp);  // Fallback to start ts
@@ -10952,7 +10956,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   spdlog::info("Snapshot creation successful!");
 
   auto const old_snapshot_files =
-      EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid_str, file_retainer, storage);
+      EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage);
 
   // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
