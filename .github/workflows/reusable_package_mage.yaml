@@ -169,7 +169,7 @@ jobs:
 
       - name: Create wheels directory and fetch wheels if available
         run: |
-          if [[ "$CUGRAPH" == true ]]; then
+          if [[ "$CUGRAPH" == true  || "$CUDA" == true ]]; then
             echo "Using wheels build for CUDA"
             WHEEL_PATH="cuda-13.0"
           elif [[ "$ARCH" == "arm" ]]; then
