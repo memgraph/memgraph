@@ -1611,25 +1611,39 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           current->prev.Set(vertex);
         }
       } else {
-        // We don't own the head - snip our deltas from the middle of the chain
-        // Find the delta before our chain (walk backwards from start)
+        // Surgical delta chain removal: we don't own the head, so our deltas are
+        // interleaved in the middle of the chain. We need to "snip out" our deltas
+        // without disturbing the rest of the chain.
+        // We handle four cases depending on what surrounds our delta subchain:
+
         auto prev = start->prev.Get();
         Delta *prev_delta = prev.type == PreviousPtr::Type::DELTA ? prev.delta : nullptr;
 
-        // Now: prev_delta -> start -> ... -> current
-        // We want: prev_delta -> current
+        // Case 1: Our deltas are sandwiched between other deltas
+        // Chain: ... -> prev_delta -> [our deltas] -> current -> ...
+        // Result: ... -> prev_delta -> current -> ...
         if (prev_delta != nullptr && current != nullptr) {
           prev_delta->next.store(current, std::memory_order_release);
           current->prev.Set(prev_delta);
-        } else if (prev_delta != nullptr && current == nullptr) {
-          // Our deltas were at the end of the chain
+        }
+        // Case 2: Our deltas are at the tail (no downstream deltas)
+        // Chain: ... -> prev_delta -> [our deltas] -> nullptr
+        // Result: ... -> prev_delta -> nullptr
+        else if (prev_delta != nullptr && current == nullptr) {
           prev_delta->next.store(nullptr, std::memory_order_release);
-        } else if (prev_delta == nullptr && current != nullptr) {
-          // Our deltas were at the head, update vertex->delta
+        }
+        // Case 3: Our deltas are at the head but we don't "own" it (shouldn't happen
+        // in normal flow as should_unlink would be true, but defensive)
+        // Chain: vertex -> [our deltas] -> current -> ...
+        // Result: vertex -> current -> ...
+        else if (prev_delta == nullptr && current != nullptr) {
           vertex->delta = current;
           current->prev.Set(vertex);
-        } else {
-          // prev_delta == nullptr && current == nullptr: all deltas were ours
+        }
+        // Case 4: All deltas in the chain were ours
+        // Chain: vertex -> [our deltas] -> nullptr
+        // Result: vertex -> nullptr
+        else {
           vertex->delta = nullptr;
         }
       }
@@ -2634,18 +2648,23 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // Process waiting list for interleaved delta chains ready to move to GC
+  // When a transaction commits with interleaved deltas, its deltas may be mixed with
+  // deltas from other transactions in the same delta chains. We cannot immediately unlink
+  // these deltas because:
+  // 1. Other "contributor" transactions may still be running
+  // 2. We need to ensure all contributors have committed/aborted before unlinking
+  // 3. We must use the highest commit timestamp among all contributors as the safe
+  //    unlinking horizon to prevent visibility violations
+  //
+  // This waiting room holds committed transactions with interleaved deltas until all
+  // their "contributors" (other transactions sharing the same delta chains) have finished.
   waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
     auto it = waiting_list.begin();
     while (it != waiting_list.end()) {
-      // Traverse delta chains once to check if all contributors committed,
-      // and find highest commit timestamp for safe unlinking.
       bool all_contributors_committed = true;
       auto const our_commit_ts = it->commit_timestamp_->load(std::memory_order_acquire);
 
       uint64_t highest_commit_ts = our_commit_ts;
-      // By tracking visited deltas, we can avoid redundant traversal when
-      // multiple deltas in this transaction share downstream subchains.
       std::unordered_set<const Delta *> visited;
 
       for (const auto &delta : it->deltas_) {
@@ -2658,8 +2677,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           auto ts = current->timestamp->load();
 
           if (ts >= kTransactionInitialId) {
-            // If the delta is from a transaction still running, we cannot
-            // safely collect these subchains yet.
             all_contributors_committed = false;
             current = current->next.load(std::memory_order_acquire);
             continue;
@@ -2675,18 +2692,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         }
       }
 
-      // Once all contributors have committed (or aborted), we know that
-      // it is safe to move these deltas to the next phase of the garbage
-      // collection.
+      // All contributors finished - safe to move to normal GC processing
       if (all_contributors_committed) {
-        // If highest_commit_ts is still 0, all contributors aborted. Without
-        // commit timestamps to use as a safe horizon for unlinking, we
-        // conservatively use the current oldest_active timestamp. This is
-        // pessimistic, but safe.
+        // If highest_commit_ts is still our_commit_ts and no other contributors were
+        // found (or all aborted), use the commit timestamp. If all aborted (ts=0),
+        // conservatively use oldest_active_start_timestamp as the safe horizon.
         it->unlinkable_timestamp_ = highest_commit_ts > 0 ? highest_commit_ts : oldest_active_start_timestamp;
 
-        // Aborted transactions now go directly to garbage_undo_buffers_ from Abort(),
-        // so we should only see committed transactions here
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(*it)); });
         it = waiting_list.erase(it);
