@@ -1481,7 +1481,7 @@ test_mage() {
       docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
 
       echo -e "${GREEN_BOLD}Running Python tests${RESET}"
-      if [[ "$CUDA" == true ]]; then
+      if [[ "$cuda" == true ]]; then
         requirements_file="requirements-gpu.txt"
       else
         requirements_file="requirements.txt"
