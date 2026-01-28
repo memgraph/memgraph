@@ -35,37 +35,26 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PreVisit(ScanAllByEdgeType &op) override {
-    if (scope_.should_forbid_scanallbyedge_) {
-      is_valid_plan_ = false;
-      return false;
-    }
-    return true;
+  bool PreVisit(ScanAllByEdgeType &op) override { return ShouldForbidScanAllByEdge(); }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override { return ShouldForbidScanAllByEdge(); }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override { return ShouldForbidScanAllByEdge(); }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override { return ShouldForbidScanAllByEdge(); }
+
+  bool PreVisit(ScanParallelByEdge &op) override {
+    is_valid_plan_ = false;
+    return false;
   }
 
-  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
-    if (scope_.should_forbid_scanallbyedge_) {
-      is_valid_plan_ = false;
-      return false;
-    }
-    return true;
-  }
+  bool PreVisit(ScanParallelByEdgeType &op) override { return ShouldForbidScanAllByEdge(); }
 
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
-    if (scope_.should_forbid_scanallbyedge_) {
-      is_valid_plan_ = false;
-      return false;
-    }
-    return true;
-  }
+  bool PreVisit(ScanParallelByEdgeTypeProperty &op) override { return ShouldForbidScanAllByEdge(); }
 
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
-    if (scope_.should_forbid_scanallbyedge_) {
-      is_valid_plan_ = false;
-      return false;
-    }
-    return true;
-  }
+  bool PreVisit(ScanParallelByEdgeTypePropertyValue &op) override { return ShouldForbidScanAllByEdge(); }
+
+  bool PreVisit(ScanParallelByEdgeTypePropertyRange &op) override { return ShouldForbidScanAllByEdge(); }
 
   bool PreVisit(Optional &op) override {
     // create new plan validator that will go into the input branch so we don't recurse
@@ -115,6 +104,14 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
     auto rewriter = PlanValidator{symbol_table_};
     (*branch)->Accept(rewriter);
     return rewriter.IsValidPlan();
+  }
+
+  bool ShouldForbidScanAllByEdge() {
+    if (scope_.should_forbid_scanallbyedge_) {
+      is_valid_plan_ = false;
+      return false;
+    }
+    return true;
   }
 };
 

@@ -86,7 +86,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = use_cache && transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = use_cache && transaction->UseCache();
     if (useCache) {
       auto const &cache = transaction->manyDeltasCache;
       if (auto resError = HasError(view, cache, &vertex, false); resError) return false;

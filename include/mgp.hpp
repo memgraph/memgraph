@@ -101,6 +101,14 @@ class TimeoutMustAbortException : public MustAbortException {
   explicit TimeoutMustAbortException() : MustAbortException("Query was asked to because of timeout was hit.") {}
 };
 
+class ExceptionMustAbortException : public MustAbortException {
+ public:
+  explicit ExceptionMustAbortException()
+      : MustAbortException(
+            "Query was asked to because of an exception occurred. Please contact Memgraph support as this scenario "
+            "should not happen!") {}
+};
+
 // Forward declarations
 class Nodes;
 using GraphNodes = Nodes;
@@ -208,6 +216,9 @@ enum class AbortReason : uint8_t {
 
   // the transaction timeout has been reached. Either via "--query-execution-timeout-sec", or a per-transaction timeout
   TIMEOUT = 3,
+
+  // an exception occurred in the transaction (used for parallel execution)
+  EXCEPTION = 4,
 };
 
 /// @brief Wrapper class for @ref mgp_graph.
@@ -2139,6 +2150,8 @@ inline AbortReason Graph::MustAbort() const {
       return AbortReason::SHUTDOWN;
     case 3:
       return AbortReason::TIMEOUT;
+    case 4:
+      return AbortReason::EXCEPTION;
     default:
       break;
   }
@@ -2153,6 +2166,8 @@ inline void Graph::CheckMustAbort() const {
       throw ShutdownMustAbortException();
     case AbortReason::TIMEOUT:
       throw TimeoutMustAbortException();
+    case AbortReason::EXCEPTION:
+      throw ExceptionMustAbortException();
     case AbortReason::NO_ABORT:
       break;
   }

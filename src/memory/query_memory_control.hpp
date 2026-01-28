@@ -79,4 +79,26 @@ struct ThreadTrackingBlocker {
 #endif
 };
 
+struct CrossThreadMemoryTracking {
+#if USE_JEMALLOC
+  utils::QueryMemoryTracker *query_tracker{nullptr};
+  utils::UserResources *user_tracker{nullptr};
+
+  CrossThreadMemoryTracking();
+  ~CrossThreadMemoryTracking() = default;
+
+  void StartTracking() const;
+  void StopTracking() const;
+
+  CrossThreadMemoryTracking(CrossThreadMemoryTracking &) = delete;
+  CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &) = delete;
+  CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept;
+  CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &&other) noexcept;
+#else
+  void StartTracking() const {}
+
+  void StopTracking() const {}
+#endif
+};
+
 }  // namespace memgraph::memory

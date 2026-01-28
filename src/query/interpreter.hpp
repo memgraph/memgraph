@@ -106,8 +106,8 @@ struct ThreadSafeQueryAllocator {
   auto resource() -> utils::MemoryResource * { return &pool; }
 
  private:
-  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
-  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL * 1024UL;
+  static constexpr auto kPoolBlockPerChunk = 255;
   static constexpr auto kPoolMaxBlockSize = 1024UL;
 
   static auto upstream_resource() -> utils::MemoryResource * {
