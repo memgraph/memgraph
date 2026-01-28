@@ -80,14 +80,49 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
-inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp) {
+inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp,
+                      bool traverse_chain = false) {
   // This tx is running, so no deltas means there are no changes made after the tx started
   if (delta == nullptr) return State::NO_CHANGE;
-  const auto ts = delta->timestamp->load(std::memory_order_acquire);
-  if (ts == commit_timestamp) return State::THIS_TX;  // Our commit ts means we changed it
-  // Ts larger then our start ts means another tx changed it (committed or is still running)
-  if (ts > start_timestamp) return State::ANOTHER_TX;
-  return State::NO_CHANGE;  // Irrelevant deltas, no changes
+
+  const auto head_ts = delta->timestamp->load(std::memory_order_acquire);
+
+  // Fast path: During transaction execution, we only need to check the head
+  // delta. The head delta is sufficient because this transaction's deltas are
+  // prepended, so if this transaction modified the object, its delta will be at
+  // the head (or we'll see a committed delta from before start). If another
+  // transaction modified it, its delta will be at the head.
+  if (!traverse_chain) {
+    if (head_ts == commit_timestamp) return State::THIS_TX;
+    if (head_ts > start_timestamp) return State::ANOTHER_TX;
+    return State::NO_CHANGE;
+  }
+
+  // Slow path: During ProcessTransaction transactions may process out of order.
+  // Newer transactions' deltas can be prepended before this transaction's
+  // ProcessTransaction runs, so we need to traverse the chain to find this
+  // transaction's delta.
+  bool found_this_tx = false;
+  bool found_another_tx = false;
+
+  for (const Delta *current = delta; current != nullptr; current = current->next.load(std::memory_order_acquire)) {
+    const auto ts = current->timestamp->load(std::memory_order_acquire);
+
+    if (ts < start_timestamp) break;
+
+    if (ts == commit_timestamp) {
+      found_this_tx = true;
+    }
+
+    if (ts > start_timestamp && ts != commit_timestamp) {
+      found_another_tx = true;
+      break;
+    }
+  }
+
+  if (found_another_tx) return State::ANOTHER_TX;
+  if (found_this_tx) return State::THIS_TX;
+  return State::NO_CHANGE;
 }
 
 // Keep v locked as we could return a reference to labels
@@ -257,14 +292,14 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     // An edge can be added to post process by modifying the edge directly or one of the vertices
     // We need to check all 3 objects
-    const auto from_state = GetState(from->delta, start_ts, commit_ts);
-    const auto to_state = GetState(to->delta, start_ts, commit_ts);
+    const auto from_state = GetState(from->delta, start_ts, commit_ts, true);
+    const auto to_state = GetState(to->delta, start_ts, commit_ts, true);
 
     State edge_state{NO_CHANGE};
     std::shared_lock<decltype(edge_ref.ptr->lock)> edge_lock;
     if (property_on_edges) {
       edge_lock = std::shared_lock{edge_ref.ptr->lock};
-      edge_state = GetState(edge_ref.ptr->delta, start_ts, commit_ts);
+      edge_state = GetState(edge_ref.ptr->delta, start_ts, commit_ts, true);
     }
 
     // Check if we need to process this edge
