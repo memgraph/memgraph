@@ -1,0 +1,26 @@
+# Balanced Cut Clustering - should produce 2 clusters
+# A1-A4 in one cluster, B1-B4+HUB in another (or similar split)
+query: >
+  CALL cugraph.balanced_cut_clustering.get(2) YIELD node, cluster
+  RETURN node.id AS node_id, cluster
+  ORDER BY node_id ASC;
+
+output:
+  - node_id: 1
+    cluster: 1
+  - node_id: 2
+    cluster: 1
+  - node_id: 3
+    cluster: 1
+  - node_id: 4
+    cluster: 1
+  - node_id: 5
+    cluster: 0
+  - node_id: 6
+    cluster: 0
+  - node_id: 7
+    cluster: 0
+  - node_id: 8
+    cluster: 0
+  - node_id: 9
+    cluster: 0

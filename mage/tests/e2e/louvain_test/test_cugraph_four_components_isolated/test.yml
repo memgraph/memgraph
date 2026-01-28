@@ -8,12 +8,7 @@ output:
   - node_id: 0
     partition: 0
   - node_id: 1
-    partition: 1
+    partition: 0
   - node_id: 2
-    partition: 1
-  - node_id: 3
-    partition: 2
-  - node_id: 4
-    partition: 3
-  - node_id: 5
-    partition: 4
+    partition: 0
+
