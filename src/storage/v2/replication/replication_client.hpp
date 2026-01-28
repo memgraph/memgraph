@@ -49,10 +49,10 @@ class ReplicaStream {
   ~ReplicaStream() = default;
 
   /// @throw rpc::RpcFailedException
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
+  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t final_commit_timestamp, Storage *storage);
 
   /// @throw rpc::RpcFailedException
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage);
 
   /// @throw rpc::RpcFailedException
   void AppendTransactionStart(uint64_t final_commit_timestamp, bool commit, StorageAccessType access_type);

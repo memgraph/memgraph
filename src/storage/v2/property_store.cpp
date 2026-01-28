@@ -11,6 +11,7 @@
 
 #include "storage/v2/property_store.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -41,7 +42,6 @@ namespace memgraph::storage {
 namespace {
 
 namespace r = ranges;
-namespace rv = r::views;
 
 // `PropertyValue` is a very large object. It is implemented as a `union` of all
 // possible types that could be stored as a property value. That causes the
@@ -209,6 +209,10 @@ const uint8_t kShiftIdSize = 2;
 //     - type; payload size is used to encode the crs type (this only works becuase there are 4 sizes + 4 crs types)
 //     - encoded property ID
 //     - encoded value as 2 (for 2D) or 3 (for 3D) doubles forced to be encoded as int64
+//   * VECTOR
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - encoded vector index id -> this id is used to get the name of the vector index
 
 const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
@@ -741,6 +745,15 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!writer->WriteDoubleForceInt64(point.z())) return std::nullopt;
       return {{Type::POINT, CrsToSize(point.crs())}};
     }
+    case PropertyValue::Type::VectorIndexId: {
+      auto vector_index_id = value.ValueVectorIndexIds();
+      auto size = writer->WriteUint(vector_index_id.size());
+      if (!size) return std::nullopt;
+      for (const auto &id : vector_index_id) {
+        if (!writer->InternalWriteInt<uint64_t>(id)) return std::nullopt;
+      }
+      return {{Type::VECTOR, *size}};
+    }
   }
 }
 
@@ -1144,6 +1157,19 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       }
       return true;
     }
+    case Type::VECTOR: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      utils::small_vector<uint64_t> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
+        if (!id) return false;
+        vector_index_ids.push_back(*id);
+      }
+      value = PropertyValue(std::move(vector_index_ids), utils::small_vector<float>{});
+      return true;
+    }
   }
   // in case of corrupt storage, handle unknown types
   return false;
@@ -1234,6 +1260,18 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         if (!z_opt) return std::nullopt;
         return std::optional<PropertyValue>{std::in_place, Point3d{crs, *x_opt, *y_opt, *z_opt}};
       }
+    }
+    case Type::VECTOR: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return std::nullopt;
+      utils::small_vector<uint64_t> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
+        if (!id) return std::nullopt;
+        vector_index_ids.push_back(*id);
+      }
+      return std::optional<PropertyValue>{std::in_place, std::move(vector_index_ids), utils::small_vector<float>{}};
     }
   }
 }
@@ -1367,6 +1405,15 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       property_size += bytes_size;
       return true;
     }
+    case Type::VECTOR: {
+      auto count_bytes_size = SizeToByteSize(payload_size);
+      auto count = reader->ReadUint(payload_size);
+      if (!count) return false;
+      auto ids_bytes_size = *count * SizeToByteSize(Size::INT64);
+      if (!reader->SkipBytes(ids_bytes_size)) return false;
+      property_size += count_bytes_size + ids_bytes_size;
+      return true;
+    }
   }
 }
 
@@ -1429,6 +1476,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       auto payload_members = valid2d(SizeToCrs(payload_size)) ? 2 : 3;
       auto bytes_to_skip = payload_members * SizeToByteSize(Size::INT64);
       return reader->SkipBytes(bytes_to_skip);
+    }
+    case Type::VECTOR: {
+      auto count = reader->ReadUint(payload_size);
+      if (!count) return false;
+      return reader->SkipBytes(*count * SizeToByteSize(Size::INT64));
     }
   }
 }
@@ -1557,6 +1609,17 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
       }
       return false;
+    }
+    case Type::VECTOR: {
+      if (!value.IsVectorIndexId()) return false;
+      const auto &vector_index_ids = value.ValueVectorIndexIds();
+      auto count = reader->ReadUint(payload_size);
+      if (!count || *count != vector_index_ids.size()) return false;
+      for (auto id : vector_index_ids) {
+        auto read_id = reader->ReadUint(Size::INT64);
+        if (!read_id || *read_id != id) return false;
+      }
+      return true;
     }
   }
 }
@@ -1745,6 +1808,9 @@ enum class ExpectedPropertyStatus {
         return ExpectedPropertyStatus::EQUAL;
       }
     } break;
+    case VECTOR:
+      type = ExtendedPropertyType{PropertyValue::Type::List};
+      break;
   }
 
   if (*property_id == expected_property.AsUint()) {
@@ -1883,6 +1949,9 @@ enum class ExpectedPropertyStatus {
           value.type()};  // PropertyStoreType has only Point; while PropertyValueType has point 2d and 3d
       return PropertyId::FromUint(*property_id);
     }
+    case VECTOR:
+      type = ExtendedPropertyType{PropertyValue::Type::List};
+      break;
   }
 
   if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return std::nullopt;

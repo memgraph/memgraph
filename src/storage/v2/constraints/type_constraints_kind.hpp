@@ -154,6 +154,8 @@ inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue 
     case PropertyValueType::Point2d:
     case PropertyValueType::Point3d:
       return TypeConstraintKind::POINT;
+    case PropertyValueType::VectorIndexId:
+      MG_ASSERT(false, "VectorIndexId is not supported for type constraints");
     case PropertyValueType::Null:
       MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
   }

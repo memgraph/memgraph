@@ -256,6 +256,12 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
                                                               column_families,
                                                               &column_handles,
                                                               &kvstore_->db_));
+    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_,
+                                                              rocksdb::TransactionDBOptions(),
+                                                              config.disk.main_storage_directory,
+                                                              column_families,
+                                                              &column_handles,
+                                                              &kvstore_->db_));
     kvstore_->vertex_chandle = column_handles[0];
     kvstore_->edge_chandle = column_handles[1];
     kvstore_->default_chandle = column_handles[2];
@@ -1547,7 +1553,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     edge.ptr->properties.SetBuffer(properties);
   }
 
-  ModifiedEdgeInfo const modified_edge(
+  const ModifiedEdgeInfo modified_edge(
       Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
   if (transaction->AddModifiedEdge(gid, modified_edge)) {
     spdlog::trace("Edge {} added to out edges of vertex with gid {}", gid.ToString(), from_vertex->gid.AsUint());
@@ -2293,6 +2299,17 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropVectorIndex(
     std::string_view /*index_name*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+utils::small_vector<uint64_t> DiskStorage::DiskAccessor::GetVectorIndexIdsForVertex(Vertex * /*vertex*/,
+                                                                                    PropertyId /*property*/) {
+  return {};
+}
+
+utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(Vertex * /*vertex*/,
+                                                                               std::string_view /*index_name*/) const {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
