@@ -63,6 +63,15 @@ jobs:
           shell: bash
           run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
 
+        - name: Force container into first numa group
+          run: |
+            numagroup="$(./tools/ci/numa-0-cores.sh)"
+            echo "Using numa group: $numagroup"
+            docker update \
+            --cpuset-cpus="$numagroup" \
+            --cpuset-mems="0" \
+            "mgbuild_${TOOLCHAIN}_${OS}"
+
         - name: Run mgbench
           run: |
             ./release/package/mgbuild.sh \
