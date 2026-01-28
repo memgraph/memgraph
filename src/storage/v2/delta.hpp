@@ -167,29 +167,40 @@ enum class DeltaInterleaving : uint8_t { NORMAL, INTERLEAVED };
 
 /**
  * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
- * store a flag indicating whether the `Delta` is interleaved without increasing
- * the size of the overall `Delta`. An "interleaved" `Delta` is a non-conflicting
- * commutative `Delta` operation. When reading `Delta`s, we don't stop traversing
- * the `Delta` chain on interleaved operations as there may be relevant `Deltas`
- * downstream. On a non-interleaved `Delta`, the previous conditions for
- * bailing out of a read apply.
+ * store flags without increasing the size of the overall `Delta`:
+ *
+ * is_interleaved: Whether this `Delta` is interleaved - a non-conflicting
+ * commutative `Delta` operation prepended by a different transaction. When reading
+ * `Delta`s, we don't stop traversing the `Delta` chain on interleaved operations
+ * as there may be relevant `Deltas` downstream.
+ *
+ * has_non_commutative_upstream: Whether there exists a non-commutative
+ * uncommitted delta upstream in this transaction's delta chain. This enables O(1)
+ * conflict detection in PrepareForCommutativeWrite by avoiding traversal of long
+ * delta chains (e.g., when a transaction adds a label then creates many edges).
  */
 class TaggedVertexPtr {
  public:
   TaggedVertexPtr() : ptr_(nullptr) {}
 
-  TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NORMAL) {
-    Set(vertex, interleaving == DeltaInterleaving::INTERLEAVED);
+  TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NORMAL,
+                  bool has_non_commutative_upstream = false) {
+    Set(vertex, interleaving == DeltaInterleaving::INTERLEAVED, has_non_commutative_upstream);
   }
 
-  Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x1UL); }
+  Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x3UL); }
 
   bool IsInterleaved() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
 
-  void Set(Vertex *vertex, bool is_interleaved = false) {
+  bool HasNonCommutativeUpstream() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x2UL) != 0; }
+
+  void Set(Vertex *vertex, bool is_interleaved = false, bool has_non_commutative_upstream = false) {
     uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
     if (is_interleaved) {
       vertex_ptr |= 0x1UL;
+    }
+    if (has_non_commutative_upstream) {
+      vertex_ptr |= 0x2UL;
     }
     ptr_ = reinterpret_cast<Vertex *>(vertex_ptr);
   }
@@ -289,28 +300,36 @@ struct Delta {
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, false, timestamp, command_id) {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, interleaving, false, timestamp, command_id) {}
+
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        bool has_non_commutative_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_IN_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .vertex = TaggedVertexPtr(vertex, interleaving, has_non_commutative_upstream),
                     .edge = edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, false, timestamp, command_id) {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, interleaving, false, timestamp, command_id) {}
+
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        bool has_non_commutative_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .vertex = TaggedVertexPtr(vertex, interleaving, has_non_commutative_upstream),
                     .edge = edge} {}
 
   Delta(const Delta &) = delete;

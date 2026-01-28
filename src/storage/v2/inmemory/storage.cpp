@@ -701,6 +701,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
   bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
+  bool const from_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, from_vertex);
+  bool const to_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, to_vertex);
 
   utils::AtomicMemoryBlock([this,
                             edge,
@@ -709,14 +711,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                             to_vertex = to_vertex,
                             &schema_acc,
                             from_interleaved,
-                            to_interleaved]() {
+                            to_interleaved,
+                            from_has_non_commutative_upstream,
+                            to_has_non_commutative_upstream]() {
     CreateAndLinkDelta(&transaction_,
                        from_vertex,
                        Delta::RemoveOutEdgeTag(),
                        edge_type,
                        to_vertex,
                        edge,
-                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
+                       from_has_non_commutative_upstream);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_,
@@ -725,7 +730,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                        edge_type,
                        from_vertex,
                        edge,
-                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
+                       to_has_non_commutative_upstream);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -853,6 +859,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
   bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
+  bool const from_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, from_vertex);
+  bool const to_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, to_vertex);
 
   utils::AtomicMemoryBlock([this,
                             edge,
@@ -861,14 +869,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                             to_vertex = to_vertex,
                             &schema_acc,
                             from_interleaved,
-                            to_interleaved]() {
+                            to_interleaved,
+                            from_has_non_commutative_upstream,
+                            to_has_non_commutative_upstream]() {
     CreateAndLinkDelta(&transaction_,
                        from_vertex,
                        Delta::RemoveOutEdgeTag(),
                        edge_type,
                        to_vertex,
                        edge,
-                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
+                       from_has_non_commutative_upstream);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_,
@@ -877,7 +888,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                        edge_type,
                        from_vertex,
                        edge,
-                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL);
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
+                       to_has_non_commutative_upstream);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
