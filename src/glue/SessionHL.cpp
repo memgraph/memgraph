@@ -9,9 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <utility>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -158,6 +165,9 @@ std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
 }  // namespace
 
 namespace memgraph::glue {
+
+// Static mutex to synchronize stats file writes across all sessions
+static std::mutex stats_file_mutex;
 
 #ifdef MG_ENTERPRISE
 std::optional<std::string> SessionHL::GetDefaultDB() const {
@@ -345,13 +355,27 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
 }
 
 bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
+  // Measure execution time
+  auto start_time = std::chrono::steady_clock::now();
+
   try {
     using TEncoder =
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
     TypedValueResultStream<TEncoder> stream(&encoder_, storage);
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+    auto result = DecodeSummary(interpreter_.Pull(&stream, n, qid));
+
+    // Record execution time
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    double duration_seconds = static_cast<double>(duration.count()) / 1'000'000.0;
+
+    if (!current_query_.empty()) {
+      pull_stats_[current_query_].push_back(duration_seconds);
+    }
+
+    return result;
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -379,6 +403,9 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
                        db ? db->get()->name() : "");
   }
 #endif
+
+  // Store the query string for stats tracking
+  current_query_ = query;
 
   auto get_params_pv =
       [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::ExternalPropertyValue::map_t {
@@ -561,6 +588,83 @@ SessionHL::~SessionHL() {
   // User-related resource monitoring
   interpreter_.ResetUser();
 #endif
+
+  // Write pull stats to tmp file
+  if (!pull_stats_.empty()) {
+    // Lock to prevent concurrent writes from multiple sessions
+    std::lock_guard<std::mutex> lock(stats_file_mutex);
+    try {
+      auto tmp_file_path = std::filesystem::temp_directory_path() / "sessionhl_pull_stats.txt";
+      std::ofstream stats_file(tmp_file_path, std::ios::app);
+      if (stats_file.is_open()) {
+        // Write session separator
+        stats_file << "=== Session Stats ===\n";
+
+        for (const auto &[query, times] : pull_stats_) {
+          // Escape newlines in query string to keep format intact
+          std::string escaped_query = query;
+          std::string::size_type pos = 0;
+          while ((pos = escaped_query.find('\n', pos)) != std::string::npos) {
+            escaped_query.replace(pos, 1, "\\n");
+            pos += 2;
+          }
+
+          stats_file << "Query: " << escaped_query << "\n";
+          stats_file << "  Execution times (seconds): ";
+          for (size_t i = 0; i < times.size(); ++i) {
+            stats_file << times[i];
+            if (i < times.size() - 1) {
+              stats_file << ", ";
+            }
+          }
+          stats_file << "\n";
+          stats_file << "  Count: " << times.size() << "\n";
+          if (!times.empty()) {
+            double sum = 0.0;
+            double min_time = times[0];
+            double max_time = times[0];
+            for (double t : times) {
+              sum += t;
+              if (t < min_time) min_time = t;
+              if (t > max_time) max_time = t;
+            }
+            double avg = sum / static_cast<double>(times.size());
+            stats_file << "  Average: " << avg << " seconds\n";
+            stats_file << "  Min: " << min_time << " seconds\n";
+            stats_file << "  Max: " << max_time << " seconds\n";
+
+            // Calculate percentiles
+            std::vector<double> sorted_times = times;
+            std::sort(sorted_times.begin(), sorted_times.end());
+            auto percentile = [&sorted_times](double p) -> double {
+              if (sorted_times.empty()) return 0.0;
+              size_t index = static_cast<size_t>(std::round((p / 100.0) * (sorted_times.size() - 1)));
+              if (index >= sorted_times.size()) index = sorted_times.size() - 1;
+              return sorted_times[index];
+            };
+
+            stats_file << "  50%: " << percentile(50.0) << " seconds\n";
+            stats_file << "  75%: " << percentile(75.0) << " seconds\n";
+            stats_file << "  90%: " << percentile(90.0) << " seconds\n";
+            stats_file << "  95%: " << percentile(95.0) << " seconds\n";
+            stats_file << "  99%: " << percentile(99.0) << " seconds\n";
+          }
+          stats_file << "\n";
+
+          // Check if write succeeded
+          if (stats_file.fail()) {
+            break;
+          }
+        }
+
+        // Flush and verify
+        stats_file.flush();
+        stats_file.close();
+      }
+    } catch (const std::exception &e) {
+      spdlog::warn("Failed to write pull stats to tmp file: {}", e.what());
+    }
+  }
 }
 
 bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {

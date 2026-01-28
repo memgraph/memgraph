@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,6 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 #pragma once
+
+#include <map>
+#include <string>
+#include <vector>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -142,6 +146,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
+  std::string current_query_;           // Current query string being executed
+  std::map<std::string, std::vector<double>> pull_stats_;  // Map from query string to execution times (in seconds)
 };
 
 }  // namespace memgraph::glue
