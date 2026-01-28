@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,7 +56,9 @@ std::expected<std::vector<Message>, std::string> GetBatch(RdKafka::KafkaConsumer
       default:
         auto error = msg->errstr();
         spdlog::warn("Unexpected error while consuming message in consumer {}, error: {} (code {})!",
-                     info.consumer_name, msg->errstr(), msg->err());
+                     info.consumer_name,
+                     msg->errstr(),
+                     msg->err());
         return std::unexpected{std::move(error)};
     }
 
@@ -209,7 +211,8 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
   std::unique_ptr<RdKafka::Metadata> metadata(raw_metadata);
 
   std::unordered_set<std::string> topic_names_from_metadata{};
-  std::transform(metadata->topics()->begin(), metadata->topics()->end(),
+  std::transform(metadata->topics()->begin(),
+                 metadata->topics()->end(),
                  std::inserter(topic_names_from_metadata, topic_names_from_metadata.begin()),
                  [](const auto topic_metadata) { return topic_metadata->topic(); });
 
@@ -314,7 +317,8 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
       throw_consumer_check_failed(err);
     }
     if (const auto err = consumer_->position(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
-      spdlog::warn("Saving the position offset assignment of consumer {} failed: {}", info_.consumer_name,
+      spdlog::warn("Saving the position offset assignment of consumer {} failed: {}",
+                   info_.consumer_name,
                    RdKafka::err2str(err));
       throw_consumer_check_failed(err);
     }
@@ -506,5 +510,6 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
     spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
   }
 }
+
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
 }  // namespace memgraph::integrations::kafka

@@ -22,6 +22,7 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
+
 namespace memgraph::storage {
 
 namespace {
@@ -45,8 +46,8 @@ bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid 
     const std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>> &transaction_entries) {
   for (const auto &[vertex_gid, constraints] : transaction_entries) {
     for (const auto &[constraint_label, constraint_properties] : constraints) {
-      auto key_to_delete = utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
-                                                                          vertex_gid.ToString());
+      auto key_to_delete = utils::SerializeVertexAsKeyForUniqueConstraint(
+          constraint_label, constraint_properties, vertex_gid.ToString());
       if (auto status = disk_transaction.Delete(key_to_delete); !status.ok()) {
         return false;
       }
@@ -96,8 +97,8 @@ DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
   utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
-  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
-                                                            config.disk.unique_constraints_directory, &kvstore_->db_));
+  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(
+      kvstore_->options_, rocksdb::TransactionDBOptions(), config.disk.unique_constraints_directory, &kvstore_->db_));
 }
 
 bool DiskUniqueConstraints::InsertConstraint(
@@ -260,8 +261,8 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
 
   for (const auto &[constraint_label, constraint_properties] : constraints_) {
     if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
-      auto key = utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
-                                                                vertex.gid.ToString());
+      auto key = utils::SerializeVertexAsKeyForUniqueConstraint(
+          constraint_label, constraint_properties, vertex.gid.ToString());
       auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties);
       if (!disk_transaction->Put(key, value).ok()) {
         return false;

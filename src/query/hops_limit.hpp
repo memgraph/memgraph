@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,14 +26,13 @@ struct HopsLimit {
   bool is_limit_reached{false};
 
   HopsLimit() = default;
+
   HopsLimit(int64_t limit, int64_t batch)
       : limit(limit), batch(batch), shared_quota_{std::in_place, limit, std::max(batch, 1L)} {}
 
   bool IsUsed() const { return limit.has_value(); }
 
   int64_t GetLimit() const { return limit.value(); }
-  // Deprecated/Removed as SharedQuota doesn't track global counter in the same way
-  // int64_t GetHopsCounter() const { ... }
 
   bool IsLimitReached() const { return is_limit_reached; }
 

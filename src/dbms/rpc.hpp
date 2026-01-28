@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@ struct CreateDatabaseReq {
   static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
   CreateDatabaseReq() = default;
+
   CreateDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
                     uint64_t const new_group_timestamp, SalientConfig config)
       : main_uuid(main_uuid),
@@ -50,6 +51,7 @@ struct CreateDatabaseRes {
   static void Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder);
   CreateDatabaseRes() = default;
+
   explicit CreateDatabaseRes(Result res) : result(res) {}
 
   Result result;
@@ -64,6 +66,7 @@ struct DropDatabaseReq {
   static void Load(DropDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder);
   DropDatabaseReq() = default;
+
   DropDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
                   uint64_t const new_group_timestamp, const utils::UUID &uuid)
       : main_uuid(main_uuid),
@@ -86,6 +89,7 @@ struct DropDatabaseRes {
   static void Load(DropDatabaseRes *self, memgraph::slk::Reader *reader);
   static void Save(const DropDatabaseRes &self, memgraph::slk::Builder *builder);
   DropDatabaseRes() = default;
+
   explicit DropDatabaseRes(Result res) : result(res) {}
 
   Result result;
@@ -100,6 +104,7 @@ struct RenameDatabaseReq {
   static void Load(RenameDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const RenameDatabaseReq &self, memgraph::slk::Builder *builder);
   RenameDatabaseReq() = default;
+
   RenameDatabaseReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
                     const utils::UUID &uuid, std::string old_name, std::string new_name)
       : main_uuid(main_uuid),
@@ -126,6 +131,7 @@ struct RenameDatabaseRes {
   static void Load(RenameDatabaseRes *self, memgraph::slk::Reader *reader);
   static void Save(const RenameDatabaseRes &self, memgraph::slk::Builder *builder);
   RenameDatabaseRes() = default;
+
   explicit RenameDatabaseRes(Result res) : result(res) {}
 
   Result result;

@@ -42,6 +42,7 @@ class HotMask {
     DMG_ASSERT(id < n_elements_, "Trying to set out-of-bounds");
     hot_masks_[GetGroup(id)].fetch_or(GroupMask(id), std::memory_order::acq_rel);
   }
+
   inline void Reset(const uint64_t id) {
     DMG_ASSERT(id < n_elements_, "Trying to reset out-of-bounds");
     hot_masks_[GetGroup(id)].fetch_and(~GroupMask(id), std::memory_order::acq_rel);
@@ -56,8 +57,10 @@ class HotMask {
 
   // Get element's group
   static constexpr uint16_t GetGroup(const uint64_t id) { return id / kGroupSize; }
+
   // Get number of groups
   static inline uint16_t GetNumGroups(const uint64_t n_elements) { return (n_elements - 1) / kGroupSize + 1; }
+
   // Mask as seen by the appropriate group
   static constexpr uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
 
@@ -76,6 +79,7 @@ using TaskSignature = std::move_only_function<void(utils::Priority)>;
 class TaskCollection {
  public:
   explicit TaskCollection(size_t num_tasks) { tasks_.reserve(num_tasks); }
+
   TaskCollection() = default;
 
   void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
@@ -84,6 +88,7 @@ class TaskCollection {
    public:
     explicit Task(TaskSignature task)
         : state_(std::make_shared<std::atomic<State>>(State::IDLE)), task_(std::move(task)) {}
+
     ~Task() = default;
     Task(const Task &) = delete;
     Task(Task &&) = default;
@@ -154,6 +159,7 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
@@ -200,6 +206,7 @@ class CollectionScheduler {
       : pool_{pool}, collection_{std::move(collection)} {}
 
   void SetPool(PriorityThreadPool *pool) { pool_ = pool; }
+
   void SetCollection(std::shared_ptr<TaskCollection> collection) { collection_ = std::move(collection); }
 
   void Trigger() {

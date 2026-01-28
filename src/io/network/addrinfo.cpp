@@ -57,6 +57,7 @@ AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
   ++(*this);
   return it;
 }
+
 AddrInfo::Iterator &AddrInfo::Iterator::operator++() noexcept {
   ptr_ = ptr_->ai_next;
   return *this;

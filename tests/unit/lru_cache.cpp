@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,7 +93,7 @@ TEST(LRUCacheTest, EmptyCacheTest) {
 }
 
 TEST(LRUCacheTest, LargeCacheTest) {
-  const int CACHE_SIZE = 10000;
+  const int CACHE_SIZE = 10'000;
   memgraph::utils::LRUCache<int, int> cache(CACHE_SIZE);
 
   std::optional<int> value;

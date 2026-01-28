@@ -51,9 +51,21 @@ class VertexDb : public Database {
                                                          bool existing_node, memgraph::query::Expression *lower_bound,
                                                          memgraph::query::Expression *upper_bound,
                                                          memgraph::query::Expression *limit) override {
-    return std::make_unique<ExpandVariable>(
-        input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction, edge_types, false, lower_bound,
-        upper_bound, existing_node, memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt, limit);
+    return std::make_unique<ExpandVariable>(input,
+                                            source_sym,
+                                            sink_sym,
+                                            edge_sym,
+                                            EdgeAtom::Type::KSHORTEST,
+                                            direction,
+                                            edge_types,
+                                            false,
+                                            lower_bound,
+                                            upper_bound,
+                                            existing_node,
+                                            memgraph::query::plan::ExpansionLambda{},
+                                            std::nullopt,
+                                            std::nullopt,
+                                            limit);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(
@@ -95,7 +107,9 @@ class GeneralKShortestTestInMemory
     : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
+
   static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
@@ -143,7 +157,9 @@ class GeneralKShortestTestOnDisk
     : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
  public:
   using StorageType = memgraph::storage::DiskStorage;
+
   static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:

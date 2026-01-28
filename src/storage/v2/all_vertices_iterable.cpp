@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,8 +33,12 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
 VertexAccessor const &AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
-  it_ = AdvanceToVisibleVertex(std::next(it_), self_->vertices_accessor_.end(), &self_->vertex_, self_->storage_,
-                               self_->transaction_, self_->view_);
+  it_ = AdvanceToVisibleVertex(std::next(it_),
+                               self_->vertices_accessor_.end(),
+                               &self_->vertex_,
+                               self_->storage_,
+                               self_->transaction_,
+                               self_->view_);
   return *this;
 }
 

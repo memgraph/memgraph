@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -159,6 +159,7 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 #ifdef MG_ENTERPRISE
 class User;
+
 class UserImpersonation {
  public:
   struct UserId {
@@ -170,11 +171,14 @@ class UserImpersonation {
 
     friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) { return lhs.name <=> rhs.name; };
   };
+
   struct GrantAllUsers {};
+
   using GrantedUsers = std::variant<std::set<UserId>, GrantAllUsers>;  // Default to no granted user
   using DeniedUsers = std::set<UserId>;
 
   UserImpersonation() = default;
+
   UserImpersonation(GrantedUsers granted, DeniedUsers denied)
       : granted_{std::move(granted)}, denied_{std::move(denied)} {}
 
@@ -190,6 +194,7 @@ class UserImpersonation {
   bool IsGranted(const User &user) const;
 
   const auto &granted() const { return granted_; }
+
   const auto &denied() const { return denied_; }
 
   friend void to_json(nlohmann::json &data, const UserImpersonation &usr_imp);
@@ -205,8 +210,8 @@ class UserImpersonation {
   std::optional<std::set<UserId>::iterator> find_granted(std::string_view username) const {
     DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
     auto &granted_set = std::get<std::set<UserId>>(granted_);
-    auto res = std::find_if(granted_set.begin(), granted_set.end(),
-                            [username](const auto &elem) { return elem.name == username; });
+    auto res = std::find_if(
+        granted_set.begin(), granted_set.end(), [username](const auto &elem) { return elem.name == username; });
     if (res == granted_set.end()) return {};
     return res;
   }
@@ -387,12 +392,17 @@ class Databases final {
    * @return true if allow_all and not denied or granted
    */
   bool Contains(std::string_view db) const;
+
   bool Denies(std::string_view db_name) const { return denies_dbs_.contains(db_name); }
+
   bool Grants(std::string_view db_name) const { return allow_all_ || grants_dbs_.contains(db_name); }
 
   bool GetAllowAll() const { return allow_all_; }
+
   const std::set<std::string, std::less<>> &GetGrants() const { return grants_dbs_; }
+
   const std::set<std::string, std::less<>> &GetDenies() const { return denies_dbs_; }
+
   const std::string &GetMain() const;
 
   nlohmann::json Serialize() const;
@@ -434,6 +444,7 @@ class Role {
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
+
   Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
 #ifdef MG_ENTERPRISE
     if (!db_name || HasAccess(*db_name)) {
@@ -455,10 +466,15 @@ class Role {
 
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return db_access_; }
+
   const Databases &db_access() const { return db_access_; }
+
   const std::string &GetMain() const { return db_access_.GetMain(); }
+
   bool DeniesDB(std::string_view db_name) const { return db_access_.Denies(db_name); }
+
   bool GrantsDB(std::string_view db_name) const { return db_access_.Grants(db_name); }
+
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 #endif
 
@@ -478,6 +494,7 @@ class Role {
     }
     return user_impersonation_ && user_impersonation_->IsGranted(user);
   }
+
   bool UserImpIsDenied(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
     if (db_name && !HasAccess(*db_name)) {
       return false;
@@ -486,14 +503,17 @@ class Role {
   }
 
   void RevokeUserImp() { user_impersonation_.reset(); }
+
   void GrantUserImp() {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->GrantAll();
   }
+
   void GrantUserImp(const std::vector<User> &users) {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->Grant(users);
   }
+
   void DenyUserImp(const std::vector<User> &users) {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->Deny(users);
@@ -545,6 +565,7 @@ namespace memgraph::auth {
 class Roles {
  public:
   Roles() = default;
+
   explicit Roles(std::unordered_set<Role> roles) : roles_{std::move(roles)} {}
 
   // Add a single role
@@ -563,6 +584,7 @@ class Roles {
 
   // Get all roles
   const std::unordered_set<Role> &GetRoles() const { return roles_; }
+
   std::optional<Role> GetRole(const std::string &rolename) const {
     auto it = std::ranges::find(roles_, rolename, &Role::rolename);
     if (it == roles_.end()) {
@@ -656,18 +678,25 @@ class Roles {
 
   // Iteration support
   auto begin() { return roles_.begin(); }
+
   auto end() { return roles_.end(); }
+
   auto begin() const { return roles_.begin(); }
+
   auto end() const { return roles_.end(); }
+
   auto cbegin() const { return roles_.cbegin(); }
+
   auto cend() const { return roles_.cend(); }
 
   // Size and empty checks
   bool empty() const { return roles_.empty(); }
+
   size_t size() const { return roles_.size(); }
 
   // Comparison operators
   friend bool operator==(const Roles &first, const Roles &second) { return first.roles_ == second.roles_; }
+
   friend bool operator!=(const Roles &first, const Roles &second) { return !(first == second); }
 
  private:
@@ -714,8 +743,11 @@ class User final {
   void ClearAllRoles();
 
   void AddRole(const Role &role);
+
   void RemoveRole(const std::string &rolename) { roles_.RemoveRole(rolename); }
+
   const Roles &roles() const { return roles_; }
+
   Roles &roles() { return roles_; }
 
 // Multi-tenant role support
@@ -749,14 +781,17 @@ class User final {
   // Multi-tenant access
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
+
   const Databases &db_access() const { return database_access_; }
 
   const std::string &GetMain() const { return database_access_.GetMain(); }
 
   bool DeniesDB(std::string_view db_name) const { return database_access_.Denies(db_name) || roles_.DeniesDB(db_name); }
+
   bool GrantsDB(std::string_view db_name) const { return database_access_.Grants(db_name) || roles_.GrantsDB(db_name); }
 
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
+
   bool has_access(std::string_view db_name) const {
     return !database_access_.Denies(db_name) && database_access_.Grants(db_name);
   }
@@ -779,14 +814,17 @@ class User final {
   }
 
   void RevokeUserImp() { user_impersonation_.reset(); }
+
   void GrantUserImp() {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->GrantAll();
   }
+
   void GrantUserImp(const std::vector<User> &users) {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->Grant(users);
   }
+
   void DenyUserImp(const std::vector<User> &users) {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->Deny(users);

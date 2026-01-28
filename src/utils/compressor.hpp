@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,6 +56,7 @@ struct CompressedBuffer {
   auto original_size() const -> uint32_t { return original_size_; }
 
   auto view() -> std::span<uint8_t> { return std::span{data_.get(), compressed_size_}; }
+
   auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), compressed_size_}; }
 
  private:
@@ -73,6 +74,7 @@ struct DecompressedBuffer {
   DecompressedBuffer &operator=(DecompressedBuffer &&other) noexcept = default;
 
   auto view() -> std::span<uint8_t> { return std::span{data_.get(), original_size_}; }
+
   auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), original_size_}; }
 
   void release() {

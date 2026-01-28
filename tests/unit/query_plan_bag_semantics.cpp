@@ -144,21 +144,41 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
   auto Null = memgraph::storage::PropertyValue();
   std::vector<std::pair<Ordering, std::vector<memgraph::storage::PropertyValue>>> orderable{
       {Ordering::ASC,
-       {memgraph::storage::PropertyValue(0), memgraph::storage::PropertyValue(0), memgraph::storage::PropertyValue(0.5),
-        memgraph::storage::PropertyValue(1), memgraph::storage::PropertyValue(2),
-        memgraph::storage::PropertyValue(12.6), memgraph::storage::PropertyValue(42), Null, Null}},
+       {memgraph::storage::PropertyValue(0),
+        memgraph::storage::PropertyValue(0),
+        memgraph::storage::PropertyValue(0.5),
+        memgraph::storage::PropertyValue(1),
+        memgraph::storage::PropertyValue(2),
+        memgraph::storage::PropertyValue(12.6),
+        memgraph::storage::PropertyValue(42),
+        Null,
+        Null}},
       {Ordering::ASC,
-       {memgraph::storage::PropertyValue(false), memgraph::storage::PropertyValue(false),
-        memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue(true), Null, Null}},
+       {memgraph::storage::PropertyValue(false),
+        memgraph::storage::PropertyValue(false),
+        memgraph::storage::PropertyValue(true),
+        memgraph::storage::PropertyValue(true),
+        Null,
+        Null}},
       {Ordering::ASC,
-       {memgraph::storage::PropertyValue("A"), memgraph::storage::PropertyValue("B"),
-        memgraph::storage::PropertyValue("a"), memgraph::storage::PropertyValue("a"),
-        memgraph::storage::PropertyValue("aa"), memgraph::storage::PropertyValue("ab"),
-        memgraph::storage::PropertyValue("aba"), Null, Null}},
+       {memgraph::storage::PropertyValue("A"),
+        memgraph::storage::PropertyValue("B"),
+        memgraph::storage::PropertyValue("a"),
+        memgraph::storage::PropertyValue("a"),
+        memgraph::storage::PropertyValue("aa"),
+        memgraph::storage::PropertyValue("ab"),
+        memgraph::storage::PropertyValue("aba"),
+        Null,
+        Null}},
       {Ordering::DESC,
-       {Null, Null, memgraph::storage::PropertyValue(33), memgraph::storage::PropertyValue(33),
-        memgraph::storage::PropertyValue(32.5), memgraph::storage::PropertyValue(32),
-        memgraph::storage::PropertyValue(2.2), memgraph::storage::PropertyValue(2.1),
+       {Null,
+        Null,
+        memgraph::storage::PropertyValue(33),
+        memgraph::storage::PropertyValue(33),
+        memgraph::storage::PropertyValue(32.5),
+        memgraph::storage::PropertyValue(32),
+        memgraph::storage::PropertyValue(2.2),
+        memgraph::storage::PropertyValue(2.1),
         memgraph::storage::PropertyValue(0)}},
       {Ordering::DESC, {Null, memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue(false)}},
       {Ordering::DESC, {Null, memgraph::storage::PropertyValue("zorro"), memgraph::storage::PropertyValue("borro")}}};
@@ -197,8 +217,8 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     // order by and collect results
     auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
-    auto order_by = std::make_shared<plan::OrderBy>(n.op_, std::vector<SortItem>{{order_value_pair.first, n_p}},
-                                                    std::vector<Symbol>{n.sym_});
+    auto order_by = std::make_shared<plan::OrderBy>(
+        n.op_, std::vector<SortItem>{{order_value_pair.first, n_p}}, std::vector<Symbol>{n.sym_});
     auto n_p_ne = NEXPR("n.p", n_p)->MapTo(symbol_table.CreateSymbol("n.p", true));
     auto produce = MakeProduce(order_by, n_p_ne);
     auto context = MakeContext(this->storage, symbol_table, &dba);

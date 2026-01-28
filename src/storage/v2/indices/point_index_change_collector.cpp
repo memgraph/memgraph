@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,9 +49,8 @@ auto PointIndexChangeCollector::CurrentChanges() const -> TrackedChanges const &
 auto PointIndexChangeCollector::PreviousChanges() const -> TrackedChanges const & {
   if (!previous_changes_) {
     // Lazy initialization - create empty sets for all current keys
-    auto rng = current_changes_ | std::views::keys | std::views::transform([](auto &key) {
-                 return std::pair{key, absl::flat_hash_set<Vertex const *>{}};
-               });
+    auto rng = current_changes_ | std::views::keys |
+               std::views::transform([](auto &key) { return std::pair{key, absl::flat_hash_set<Vertex const *>{}}; });
     previous_changes_ = TrackedChanges{rng.begin(), rng.end()};
   }
   return *previous_changes_;

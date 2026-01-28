@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,9 +51,15 @@ const auto kVertexCount = 6;
 // Maps vertices to workers
 const std::vector<int> kVertexLocations = {0, 1, 1, 0, 2, 2};
 // Edge list in form of (from, to, edge_type).
-const std::vector<std::tuple<int, int, std::string>> kEdges = {{0, 1, "a"}, {1, 2, "b"}, {2, 4, "b"},
-                                                               {2, 5, "a"}, {4, 1, "a"}, {4, 5, "a"},
-                                                               {5, 3, "b"}, {5, 4, "a"}, {5, 5, "b"}};
+const std::vector<std::tuple<int, int, std::string>> kEdges = {{0, 1, "a"},
+                                                               {1, 2, "b"},
+                                                               {2, 4, "b"},
+                                                               {2, 5, "a"},
+                                                               {4, 1, "a"},
+                                                               {4, 5, "a"},
+                                                               {5, 3, "b"},
+                                                               {5, 4, "a"},
+                                                               {5, 5, "b"}};
 
 // Filters input edge list by edge type and direction and returns a list of
 // pairs representing valid directed edges.
@@ -123,12 +129,15 @@ std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vec
   }
 
   // Sort by path length
-  std::sort(all_paths.begin(), all_paths.end(),
-            [](const std::vector<int> &a, const std::vector<int> &b) { return a.size() < b.size(); });
+  std::sort(all_paths.begin(), all_paths.end(), [](const std::vector<int> &a, const std::vector<int> &b) {
+    return a.size() < b.size();
+  });
 
   spdlog::info("YenKShortestPaths: Found {} paths total", all_paths.size());
   for (size_t i = 0; i < all_paths.size(); ++i) {
-    spdlog::info("YenKShortestPaths: Path {}: length={}, vertices={}", i, all_paths[i].size() - 1,
+    spdlog::info("YenKShortestPaths: Path {}: length={}, vertices={}",
+                 i,
+                 all_paths[i].size() - 1,
                  fmt::format("{}", memgraph::utils::JoinVector(all_paths[i], "->")));
   }
 
@@ -147,12 +156,17 @@ class Yield : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::UniqueCursorPtr MakeCursor(memgraph::utils::MemoryResource *mem) const override {
     return memgraph::query::plan::MakeUniqueCursorPtr<YieldCursor>(mem, this, input_->MakeCursor(mem));
   }
+
   std::vector<memgraph::query::Symbol> ModifiedSymbols(const memgraph::query::SymbolTable &) const override {
     return modified_symbols_;
   }
+
   bool HasSingleInput() const override { return true; }
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input() const override { return input_; }
+
   void set_input(std::shared_ptr<memgraph::query::plan::LogicalOperator> input) override { input_ = input; }
+
   bool Accept(memgraph::query::plan::HierarchicalLogicalOperatorVisitor &) override {
     LOG_FATAL("Please go away, visitor!");
   }
@@ -169,6 +183,7 @@ class Yield : public memgraph::query::plan::LogicalOperator {
    public:
     YieldCursor(const Yield *self, memgraph::query::plan::UniqueCursorPtr input_cursor)
         : self_(self), input_cursor_(std::move(input_cursor)), pull_index_(self_->values_.size()) {}
+
     bool Pull(memgraph::query::Frame &frame, memgraph::query::ExecutionContext &context) override {
       if (pull_index_ == self_->values_.size()) {
         if (!input_cursor_->Pull(frame, context)) return false;
@@ -181,6 +196,7 @@ class Yield : public memgraph::query::plan::LogicalOperator {
       pull_index_++;
       return true;
     }
+
     void Reset() override {
       input_cursor_->Reset();
       pull_index_ = self_->values_.size();
@@ -301,7 +317,9 @@ class Database {
 
   void KShortestTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
                      std::vector<std::string> edge_types, int limit = -1) {
-    spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}", lower_bound, upper_bound,
+    spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}",
+                 lower_bound,
+                 upper_bound,
                  static_cast<int>(direction),
                  edge_types.empty() ? "all" : fmt::format("{}", memgraph::utils::JoinVector(edge_types, ",")));
 
@@ -332,7 +350,13 @@ class Database {
     }
     spdlog::info("KShortestTest: Using {} edge types", storage_edge_types.size());
 
-    input_op = db->MakeKShortestOperator(source_sym, sink_sym, edges_sym, direction, storage_edge_types, input_op, true,
+    input_op = db->MakeKShortestOperator(source_sym,
+                                         sink_sym,
+                                         edges_sym,
+                                         direction,
+                                         storage_edge_types,
+                                         input_op,
+                                         true,
                                          lower_bound == -1 ? nullptr : LITERAL(lower_bound),
                                          upper_bound == -1 ? nullptr : LITERAL(upper_bound),
                                          limit == -1 ? nullptr : LITERAL(limit));
@@ -385,7 +409,8 @@ class Database {
       // correct_paths is a path of vertices, not edges, so we need to subtract 1 from the path length to get the number
       // of edges.
       correct_paths.erase(
-          std::remove_if(correct_paths.begin(), correct_paths.end(),
+          std::remove_if(correct_paths.begin(),
+                         correct_paths.end(),
                          [lower_bound = lower_bound != -1 ? lower_bound : 1,
                           upper_bound = upper_bound != -1 ? upper_bound : std::numeric_limits<int>::max()](
                              const std::vector<int> &path) {
@@ -405,7 +430,8 @@ class Database {
       EXPECT_EQ(j - i, expected_count);
 
       auto lengths = CheckPathsAndExtractLengths(
-          &dba, edges_filtered,
+          &dba,
+          edges_filtered,
           std::vector<std::vector<memgraph::query::TypedValue>>(results.begin() + i, results.begin() + j));
 
       // The path lengths should match and be in ascending order.
@@ -522,7 +548,8 @@ class Database {
     // We run k-shortest paths for all possible source-sink pairs
     std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
     if (fine_grained_test_type == FineGrainedTestType::LABEL_0_DENIED) {
-      vertices.erase(std::remove_if(vertices.begin(), vertices.end(),
+      vertices.erase(std::remove_if(vertices.begin(),
+                                    vertices.end(),
                                     [&](const auto &v) { return GetProp(v, "id", &db_accessor).ValueInt() == 0; }),
                      vertices.end());
     }
@@ -534,17 +561,23 @@ class Database {
       storage_edge_types.push_back(db_accessor.NameToEdgeType(t));
     }
 
-    input_operator =
-        db->MakeKShortestOperator(source_symbol, sink_symbol, edges_symbol, direction, storage_edge_types,
-                                  input_operator, true, nullptr, upper_bound == -1 ? nullptr : LITERAL(upper_bound));
+    input_operator = db->MakeKShortestOperator(source_symbol,
+                                               sink_symbol,
+                                               edges_symbol,
+                                               direction,
+                                               storage_edge_types,
+                                               input_operator,
+                                               true,
+                                               nullptr,
+                                               upper_bound == -1 ? nullptr : LITERAL(upper_bound));
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
     context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &db_accessor);
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
-    results = PullResults(input_operator.get(), &context,
-                          std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
+    results = PullResults(
+        input_operator.get(), &context, std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
 
     switch (fine_grained_test_type) {
       case FineGrainedTestType::ALL_GRANTED:

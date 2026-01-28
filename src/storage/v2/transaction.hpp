@@ -46,7 +46,9 @@ namespace memgraph::storage {
 
 struct CommitCallbacks {
   using func_t = std::function<void(uint64_t)>;
+
   void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+
   void RunAll(uint64_t commit_timestamp) {
     for (auto &callback : callbacks_) {
       callback(commit_timestamp);
@@ -86,6 +88,7 @@ struct AsyncIndexHelper {
     absl::flat_hash_set<LabelId> existing_;
     absl::flat_hash_set<LabelId> requested_;
   };
+
   struct EdgeTypeIndexInfo {
     absl::flat_hash_set<EdgeTypeId> existing_;
     absl::flat_hash_set<EdgeTypeId> requested_;
@@ -162,7 +165,9 @@ struct Transaction {
   }
 
   void SetParallelExecution() { parallel_execution_ = true; }
+
   void SetSerialExecution() { parallel_execution_ = false; }
+
   bool IsParallelExecution() const { return parallel_execution_; }
 
   bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !IsParallelExecution(); }
@@ -242,10 +247,13 @@ struct Transaction {
 inline bool operator==(const Transaction &first, const Transaction &second) {
   return first.transaction_id == second.transaction_id;
 }
+
 inline bool operator<(const Transaction &first, const Transaction &second) {
   return first.transaction_id < second.transaction_id;
 }
+
 inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
+
 inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
 }  // namespace memgraph::storage

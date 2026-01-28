@@ -45,6 +45,7 @@ struct CreatedObject {
   explicit CreatedObject(const TAccessor &object) : object{object} {}
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -57,6 +58,7 @@ struct DeletedObject {
   explicit DeletedObject(const TAccessor &object) : object{object} {}
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -165,6 +167,7 @@ const char *TriggerEventTypeToString(TriggerEventType event_type);
 class TriggerContext {
  public:
   TriggerContext() = default;
+
   TriggerContext(std::vector<detail::CreatedObject<VertexAccessor>> created_vertices,
                  std::vector<detail::DeletedObject<VertexAccessor>> deleted_vertices,
                  std::vector<detail::SetObjectProperty<VertexAccessor>> set_vertex_properties,
@@ -185,6 +188,7 @@ class TriggerContext {
         deleted_edges_{std::move(deleted_edges)},
         set_edge_properties_{std::move(set_edge_properties)},
         removed_edge_properties_{std::move(removed_edge_properties)} {}
+
   TriggerContext(const TriggerContext &) = default;
   TriggerContext(TriggerContext &&) = default;
   TriggerContext &operator=(const TriggerContext &) = default;

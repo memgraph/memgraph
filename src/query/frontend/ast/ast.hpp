@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,6 +60,7 @@ inline constexpr std::string_view kDefaultScalarKind = "f32";
 class UnaryOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   UnaryOperator() = default;
@@ -78,12 +79,14 @@ class UnaryOperator : public Expression {
 class OrOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -108,12 +111,14 @@ class OrOperator : public memgraph::query::BinaryOperator {
 class XorOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -138,12 +143,14 @@ class XorOperator : public memgraph::query::BinaryOperator {
 class AndOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -168,12 +175,14 @@ class AndOperator : public memgraph::query::BinaryOperator {
 class AdditionOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -198,12 +207,14 @@ class AdditionOperator : public memgraph::query::BinaryOperator {
 class SubtractionOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -228,12 +239,14 @@ class SubtractionOperator : public memgraph::query::BinaryOperator {
 class MultiplicationOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -258,12 +271,14 @@ class MultiplicationOperator : public memgraph::query::BinaryOperator {
 class DivisionOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -288,12 +303,14 @@ class DivisionOperator : public memgraph::query::BinaryOperator {
 class ModOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -318,12 +335,14 @@ class ModOperator : public memgraph::query::BinaryOperator {
 class ExponentiationOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -348,12 +367,14 @@ class ExponentiationOperator : public memgraph::query::BinaryOperator {
 class NotEqualOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -378,12 +399,14 @@ class NotEqualOperator : public memgraph::query::BinaryOperator {
 class EqualOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -408,12 +431,14 @@ class EqualOperator : public memgraph::query::BinaryOperator {
 class LessOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -438,12 +463,14 @@ class LessOperator : public memgraph::query::BinaryOperator {
 class GreaterOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -468,12 +495,14 @@ class GreaterOperator : public memgraph::query::BinaryOperator {
 class LessEqualOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -498,12 +527,14 @@ class LessEqualOperator : public memgraph::query::BinaryOperator {
 class GreaterEqualOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -528,6 +559,7 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
 class RangeOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Expression *expression1_{};
@@ -537,6 +569,7 @@ class RangeOperator : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -558,12 +591,14 @@ class RangeOperator : public Expression {
 class InListOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -588,12 +623,14 @@ class InListOperator : public memgraph::query::BinaryOperator {
 class SubscriptOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -618,12 +655,14 @@ class SubscriptOperator : public memgraph::query::BinaryOperator {
 class NotOperator : public memgraph::query::UnaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -647,12 +686,14 @@ class NotOperator : public memgraph::query::UnaryOperator {
 class UnaryPlusOperator : public memgraph::query::UnaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -676,12 +717,14 @@ class UnaryPlusOperator : public memgraph::query::UnaryOperator {
 class UnaryMinusOperator : public memgraph::query::UnaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -705,12 +748,14 @@ class UnaryMinusOperator : public memgraph::query::UnaryOperator {
 class IsNullOperator : public memgraph::query::UnaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -734,6 +779,7 @@ class IsNullOperator : public memgraph::query::UnaryOperator {
 class ListSlicingOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ListSlicingOperator() = default;
@@ -742,6 +788,7 @@ class ListSlicingOperator : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       bool cont = list_->Accept(visitor);
@@ -778,6 +825,7 @@ class ListSlicingOperator : public Expression {
 class IfOperator : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   IfOperator() = default;
@@ -786,6 +834,7 @@ class IfOperator : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       condition_->Accept(visitor) && then_expression_->Accept(visitor) && else_expression_->Accept(visitor);
@@ -818,6 +867,7 @@ class IfOperator : public Expression {
 class BaseLiteral : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   BaseLiteral() = default;
@@ -831,6 +881,7 @@ class BaseLiteral : public Expression {
 class PrimitiveLiteral : public memgraph::query::BaseLiteral {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   PrimitiveLiteral() = default;
@@ -856,6 +907,7 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
  protected:
   template <typename T>
   explicit PrimitiveLiteral(T value) : value_(value) {}
+
   template <typename T>
   PrimitiveLiteral(T value, int token_position) : value_(value), token_position_(token_position) {}
 
@@ -866,6 +918,7 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
 class ListLiteral : public memgraph::query::BaseLiteral {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ListLiteral() = default;
@@ -874,6 +927,7 @@ class ListLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto expr_ptr : elements_)
@@ -903,6 +957,7 @@ class ListLiteral : public memgraph::query::BaseLiteral {
 class MapLiteral : public memgraph::query::BaseLiteral {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   MapLiteral() = default;
@@ -911,6 +966,7 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto pair : elements_) {
@@ -946,6 +1002,7 @@ struct MapProjectionData {
 class MapProjectionLiteral : public memgraph::query::BaseLiteral {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   MapProjectionLiteral() = default;
@@ -954,6 +1011,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       map_variable_->Accept(visitor);
@@ -998,6 +1056,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
 class PropertyLookup : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
@@ -1010,6 +1069,7 @@ class PropertyLookup : public Expression {
       : expression_(expression), property_path_(std::move(property_path)) {
     MG_ASSERT(property_path_.size() > 0, "Property path is empty!");
   }
+
   PropertyLookup(Expression *expression, PropertyIx property)
       : expression_(expression), property_(property), property_path_{property} {}
 
@@ -1017,6 +1077,7 @@ class PropertyLookup : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -1055,6 +1116,7 @@ class PropertyLookup : public Expression {
 class AllPropertiesLookup : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   AllPropertiesLookup() = default;
@@ -1063,6 +1125,7 @@ class AllPropertiesLookup : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -1090,6 +1153,7 @@ using QueryLabelType = std::variant<LabelIx, Expression *>;
 class LabelsTest : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LabelsTest() = default;
@@ -1098,6 +1162,7 @@ class LabelsTest : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -1136,6 +1201,7 @@ class LabelsTest : public Expression {
       or_labels_.push_back(std::move(labels));
     }
   }
+
   LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
     labels_.reserve(labels.size());
     for (const auto &label : labels) {
@@ -1154,6 +1220,7 @@ class LabelsTest : public Expression {
 class EdgeTypesTest : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   EdgeTypesTest() = default;
@@ -1162,6 +1229,7 @@ class EdgeTypesTest : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -1190,6 +1258,7 @@ class EdgeTypesTest : public Expression {
 class Function : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Function() = default;
@@ -1198,6 +1267,7 @@ class Function : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto *argument : arguments_) {
@@ -1254,6 +1324,7 @@ class Function : public Expression {
 class Reduce : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Reduce() = default;
@@ -1262,6 +1333,7 @@ class Reduce : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       accumulator_->Accept(visitor) && initializer_->Accept(visitor) && identifier_->Accept(visitor) &&
@@ -1307,6 +1379,7 @@ class Reduce : public Expression {
 class Coalesce : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Coalesce() = default;
@@ -1315,6 +1388,7 @@ class Coalesce : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto *expr : expressions_) {
@@ -1345,6 +1419,7 @@ class Coalesce : public Expression {
 class Extract : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Extract() = default;
@@ -1353,6 +1428,7 @@ class Extract : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor) && list_->Accept(visitor) && expression_->Accept(visitor);
@@ -1386,6 +1462,7 @@ class Extract : public Expression {
 class All : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   All() = default;
@@ -1394,6 +1471,7 @@ class All : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor) && list_expression_->Accept(visitor) && where_->Accept(visitor);
@@ -1424,6 +1502,7 @@ class All : public Expression {
 class Single : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Single() = default;
@@ -1432,6 +1511,7 @@ class Single : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor) && list_expression_->Accept(visitor) && where_->Accept(visitor);
@@ -1462,6 +1542,7 @@ class Single : public Expression {
 class Any : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Any() = default;
@@ -1470,6 +1551,7 @@ class Any : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor) && list_expression_->Accept(visitor) && where_->Accept(visitor);
@@ -1500,6 +1582,7 @@ class Any : public Expression {
 class None : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   None() = default;
@@ -1508,6 +1591,7 @@ class None : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor) && list_expression_->Accept(visitor) && where_->Accept(visitor);
@@ -1538,6 +1622,7 @@ class None : public Expression {
 class ListComprehension : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ListComprehension() = default;
@@ -1546,6 +1631,7 @@ class ListComprehension : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor);
@@ -1589,6 +1675,7 @@ class ListComprehension : public Expression {
 class ParameterLookup : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ParameterLookup() = default;
@@ -1619,6 +1706,7 @@ class ParameterLookup : public Expression {
 class RegexMatch : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   RegexMatch() = default;
@@ -1627,6 +1715,7 @@ class RegexMatch : public Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
+
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       string_expr_->Accept(visitor) && regex_->Accept(visitor);
@@ -1646,12 +1735,14 @@ class RegexMatch : public Expression {
 
  private:
   friend class AstStorage;
+
   RegexMatch(Expression *string_expr, Expression *regex) : string_expr_(string_expr), regex_(regex) {}
 };
 
 class NodeAtom : public memgraph::query::PatternAtom {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1712,6 +1803,7 @@ using QueryEdgeType = std::variant<EdgeTypeIx, Expression *>;
 class EdgeAtom : public memgraph::query::PatternAtom {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Type : uint8_t {
@@ -1728,6 +1820,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   /// Lambda for use in filtering or weight calculation during variable expand.
   struct Lambda {
     static const utils::TypeInfo kType;
+
     const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
     /// Argument identifier for the edge currently being traversed.
@@ -1847,6 +1940,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
 
  protected:
   using PatternAtom::PatternAtom;
+
   EdgeAtom(Identifier *identifier, Type type, Direction direction)
       : PatternAtom(identifier), type_(type), direction_(direction) {}
 
@@ -1861,6 +1955,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
 class Clause : public memgraph::query::Tree, public utils::Visitable<HierarchicalTreeVisitor> {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   using utils::Visitable<HierarchicalTreeVisitor>::Accept;
@@ -1876,6 +1971,7 @@ class Clause : public memgraph::query::Tree, public utils::Visitable<Hierarchica
 class SingleQuery : public memgraph::query::Tree, public utils::Visitable<HierarchicalTreeVisitor> {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   using utils::Visitable<HierarchicalTreeVisitor>::Accept;
@@ -1911,6 +2007,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
 class CypherUnion : public memgraph::query::Tree, public utils::Visitable<HierarchicalTreeVisitor> {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   using utils::Visitable<HierarchicalTreeVisitor>::Accept;
@@ -1940,6 +2037,7 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
 
  protected:
   explicit CypherUnion(bool distinct) : distinct_(distinct) {}
+
   CypherUnion(bool distinct, SingleQuery *single_query, std::vector<Symbol> union_symbols)
       : single_query_(single_query), distinct_(distinct), union_symbols_(union_symbols) {}
 
@@ -1949,6 +2047,7 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
 
 struct PropertyIxPath {
   PropertyIxPath(std::vector<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+
   PropertyIxPath(std::initializer_list<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
 
   std::vector<memgraph::query::PropertyIx> path;
@@ -1956,6 +2055,7 @@ struct PropertyIxPath {
   auto AsPathString() const -> std::string {
     return utils::Join(path | ranges::views::transform(&PropertyIx::name), ".");
   }
+
   auto Clone(AstStorage *storage) const -> PropertyIxPath;
   friend bool operator==(PropertyIxPath const &, PropertyIxPath const &) = default;
   friend bool operator<(PropertyIxPath const &, PropertyIxPath const &) = default;
@@ -1964,6 +2064,7 @@ struct PropertyIxPath {
 
 struct IndexHint {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   enum class IndexType { LABEL, LABEL_PROPERTIES, POINT };
@@ -1978,6 +2079,7 @@ struct IndexHint {
 
 struct PreQueryDirectives {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   /// Index hints
@@ -2007,6 +2109,7 @@ struct PreQueryDirectives {
 class CypherQuery : public memgraph::query::Query, public utils::Visitable<HierarchicalTreeVisitor> {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   CypherQuery() = default;
@@ -2054,6 +2157,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
 class ExplainQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ExplainQuery() = default;
@@ -2076,6 +2180,7 @@ class ExplainQuery : public memgraph::query::Query {
 class ProfileQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ProfileQuery() = default;
@@ -2098,6 +2203,7 @@ class ProfileQuery : public memgraph::query::Query {
 class IndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { CREATE, DROP };
@@ -2132,6 +2238,7 @@ class IndexQuery : public memgraph::query::Query {
 class EdgeIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { CREATE, DROP };
@@ -2168,6 +2275,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
 class PointIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { CREATE, DROP };
@@ -2199,6 +2307,7 @@ class PointIndexQuery : public memgraph::query::Query {
 class TextIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { CREATE, DROP };
@@ -2232,6 +2341,7 @@ class TextIndexQuery : public memgraph::query::Query {
 class CreateTextEdgeIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   CreateTextEdgeIndexQuery() = default;
@@ -2261,6 +2371,7 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
 class VectorIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { CREATE, DROP };
@@ -2303,6 +2414,7 @@ class VectorIndexQuery : public memgraph::query::Query {
 class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   CreateVectorEdgeIndexQuery() = default;
@@ -2340,6 +2452,7 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Create() = default;
@@ -2374,6 +2487,7 @@ class Create : public memgraph::query::Clause {
 class CallProcedure : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   CallProcedure() = default;
@@ -2434,6 +2548,7 @@ class CallProcedure : public memgraph::query::Clause {
 class Match : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Match() = default;
@@ -2471,6 +2586,7 @@ class Match : public memgraph::query::Clause {
 
  protected:
   explicit Match(bool optional) : optional_(optional) {}
+
   Match(bool optional, Where *where, std::vector<Pattern *> patterns)
       : patterns_(patterns), where_(where), optional_(optional) {}
 
@@ -2480,6 +2596,7 @@ class Match : public memgraph::query::Clause {
 
 struct SortItem {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   memgraph::query::Ordering ordering;
@@ -2496,6 +2613,7 @@ struct SortItem {
 /// Contents common to @c Return and @c With clauses.
 struct ReturnBody {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   /// True if distinct results should be produced.
@@ -2532,6 +2650,7 @@ struct ReturnBody {
 class Return : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Return() = default;
@@ -2577,6 +2696,7 @@ class Return : public memgraph::query::Clause {
 class With : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   With() = default;
@@ -2625,6 +2745,7 @@ class With : public memgraph::query::Clause {
 class Delete : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Delete() = default;
@@ -2661,6 +2782,7 @@ class Delete : public memgraph::query::Clause {
 class SetProperty : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   SetProperty() = default;
@@ -2693,6 +2815,7 @@ class SetProperty : public memgraph::query::Clause {
 class SetProperties : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   SetProperties() = default;
@@ -2727,6 +2850,7 @@ class SetProperties : public memgraph::query::Clause {
 class SetLabels : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   SetLabels() = default;
@@ -2766,6 +2890,7 @@ class SetLabels : public memgraph::query::Clause {
 class RemoveProperty : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   RemoveProperty() = default;
@@ -2795,6 +2920,7 @@ class RemoveProperty : public memgraph::query::Clause {
 class RemoveLabels : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   RemoveLabels() = default;
@@ -2834,6 +2960,7 @@ class RemoveLabels : public memgraph::query::Clause {
 class Merge : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Merge() = default;
@@ -2890,6 +3017,7 @@ class Merge : public memgraph::query::Clause {
 class Unwind : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Unwind() = default;
@@ -2921,6 +3049,7 @@ class Unwind : public memgraph::query::Clause {
 class DatabaseInfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS, VECTOR_INDEX };
@@ -2939,6 +3068,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
 class SystemInfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class InfoType { STORAGE, BUILD, ACTIVE_USERS, LICENSE };
@@ -2956,6 +3086,7 @@ class SystemInfoQuery : public memgraph::query::Query {
 
 struct Constraint {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   enum class Type { EXISTS, UNIQUE, NODE_KEY, TYPE };
@@ -2981,6 +3112,7 @@ struct Constraint {
 class ConstraintQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class ActionType { CREATE, DROP };
@@ -3001,6 +3133,7 @@ class ConstraintQuery : public memgraph::query::Query {
 class DumpQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3014,6 +3147,7 @@ class DumpQuery : public memgraph::query::Query {
 class ReplicationQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { SET_REPLICATION_ROLE, REGISTER_REPLICA, DROP_REPLICA };
@@ -3055,6 +3189,7 @@ class ReplicationQuery : public memgraph::query::Query {
 class ReplicationInfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { SHOW_REPLICATION_ROLE, SHOW_REPLICAS };
@@ -3078,6 +3213,7 @@ class ReplicationInfoQuery : public memgraph::query::Query {
 class CoordinatorQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action : uint8_t {
@@ -3134,6 +3270,7 @@ class CoordinatorQuery : public memgraph::query::Query {
 class DropAllIndexesQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DropAllIndexesQuery() = default;
@@ -3152,6 +3289,7 @@ class DropAllIndexesQuery : public memgraph::query::Query {
 class DropAllConstraintsQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DropAllConstraintsQuery() = default;
@@ -3170,6 +3308,7 @@ class DropAllConstraintsQuery : public memgraph::query::Query {
 class DropGraphQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DropGraphQuery() = default;
@@ -3188,6 +3327,7 @@ class DropGraphQuery : public memgraph::query::Query {
 class EdgeImportModeQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Status { ACTIVE, INACTIVE };
@@ -3211,6 +3351,7 @@ class EdgeImportModeQuery : public memgraph::query::Query {
 class LockPathQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { LOCK_PATH, UNLOCK_PATH, STATUS };
@@ -3234,6 +3375,7 @@ class LockPathQuery : public memgraph::query::Query {
 class LoadCsv : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LoadCsv() = default;
@@ -3289,6 +3431,7 @@ class LoadCsv : public memgraph::query::Clause {
 class LoadParquet : public Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LoadParquet() = default;
@@ -3326,6 +3469,7 @@ class LoadParquet : public Clause {
 class LoadJsonl : public Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   LoadJsonl() = default;
@@ -3363,6 +3507,7 @@ class LoadJsonl : public Clause {
 class FreeMemoryQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3376,6 +3521,7 @@ class FreeMemoryQuery : public memgraph::query::Query {
 class TriggerQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action : uint8_t { CREATE_TRIGGER, DROP_TRIGGER, SHOW_TRIGGERS };
@@ -3422,6 +3568,7 @@ class TriggerQuery : public memgraph::query::Query {
 class IsolationLevelQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class IsolationLevel { SNAPSHOT_ISOLATION, READ_COMMITTED, READ_UNCOMMITTED };
@@ -3449,6 +3596,7 @@ class IsolationLevelQuery : public memgraph::query::Query {
 class StorageModeQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL };
@@ -3472,6 +3620,7 @@ class StorageModeQuery : public memgraph::query::Query {
 class CreateSnapshotQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3485,6 +3634,7 @@ class CreateSnapshotQuery : public memgraph::query::Query {
 class RecoverSnapshotQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3507,6 +3657,7 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
 class ShowSnapshotsQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3520,6 +3671,7 @@ class ShowSnapshotsQuery : public memgraph::query::Query {
 class ShowNextSnapshotQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3533,6 +3685,7 @@ class ShowNextSnapshotQuery : public memgraph::query::Query {
 class StreamQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action {
@@ -3605,6 +3758,7 @@ class StreamQuery : public memgraph::query::Query {
 class SettingQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { SHOW_SETTING, SHOW_ALL_SETTINGS, SET_SETTING };
@@ -3632,6 +3786,7 @@ class SettingQuery : public memgraph::query::Query {
 class VersionQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3645,6 +3800,7 @@ class VersionQuery : public memgraph::query::Query {
 class Foreach : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Foreach() = default;
@@ -3683,6 +3839,7 @@ class Foreach : public memgraph::query::Clause {
 class ShowConfigQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3696,6 +3853,7 @@ class ShowConfigQuery : public memgraph::query::Query {
 class TransactionQueueQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action { SHOW_TRANSACTIONS, TERMINATE_TRANSACTIONS };
@@ -3718,6 +3876,7 @@ class TransactionQueueQuery : public memgraph::query::Query {
 class AnalyzeGraphQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3738,6 +3897,7 @@ class AnalyzeGraphQuery : public memgraph::query::Query {
 class CallSubquery : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   CallSubquery() = default;
@@ -3764,6 +3924,7 @@ class CallSubquery : public memgraph::query::Clause {
 class MultiDatabaseQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3788,6 +3949,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 class UseDatabaseQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3804,6 +3966,7 @@ class UseDatabaseQuery : public memgraph::query::Query {
 class ShowDatabaseQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3817,6 +3980,7 @@ class ShowDatabaseQuery : public memgraph::query::Query {
 class ShowDatabasesQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3830,6 +3994,7 @@ class ShowDatabasesQuery : public memgraph::query::Query {
 class CreateEnumQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   CreateEnumQuery() = default;
@@ -3853,6 +4018,7 @@ class CreateEnumQuery : public memgraph::query::Query {
 class ShowEnumsQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ShowEnumsQuery() = default;
@@ -3871,6 +4037,7 @@ class ShowEnumsQuery : public memgraph::query::Query {
 class EnumValueAccess : public Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   EnumValueAccess() = default;
@@ -3902,6 +4069,7 @@ class EnumValueAccess : public Expression {
 class AlterEnumAddValueQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   AlterEnumAddValueQuery() = default;
@@ -3925,6 +4093,7 @@ class AlterEnumAddValueQuery : public memgraph::query::Query {
 class AlterEnumUpdateValueQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   AlterEnumUpdateValueQuery() = default;
@@ -3950,6 +4119,7 @@ class AlterEnumUpdateValueQuery : public memgraph::query::Query {
 class AlterEnumRemoveValueQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   AlterEnumRemoveValueQuery() = default;
@@ -3973,6 +4143,7 @@ class AlterEnumRemoveValueQuery : public memgraph::query::Query {
 class DropEnumQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DropEnumQuery() = default;
@@ -3994,6 +4165,7 @@ class DropEnumQuery : public memgraph::query::Query {
 class ShowSchemaInfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ShowSchemaInfoQuery() = default;
@@ -4012,6 +4184,7 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
 class TtlQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   TtlQuery() = default;
@@ -4037,6 +4210,7 @@ class TtlQuery : public memgraph::query::Query {
 class SessionTraceQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   SessionTraceQuery() = default;

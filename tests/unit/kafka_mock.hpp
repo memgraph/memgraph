@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@ namespace details {
 struct RdKafkaDeleter {
   void operator()(rd_kafka_t *rd);
 };
+
 struct RdKafkaMockClusterDeleter {
   void operator()(rd_kafka_mock_cluster_t *rd);
 };

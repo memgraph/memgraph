@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,10 @@
 
 #include "query/frontend/ast/query/expression.hpp"
 
+namespace memgraph::query {
+class AstStorage;
+}  // namespace memgraph::query
+
 namespace memgraph::query::plan {
 
 struct ExpressionRemovalResult {
@@ -28,7 +32,9 @@ struct ExpressionRemovalResult {
 };
 
 // Return the new root expression after removing the given expressions from the
-// given expression tree.
-ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
+// given expression tree. This function does NOT modify the original expression tree;
+// instead it creates new AndOperator nodes when needed using the provided storage.
+ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove,
+                                          AstStorage *storage);
 
 }  // namespace memgraph::query::plan

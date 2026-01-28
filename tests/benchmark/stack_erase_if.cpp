@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -242,21 +242,21 @@ BENCHMARK_DEFINE_F(StackComparisonFixture, EraseIfApproachLocal)(benchmark::Stat
 
 // Args: (num_elements, deletion_percentage)
 BENCHMARK_REGISTER_F(StackComparisonFixture, ManualDeletionApproachThreadSafe)
-    ->Args({100000, 25})
-    ->Args({100000, 50})
-    ->Args({100000, 75})
-    ->Args({1000000, 25})
-    ->Args({1000000, 50})
-    ->Args({1000000, 75})
+    ->Args({100'000, 25})
+    ->Args({100'000, 50})
+    ->Args({100'000, 75})
+    ->Args({1'000'000, 25})
+    ->Args({1'000'000, 50})
+    ->Args({1'000'000, 75})
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_REGISTER_F(StackComparisonFixture, EraseIfApproachLocal)
-    ->Args({100000, 25})
-    ->Args({100000, 50})
-    ->Args({100000, 75})
-    ->Args({1000000, 25})
-    ->Args({1000000, 50})
-    ->Args({1000000, 75})
+    ->Args({100'000, 25})
+    ->Args({100'000, 50})
+    ->Args({100'000, 75})
+    ->Args({1'000'000, 25})
+    ->Args({1'000'000, 50})
+    ->Args({1'000'000, 75})
     ->Unit(benchmark::kMicrosecond);
 
 int main(int argc, char **argv) {

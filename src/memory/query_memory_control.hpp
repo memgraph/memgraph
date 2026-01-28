@@ -70,6 +70,7 @@ struct ThreadTrackingBlocker {
   ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
 
   utils::QueryMemoryTracker *GetPrevMemoryTracker() const { return prev_state_; }
+
   utils::UserResources *GetPrevUserTracker() const { return prev_user_state_; }
 
  private:
@@ -95,6 +96,7 @@ struct CrossThreadMemoryTracking {
   CrossThreadMemoryTracking &operator=(CrossThreadMemoryTracking &&other) noexcept;
 #else
   void StartTracking() const {}
+
   void StopTracking() const {}
 #endif
 };

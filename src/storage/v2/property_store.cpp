@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -219,6 +220,7 @@ const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // Therefore, the longest valid timezone name has the length of 44 (14 + 1 + 14 + 1 + 14), a 8-bit integer.
 
 using tz_offset_int = int16_t;
+
 // When a zoned temporal value is specified with a UTC offset (as opposed to a timezone name), the following applies:
 // * Offsets are defined in minutes
 // * Valid offsets are in the UTC + [-18h, +18h] range
@@ -292,6 +294,7 @@ class Writer {
   }
 
   std::optional<Size> WriteDouble(double value) { return WriteUint(std::bit_cast<uint64_t>(value)); }
+
   bool WriteDoubleForceInt64(double value) { return InternalWriteInt<uint64_t>(std::bit_cast<uint64_t>(value)); }
 
   bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
@@ -357,6 +360,7 @@ class Writer {
 class Reader {
  public:
   Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size) {}
+
   Reader(Reader const &other, uint32_t offset, uint32_t size) : data_(other.data_ + offset), size_(size) {
     DMG_ASSERT(other.size_ - offset >= size);
   }
@@ -792,8 +796,8 @@ std::optional<ZonedTemporalData> DecodeZonedTemporalData(Reader &reader) {
   auto timezone = reader.ReadTimezone(metadata->type);
   if (!timezone) return std::nullopt;
 
-  return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value),
-                           *timezone};
+  return ZonedTemporalData{
+      static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value), *timezone};
 }
 
 std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
@@ -2108,6 +2112,7 @@ struct DecodedBufferConst {
   std::span<uint8_t const> view;
   StorageMode storage_mode;
 };
+
 struct DecodedBuffer {
   std::span<uint8_t> view;
   StorageMode storage_mode;
@@ -2139,6 +2144,7 @@ void SetSizeData(std::array<uint8_t, 12> &buffer, uint32_t size, const uint8_t *
   // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
   memcpy(buffer.data() + sizeof(size), static_cast<void const *>(&data), sizeof(uint8_t *));
 }
+
 DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
   buffer[0] = kUseLocalBuffer;
   return DecodedBuffer{
@@ -2146,6 +2152,7 @@ DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
       .storage_mode = StorageMode::LOCAL,
   };
 }
+
 DecodedBuffer SetupExternalBuffer(uint32_t size) {
   auto alloc_size = ToMultipleOf8(size);
   auto *alloc_data = new uint8_t[alloc_size];
@@ -2155,6 +2162,7 @@ DecodedBuffer SetupExternalBuffer(uint32_t size) {
       .storage_mode = StorageMode::BUFFER,
   };
 }
+
 DecodedBuffer SetupBuffer(std::array<uint8_t, 12> &buffer, uint32_t const size) {
   auto const can_fit_in_local = size < sizeof(buffer);
   return can_fit_in_local ? SetupLocalBuffer(buffer) : SetupExternalBuffer(size);
@@ -2348,6 +2356,7 @@ struct SafeReader {
         get_result_(std::forward<GetFunc>(get_result)),
         apply_result_(std::forward<ApplyFunc>(apply_result)),
         missing_value_{std::move(missing_value)} {}
+
   template <typename... Args, typename... Args2>
   auto operator()(std::tuple<Args...> args, std::tuple<Args2...> args2) {
     auto got_result = std::invoke([&]() -> typename std::invoke_result_t<GetFunc, Reader &, Args...>::second_type {
@@ -2409,18 +2418,18 @@ bool PropertyStore::HasProperty(PropertyId property) const {
 }
 
 bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) const {
-  return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
+  return std::ranges::all_of(properties, [this](const auto &prop) { return HasProperty(prop); });
 }
 
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
-  transform(property_map.begin(), property_map.end(), back_inserter(all_property_values),
-            [](const auto &kv_entry) { return kv_entry.second; });
+  std::ranges::transform(
+      property_map, back_inserter(all_property_values), [](const auto &kv_entry) { return kv_entry.second; });
 
-  return std::all_of(
-      property_values.begin(), property_values.end(),
-      [&all_property_values](const PropertyValue &value) { return std::ranges::contains(all_property_values, value); });
+  return std::ranges::all_of(property_values, [&all_property_values](const PropertyValue &value) {
+    return std::ranges::contains(all_property_values, value);
+  });
 }
 
 std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
@@ -2480,6 +2489,7 @@ class ReaderPropPositionHistory {
     PropertyId property_id;
     uint32_t offset_to_property_end;
   };
+
   std::vector<History> history_;
 };
 
@@ -2691,7 +2701,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // Copy everything before the property to the new buffer.
       memmove(new_view.data(), current_view.data(), info.property_begin);
       // Copy everything after the property to the new buffer.
-      memmove(new_view.data() + info.property_begin + property_size, current_view.data() + info.property_end,
+      memmove(new_view.data() + info.property_begin + property_size,
+              current_view.data() + info.property_end,
               info.all_end - info.property_end);
 
       // Make buffer perminant
@@ -2709,7 +2720,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // We can keep the data in the same buffer, but the new property is
       // larger/smaller than the old property. We need to move the following
       // properties to the right/left.
-      memmove(current_view.data() + info.property_begin + property_size, current_view.data() + info.property_end,
+      memmove(current_view.data() + info.property_begin + property_size,
+              current_view.data() + info.property_end,
               info.all_end - info.property_end);
     }
 

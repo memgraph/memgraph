@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -74,7 +74,9 @@ struct ReplicationClientInfo {
 
 struct DataInstanceConfig {
   auto BoltSocketAddress() const -> std::string { return bolt_server.SocketAddress(); }
+
   auto ManagementSocketAddress() const -> std::string { return mgt_server.SocketAddress(); }
+
   auto ReplicationSocketAddress() const -> std::string {
     return replication_client_info.replication_server.SocketAddress();
   }
@@ -106,7 +108,9 @@ struct CoordinatorInstanceConfig {
 
 struct ManagementServerConfig {
   io::network::Endpoint endpoint;
+
   explicit ManagementServerConfig(io::network::Endpoint endpoint) : endpoint(std::move(endpoint)) {}
+
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 

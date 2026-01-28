@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,10 +79,10 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge, Transaction &tx) {
-  tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property,
-                                                                value, tx.start_timestamp);
-  tx.active_indices_.edge_property_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
-                                                         tx.start_timestamp);
+  tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
+  tx.active_indices_.edge_property_->UpdateOnSetProperty(
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
   text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
 }

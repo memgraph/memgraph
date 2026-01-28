@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,8 +21,11 @@ namespace memgraph::query {
 
 struct LabelIx {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
   friend bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix; }
+
   friend bool operator<(const LabelIx &a, const LabelIx &b) { return a.ix < b.ix; }
 
   std::string name;
@@ -31,8 +34,11 @@ struct LabelIx {
 
 struct PropertyIx {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
   friend bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix; }
+
   friend bool operator<(const PropertyIx &a, const PropertyIx &b) { return a.ix < b.ix; }
 
   std::string name;
@@ -41,8 +47,11 @@ struct PropertyIx {
 
 struct EdgeTypeIx {
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
   friend bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix; }
+
   friend bool operator<(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix < b.ix; }
 
   std::string name;
@@ -121,6 +130,7 @@ class AstStorage {
 class Tree {
  public:
   static const utils::TypeInfo kType;
+
   virtual const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   Tree() = default;

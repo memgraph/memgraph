@@ -220,6 +220,7 @@ bool SymbolGenerator::PreVisit(Create &) {
   scopes_.back().in_create = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Create &) {
   scopes_.back().in_create = false;
   return true;
@@ -334,6 +335,7 @@ bool SymbolGenerator::PreVisit(Where &) {
   scopes_.back().in_where = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Where &) {
   scopes_.back().in_where = false;
   return true;
@@ -343,6 +345,7 @@ bool SymbolGenerator::PreVisit(Merge &) {
   scopes_.back().in_merge = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Merge &) {
   scopes_.back().in_merge = false;
   return true;
@@ -362,6 +365,7 @@ bool SymbolGenerator::PreVisit(Match &) {
   scopes_.back().in_match = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Match &) {
   auto &scope = scopes_.back();
   scope.in_match = false;
@@ -384,6 +388,7 @@ bool SymbolGenerator::PreVisit(Foreach &for_each) {
       CreateSymbol(name, true, Symbol::Type::ANY, for_each.named_expression_->token_position_));
   return true;
 }
+
 bool SymbolGenerator::PostVisit([[maybe_unused]] Foreach &for_each) {
   scopes_.pop_back();
   return true;
@@ -412,8 +417,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol) {
       ident.user_declared_ = false;
-      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
-                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+      symbol = GetOrCreateSymbol(
+          ident.name_, ident.user_declared_, scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
     } else {
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
@@ -932,8 +937,8 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     if (HasSymbol(edge_atom.total_weight_->name_)) {
       throw RedeclareVariableError(edge_atom.total_weight_->name_);
     }
-    edge_atom.total_weight_->MapTo(GetOrCreateSymbol(edge_atom.total_weight_->name_,
-                                                     edge_atom.total_weight_->user_declared_, Symbol::Type::NUMBER));
+    edge_atom.total_weight_->MapTo(GetOrCreateSymbol(
+        edge_atom.total_weight_->name_, edge_atom.total_weight_->user_declared_, Symbol::Type::NUMBER));
   }
   return false;
 }

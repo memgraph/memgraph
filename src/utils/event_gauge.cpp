@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,6 +65,7 @@ Value EventGauges::GetValue(const Event event) {
 }
 
 void SetGaugeValue(const Event event, Value value) { global_gauges.SetValue(event, value); }
+
 Value GetGaugeValue(const Event event) { return global_gauges.GetValue(event); }
 
 const char *GetGaugeName(const Event event) {

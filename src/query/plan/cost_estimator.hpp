@@ -199,7 +199,22 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
     auto edge_type = op.GetEdgeType();
-    cardinality_ *= EstimateEdgePropertyValueCardinality(edge_type, op.property_, op.expression_);
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
+    double factor = 1.0;
+    if (intermediate_property_value) {
+      // get the exact influence based on ScanAllByEdge(label, property, value)
+      factor =
+          db_accessor_->EdgesCount(edge_type,
+                                   op.property_,
+                                   storage::ToPropertyValue(*intermediate_property_value,
+                                                            db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
+      // estimate the influence as ScanAllByEdge(label, property) * filtering
+      factor = db_accessor_->EdgesCount(edge_type, op.property_) * CardParam::kFilter;
+    }
+    cardinality_ *= factor;
+
+    // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::kScanAllByEdgeTypePropertyValue);
     return true;
   }
@@ -220,7 +235,21 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByEdgePropertyValue &op) override {
-    cardinality_ *= EstimateEdgePropertyValueCardinality(op.property_, op.expression_);
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
+    double factor = 1.0;
+    if (intermediate_property_value) {
+      // get the exact influence based on ScanAllByEdge(label, property, value)
+      factor =
+          db_accessor_->EdgesCount(op.property_,
+                                   storage::ToPropertyValue(*intermediate_property_value,
+                                                            db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
+      // estimate the influence as ScanAllByEdge(label, property) * filtering
+      factor = db_accessor_->EdgesCount(op.property_) * CardParam::kFilter;
+    }
+    cardinality_ *= factor;
+
+    // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::kScanAllByEdgePropertyValue);
     return true;
   }
@@ -557,7 +586,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool Visit(Once &) override { return true; }
 
   auto cost() const { return cost_; }
+
   auto cardinality() const { return cardinality_; }
+
   auto use_index_hints() const { return use_index_hints_; }
 
  private:
@@ -632,7 +663,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
                                               Expression *expression) {
     auto intermediate_property_value = ConstPropertyValue(expression);
     if (intermediate_property_value) {
-      return db_accessor_->EdgesCount(edge_type, property,
+      return db_accessor_->EdgesCount(edge_type,
+                                      property,
                                       storage::ToPropertyValue(*intermediate_property_value,
                                                                db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
     } else {

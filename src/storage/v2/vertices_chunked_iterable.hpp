@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@ class VerticesChunkedIterable final {
   enum class Type { ALL_CHUNKED, BY_LABEL_IN_MEMORY_CHUNKED, BY_LABEL_PROPERTY_IN_MEMORY_CHUNKED };
 
   Type type_;
+
   union {
     AllVerticesChunkedIterable all_chunked_vertices_;
     InMemoryLabelIndex::ChunkedIterable in_memory_chunked_vertices_by_label_;
@@ -42,6 +43,7 @@ class VerticesChunkedIterable final {
 
   class Iterator final {
     Type type_;
+
     union {
       AllVerticesChunkedIterable::Iterator all_chunked_it_;
       InMemoryLabelIndex::ChunkedIterable::Iterator in_memory_chunked_by_label_it_;
@@ -77,6 +79,7 @@ class VerticesChunkedIterable final {
     explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }
+
     Iterator end() { return end_; }
   };
 

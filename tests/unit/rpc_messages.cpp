@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,29 +23,38 @@ void Load(SumReqV1 *sum, Reader *reader) {
 }
 
 void Save(const SumReq &sum, Builder *builder) { Save(sum.nums_, builder); }
+
 void Load(SumReq *sum, Reader *reader) { Load(&sum->nums_, reader); }
 
 void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
+
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
 void Save(const SumResV1 &res, Builder *builder) { Save(res.sum, builder); }
+
 void Load(SumResV1 *res, Reader *reader) { Load(&res->sum, reader); }
 
 void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
+
 void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
 }  // namespace memgraph::slk
 
 void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+
 void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
 void SumReqV1::Load(SumReqV1 *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+
 void SumReqV1::Save(const SumReqV1 &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
 void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+
 void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
 void SumResV1::Load(SumResV1 *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+
 void SumResV1::Save(const SumResV1 &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }

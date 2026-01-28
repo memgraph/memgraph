@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,11 +28,13 @@ class BoltMetrics {
  public:
   enum class ConnectionType { kAnonymous = 0, kBasic, Count };
   static constexpr std::array<std::string_view, (int)ConnectionType::Count> ct_to_str = {"anonymous", "basic"};
+
   static std::string ConnectionTypeStr(ConnectionType type) { return std::string(ct_to_str[(int)type]); }
   class Metrics;
 
   struct Info {
     explicit Info(std::string name) : name(std::move(name)) {}
+
     Info(std::string name, std::string bolt_v, std::vector<std::string> supported_bolt_v)
         : name(std::move(name)), bolt_v(std::move(bolt_v)), supported_bolt_v(std::move(supported_bolt_v)) {}
 
@@ -52,6 +54,7 @@ class BoltMetrics {
 
   class Metrics {
     friend class BoltMetrics;
+
     explicit Metrics(Info &info) : info_(&info) { ++info_->concurrent_users; }
 
    public:
@@ -60,7 +63,9 @@ class BoltMetrics {
     }
 
     Metrics(const Metrics &other) : info_(other.info_) { ++info_->concurrent_users; }
+
     Metrics(Metrics &&other) noexcept : info_(other.info_) { other.info_ = nullptr; }
+
     Metrics &operator=(const Metrics &other) {
       if (this != &other) {
         if (info_) --info_->concurrent_users;
@@ -69,6 +74,7 @@ class BoltMetrics {
       }
       return *this;
     }
+
     Metrics &operator=(Metrics &&other) noexcept {
       if (this != &other) {
         if (info_) --info_->concurrent_users;
@@ -86,15 +92,16 @@ class BoltMetrics {
   Metrics Add(std::string name) {
     auto l = std::unique_lock{mtx};
     auto key = name;
-    auto [it, _] = info.emplace(std::piecewise_construct, std::forward_as_tuple(std::move(key)),
-                                std::forward_as_tuple(std::move(name)));
+    auto [it, _] = info.emplace(
+        std::piecewise_construct, std::forward_as_tuple(std::move(key)), std::forward_as_tuple(std::move(name)));
     return Metrics(it->second);
   }
 
   Metrics Add(std::string name, std::string bolt_v, std::vector<std::string> supported_bolt_v) {
     auto l = std::unique_lock{mtx};
     auto key = name;
-    auto [it, _] = info.emplace(std::piecewise_construct, std::forward_as_tuple(std::move(key)),
+    auto [it, _] = info.emplace(std::piecewise_construct,
+                                std::forward_as_tuple(std::move(key)),
                                 std::forward_as_tuple(std::move(name), std::move(bolt_v), std::move(supported_bolt_v)));
     return Metrics(it->second);
   }

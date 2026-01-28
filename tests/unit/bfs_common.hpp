@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,9 +43,15 @@ const auto kVertexCount = 6;
 // Maps vertices to workers
 const std::vector<int> kVertexLocations = {0, 1, 1, 0, 2, 2};
 // Edge list in form of (from, to, edge_type).
-const std::vector<std::tuple<int, int, std::string>> kEdges = {{0, 1, "a"}, {1, 2, "b"}, {2, 4, "b"},
-                                                               {2, 5, "a"}, {4, 1, "a"}, {4, 5, "a"},
-                                                               {5, 3, "b"}, {5, 4, "a"}, {5, 5, "b"}};
+const std::vector<std::tuple<int, int, std::string>> kEdges = {{0, 1, "a"},
+                                                               {1, 2, "b"},
+                                                               {2, 4, "b"},
+                                                               {2, 5, "a"},
+                                                               {4, 1, "a"},
+                                                               {4, 5, "a"},
+                                                               {5, 3, "b"},
+                                                               {5, 4, "a"},
+                                                               {5, 5, "b"}};
 
 // Filters input edge list by edge type and direction and returns a list of
 // pairs representing valid directed edges.
@@ -111,12 +117,17 @@ class Yield : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::UniqueCursorPtr MakeCursor(memgraph::utils::MemoryResource *mem) const override {
     return memgraph::query::plan::MakeUniqueCursorPtr<YieldCursor>(mem, this, input_->MakeCursor(mem));
   }
+
   std::vector<memgraph::query::Symbol> ModifiedSymbols(const memgraph::query::SymbolTable &) const override {
     return modified_symbols_;
   }
+
   bool HasSingleInput() const override { return true; }
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input() const override { return input_; }
+
   void set_input(std::shared_ptr<memgraph::query::plan::LogicalOperator> input) override { input_ = input; }
+
   bool Accept(memgraph::query::plan::HierarchicalLogicalOperatorVisitor &) override {
     LOG_FATAL("Please go away, visitor!");
   }
@@ -133,6 +144,7 @@ class Yield : public memgraph::query::plan::LogicalOperator {
    public:
     YieldCursor(const Yield *self, memgraph::query::plan::UniqueCursorPtr input_cursor)
         : self_(self), input_cursor_(std::move(input_cursor)), pull_index_(self_->values_.size()) {}
+
     bool Pull(memgraph::query::Frame &frame, memgraph::query::ExecutionContext &context) override {
       if (pull_index_ == self_->values_.size()) {
         if (!input_cursor_->Pull(frame, context)) return false;
@@ -145,6 +157,7 @@ class Yield : public memgraph::query::plan::LogicalOperator {
       pull_index_++;
       return true;
     }
+
     void Reset() override {
       input_cursor_->Reset();
       pull_index_ = self_->values_.size();
@@ -322,7 +335,8 @@ class Database {
       case FilterLambdaType::NONE:
         // No filter lambda, nothing is ever blocked.
         input_op = std::make_shared<Yield>(
-            nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+            nullptr,
+            std::vector<memgraph::query::Symbol>{blocked_sym},
             std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
         filter_expr = nullptr;
         break;
@@ -334,13 +348,15 @@ class Database {
       case FilterLambdaType::USE_FRAME_NULL:
         // We block each entity in the graph and run BFS.
         input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
-        filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)), LITERAL(true),
+        filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)),
+                         LITERAL(true),
                          LITERAL(memgraph::storage::ExternalPropertyValue()));
         break;
       case FilterLambdaType::USE_CTX:
         // We only block vertex #5 and run BFS.
         input_op = std::make_shared<Yield>(
-            nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+            nullptr,
+            std::vector<memgraph::query::Symbol>{blocked_sym},
             std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(vertices[5])}});
         filter_expr = NEQ(PROPERTY_LOOKUP(dba, inner_node, PROPERTY_PAIR(dba, "id")), PARAMETER_LOOKUP(0));
         context.evaluation_context.parameters.Add(0, memgraph::storage::ExternalPropertyValue(5));
@@ -365,7 +381,13 @@ class Database {
       storage_edge_types.push_back(dba.NameToEdgeType(t));
     }
 
-    input_op = db->MakeBfsOperator(source_sym, sink_sym, edges_sym, direction, storage_edge_types, input_op, known_sink,
+    input_op = db->MakeBfsOperator(source_sym,
+                                   sink_sym,
+                                   edges_sym,
+                                   direction,
+                                   storage_edge_types,
+                                   input_op,
+                                   known_sink,
                                    lower_bound == -1 ? nullptr : LITERAL(lower_bound),
                                    upper_bound == -1 ? nullptr : LITERAL(upper_bound),
                                    memgraph::query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym, filter_expr});
@@ -377,14 +399,15 @@ class Database {
 
     // An exception should be thrown on one of the pulls.
     if (filter_lambda_type == FilterLambdaType::ERROR) {
-      EXPECT_THROW(PullResults(input_op.get(), &context,
+      EXPECT_THROW(PullResults(input_op.get(),
+                               &context,
                                std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym}),
                    memgraph::query::QueryRuntimeException);
       return;
     }
 
-    results = PullResults(input_op.get(), &context,
-                          std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
+    results = PullResults(
+        input_op.get(), &context, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
 
     // Group results based on blocked entity and compare them to results
     // obtained by running Floyd-Warshall.
@@ -402,7 +425,8 @@ class Database {
         int from = GetProp(blocked.ValueEdge(), "from", &dba).ValueInt();
         int to = GetProp(blocked.ValueEdge(), "to", &dba).ValueInt();
         edges.erase(
-            std::remove_if(edges.begin(), edges.end(),
+            std::remove_if(edges.begin(),
+                           edges.end(),
                            [from, to](const auto &e) { return std::get<0>(e) == from && std::get<1>(e) == to; }),
             edges.end());
       }
@@ -441,7 +465,8 @@ class Database {
       EXPECT_EQ(j - i, num_results);
 
       auto distances = CheckPathsAndExtractDistances(
-          &dba, edges_blocked,
+          &dba,
+          edges_blocked,
           std::vector<std::vector<memgraph::query::TypedValue>>(results.begin() + i, results.begin() + j));
 
       // The distances should also match.
@@ -480,7 +505,8 @@ class Database {
     memgraph::query::Expression *filter_expr = nullptr;
 
     input_operator =
-        std::make_shared<Yield>(nullptr, std::vector<memgraph::query::Symbol>{blocked_symbol},
+        std::make_shared<Yield>(nullptr,
+                                std::vector<memgraph::query::Symbol>{blocked_symbol},
                                 std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
 
     memgraph::auth::User user{"test"};
@@ -568,10 +594,17 @@ class Database {
       storage_edge_types.push_back(db_accessor.NameToEdgeType(t));
     }
 
-    input_operator = db->MakeBfsOperator(
-        source_symbol, sink_symbol, edges_symbol, direction, storage_edge_types, input_operator, known_sink,
-        lower_bound == -1 ? nullptr : LITERAL(lower_bound), upper_bound == -1 ? nullptr : LITERAL(upper_bound),
-        memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, filter_expr});
+    input_operator =
+        db->MakeBfsOperator(source_symbol,
+                            sink_symbol,
+                            edges_symbol,
+                            direction,
+                            storage_edge_types,
+                            input_operator,
+                            known_sink,
+                            lower_bound == -1 ? nullptr : LITERAL(lower_bound),
+                            upper_bound == -1 ? nullptr : LITERAL(upper_bound),
+                            memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, filter_expr});
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
@@ -579,7 +612,8 @@ class Database {
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
     results =
-        PullResults(input_operator.get(), &context,
+        PullResults(input_operator.get(),
+                    &context,
                     std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol, blocked_symbol});
 
     switch (fine_grained_test_type) {
@@ -587,17 +621,20 @@ class Database {
         switch (direction) {
           case memgraph::query::EdgeAtom::Direction::IN:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
           case memgraph::query::EdgeAtom::Direction::OUT:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
           case memgraph::query::EdgeAtom::Direction::BOTH:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
         }
@@ -619,17 +656,20 @@ class Database {
         switch (direction) {
           case memgraph::query::EdgeAtom::Direction::IN:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
           case memgraph::query::EdgeAtom::Direction::OUT:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
           case memgraph::query::EdgeAtom::Direction::BOTH:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
         }
@@ -638,17 +678,20 @@ class Database {
         switch (direction) {
           case memgraph::query::EdgeAtom::Direction::IN:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
           case memgraph::query::EdgeAtom::Direction::OUT:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
           case memgraph::query::EdgeAtom::Direction::BOTH:
             CheckPathsAndExtractDistances(
-                &db_accessor, edges_in_result,
+                &db_accessor,
+                edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             break;
         }
@@ -658,33 +701,39 @@ class Database {
           case memgraph::query::EdgeAtom::Direction::IN:
             if (known_sink) {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             } else {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             }
             break;
           case memgraph::query::EdgeAtom::Direction::OUT:
             if (known_sink) {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             } else {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             }
             break;
           case memgraph::query::EdgeAtom::Direction::BOTH:
             if (known_sink) {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             } else {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             }
             break;
@@ -695,33 +744,39 @@ class Database {
           case memgraph::query::EdgeAtom::Direction::IN:
             if (known_sink) {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             } else {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             }
             break;
           case memgraph::query::EdgeAtom::Direction::OUT:
             if (known_sink) {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             } else {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             }
             break;
           case memgraph::query::EdgeAtom::Direction::BOTH:
             if (known_sink) {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             } else {
               CheckPathsAndExtractDistances(
-                  &db_accessor, edges_in_result,
+                  &db_accessor,
+                  edges_in_result,
                   std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
             }
             break;

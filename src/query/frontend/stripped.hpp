@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,9 @@ const std::string kStrippedBooleanToken = "true";
 
 struct HashedString {
   HashedString() = default;
+
   HashedString(std::string str) : str_(std::move(str)) {}
+
   HashedString(HashedString const &) = default;
   HashedString(HashedString &&) = default;
   HashedString &operator=(HashedString const &) = default;
@@ -37,10 +39,13 @@ struct HashedString {
   friend bool operator==(const HashedString &lhs, const HashedString &rhs) {
     return std::tie(lhs.hash_, lhs.str_) == std::tie(rhs.hash_, rhs.str_);
   }
+
   friend bool operator<(const HashedString &lhs, const HashedString &rhs) {
     return std::tie(lhs.hash_, lhs.str_) < std::tie(rhs.hash_, rhs.str_);
   }
+
   size_t hash() const { return hash_; }
+
   auto str() const -> std::string const & { return str_; }
 
  private:
@@ -79,9 +84,13 @@ class StrippedQuery {
   StrippedQuery &operator=(StrippedQuery &&other) = default;
 
   auto stripped_query() const -> HashedString const & { return stripped_query_; }
+
   const auto &original_query() const { return original_; }
+
   const auto &literals() const { return literals_; }
+
   const auto &named_expressions() const { return named_exprs_; }
+
   const auto &parameters() const { return parameters_; }
 
  private:

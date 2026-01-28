@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,8 +69,8 @@ TEST_F(CoordinationSetupTest, CoordinationSetupAll) {
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
 
-  EXPECT_EQ(coordination_setup.management_port, 10011);
-  EXPECT_EQ(coordination_setup.coordinator_port, 10111);
+  EXPECT_EQ(coordination_setup.management_port, 10'011);
+  EXPECT_EQ(coordination_setup.coordinator_port, 10'111);
   EXPECT_EQ(coordination_setup.coordinator_id, 1);
   EXPECT_EQ(coordination_setup.nuraft_log_file, "nuraft_log_file");
   EXPECT_EQ(coordination_setup.coordinator_hostname, "memgraph-svc-cluster-1.dns");
@@ -89,7 +89,7 @@ TEST_F(CoordinationSetupTest, CoordinatorSetupPartial) {
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
   EXPECT_EQ(coordination_setup.management_port, 0);
-  EXPECT_EQ(coordination_setup.coordinator_port, 10111);
+  EXPECT_EQ(coordination_setup.coordinator_port, 10'111);
   EXPECT_EQ(coordination_setup.coordinator_id, 1);
   EXPECT_EQ(coordination_setup.nuraft_log_file, "");
   EXPECT_EQ(coordination_setup.coordinator_hostname, "");

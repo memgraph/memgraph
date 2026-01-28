@@ -23,8 +23,8 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 // This benchmark should be run for a fixed amount of time that is
 // large compared to GC interval to make the output relevant.
 
-const int kNumIterations = 5000000;
-const int kNumVertices = 1000000;
+const int kNumIterations = 5'000'000;
+const int kNumVertices = 1'000'000;
 
 DEFINE_int32(num_threads, 4, "number of threads");
 DEFINE_int32(num_vertices, kNumVertices, "number of vertices");
@@ -32,10 +32,12 @@ DEFINE_int32(num_iterations, kNumIterations, "number of iterations");
 
 std::pair<std::string, memgraph::storage::Config> TestConfigurations[] = {
     {"NoGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::NONE}}},
-    {"100msPeriodicGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
-                                                         .interval = std::chrono::milliseconds(100)}}},
-    {"1000msPeriodicGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
-                                                          .interval = std::chrono::milliseconds(1000)}}}};
+    {"100msPeriodicGc",
+     memgraph::storage::Config{
+         .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}},
+    {"1000msPeriodicGc",
+     memgraph::storage::Config{
+         .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(1000)}}}};
 
 void UpdateLabelFunc(int thread_id, memgraph::storage::Storage *storage,
                      const std::vector<memgraph::storage::Gid> &vertices, int num_iterations) {

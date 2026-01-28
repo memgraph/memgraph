@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -300,6 +300,7 @@ struct SchemaInfo {
                                                          uint64_t commit_ts, bool prop_on_edges) {
     return VertexModifyingAccessor{tracking, &post_process, start_ts, commit_ts, prop_on_edges};
   }
+
   static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking, SchemaInfoPostProcess *post_process,
                                                        uint64_t start_ts, uint64_t commit_ts, bool prop_on_edges) {
     return TransactionalEdgeModifyingAccessor{tracking, post_process, start_ts, commit_ts, prop_on_edges};

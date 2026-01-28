@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,8 +26,7 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
   std::atomic<bool> enabler_created{false};
   std::thread t1{[&] {
     // wait until the second thread creates exception enabler
-    while (!enabler_created)
-      ;
+    while (!enabler_created);
 
     // we use the OnScopeExit so the test doesn't deadlock when
     // an ASSERT fails
@@ -45,8 +44,7 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
     ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 
     // hold the enabler until the first thread finishes
-    while (!can_continue)
-      ;
+    while (!can_continue);
   }};
 
   t1.join();

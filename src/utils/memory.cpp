@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -310,6 +310,7 @@ void *Pool::Allocate() {
 void Pool::Deallocate(void *p) {
   *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
 }
+
 thread_local ThreadSafePool::ThreadLocalState *ThreadSafePool::tls_cache_ = nullptr;
 thread_local uint64_t ThreadSafePool::last_pool_ = 0;
 std::atomic<uint64_t> ThreadSafePool::pool_id_ = 1;
@@ -436,9 +437,11 @@ struct NullMemoryResourceImpl final : public MemoryResource {
   void *do_allocate(size_t /*bytes*/, size_t /*alignment*/) override {
     throw BadAlloc{"NullMemoryResource doesn't allocate"};
   }
+
   void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) override {
     throw BadAlloc{"NullMemoryResource doesn't deallocate"};
   }
+
   bool do_is_equal(MemoryResource const &other) const noexcept override {
     return dynamic_cast<NullMemoryResourceImpl const *>(&other) != nullptr;
   }
@@ -532,6 +535,7 @@ void *PoolResource<P>::do_allocate(size_t bytes, size_t alignment) {
   }
   return unpooled_memory_->allocate(bytes, alignment);
 }
+
 template <typename P>
 void PoolResource<P>::do_deallocate(void *p, size_t bytes, size_t alignment) {
   size_t block_size = std::max({bytes, alignment, 1UL});
@@ -549,6 +553,7 @@ void PoolResource<P>::do_deallocate(void *p, size_t bytes, size_t alignment) {
     unpooled_memory_->deallocate(p, bytes, alignment);
   }
 }
+
 template <typename P>
 bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
   return this == &other;

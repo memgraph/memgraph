@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@ namespace {
 constexpr auto kBoltV43Version = std::array<uint8_t, 4>{0x00, 0x00, 0x03, 0x04};
 constexpr auto kEmptyBoltVersion = std::array<uint8_t, 4>{0x00, 0x00, 0x00, 0x00};
 }  // namespace
+
 namespace memgraph::communication::bolt {
 
 Client::Client(communication::ClientContext &context) : client_{&context} {}
@@ -209,7 +210,9 @@ std::optional<map_t> Client::Route(const map_t &routing, const std::vector<Value
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
 
-  spdlog::debug("Sending route message with routing: {}; bookmarks: {}; db: {}", routing, bookmarks,
+  spdlog::debug("Sending route message with routing: {}; bookmarks: {}; db: {}",
+                routing,
+                bookmarks,
                 db.has_value() ? *db : Value());
 
   encoder_.MessageRoute(routing, bookmarks, db);

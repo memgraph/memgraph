@@ -31,7 +31,9 @@ struct CachedSet {
       cache_;
 
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
+
   CachedSet(const CachedSet &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
+
   CachedSet(CachedSet &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
 
   CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}

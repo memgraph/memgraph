@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,14 +46,17 @@ Logger::~Logger() {
 }
 
 void Logger::debug(const std::string &log_line) { logger_->log(spdlog::level::debug, log_line); }
+
 void Logger::info(const std::string &log_line) { logger_->log(spdlog::level::info, log_line); }
+
 void Logger::warn(const std::string &log_line) { logger_->log(spdlog::level::warn, log_line); }
+
 void Logger::err(const std::string &log_line) { logger_->log(spdlog::level::err, log_line); }
 
 void Logger::put_details(int level, const char *source_file, const char *func_name, size_t line_number,
                          const std::string &log_line) {
-  logger_->log(spdlog::source_loc{source_file, static_cast<int>(line_number), func_name}, GetSpdlogLevel(level),
-               log_line);
+  logger_->log(
+      spdlog::source_loc{source_file, static_cast<int>(line_number), func_name}, GetSpdlogLevel(level), log_line);
 }
 
 void Logger::set_level(int l) { logger_->set_level(GetSpdlogLevel(l)); }

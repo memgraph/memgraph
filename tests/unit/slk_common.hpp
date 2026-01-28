@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@ class BinaryData {
   BinaryData(std::unique_ptr<uint8_t[]> data, size_t size) : data_(std::move(data)), size_(size) {}
 
   const uint8_t *data() const { return data_.get(); }
+
   size_t size() const { return size_; }
 
   bool operator==(const BinaryData &other) const {

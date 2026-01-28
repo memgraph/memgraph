@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,10 +19,13 @@ namespace memgraph::storage {
 
 using RecoverySnapshot = std::filesystem::path;
 using RecoveryWals = std::vector<std::filesystem::path>;
+
 struct RecoveryCurrentWal {
   explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
+
   uint64_t current_wal_seq_num;
 };
+
 using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,10 +60,10 @@ class CoordinatorLogStoreTests : public ::testing::Test {
 
 TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
   DataInstanceConfig config{.instance_name = "instance3",
-                            .mgt_server = Endpoint{"127.0.0.1", 10112},
+                            .mgt_server = Endpoint{"127.0.0.1", 10'112},
                             .replication_client_info = {.instance_name = "instance_name",
                                                         .replication_mode = ReplicationMode::ASYNC,
-                                                        .replication_server = Endpoint{"127.0.0.1", 10001}}};
+                                                        .replication_server = Endpoint{"127.0.0.1", 10'001}}};
 
   auto data_instances = std::vector<DataInstanceContext>();
   data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
@@ -119,22 +119,22 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
 TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
   // Define three instances
   DataInstanceConfig config1{.instance_name = "instance1",
-                             .mgt_server = Endpoint{"127.0.0.1", 10112},
+                             .mgt_server = Endpoint{"127.0.0.1", 10'112},
                              .replication_client_info = {.instance_name = "instance_name1",
                                                          .replication_mode = ReplicationMode::ASYNC,
-                                                         .replication_server = Endpoint{"127.0.0.1", 10001}}};
+                                                         .replication_server = Endpoint{"127.0.0.1", 10'001}}};
 
   DataInstanceConfig config2{.instance_name = "instance2",
-                             .mgt_server = Endpoint{"127.0.0.1", 10113},
+                             .mgt_server = Endpoint{"127.0.0.1", 10'113},
                              .replication_client_info = {.instance_name = "instance_name2",
                                                          .replication_mode = ReplicationMode::ASYNC,
-                                                         .replication_server = Endpoint{"127.0.0.1", 10002}}};
+                                                         .replication_server = Endpoint{"127.0.0.1", 10'002}}};
 
   DataInstanceConfig config3{.instance_name = "instance3",
-                             .mgt_server = Endpoint{"127.0.0.1", 10114},
+                             .mgt_server = Endpoint{"127.0.0.1", 10'114},
                              .replication_client_info = {.instance_name = "instance_name3",
                                                          .replication_mode = ReplicationMode::ASYNC,
-                                                         .replication_server = Endpoint{"127.0.0.1", 10003}}};
+                                                         .replication_server = Endpoint{"127.0.0.1", 10'003}}};
 
   // Create log store
   {
@@ -162,8 +162,8 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
                                                    .current_main_uuid_ = UUID{},
                                                    .enabled_reads_on_main_ = false};
 
-    auto log_entry_update = cs_new<log_entry>(1, CoordinatorStateMachine::SerializeUpdateClusterState(delta_state),
-                                              nuraft::log_val_type::app_log);
+    auto log_entry_update = cs_new<log_entry>(
+        1, CoordinatorStateMachine::SerializeUpdateClusterState(delta_state), nuraft::log_val_type::app_log);
 
     log_store.append(log_entry_update);
 
@@ -199,10 +199,10 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     std::vector<DataInstanceContext> data_instances{};
 
     auto config = DataInstanceConfig{.instance_name = "instance1",
-                                     .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                     .mgt_server = Endpoint{"127.0.0.1", 10'112},
                                      .replication_client_info = {.instance_name = "instance_name1",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}}};
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10'001}}};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
     std::vector<CoordinatorInstanceContext> coord_instances{
@@ -227,18 +227,18 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     for (uint16_t i = 2; i <= 4; ++i) {
       auto config1 = DataInstanceConfig{
           .instance_name = "instance" + std::to_string(i),
-          .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
+          .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10'112 + i)},
           .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
                                       .replication_mode = ReplicationMode::ASYNC,
-                                      .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}}};
+                                      .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10'001 + i)}}};
 
       auto config2 =
           DataInstanceConfig{.instance_name = "instance" + std::to_string(i + 3),
-                             .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i + 3)},
+                             .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10'112 + i + 3)},
                              .replication_client_info = {
                                  .instance_name = "instance_name" + std::to_string(i + 3),
                                  .replication_mode = ReplicationMode::ASYNC,
-                                 .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i + 3)}}};
+                                 .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10'001 + i + 3)}}};
 
       data_instances.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
 
@@ -314,10 +314,10 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
   for (int i = 1; i <= 5; ++i) {
     auto config = DataInstanceConfig{
         .instance_name = "instance" + std::to_string(i),
-        .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
+        .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10'112 + i)},
         .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
                                     .replication_mode = ReplicationMode::ASYNC,
-                                    .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}}};
+                                    .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10'001 + i)}}};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
     auto coord_instances = std::vector<CoordinatorInstanceContext>();

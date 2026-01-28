@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,13 +65,14 @@ EdgePropertyIndex::AbortProcessor DiskEdgePropertyIndex::ActiveIndices::GetAbort
 }
 
 void DiskEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,
-                                                        uint64_t start_timestamp){
+                                                        uint64_t start_timestamp) {
 
 };
 
 void DiskEdgePropertyIndex::DropGraphClearIndices() {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
 }
+
 std::unique_ptr<EdgePropertyIndex::ActiveIndices> DiskEdgePropertyIndex::GetActiveIndices() const {
   return std::make_unique<ActiveIndices>();
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -166,8 +166,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
-  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */
-  }
+  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
@@ -206,6 +205,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
+
   bool PreVisit(CallProcedure &procedure) override {
     const auto maybe_proc = procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_);
     if (maybe_proc && maybe_proc->second->info.required_privilege) {
@@ -213,38 +213,47 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
     return false;
   }
+
   bool PreVisit(Delete & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::DELETE);
     return false;
   }
+
   bool PreVisit(Match & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MATCH);
     return false;
   }
+
   bool PreVisit(Merge & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MERGE);
     return false;
   }
+
   bool PreVisit(SetProperty & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
+
   bool PreVisit(SetProperties & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
+
   bool PreVisit(SetLabels & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
+
   bool PreVisit(RemoveProperty & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
     return false;
   }
+
   bool PreVisit(RemoveLabels & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
     return false;
   }
+
   bool PreVisit(LoadCsv & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::READ_FILE);
     return false;
@@ -261,8 +270,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   }
 
   bool Visit(Identifier & /*unused*/) override { return true; }
+
   bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
+
   bool Visit(ParameterLookup & /*unused*/) override { return true; }
+
   bool Visit(EnumValueAccess & /*unused*/) override { return true; }
 
  private:

@@ -97,8 +97,9 @@ struct QueryBuildingComponent {
 
   // Helper to create range(start, end) function call
   auto CreateRangeFunction(int64_t start, int64_t end) -> Function * {
-    return ast_storage.Create<Function>("range", std::vector<Expression *>{ast_storage.Create<PrimitiveLiteral>(start),
-                                                                           ast_storage.Create<PrimitiveLiteral>(end)});
+    return ast_storage.Create<Function>("range",
+                                        std::vector<Expression *>{ast_storage.Create<PrimitiveLiteral>(start),
+                                                                  ast_storage.Create<PrimitiveLiteral>(end)});
   }
 
   // Helper to create a function with given name and arguments
@@ -166,8 +167,8 @@ struct QueryEvaluationComponent {
 
     ctx.properties = NamesToProperties(builder.ast_storage.properties_, &storage_component.dba);
     ctx.labels = NamesToLabels(builder.ast_storage.labels_, &storage_component.dba);
-    ExpressionEvaluator eval(&frame, builder.symbol_table, ctx, &storage_component.dba, storage::View::OLD,
-                             &frame_change_collector);
+    ExpressionEvaluator eval(
+        &frame, builder.symbol_table, ctx, &storage_component.dba, storage::View::OLD, &frame_change_collector);
     return expr->Accept(eval);
   }
 

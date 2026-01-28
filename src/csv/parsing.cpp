@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -80,7 +80,9 @@ struct Reader::impl {
   impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem);
 
   [[nodiscard]] bool HasHeader() const { return read_config_.with_header; }
+
   [[nodiscard]] auto Header() const -> Header const & { return header_; }
+
   void Reset() {
     line_buffer_.clear();
     line_buffer_.shrink_to_fit();
@@ -284,7 +286,10 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
             return std::unexpected{
                 ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
                            fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
-                                       *read_config_.delimiter, *read_config_.quote, c, line_count_ - 1))};
+                                       *read_config_.delimiter,
+                                       *read_config_.quote,
+                                       c,
+                                       line_count_ - 1))};
           }
           break;
         }
@@ -322,13 +327,14 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
   // Also, if we don't have a header, the 'number_of_columns_' will be 0, so no
   // need to check the number of columns.
   if (number_of_columns_ != 0 && row.size() != number_of_columns_) [[unlikely]] {
-    return std::unexpected{ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
-                                      // ToDo(the-joksim):
-                                      //    - 'line_count_ - 1' is the last line of a row (as a
-                                      //      row may span several lines) ==> should have a row
-                                      //      counter
-                                      fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
-                                                  line_count_ - 1, row.size()))};
+    return std::unexpected{ParseError(
+        ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
+        // ToDo(the-joksim):
+        //    - 'line_count_ - 1' is the last line of a row (as a
+        //      row may span several lines) ==> should have a row
+        //      counter
+        fmt::format(
+            "Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_, line_count_ - 1, row.size()))};
   }
   // To avoid unessisary dynamic growth of the row, remember the number of
   // columns for future calls
@@ -379,6 +385,7 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
     throw CsvReadException("CSV file {} couldn't be opened!", path_.string());
   }
 }
+
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
 S3CsvSource::S3CsvSource(std::string uri, utils::S3Config const &s3_config) {

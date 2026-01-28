@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -120,6 +120,7 @@ class VerticesIterable final {
 
    public:
     explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
+
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
@@ -139,25 +140,30 @@ class VerticesIterable final {
   };
 
   explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
+
   explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                                utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
 
   Iterator begin() {
-    return std::visit(memgraph::utils::Overloaded{
-                          [](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
-                          [](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
-                                                utils::Allocator<VertexAccessor>> *iterable_) {
-                            return Iterator(iterable_->begin());
-                          }},
-                      iterable_);
+    return std::visit(
+        memgraph::utils::Overloaded{[](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
+                                    [](std::unordered_set<VertexAccessor,
+                                                          std::hash<VertexAccessor>,
+                                                          std::equal_to<void>,
+                                                          utils::Allocator<VertexAccessor>> *iterable_) {
+                                      return Iterator(iterable_->begin());
+                                    }},
+        iterable_);
   }
 
   Iterator end() {
     return std::visit(
         memgraph::utils::Overloaded{
             [](storage::VerticesIterable &iterable_) { return Iterator(iterable_.end()); },
-            [](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+            [](std::unordered_set<VertexAccessor,
+                                  std::hash<VertexAccessor>,
+                                  std::equal_to<void>,
                                   utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
         iterable_);
   }
@@ -166,7 +172,9 @@ class VerticesIterable final {
 template <typename storage_iterator>
 struct query_vertex_iterator final {
   using value_type = VertexAccessor;
+
   explicit query_vertex_iterator(storage_iterator it) : it_(std::move(it)) {}
+
   query_vertex_iterator(query_vertex_iterator const &) = default;
   query_vertex_iterator(query_vertex_iterator &&) = default;
   query_vertex_iterator &operator=(query_vertex_iterator const &) = default;
@@ -190,6 +198,7 @@ struct query_iterable final {
   using iterator = query_vertex_iterator<typename storage_iterable::iterator>;
 
   explicit query_iterable(storage_iterable iterable) : iterable_(std::move(iterable)) {}
+
   query_iterable(query_iterable const &) = default;
   query_iterable(query_iterable &&) = default;
   query_iterable &operator=(query_iterable const &) = default;
@@ -207,11 +216,15 @@ struct query_iterable final {
 class VerticesChunkedIterable {
  public:
   storage::VerticesChunkedIterable chunks_;
+
   class Iterator {
    public:
     storage::VerticesChunkedIterable::Iterator it_;
+
     VertexAccessor operator*() const { return VertexAccessor(*it_); }
+
     bool operator==(const Iterator &other) const { return it_ == other.it_; }
+
     bool operator!=(const Iterator &other) const { return it_ != other.it_; }
 
     Iterator &operator++() {
@@ -228,21 +241,27 @@ class VerticesChunkedIterable {
     explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }
+
     Iterator end() { return end_; }
   };
 
   Chunk get_chunk(size_t id) { return Chunk{chunks_.get_chunk(id)}; }
+
   size_t size() const { return chunks_.size(); }
 };
 
 class EdgesChunkedIterable {
  public:
   storage::EdgesChunkedIterable chunks_;
+
   class Iterator {
    public:
     storage::EdgesChunkedIterable::Iterator it_;
+
     EdgeAccessor operator*() const { return EdgeAccessor(*it_); }
+
     bool operator==(const Iterator &other) const { return it_ == other.it_; }
+
     bool operator!=(const Iterator &other) const { return it_ != other.it_; }
 
     Iterator &operator++() {
@@ -259,10 +278,12 @@ class EdgesChunkedIterable {
     explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }
+
     Iterator end() { return end_; }
   };
 
   Chunk get_chunk(size_t id) { return Chunk{chunks_.get_chunk(id)}; }
+
   size_t size() const { return chunks_.size(); }
 };
 
@@ -280,6 +301,7 @@ class EdgesIterable final {
 
    public:
     explicit Iterator(storage::EdgesIterable::Iterator it) : it_(std::move(it)) {}
+
     explicit Iterator(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                          utils::Allocator<EdgeAccessor>>::iterator it)
         : it_(it) {}
@@ -299,6 +321,7 @@ class EdgesIterable final {
   };
 
   explicit EdgesIterable(storage::EdgesIterable iterable) : iterable_(std::move(iterable)) {}
+
   explicit EdgesIterable(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                             utils::Allocator<EdgeAccessor>> *edges)
       : iterable_(edges) {}
@@ -307,7 +330,9 @@ class EdgesIterable final {
     return std::visit(
         memgraph::utils::Overloaded{
             [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.begin()); },
-            [](std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+            [](std::unordered_set<EdgeAccessor,
+                                  std::hash<EdgeAccessor>,
+                                  std::equal_to<void>,
                                   utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->begin()); }},
         iterable_);
   }
@@ -316,7 +341,9 @@ class EdgesIterable final {
     return std::visit(
         memgraph::utils::Overloaded{
             [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.end()); },
-            [](std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+            [](std::unordered_set<EdgeAccessor,
+                                  std::hash<EdgeAccessor>,
+                                  std::equal_to<void>,
                                   utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
         iterable_);
   }
@@ -333,11 +360,17 @@ class VerticesChunkCollection final {
   explicit VerticesChunkCollection(
       std::vector<std::pair<VerticesIterable::Iterator, VerticesIterable::Iterator>> &&chunks)
       : chunks_(std::move(chunks)) {}
+
   size_t size() const { return chunks_.size(); }
+
   bool empty() const { return chunks_.empty(); }
+
   auto begin() { return chunks_.begin(); }
+
   auto end() { return chunks_.end(); }
+
   const auto &operator[](size_t index) const { return chunks_[index]; }
+
   auto &operator[](size_t index) { return chunks_[index]; }
 };
 
@@ -531,8 +564,8 @@ class DbAccessor final {
 
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
-    std::ranges::transform(edges, std::back_inserter(deleted_edges),
-                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+    std::ranges::transform(
+        edges, std::back_inserter(deleted_edges), [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
 
     return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
@@ -587,10 +620,12 @@ class DbAccessor final {
     deleted_vertices.reserve(val_vertices.size());
     deleted_edges.reserve(val_edges.size());
 
-    std::ranges::transform(val_vertices, std::back_inserter(deleted_vertices),
-                           [](const auto &deleted_vertex) { return VertexAccessor{deleted_vertex}; });
-    std::ranges::transform(val_edges, std::back_inserter(deleted_edges),
-                           [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+    std::ranges::transform(val_vertices, std::back_inserter(deleted_vertices), [](const auto &deleted_vertex) {
+      return VertexAccessor{deleted_vertex};
+    });
+    std::ranges::transform(val_edges, std::back_inserter(deleted_edges), [](const auto &deleted_edge) {
+      return EdgeAccessor{deleted_edge};
+    });
 
     return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
   }
@@ -612,6 +647,7 @@ class DbAccessor final {
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return accessor_->EdgeTypeToName(type); }
 
   std::string DatabaseName() const { return accessor_->id(); }
+
   auto DatabaseNameView() const { return accessor_->id_view(); }
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
@@ -737,6 +773,7 @@ class DbAccessor final {
                         std::span<storage::PropertyValueRange const> bounds) const {
     return accessor_->ApproximateVertexCount(label, properties, bounds);
   }
+
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVerticesPointCount(label, property);
   }
@@ -786,6 +823,7 @@ class DbAccessor final {
   std::vector<storage::LabelId> ListAllPossiblyPresentVertexLabels() const {
     return accessor_->ListAllPossiblyPresentVertexLabels();
   }
+
   std::vector<storage::EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const {
     return accessor_->ListAllPossiblyPresentEdgeTypes();
   }
@@ -799,6 +837,7 @@ class DbAccessor final {
   void DropAllConstraints() { accessor_->DropAllConstraints(); }
 
   std::string id() const { return accessor_->id(); }
+
   auto id_view() const { return accessor_->id_view(); }
 
   std::expected<void, storage::StorageIndexDefinitionError> CreateIndex(
@@ -929,6 +968,7 @@ class DbAccessor final {
       -> std::expected<storage::Enum, storage::EnumStorageError> {
     return accessor_->GetEnumValue(name, value);
   }
+
   auto GetEnumValue(std::string_view enum_str) -> std::expected<storage::Enum, storage::EnumStorageError> {
     return accessor_->GetEnumValue(enum_str);
   }

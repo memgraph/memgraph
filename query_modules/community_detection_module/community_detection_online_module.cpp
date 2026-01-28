@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -84,12 +84,21 @@ void Set(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
     const auto graph_type =
         saved_directedness ? mg_graph::GraphType::kDirectedGraph : mg_graph::GraphType::kUndirectedGraph;
-    auto graph = saved_weightedness ? mg_utility::GetWeightedGraphView(memgraph_graph, result, memory, graph_type,
-                                                                       saved_weight_property.c_str(), DEFAULT_WEIGHT)
-                                    : mg_utility::GetGraphView(memgraph_graph, result, memory, graph_type);
+    auto graph = saved_weightedness
+                     ? mg_utility::GetWeightedGraphView(
+                           memgraph_graph, result, memory, graph_type, saved_weight_property.c_str(), DEFAULT_WEIGHT)
+                     : mg_utility::GetGraphView(memgraph_graph, result, memory, graph_type);
 
-    const auto labels = algorithm.SetLabels(std::move(graph), directed, weighted, similarity_threshold, exponent,
-                                            min_value, weight_property, w_selfloop, max_iterations, max_updates);
+    const auto labels = algorithm.SetLabels(std::move(graph),
+                                            directed,
+                                            weighted,
+                                            similarity_threshold,
+                                            exponent,
+                                            min_value,
+                                            weight_property,
+                                            w_selfloop,
+                                            max_iterations,
+                                            max_updates);
     ::initialized = true;
 
     for (const auto [node_id, label] : labels) {
@@ -112,9 +121,10 @@ void Get(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
     const auto graph_type =
         saved_directedness ? mg_graph::GraphType::kDirectedGraph : mg_graph::GraphType::kUndirectedGraph;
-    auto graph = saved_weightedness ? mg_utility::GetWeightedGraphView(memgraph_graph, result, memory, graph_type,
-                                                                       saved_weight_property.c_str(), DEFAULT_WEIGHT)
-                                    : mg_utility::GetGraphView(memgraph_graph, result, memory, graph_type);
+    auto graph = saved_weightedness
+                     ? mg_utility::GetWeightedGraphView(
+                           memgraph_graph, result, memory, graph_type, saved_weight_property.c_str(), DEFAULT_WEIGHT)
+                     : mg_utility::GetGraphView(memgraph_graph, result, memory, graph_type);
 
     const auto labels = initialized ? algorithm.GetLabels(std::move(graph)) : algorithm.SetLabels(std::move(graph));
 
@@ -154,9 +164,10 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 
     const auto graph_type =
         saved_directedness ? mg_graph::GraphType::kDirectedGraph : mg_graph::GraphType::kUndirectedGraph;
-    auto graph = saved_weightedness ? mg_utility::GetWeightedGraphView(memgraph_graph, result, memory, graph_type,
-                                                                       saved_weight_property.c_str(), DEFAULT_WEIGHT)
-                                    : mg_utility::GetGraphView(memgraph_graph, result, memory, graph_type);
+    auto graph = saved_weightedness
+                     ? mg_utility::GetWeightedGraphView(
+                           memgraph_graph, result, memory, graph_type, saved_weight_property.c_str(), DEFAULT_WEIGHT)
+                     : mg_utility::GetGraphView(memgraph_graph, result, memory, graph_type);
 
     if (initialized) {
       auto modified_node_ids = mg_utility::GetNodeIDs(created_nodes);
@@ -165,14 +176,14 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
       auto updated_node_ids = mg_utility::GetNodeIDs(updated_nodes);
       modified_node_ids.insert(modified_node_ids.end(), updated_node_ids.begin(), updated_node_ids.end());
       auto updated_edge_endpoint_ids = mg_utility::GetEdgeEndpointIDs(updated_edges);
-      modified_edge_endpoint_ids.insert(modified_edge_endpoint_ids.end(), updated_edge_endpoint_ids.begin(),
-                                        updated_edge_endpoint_ids.end());
+      modified_edge_endpoint_ids.insert(
+          modified_edge_endpoint_ids.end(), updated_edge_endpoint_ids.begin(), updated_edge_endpoint_ids.end());
 
       const auto deleted_node_ids = mg_utility::GetNodeIDs(deleted_nodes);
       const auto deleted_edge_endpoint_ids = mg_utility::GetEdgeEndpointIDs(deleted_edges);
 
-      const auto labels = algorithm.UpdateLabels(std::move(graph), modified_node_ids, modified_edge_endpoint_ids,
-                                                 deleted_node_ids, deleted_edge_endpoint_ids);
+      const auto labels = algorithm.UpdateLabels(
+          std::move(graph), modified_node_ids, modified_edge_endpoint_ids, deleted_node_ids, deleted_edge_endpoint_ids);
 
       for (const auto [node_id, label] : labels) {
         InsertCommunityDetectionRecord(memgraph_graph, result, memory, node_id, label);
@@ -277,18 +288,18 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       auto default_deleted_vertices = mgp::value_make_list(mgp::list_make_empty(0, memory));
       auto default_deleted_edges = mgp::value_make_list(mgp::list_make_empty(0, memory));
 
-      mgp::proc_add_opt_arg(update_proc, kCreatedVertices.data(), mgp::type_list(mgp::type_node()),
-                            default_created_vertices);
-      mgp::proc_add_opt_arg(update_proc, kCreatedEdges.data(), mgp::type_list(mgp::type_relationship()),
-                            default_deleted_edges);
-      mgp::proc_add_opt_arg(update_proc, kUpdatedVertices.data(), mgp::type_list(mgp::type_node()),
-                            default_updated_vertices);
-      mgp::proc_add_opt_arg(update_proc, kUpdatedEdges.data(), mgp::type_list(mgp::type_relationship()),
-                            default_updated_edges);
-      mgp::proc_add_opt_arg(update_proc, kDeletedVertices.data(), mgp::type_list(mgp::type_node()),
-                            default_deleted_vertices);
-      mgp::proc_add_opt_arg(update_proc, kDeletedEdges.data(), mgp::type_list(mgp::type_relationship()),
-                            default_deleted_edges);
+      mgp::proc_add_opt_arg(
+          update_proc, kCreatedVertices.data(), mgp::type_list(mgp::type_node()), default_created_vertices);
+      mgp::proc_add_opt_arg(
+          update_proc, kCreatedEdges.data(), mgp::type_list(mgp::type_relationship()), default_deleted_edges);
+      mgp::proc_add_opt_arg(
+          update_proc, kUpdatedVertices.data(), mgp::type_list(mgp::type_node()), default_updated_vertices);
+      mgp::proc_add_opt_arg(
+          update_proc, kUpdatedEdges.data(), mgp::type_list(mgp::type_relationship()), default_updated_edges);
+      mgp::proc_add_opt_arg(
+          update_proc, kDeletedVertices.data(), mgp::type_list(mgp::type_node()), default_deleted_vertices);
+      mgp::proc_add_opt_arg(
+          update_proc, kDeletedEdges.data(), mgp::type_list(mgp::type_relationship()), default_deleted_edges);
 
       mgp::proc_add_result(update_proc, kFieldNode.data(), mgp::type_node());
       mgp::proc_add_result(update_proc, kFieldCommunityId.data(), mgp::type_int());

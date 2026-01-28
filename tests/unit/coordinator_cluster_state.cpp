@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,11 +46,11 @@ TEST_F(CoordinatorClusterStateTest, TestUpgrade) {
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance2",
-                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'111},
                                    .bolt_server = Endpoint{"127.0.0.1", 7688},
                                    .replication_client_info = {.instance_name = "instance_name",
                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10010}}};
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'010}}};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -91,11 +91,11 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance3",
-                                   .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'112},
                                    .bolt_server = Endpoint{"127.0.0.1", 7687},
                                    .replication_client_info = {.instance_name = "instance_name",
                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10001}}};
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'001}}};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -117,11 +117,11 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
   CoordinatorClusterState cluster_state{};
   {
     auto config = DataInstanceConfig{.instance_name = "instance1",
-                                     .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                     .mgt_server = Endpoint{"127.0.0.1", 10'112},
                                      .bolt_server = Endpoint{"127.0.0.1", 7687},
                                      .replication_client_info = {.instance_name = "instance1",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}}};
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10'001}}};
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
 
@@ -131,11 +131,11 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
   }
   {
     auto config = DataInstanceConfig{.instance_name = "instance2",
-                                     .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                     .mgt_server = Endpoint{"127.0.0.1", 10'111},
                                      .bolt_server = Endpoint{"127.0.0.1", 7688},
                                      .replication_client_info = {.instance_name = "instance2",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10010}}};
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10'010}}};
 
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -182,11 +182,11 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance2",
-                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'111},
                                    .bolt_server = Endpoint{"127.0.0.1", 7688},
                                    .replication_client_info = {.instance_name = "instance_name",
                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10010}}};
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'010}}};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -225,11 +225,11 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance2",
-                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'111},
                                    .bolt_server = Endpoint{"127.0.0.1", 7688},
                                    .replication_client_info = {.instance_name = "instance_name",
                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10010}}};
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'010}}};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);

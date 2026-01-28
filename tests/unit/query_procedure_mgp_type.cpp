@@ -62,10 +62,11 @@ TYPED_TEST(CypherType, PresentableNameCompositeTypes) {
     EXPECT_EQ(nullable_any->impl->GetPresentableName(), "ANY?");
   }
   {
-    auto *nullable_any =
-        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable,
-                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable,
-                                                EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, any_type)));
+    auto *nullable_any = EXPECT_MGP_NO_ERROR(
+        mgp_type *,
+        mgp_type_nullable,
+        EXPECT_MGP_NO_ERROR(
+            mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, any_type)));
     EXPECT_EQ(nullable_any->impl->GetPresentableName(), "ANY?");
   }
   {
@@ -79,26 +80,33 @@ TYPED_TEST(CypherType, PresentableNameCompositeTypes) {
   }
   {
     auto *list_of_nullable_path = EXPECT_MGP_NO_ERROR(
-        mgp_type *, mgp_type_list,
+        mgp_type *,
+        mgp_type_list,
         EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)));
     EXPECT_EQ(list_of_nullable_path->impl->GetPresentableName(), "LIST OF PATH?");
   }
   {
     auto *list_of_list_of_map = EXPECT_MGP_NO_ERROR(
-        mgp_type *, mgp_type_list,
+        mgp_type *,
+        mgp_type_list,
         EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map)));
     EXPECT_EQ(list_of_list_of_map->impl->GetPresentableName(), "LIST OF LIST OF MAP");
   }
   {
     auto *nullable_list_of_nullable_list_of_nullable_string = EXPECT_MGP_NO_ERROR(
-        mgp_type *, mgp_type_nullable,
+        mgp_type *,
+        mgp_type_nullable,
         EXPECT_MGP_NO_ERROR(
-            mgp_type *, mgp_type_list,
+            mgp_type *,
+            mgp_type_list,
             EXPECT_MGP_NO_ERROR(
-                mgp_type *, mgp_type_nullable,
-                EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list,
-                                    EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable,
-                                                        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string))))));
+                mgp_type *,
+                mgp_type_nullable,
+                EXPECT_MGP_NO_ERROR(
+                    mgp_type *,
+                    mgp_type_list,
+                    EXPECT_MGP_NO_ERROR(
+                        mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string))))));
     EXPECT_EQ(nullable_list_of_nullable_list_of_nullable_string->impl->GetPresentableName(),
               "LIST? OF LIST? OF STRING?");
   }
@@ -109,16 +117,22 @@ TYPED_TEST(CypherType, NullSatisfiesType) {
   {
     auto *mgp_null = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory);
     const memgraph::query::TypedValue tv_null;
-    std::vector<mgp_type *> primitive_types{
-        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
-        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
-        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
-        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)};
+    std::vector<mgp_type *> primitive_types{EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)};
     for (auto *primitive_type : primitive_types) {
-      for (auto *type : {primitive_type, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list, primitive_type),
-                         EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list,
-                                             EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, primitive_type))}) {
+      for (auto *type :
+           {primitive_type,
+            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list, primitive_type),
+            EXPECT_MGP_NO_ERROR(
+                mgp_type *, mgp_type_list, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, primitive_type))}) {
         EXPECT_FALSE(type->impl->SatisfiesType(*mgp_null));
         EXPECT_FALSE(type->impl->SatisfiesType(tv_null));
         auto *null_type = EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, type);
@@ -144,9 +158,10 @@ static void CheckSatisfiesTypesAndNullable(const mgp_value *mgp_val, const memgr
 static void CheckNotSatisfiesTypesAndListAndNullable(const mgp_value *mgp_val, const memgraph::query::TypedValue &tv,
                                                      const std::vector<mgp_type *> &elem_types) {
   for (auto *elem_type : elem_types) {
-    for (auto *type : {elem_type, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list, elem_type),
-                       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list,
-                                           EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, elem_type))}) {
+    for (auto *type : {elem_type,
+                       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list, elem_type),
+                       EXPECT_MGP_NO_ERROR(
+                           mgp_type *, mgp_type_list, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, elem_type))}) {
       EXPECT_FALSE(type->impl->SatisfiesType(*mgp_val)) << type->impl->GetPresentableName();
       EXPECT_FALSE(type->impl->SatisfiesType(tv));
       auto *null_type = EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, type);
@@ -161,14 +176,19 @@ TYPED_TEST(CypherType, BoolSatisfiesType) {
   auto *mgp_bool = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_bool, 1, &memory);
   const memgraph::query::TypedValue tv_bool(true);
   CheckSatisfiesTypesAndNullable(
-      mgp_bool, tv_bool,
+      mgp_bool,
+      tv_bool,
       {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_bool, tv_bool,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_bool,
+                                           tv_bool,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_bool);
 }
 
@@ -176,16 +196,20 @@ TYPED_TEST(CypherType, IntSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *mgp_int = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &memory);
   const memgraph::query::TypedValue tv_int(42);
-  CheckSatisfiesTypesAndNullable(
-      mgp_int, tv_int,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_int, tv_int,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckSatisfiesTypesAndNullable(mgp_int,
+                                 tv_int,
+                                 {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_int,
+                                           tv_int,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_int);
 }
 
@@ -193,16 +217,20 @@ TYPED_TEST(CypherType, DoubleSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *mgp_double = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, 42, &memory);
   const memgraph::query::TypedValue tv_double(42.0);
-  CheckSatisfiesTypesAndNullable(
-      mgp_double, tv_double,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_double, tv_double,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckSatisfiesTypesAndNullable(mgp_double,
+                                 tv_double,
+                                 {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_double,
+                                           tv_double,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_double);
 }
 
@@ -211,14 +239,19 @@ TYPED_TEST(CypherType, StringSatisfiesType) {
   auto *mgp_string = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, "text", &memory);
   const memgraph::query::TypedValue tv_string("text");
   CheckSatisfiesTypesAndNullable(
-      mgp_string, tv_string,
+      mgp_string,
+      tv_string,
       {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_string, tv_string,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_string,
+                                           tv_string,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_string);
 }
 
@@ -227,21 +260,27 @@ TYPED_TEST(CypherType, MapSatisfiesType) {
   auto *map = EXPECT_MGP_NO_ERROR(mgp_map *, mgp_map_make_empty, &memory);
   EXPECT_EQ(
       mgp_map_insert(
-          map, "key",
+          map,
+          "key",
           test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &memory)).get()),
       mgp_error::MGP_ERROR_NO_ERROR);
   auto *mgp_map_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_map, map);
   const memgraph::query::TypedValue tv_map(
       std::map<std::string, memgraph::query::TypedValue>{{"key", memgraph::query::TypedValue(42)}});
   CheckSatisfiesTypesAndNullable(
-      mgp_map_v, tv_map,
+      mgp_map_v,
+      tv_map,
       {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_map_v, tv_map,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_map_v,
+                                           tv_map,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_map_v);
 }
 
@@ -255,16 +294,20 @@ TYPED_TEST(CypherType, VertexSatisfiesType) {
   auto *mgp_vertex_v =
       EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex, alloc.new_object<mgp_vertex>(vertex, &graph));
   const memgraph::query::TypedValue tv_vertex(vertex);
-  CheckSatisfiesTypesAndNullable(
-      mgp_vertex_v, tv_vertex,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_vertex_v, tv_vertex,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckSatisfiesTypesAndNullable(mgp_vertex_v,
+                                 tv_vertex,
+                                 {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_vertex_v,
+                                           tv_vertex,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_vertex_v);
 }
 
@@ -279,16 +322,20 @@ TYPED_TEST(CypherType, EdgeSatisfiesType) {
   mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
   auto *mgp_edge_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_edge, alloc.new_object<mgp_edge>(edge, &graph));
   const memgraph::query::TypedValue tv_edge(edge);
-  CheckSatisfiesTypesAndNullable(
-      mgp_edge_v, tv_edge,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_edge_v, tv_edge,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckSatisfiesTypesAndNullable(mgp_edge_v,
+                                 tv_edge,
+                                 {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                  EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_edge_v,
+                                           tv_edge,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_edge_v);
 }
 
@@ -311,14 +358,19 @@ TYPED_TEST(CypherType, PathSatisfiesType) {
   auto *mgp_path_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_path, path);
   const memgraph::query::TypedValue tv_path(memgraph::query::Path(v1, edge, v2));
   CheckSatisfiesTypesAndNullable(
-      mgp_path_v, tv_path,
+      mgp_path_v,
+      tv_path,
       {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_path_v, tv_path,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_path_v,
+                                           tv_path,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship)});
   mgp_value_destroy(mgp_path_v);
 }
 
@@ -339,12 +391,16 @@ TYPED_TEST(CypherType, EmptyListSatisfiesType) {
   auto *mgp_list_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
   memgraph::query::TypedValue tv_list(std::vector<memgraph::query::TypedValue>{});
   // Empty List satisfies all list element types
-  std::vector<mgp_type *> primitive_types{
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)};
+  std::vector<mgp_type *> primitive_types{EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)};
   auto all_types = MakeListTypes(primitive_types);
   all_types.push_back(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any));
   CheckSatisfiesTypesAndNullable(mgp_list_v, tv_list, all_types);
@@ -364,17 +420,20 @@ TYPED_TEST(CypherType, ListOfIntSatisfiesType) {
             test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, i, &memory)).get()),
         mgp_error::MGP_ERROR_NO_ERROR);
     tv_list.ValueList().emplace_back(i);
-    auto valid_types =
-        MakeListTypes({EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
-                       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)});
+    auto valid_types = MakeListTypes({EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)});
     valid_types.push_back(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any));
     CheckSatisfiesTypesAndNullable(mgp_list_v, tv_list, valid_types);
-    CheckNotSatisfiesTypesAndListAndNullable(
-        mgp_list_v, tv_list,
-        {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-         EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
-         EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
-         EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+    CheckNotSatisfiesTypesAndListAndNullable(mgp_list_v,
+                                             tv_list,
+                                             {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                              EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                              EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                              EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                              EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                              EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                              EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   }
   mgp_value_destroy(mgp_list_v);
 }
@@ -403,13 +462,17 @@ TYPED_TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
   valid_types.push_back(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any));
   CheckSatisfiesTypesAndNullable(mgp_list_v, tv_list, valid_types);
   // All other types will not be satisfied
-  CheckNotSatisfiesTypesAndListAndNullable(
-      mgp_list_v, tv_list,
-      {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
-       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
+  CheckNotSatisfiesTypesAndListAndNullable(mgp_list_v,
+                                           tv_list,
+                                           {EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                            EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)});
   mgp_value_destroy(mgp_list_v);
 }
 
@@ -424,12 +487,16 @@ TYPED_TEST(CypherType, ListOfNullSatisfiesType) {
       mgp_error::MGP_ERROR_NO_ERROR);
   tv_list.ValueList().emplace_back();
   // List with Null satisfies all nullable list element types
-  std::vector<mgp_type *> primitive_types{
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),       EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),        EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
-      EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)};
+  std::vector<mgp_type *> primitive_types{EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_float),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_node),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_relationship),
+                                          EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)};
   std::vector<mgp_type *> valid_types{EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)};
   valid_types.reserve(1U + primitive_types.size());
   for (auto *elem_type : primitive_types) {

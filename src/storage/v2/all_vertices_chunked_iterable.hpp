@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,7 @@ class AllVerticesChunkedIterable final {
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const { return it_ == other.it_; }
+
     bool operator!=(const Iterator &other) const { return it_ != other.it_; }
   };
 
@@ -60,10 +61,12 @@ class AllVerticesChunkedIterable final {
         : begin_{self, chunk}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }
+
     Iterator end() { return end_; }
   };
 
   Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+
   size_t size() const { return chunks_.size(); }
 };
 

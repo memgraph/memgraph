@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,8 +30,8 @@ inline std::string ToString(const memgraph::query::VertexAccessor &vertex, const
   os << "V(";
   auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
   MG_ASSERT(maybe_labels.has_value());
-  memgraph::utils::PrintIterable(os, *maybe_labels, ":",
-                                 [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
+  memgraph::utils::PrintIterable(
+      os, *maybe_labels, ":", [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
   if (maybe_labels->size() > 0) os << " ";
   os << "{";
   auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
@@ -85,7 +85,9 @@ inline std::string ToString(const memgraph::utils::Duration) { return ""; }
 
 // TODO: formatting of enum and points
 inline std::string ToString(const memgraph::storage::Enum) { return ""; }
+
 inline std::string ToString(const memgraph::storage::Point2d) { return ""; }
+
 inline std::string ToString(const memgraph::storage::Point3d) { return ""; }
 
 inline std::string ToString(const memgraph::utils::ZonedDateTime &zdt) { return zdt.ToString(); }
@@ -111,8 +113,8 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       break;
     case memgraph::query::TypedValue::Type::List:
       os << "[";
-      memgraph::utils::PrintIterable(os, value.ValueList(), ", ",
-                                     [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
+      memgraph::utils::PrintIterable(
+          os, value.ValueList(), ", ", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
       os << "]";
       break;
     case memgraph::query::TypedValue::Type::Map:

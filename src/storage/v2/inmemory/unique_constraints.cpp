@@ -25,6 +25,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/skip_list.hpp"
+
 namespace memgraph::storage {
 
 namespace {
@@ -65,15 +66,18 @@ struct FixedCapacityArray {
   }
 
   template <std::ranges::input_range R>
-  requires std::convertible_to<std::ranges::range_value_t<R>, T>
+    requires std::convertible_to<std::ranges::range_value_t<R>, T>
   explicit FixedCapacityArray(R &&range) : size(std::ranges::size(range)) {
     MG_ASSERT(size <= kUniqueConstraintsMaxProperties, "Invalid array size!");
     std::ranges::copy(std::forward<R>(range), values.begin());
   }
 
   constexpr T *begin() noexcept { return values.data(); }
+
   constexpr T *end() noexcept { return values.data() + size; }
+
   constexpr const T *begin() const noexcept { return values.data(); }
+
   constexpr const T *end() const noexcept { return values.data() + size; }
 };
 
@@ -298,6 +302,7 @@ InMemoryUniqueConstraints::IndividualConstraint::~IndividualConstraint() {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveUniqueConstraints);
   }
 }
+
 void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_timestamp) {
   status.Commit(commit_timestamp);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveUniqueConstraints);
@@ -436,10 +441,23 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&result, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
-                            &properties, &snapshot_info]() {
-        do_per_thread_validation(result, DoValidate, vertex_batches, batch_counter, vertex_accessor, snapshot_info,
-                                 constraint_accessor, label, properties);
+      threads.emplace_back([&result,
+                            &vertex_batches,
+                            &batch_counter,
+                            &vertex_accessor,
+                            &constraint_accessor,
+                            &label,
+                            &properties,
+                            &snapshot_info]() {
+        do_per_thread_validation(result,
+                                 DoValidate,
+                                 vertex_batches,
+                                 batch_counter,
+                                 vertex_accessor,
+                                 snapshot_info,
+                                 constraint_accessor,
+                                 label,
+                                 properties);
       });
     }
   }
@@ -495,10 +513,10 @@ auto InMemoryUniqueConstraints::CreateConstraint(
       auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
       return std::visit(
-          [&vertex_accessor, &constraint_accessor, &label, &properties,
-           &snapshot_info](auto &multi_single_thread_processing) {
-            return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties,
-                                                  snapshot_info);
+          [&vertex_accessor, &constraint_accessor, &label, &properties, &snapshot_info](
+              auto &multi_single_thread_processing) {
+            return multi_single_thread_processing(
+                vertex_accessor, constraint_accessor, label, properties, snapshot_info);
           },
           multi_single_thread_processing);
     });

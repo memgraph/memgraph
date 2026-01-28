@@ -95,6 +95,7 @@ bool KVStore::DeletePrefix(const std::string &prefix) {
   }
   return true;
 }
+
 bool KVStore::SyncWal() {
   if (!pimpl_) {
     return true;

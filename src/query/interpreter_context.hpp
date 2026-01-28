@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -136,18 +136,28 @@ class InterpreterContextHolder {
                          ReplicationQueryHandler *replication_handler = nullptr,
                          utils::PriorityThreadPool *worker_pool = nullptr) {
     assert(!instance);
-    instance.emplace(interpreter_config, settings, dbms_handler, rs, system,
+    instance.emplace(interpreter_config,
+                     settings,
+                     dbms_handler,
+                     rs,
+                     system,
 #ifdef MG_ENTERPRISE
-                     coordinator_state, resource_monitoring,
+                     coordinator_state,
+                     resource_monitoring,
 #endif
-                     ah, ac, replication_handler, worker_pool);
+                     ah,
+                     ac,
+                     replication_handler,
+                     worker_pool);
   }
+
   InterpreterContextHolder(const InterpreterContextHolder &) = delete;
   InterpreterContextHolder &operator=(const InterpreterContextHolder &) = delete;
   InterpreterContextHolder(InterpreterContextHolder &&) = delete;
   InterpreterContextHolder &operator=(InterpreterContextHolder &&) = delete;
 
   static void destroy() { instance.reset(); }
+
   static std::optional<InterpreterContext> instance;
 
   friend struct InterpreterContextLifetimeControl;
@@ -163,12 +173,21 @@ struct InterpreterContextLifetimeControl {
 #endif
       AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr, ReplicationQueryHandler *replication_handler = nullptr,
       utils::PriorityThreadPool *worker_pool = nullptr) {
-    InterpreterContextHolder::Initialize(interpreter_config, settings, dbms_handler, rs, system,
+    InterpreterContextHolder::Initialize(interpreter_config,
+                                         settings,
+                                         dbms_handler,
+                                         rs,
+                                         system,
 #ifdef MG_ENTERPRISE
-                                         coordinator_state, resource_monitoring,
+                                         coordinator_state,
+                                         resource_monitoring,
 #endif
-                                         ah, ac, replication_handler, worker_pool);
+                                         ah,
+                                         ac,
+                                         replication_handler,
+                                         worker_pool);
   }
+
   ~InterpreterContextLifetimeControl() { InterpreterContextHolder::destroy(); }
 };
 }  // namespace memgraph::query

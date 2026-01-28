@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -338,10 +338,15 @@ struct TypeInfo {
 };
 
 inline bool operator==(const TypeInfo &a, const TypeInfo &b) { return a.id == b.id; }
+
 inline bool operator!=(const TypeInfo &a, const TypeInfo &b) { return a.id != b.id; }
+
 inline bool operator<(const TypeInfo &a, const TypeInfo &b) { return a.id < b.id; }
+
 inline bool operator<=(const TypeInfo &a, const TypeInfo &b) { return a.id <= b.id; }
+
 inline bool operator>(const TypeInfo &a, const TypeInfo &b) { return a.id > b.id; }
+
 inline bool operator>=(const TypeInfo &a, const TypeInfo &b) { return a.id >= b.id; }
 
 /// Return true if `a` is subtype or the same type as `b`.

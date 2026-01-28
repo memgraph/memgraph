@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,10 +35,12 @@ inline std::string ToString(const mgp_log_level &log_level) {
   }
   LOG_FATAL("ToString of a wrong mgp_log_level -> check missing switch case");
 }
+
 inline std::ostream &operator<<(std::ostream &os, const mgp_log_level &log_level) {
   os << ToString(log_level);
   return os;
 }
+
 template <>
 class fmt::formatter<mgp_log_level> : public fmt::ostream_formatter {};
 
@@ -75,10 +77,12 @@ inline std::string ToString(const mgp_error &error) {
   }
   LOG_FATAL("ToString of a wrong mgp_error -> check missing switch case");
 }
+
 inline std::ostream &operator<<(std::ostream &os, const mgp_error &error) {
   os << ToString(error);
   return os;
 }
+
 template <>
 class fmt::formatter<mgp_error> : public fmt::ostream_formatter {};
 #endif

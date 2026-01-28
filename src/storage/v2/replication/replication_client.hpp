@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,6 +77,7 @@ class ReplicaStream {
 class ReplicaStreamExecutor {
  public:
   explicit ReplicaStreamExecutor(std::optional<ReplicaStream> stream) : stream_(std::move(stream)) {}
+
   void operator()() const {}
 
  private:
@@ -102,18 +103,23 @@ class ReplicationStorageClient {
   ~ReplicationStorageClient() = default;
 
   auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
+
   bool TwoPhaseCommit() const {
     // SYNC and ASYNC replicas should commit immediately when receiving deltas
     // STRICT_SYNC we are doing two phase commit
     return client_.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC;
   }
+
   auto Name() const -> std::string const & { return client_.name_; }
+
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
+
   void AbortRpcClient() const { client_.rpc_client_.Abort(); }
 
   void SetMaybeBehind() {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
   }
+
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;

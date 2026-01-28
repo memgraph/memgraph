@@ -190,10 +190,12 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgrap
                                  std::optional<std::string_view> db_name) {
   return user.CanImpersonate(target, db_name);
 }
+
 bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target,
                                  std::optional<std::string_view> db_name) {
   return role.CanImpersonate(target, db_name);
 }
+
 bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgraph::auth::User &target,
                                  std::optional<std::string_view> db_name) {
   return roles.CanImpersonate(target, db_name);
@@ -202,7 +204,7 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 
 #ifdef MG_ENTERPRISE
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
-    : user_or_role_{std::move(user_or_role)}, dba_(dba){};
+    : user_or_role_{std::move(user_or_role)}, dba_(dba) {};
 
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
   if (!cached_label_permissions_) {
@@ -297,12 +299,14 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
 };
 
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
+
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
 
 void FineGrainedAuthChecker::PopulateCachedPermissions() const {
   GetCachedLabelPermissions();
   GetCachedEdgePermissions();
 }
+
 bool FineGrainedAuthChecker::IsCachedPermissionsPopulated() const {
   return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value();
 }

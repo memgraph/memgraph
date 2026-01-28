@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -152,7 +152,8 @@ struct JsonlReader::impl {
     if (url_matcher(uri_)) {
       auto [new_path, file] = utils::CreateUniqueDownloadFile(build_base_path());
 
-      if (!requests::CreateAndDownloadFile(uri_, std::move(file),
+      if (!requests::CreateAndDownloadFile(uri_,
+                                           std::move(file),
                                            memgraph::flags::run_time::GetFileDownloadConnTimeoutSec(),
                                            std::move(abort_check))) {
         utils::DeleteFile(new_path);

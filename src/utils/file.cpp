@@ -396,7 +396,8 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
-            path, path_);
+            path,
+            path_);
   path_ = path;
   written_since_last_sync_ = 0;
 
@@ -449,6 +450,7 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
 }
 
 void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
+
 void OutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
 
 size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
@@ -469,8 +471,8 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno),
-              errno);
+    MG_ASSERT(
+        pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno), errno);
     return pos;
   }
 }
@@ -541,7 +543,10 @@ void OutputFile::Sync() {
   MG_ASSERT(ret == 0,
             "While trying to sync {}, an error occurred: {} ({}). Possibly {} "
             "bytes from previous write calls were lost.",
-            path_, strerror(errno), errno, written_since_last_sync_);
+            path_,
+            strerror(errno),
+            errno,
+            written_since_last_sync_);
 
   // Reset the counter.
   written_since_last_sync_ = 0;
@@ -566,7 +571,10 @@ void OutputFile::Close() noexcept {
   MG_ASSERT(ret == 0,
             "While trying to close {}, an error occurred: {} ({}). Possibly {} "
             "bytes from previous write calls were lost.",
-            path_, strerror(errno), errno, written_since_last_sync_);
+            path_,
+            strerror(errno),
+            errno,
+            written_since_last_sync_);
 
   fd_ = -1;
   written_since_last_sync_ = 0;
@@ -593,7 +601,11 @@ void OutputFile::FlushBufferInternal(size_t to_write) {
               "while trying to write to {} an error occurred: {} ({}). "
               "Possibly {} bytes of data were lost from this call and "
               "possibly {} bytes were lost from previous calls.",
-              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
+              path_,
+              strerror(errno),
+              errno,
+              buffer_position_,
+              written_since_last_sync_);
 
     to_write -= written;
     buffer += written;
@@ -646,7 +658,8 @@ void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
-            path, path_);
+            path,
+            path_);
   path_ = path;
   written_since_last_sync_ = 0;
 
@@ -700,6 +713,7 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
 void NonConcurrentOutputFile::Write(const char *data, size_t size) {
   Write(reinterpret_cast<const uint8_t *>(data), size);
 }
+
 void NonConcurrentOutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
 
 size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t offset) {
@@ -720,8 +734,8 @@ size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t 
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno),
-              errno);
+    MG_ASSERT(
+        pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno), errno);
     return pos;
   }
 }
@@ -797,7 +811,10 @@ void NonConcurrentOutputFile::Sync() {
   MG_ASSERT(ret == 0,
             "While trying to sync {}, an error occurred: {} ({}). Possibly {} "
             "bytes from previous write calls were lost.",
-            path_, strerror(errno), errno, written_since_last_sync_);
+            path_,
+            strerror(errno),
+            errno,
+            written_since_last_sync_);
 
   // Reset the counter.
   written_since_last_sync_ = 0;
@@ -822,7 +839,10 @@ void NonConcurrentOutputFile::Close() noexcept {
   MG_ASSERT(ret == 0,
             "While trying to close {}, an error occurred: {} ({}). Possibly {} "
             "bytes from previous write calls were lost.",
-            path_, strerror(errno), errno, written_since_last_sync_);
+            path_,
+            strerror(errno),
+            errno,
+            written_since_last_sync_);
 
   fd_ = -1;
   written_since_last_sync_ = 0;
@@ -847,7 +867,11 @@ void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
               "while trying to write to {} an error occurred: {} ({}). "
               "Possibly {} bytes of data were lost from this call and "
               "possibly {} bytes were lost from previous calls.",
-              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
+              path_,
+              strerror(errno),
+              errno,
+              buffer_position_,
+              written_since_last_sync_);
 
     to_write -= written;
     buffer += written;

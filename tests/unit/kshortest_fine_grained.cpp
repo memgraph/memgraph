@@ -53,9 +53,21 @@ class VertexDb : public Database {
                                                          bool existing_node, memgraph::query::Expression *lower_bound,
                                                          memgraph::query::Expression *upper_bound,
                                                          memgraph::query::Expression *limit) override {
-    return std::make_unique<ExpandVariable>(
-        input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction, edge_types, false, nullptr,
-        upper_bound, existing_node, memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt, limit);
+    return std::make_unique<ExpandVariable>(input,
+                                            source_sym,
+                                            sink_sym,
+                                            edge_sym,
+                                            EdgeAtom::Type::KSHORTEST,
+                                            direction,
+                                            edge_types,
+                                            false,
+                                            nullptr,
+                                            upper_bound,
+                                            existing_node,
+                                            memgraph::query::plan::ExpansionLambda{},
+                                            std::nullopt,
+                                            std::nullopt,
+                                            limit);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(
@@ -99,10 +111,12 @@ class FineGrainedKShortestTestInMemory
           std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
+
   static void SetUpTestCase() {
     memgraph::license::global_license_checker.EnableTesting();
     db_ = std::make_unique<VertexDb<StorageType>>();
   }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
@@ -118,8 +132,8 @@ TEST_P(FineGrainedKShortestTestInMemory, All) {
 
   std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
 
-  this->db_->KShortestTestWithFineGrainedFiltering(db_.get(), upper_bound, direction, edge_types, k,
-                                                   fine_grained_test_type);
+  this->db_->KShortestTestWithFineGrainedFiltering(
+      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
 }
 
 std::unique_ptr<VertexDb<FineGrainedKShortestTestInMemory::StorageType>> FineGrainedKShortestTestInMemory::db_{nullptr};
@@ -138,10 +152,12 @@ class FineGrainedKShortestTestOnDisk
           std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
  public:
   using StorageType = memgraph::storage::DiskStorage;
+
   static void SetUpTestCase() {
     memgraph::license::global_license_checker.EnableTesting();
     db_ = std::make_unique<VertexDb<StorageType>>();
   }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
@@ -157,8 +173,8 @@ TEST_P(FineGrainedKShortestTestOnDisk, All) {
 
   std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
 
-  this->db_->KShortestTestWithFineGrainedFiltering(db_.get(), upper_bound, direction, edge_types, k,
-                                                   fine_grained_test_type);
+  this->db_->KShortestTestWithFineGrainedFiltering(
+      db_.get(), upper_bound, direction, edge_types, k, fine_grained_test_type);
 }
 
 std::unique_ptr<VertexDb<FineGrainedKShortestTestOnDisk::StorageType>> FineGrainedKShortestTestOnDisk::db_{nullptr};

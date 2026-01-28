@@ -90,14 +90,22 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     auto stream = std::invoke([&]() {
       // Handle only default database is no license
       if (!is_enterprise) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(
-            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
-            std::vector<auth::User>{}, std::vector<auth::Role>{}, std::vector<auth::UserProfiles::Profile>{});
+        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                            db_info.last_committed_timestamp,
+                                                            std::move(db_info.configs),
+                                                            auth::Auth::Config{},
+                                                            std::vector<auth::User>{},
+                                                            std::vector<auth::Role>{},
+                                                            std::vector<auth::UserProfiles::Profile>{});
       }
       return auth.WithLock([&](auto &locked_auth) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(
-            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
-            locked_auth.AllUsers(), locked_auth.AllRoles(), locked_auth.AllProfiles());
+        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                            db_info.last_committed_timestamp,
+                                                            std::move(db_info.configs),
+                                                            locked_auth.GetConfig(),
+                                                            locked_auth.AllUsers(),
+                                                            locked_auth.AllRoles(),
+                                                            locked_auth.AllProfiles());
       });
     });
     if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
@@ -155,6 +163,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
 
   auto GetReplState() const { return repl_state_.ReadLock(); }
+
   auto GetReplState() { return repl_state_.Lock(); }
 
 #ifdef MG_ENTERPRISE
