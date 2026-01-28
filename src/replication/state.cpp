@@ -385,4 +385,15 @@ std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {
   return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
 }
 
+void ReplicationState::Shutdown() {
+  auto const replica_handler = [](RoleReplicaData &replica) { replica.server->Shutdown(); };
+  auto const main_handler = [](RoleMainData &main) {
+    for (auto &repl_client : main.registered_replicas_) {
+      repl_client.Shutdown();
+    }
+  };
+
+  std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+}
+
 }  // namespace memgraph::replication

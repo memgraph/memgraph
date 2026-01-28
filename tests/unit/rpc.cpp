@@ -75,7 +75,7 @@ TEST(Rpc, Abort) {
   std::thread thread([&client]() {
     std::this_thread::sleep_for(100ms);
     spdlog::info("Shutting down the connection!");
-    client.Abort();
+    client.Shutdown();
   });
 
   memgraph::utils::Timer const timer;

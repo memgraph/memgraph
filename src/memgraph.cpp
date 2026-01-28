@@ -834,6 +834,7 @@ int main(int argc, char **argv) {
                       &server,
                       &interpreter_context_,
                       &dbms_handler,
+                      &repl_state,
                       &worker_pool_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
@@ -842,8 +843,18 @@ int main(int argc, char **argv) {
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
     server.Shutdown();
-    // Stop all triggers, streams and ttl
-    dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) { acc->StopAllBackgroundTasks(); });
+    // Don't replicate on shutdown anymore
+    {
+      auto locked_repl_state = repl_state.Lock();
+      locked_repl_state->Shutdown();
+    }
+
+    dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) {
+      // Stop all triggers, streams and ttl
+      acc->StopAllBackgroundTasks();
+      acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
+    });
+
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.

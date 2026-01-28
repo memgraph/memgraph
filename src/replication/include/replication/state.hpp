@@ -142,6 +142,8 @@ struct ReplicationState {
 
   std::optional<nlohmann::json> GetTelemetryJson() const;
 
+  void Shutdown();
+
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
