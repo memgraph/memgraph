@@ -64,11 +64,6 @@ startup_config_dict = {
         "Neo4j/v5.11.0 compatible graph database server - Memgraph",
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
-    "bolt_session_inactivity_timeout": (
-        "1800",
-        "1800",
-        "Time in seconds after which inactive Bolt sessions will be closed.",
-    ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
@@ -126,11 +121,6 @@ startup_config_dict = {
         "IP address on which the websocket server for Memgraph monitoring should listen.",
     ),
     "monitoring_port": ("7444", "7444", "Port on which the websocket server for Memgraph monitoring should listen."),
-    "storage_parallel_index_recovery": (
-        "false",
-        "false",
-        "Controls whether the index creation can be done in a multithreaded fashion.",
-    ),
     "storage_parallel_snapshot_creation": (
         "false",
         "false",
