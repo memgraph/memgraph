@@ -45,8 +45,7 @@ class ConstraintsTest : public testing::Test {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     config_.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>;
-    repl_state_.emplace(memgraph::storage::ReplicationStateRootPath(config_));
-    db_gk_.emplace(config_, *repl_state_);
+    db_gk_.emplace(config_);
     auto db_acc_opt = db_gk_->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     db_acc_ = *db_acc_opt;
@@ -61,7 +60,6 @@ class ConstraintsTest : public testing::Test {
     storage = nullptr;
     db_acc_.reset();
     db_gk_.reset();
-    repl_state_.reset();
 
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
@@ -86,8 +84,6 @@ class ConstraintsTest : public testing::Test {
 
   Storage *storage;
   memgraph::storage::Config config_;
-  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
-      repl_state_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk_;
   PropertyId prop1;
