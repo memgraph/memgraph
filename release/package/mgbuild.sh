@@ -2009,9 +2009,8 @@ case $command in
 
       # set custom mirror for CI
       if [[ "$custom_mirror" = true && "$os" =~ ^"ubuntu-24.04".* ]]; then
-        docker exec -u root $build_container bash -c "
-          cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources /etc/apt/sources.list.d/ubuntu.sources
-        "
+        echo "Copying custom mirror to container..."
+        docker cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $build_container:/etc/apt/sources.list.d/ubuntu.sources
       fi
 
       # Install ccache if enabled
