@@ -1412,7 +1412,7 @@ package_mage_docker() {
   cd $PROJECT_ROOT/mage
 
   # copy custom mirror for CI
-  if [[ "$custom_mirror" = true ]]; then
+  if [[ "$custom_mirror" = "true" ]]; then
     cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/mage/ci.sources
   fi
 
