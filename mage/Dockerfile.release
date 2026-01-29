@@ -14,7 +14,7 @@ ARG CUDA=false
 ARG CACHE_PRESENT=false
 ARG MEMGRAPH_PACKAGE
 
-# copy custom openssl packages
+# copy custom openssl packages, runtime install script and install requirements
 COPY openssl/ /tmp/openssl/
 COPY install_runtime_requirements.sh /install_runtime_requirements.sh
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
