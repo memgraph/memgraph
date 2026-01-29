@@ -16,6 +16,7 @@ ARG MEMGRAPH_PACKAGE
 
 # copy custom openssl packages
 COPY openssl/ /tmp/openssl/
+COPY install_runtime_requirements.sh /install_runtime_requirements.sh
 RUN --mount=type=secret,id=ubuntu_sources,target=/tmp/ubuntu.sources,required=false \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /tmp/ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
