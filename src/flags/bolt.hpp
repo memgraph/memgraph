@@ -20,8 +20,6 @@ DECLARE_int32(bolt_port);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(bolt_num_workers);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(bolt_session_inactivity_timeout);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(bolt_cert_file);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(bolt_key_file);

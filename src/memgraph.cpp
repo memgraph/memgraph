@@ -17,6 +17,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -72,6 +73,7 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
+#include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
@@ -89,6 +91,13 @@ constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
 constexpr uint64_t kMgVmMaxMapCount = 262'144;
+
+void WarnDeprecatedFlags() {
+  auto warn_if_set = [](std::string_view name, std::string_view message) {
+    const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
+    if (!info.is_default) spdlog::warn("{}", message);
+  };
+}
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
@@ -209,6 +218,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  WarnDeprecatedFlags();
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
