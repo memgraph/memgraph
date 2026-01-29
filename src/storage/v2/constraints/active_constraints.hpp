@@ -25,6 +25,7 @@ struct Transaction;
 
 struct ActiveConstraints {
   ActiveConstraints() = delete;
+
   explicit ActiveConstraints(std::unique_ptr<ExistenceConstraints::ActiveConstraints> existence,
                              std::unique_ptr<UniqueConstraints::ActiveConstraints> unique,
                              std::unique_ptr<TypeConstraints::ActiveConstraints> type)

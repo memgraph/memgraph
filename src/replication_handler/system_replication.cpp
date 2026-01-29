@@ -139,10 +139,11 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   utils::Register(data, system_state_access, parameters);
 }
 
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data, auth::SynchedAuth &auth,
+bool StartRpcServer(dbms::DbmsHandler &dbms_handler,     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+                    replication::RoleReplicaData &data, auth::SynchedAuth &auth,
                     system::System &system, utils::Parameters *parameters) {
   // Register storage handlers
-  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
+  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
   // Register system handlers
   Register(data, system, dbms_handler, auth, parameters);
   // Start server

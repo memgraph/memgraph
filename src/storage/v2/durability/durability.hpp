@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,8 +55,8 @@ struct SnapshotDurabilityInfo {
 /// file with the specified UUID. Otherwise, fetch only Snapshot files in the
 /// snapshot_directory.
 /// @return List of snapshot files defined with its path and UUID.
-std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                     std::string_view uuid = "");
+std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
+                                                                    std::string_view uuid = "");
 
 /// Used to capture a WAL's data related to durability
 struct WalDurabilityInfo {
@@ -89,8 +89,9 @@ struct WalDurabilityInfo {
 /// with seq_num < current_seq_num.
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
-std::vector<WalDurabilityInfo> GetWalFiles(const std::filesystem::path &wal_directory, std::string_view uuid = "",
-                                           std::optional<size_t> current_seq_num = {});
+std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
+                                                          std::string_view uuid = "",
+                                                          std::optional<size_t> current_seq_num = {});
 
 bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 
@@ -136,6 +137,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                             utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.

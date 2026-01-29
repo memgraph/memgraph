@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -114,12 +114,15 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
 class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx) : ctx_(&ctx) {}
+
   using ExpressionVisitor::Visit;
+
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
     return TypedValue(literal.value_, ctx_->memory);
   }
+
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
@@ -182,6 +185,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
  private:
   EvaluationContext const *ctx_;
 };
+
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
@@ -593,7 +597,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Edge: {
         const auto edge_type = expression_result.ValueEdge().EdgeType();
         const auto is_valid = std::ranges::any_of(
-            edgetype_test.valid_edgetypes_, [=](const storage::EdgeTypeId et_id) { return edge_type == et_id; },
+            edgetype_test.valid_edgetypes_,
+            [=](const storage::EdgeTypeId et_id) { return edge_type == et_id; },
             [&](EdgeTypeIx const &et) { return GetEdgeType(et); });
         return TypedValue(is_valid, ctx_->memory);
       }
@@ -677,8 +682,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_,  ctx_->memory,     ctx_->timestamp, &ctx_->counters,
-                                 view_, GetHopsCounter(), user_or_role_};
+    FunctionContext function_ctx{
+        dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter(), user_or_role_};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -989,8 +994,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(EnumValueAccess &enum_value_access) override {
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
     if (!maybe_enum) [[unlikely]] {
-      throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
-                                  enum_value_access.enum_name_);
+      throw QueryRuntimeException(
+          "Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_, enum_value_access.enum_name_);
     }
     return TypedValue(*maybe_enum, ctx_->memory);
   }
@@ -1078,6 +1083,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
+
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
   Frame *frame_;

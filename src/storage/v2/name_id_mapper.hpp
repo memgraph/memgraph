@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,9 +27,11 @@ class NameIdMapper {
     uint64_t id;
 
     bool operator<(const MapNameToId &other) const { return name < other.name; }
+
     bool operator==(const MapNameToId &other) const { return name == other.name; }
 
     bool operator<(const std::string_view other) const { return name < other; }
+
     bool operator==(const std::string_view other) const { return name == other; }
   };
 
@@ -38,9 +40,11 @@ class NameIdMapper {
     std::string name;
 
     bool operator<(const MapIdToName &other) const { return id < other.id; }
+
     bool operator==(const MapIdToName &other) const { return id == other.id; }
 
     bool operator<(uint64_t other) const { return id < other; }
+
     bool operator==(uint64_t other) const { return id == other; }
   };
 

@@ -44,6 +44,7 @@ struct PopulationStatus {
   PopulationStatus &operator=(PopulationStatus &&) = delete;
 
   bool IsPopulating() const { return commit_timestamp_.load(std::memory_order_acquire) == kPopulating; }
+
   bool IsReady() const { return !IsPopulating(); }
 
   /// A schema object is visible if it was committed at or before the given timestamp.

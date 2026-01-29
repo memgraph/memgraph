@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,12 +39,14 @@ template <std::invocable Callable>
 class [[nodiscard]] OnScopeExit {
  public:
   template <typename U>
-  requires std::constructible_from<Callable, U>
+    requires std::constructible_from<Callable, U>
   explicit OnScopeExit(U &&function) : function_{std::forward<U>(function)}, doCall_{true} {}
+
   OnScopeExit(OnScopeExit const &) = delete;
   OnScopeExit(OnScopeExit &&) = delete;
   OnScopeExit &operator=(OnScopeExit const &) = delete;
   OnScopeExit &operator=(OnScopeExit &&) = delete;
+
   ~OnScopeExit() noexcept(std::is_nothrow_invocable_v<Callable>) {
     if (doCall_) function_();
   }
@@ -55,6 +57,7 @@ class [[nodiscard]] OnScopeExit {
   Callable function_;
   bool doCall_;
 };
+
 template <typename Callable>
 OnScopeExit(Callable &&) -> OnScopeExit<std::decay_t<Callable>>;
 }  // namespace memgraph::utils

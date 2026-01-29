@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,8 +55,8 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
     const auto limit = arguments[2].ValueInt();
-    for (const auto &result : mgp::SearchTextIndex(memgraph_graph, index_name, search_query,
-                                                   text_search_mode::SPECIFIED_PROPERTIES, limit)) {
+    for (const auto &result : mgp::SearchTextIndex(
+             memgraph_graph, index_name, search_query, text_search_mode::SPECIFIED_PROPERTIES, limit)) {
       auto record = record_factory.NewRecord();
       auto result_list = result.ValueList();
       record.Insert(TextSearch::kReturnNode.data(), result_list[0].ValueNode());
@@ -138,8 +138,8 @@ void TextSearch::SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
     const auto limit = arguments[2].ValueInt();
-    for (const auto &result : mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query,
-                                                       text_search_mode::SPECIFIED_PROPERTIES, limit)) {
+    for (const auto &result : mgp::SearchTextEdgeIndex(
+             memgraph_graph, index_name, search_query, text_search_mode::SPECIFIED_PROPERTIES, limit)) {
       auto record = record_factory.NewRecord();
       auto result_list = result.ValueList();
       record.Insert(TextSearch::kReturnEdge.data(), result_list[0].ValueRelationship());
@@ -215,7 +215,9 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
   try {
     mgp::MemoryDispatcherGuard guard{memory};
 
-    AddProcedure(TextSearch::Search, TextSearch::kProcedureSearch, mgp::ProcedureType::Read,
+    AddProcedure(TextSearch::Search,
+                 TextSearch::kProcedureSearch,
+                 mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
@@ -223,9 +225,12 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  },
                  {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node),
                   mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
-                 query_module, memory);
+                 query_module,
+                 memory);
 
-    AddProcedure(TextSearch::RegexSearch, TextSearch::kProcedureRegexSearch, mgp::ProcedureType::Read,
+    AddProcedure(TextSearch::RegexSearch,
+                 TextSearch::kProcedureRegexSearch,
+                 mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
@@ -233,9 +238,12 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  },
                  {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node),
                   mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
-                 query_module, memory);
+                 query_module,
+                 memory);
 
-    AddProcedure(TextSearch::SearchAllProperties, TextSearch::kProcedureSearchAllProperties, mgp::ProcedureType::Read,
+    AddProcedure(TextSearch::SearchAllProperties,
+                 TextSearch::kProcedureSearchAllProperties,
+                 mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
@@ -243,37 +251,23 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  },
                  {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node),
                   mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
-                 query_module, memory);
+                 query_module,
+                 memory);
 
-    AddProcedure(TextSearch::Aggregate, TextSearch::kProcedureAggregate, mgp::ProcedureType::Read,
+    AddProcedure(TextSearch::Aggregate,
+                 TextSearch::kProcedureAggregate,
+                 mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterAggregationQuery, mgp::Type::String),
                  },
-                 {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, query_module, memory);
+                 {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)},
+                 query_module,
+                 memory);
 
-    AddProcedure(TextSearch::SearchEdges, TextSearch::kProcedureSearchEdges, mgp::ProcedureType::Read,
-                 {
-                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
-                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
-                     mgp::Parameter(TextSearch::kParameterLimit, mgp::Type::Int, TextSearch::kDefaultLimit),
-                 },
-                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
-                  mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
-                 query_module, memory);
-
-    AddProcedure(TextSearch::RegexSearchEdges, TextSearch::kProcedureRegexSearchEdges, mgp::ProcedureType::Read,
-                 {
-                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
-                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
-                     mgp::Parameter(TextSearch::kParameterLimit, mgp::Type::Int, TextSearch::kDefaultLimit),
-                 },
-                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
-                  mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
-                 query_module, memory);
-
-    AddProcedure(TextSearch::SearchAllPropertiesEdges, TextSearch::kProcedureSearchAllPropertiesEdges,
+    AddProcedure(TextSearch::SearchEdges,
+                 TextSearch::kProcedureSearchEdges,
                  mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
@@ -282,15 +276,46 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  },
                  {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
                   mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
-                 query_module, memory);
+                 query_module,
+                 memory);
 
-    AddProcedure(TextSearch::AggregateEdges, TextSearch::kProcedureAggregateEdges, mgp::ProcedureType::Read,
+    AddProcedure(TextSearch::RegexSearchEdges,
+                 TextSearch::kProcedureRegexSearchEdges,
+                 mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterLimit, mgp::Type::Int, TextSearch::kDefaultLimit),
+                 },
+                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
+                  mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
+                 query_module,
+                 memory);
+
+    AddProcedure(TextSearch::SearchAllPropertiesEdges,
+                 TextSearch::kProcedureSearchAllPropertiesEdges,
+                 mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterLimit, mgp::Type::Int, TextSearch::kDefaultLimit),
+                 },
+                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
+                  mgp::Return(TextSearch::kReturnScore, mgp::Type::Double)},
+                 query_module,
+                 memory);
+
+    AddProcedure(TextSearch::AggregateEdges,
+                 TextSearch::kProcedureAggregateEdges,
+                 mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterAggregationQuery, mgp::Type::String),
                  },
-                 {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, query_module, memory);
+                 {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)},
+                 query_module,
+                 memory);
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;

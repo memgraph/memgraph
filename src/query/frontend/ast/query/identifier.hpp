@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@ namespace memgraph::query {
 class Identifier : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Identifier() = default;
@@ -34,6 +35,7 @@ class Identifier : public memgraph::query::Expression {
   }
 
   explicit Identifier(const std::string &name) : name_(name) {}
+
   Identifier(const std::string &name, bool user_declared) : name_(name), user_declared_(user_declared) {}
 
   std::string name_;

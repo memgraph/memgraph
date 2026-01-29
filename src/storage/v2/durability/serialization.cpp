@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -262,17 +262,23 @@ void Encoder<FileType>::Finalize() {
 }
 
 template <typename FileType>
-void Encoder<FileType>::DisableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::DisableFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.DisableFlushing();
 }
 
 template <typename FileType>
-void Encoder<FileType>::EnableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::EnableFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.EnableFlushing();
 }
 
 template <typename FileType>
-void Encoder<FileType>::TryFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::TryFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.TryFlushing();
 }
 
@@ -660,7 +666,7 @@ bool Decoder::SkipString() {
   auto maybe_size = ReadSize(this);
   if (!maybe_size) return false;
 
-  static constexpr uint64_t kBufferSize = 262144;
+  static constexpr uint64_t kBufferSize = 262'144;
   std::array<uint8_t, kBufferSize> buffer;  // intentionally uninitialized for performance
   uint64_t size = *maybe_size;
   while (size > 0) {

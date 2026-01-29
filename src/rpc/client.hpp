@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,24 +49,24 @@ using namespace std::string_view_literals;
 class Client {
  public:
   inline static std::unordered_map<std::string_view, int> const default_rpc_timeouts_ms{
-      {"ShowInstancesReq"sv, 10000},          // coordinator sending to coordinator
-      {"DemoteMainToReplicaReq"sv, 10000},    // coordinator sending to main
-      {"PromoteToMainReq"sv, 10000},          // coordinator sending to replica
-      {"RegisterReplicaOnMainReq"sv, 10000},  // coordinator sending to main
-      {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
-      {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
-      {"ReplicationLagReq"sv, 5000},          // coordinator to main
-      {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
-      {"StateCheckReq"sv, 5000},              // coordinator to data instances
-      {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
-      {"FrequentHeartbeatReq"sv, 5000},       // coord to data instances
-      {"HeartbeatReq"sv, 10000},              // main to replica
-      {"SystemRecoveryReq"sv, 30000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
-      {"PrepareCommitReq"sv, 30000},   // Waiting 30'' on a progress/final response
-      {"FinalizeCommitReq"sv, 10000},  // Waiting 10'' on a final response
-      {"CurrentWalReq"sv, 30000},      // Waiting 30'' on a progress/final response
-      {"WalFilesReq"sv, 30000},        // Waiting 30'' on a progress/final response
-      {"SnapshotReq"sv, 60000}         // Waiting 60'' on a progress/final response
+      {"ShowInstancesReq"sv, 10'000},          // coordinator sending to coordinator
+      {"DemoteMainToReplicaReq"sv, 10'000},    // coordinator sending to main
+      {"PromoteToMainReq"sv, 10'000},          // coordinator sending to replica
+      {"RegisterReplicaOnMainReq"sv, 10'000},  // coordinator sending to main
+      {"UnregisterReplicaReq"sv, 10'000},      // coordinator sending to main
+      {"EnableWritingOnMainReq"sv, 10'000},    // coordinator to main
+      {"ReplicationLagReq"sv, 5000},           // coordinator to main
+      {"GetDatabaseHistoriesReq"sv, 10'000},   // coordinator to data instances
+      {"StateCheckReq"sv, 5000},               // coordinator to data instances
+      {"SwapMainUUIDReq"sv, 10'000},           // coord to data instances
+      {"FrequentHeartbeatReq"sv, 5000},        // coord to data instances
+      {"HeartbeatReq"sv, 10'000},              // main to replica
+      {"SystemRecoveryReq"sv, 30'000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
+      {"PrepareCommitReq"sv, 30'000},   // Waiting 30'' on a progress/final response
+      {"FinalizeCommitReq"sv, 10'000},  // Waiting 10'' on a final response
+      {"CurrentWalReq"sv, 30'000},      // Waiting 30'' on a progress/final response
+      {"WalFilesReq"sv, 30'000},        // Waiting 30'' on a progress/final response
+      {"SnapshotReq"sv, 60'000}         // Waiting 60'' on a progress/final response
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
@@ -126,7 +126,9 @@ class Client {
 
       // Finalize the request.
       req_builder_.Finalize();
-      spdlog::trace("[RpcClient] sent {}, version {}, to {}", req_type_name, TRequestResponse::Request::kVersion,
+      spdlog::trace("[RpcClient] sent {}, version {}, to {}",
+                    req_type_name,
+                    TRequestResponse::Request::kVersion,
                     self_->client_->endpoint().SocketAddress());
 
       while (true) {
@@ -143,10 +145,11 @@ class Client {
           }
           if (ret.status == slk::StreamStatus::PARTIAL) {
             if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                      /* exactly_len = */ false, /* timeout_ms = */ timeout_ms_)) {
+                                      /* exactly_len = */ false,
+                                      /* timeout_ms = */ timeout_ms_)) {
               // Failed connection, abort and let somebody retry in the future.
               defunct_ = true;
-              self_->Abort();
+              self_->Shutdown();
               guard_.unlock();
               throw GenericRpcFailedException();
             }
@@ -176,7 +179,9 @@ class Client {
         if (maybe_message_header->message_id == utils::TypeId::REP_IN_PROGRESS_RES) {
           // Continue holding the lock
           spdlog::info("[RpcClient] Received InProgressRes RPC message from {}:{}. Waiting for {}.",
-                       self_->endpoint_.GetAddress(), self_->endpoint_.GetPort(), final_res_type_name);
+                       self_->endpoint_.GetAddress(),
+                       self_->endpoint_.GetPort(),
+                       final_res_type_name);
           self_->client_->ShiftData(response_data_size);
           continue;
         }
@@ -191,8 +196,11 @@ class Client {
           throw GenericRpcFailedException();
         }
 
-        spdlog::trace("[RpcClient] received {}, version {}, from endpoint {}:{}.", final_res_type_name,
-                      maybe_message_header->message_version, self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
+        spdlog::trace("[RpcClient] received {}, version {}, from endpoint {}:{}.",
+                      final_res_type_name,
+                      maybe_message_header->message_version,
+                      self_->endpoint_.GetAddress(),
+                      self_->endpoint_.GetPort());
         self_->client_->ShiftData(response_data_size);
         return res_load_(&res_reader);
       }
@@ -208,7 +216,9 @@ class Client {
       // Finalize the request.
       req_builder_.Finalize();
 
-      spdlog::trace("[RpcClient] sent {}, version {}, to {}", req_type_name, TRequestResponse::Request::kVersion,
+      spdlog::trace("[RpcClient] sent {}, version {}, to {}",
+                    req_type_name,
+                    TRequestResponse::Request::kVersion,
                     self_->client_->endpoint().SocketAddress());
 
       // Receive the response.
@@ -223,10 +233,11 @@ class Client {
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                    /* exactly_len = */ false, /* timeout_ms = */ timeout_ms_)) {
+                                    /* exactly_len = */ false,
+                                    /* timeout_ms = */ timeout_ms_)) {
             // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
-            self_->Abort();
+            self_->Shutdown();
             guard_.unlock();
             throw GenericRpcFailedException();
           }
@@ -257,15 +268,19 @@ class Client {
       if (maybe_message_header->message_id != res_type.id &&
           maybe_message_header->message_id != utils::TypeId::UNKNOWN) {
         spdlog::error("Message response was of unexpected type. Received ID {} and expected {}",
-                      static_cast<uint64_t>(maybe_message_header->message_id), static_cast<uint64_t>(res_type.id));
+                      static_cast<uint64_t>(maybe_message_header->message_id),
+                      static_cast<uint64_t>(res_type.id));
         // Logically invalid state, connection is still up, defunct stream and release
         defunct_ = true;
         guard_.unlock();
         throw GenericRpcFailedException();
       }
 
-      spdlog::trace("[RpcClient] received {}, version {} from endpoint {}:{}.", res_type_name,
-                    maybe_message_header->message_version, self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
+      spdlog::trace("[RpcClient] received {}, version {} from endpoint {}:{}.",
+                    res_type_name,
+                    maybe_message_header->message_version,
+                    self_->endpoint_.GetAddress(),
+                    self_->endpoint_.GetPort());
 
       return res_load_(&res_reader);
     }
@@ -278,7 +293,7 @@ class Client {
         if (self->defunct_) throw GenericRpcFailedException();
         if (!client->client_->Write(data, size, have_more, timeout_ms)) {
           self->defunct_ = true;
-          client->Abort();
+          client->Shutdown();
           self->guard_.unlock();
           throw GenericRpcFailedException();
         }
@@ -314,7 +329,9 @@ class Client {
           TRequestResponse::Response::Load(&response, reader);
           return response;
         },
-        /*try_lock_timeout*/ std::nullopt, /*guard*/ std::nullopt, std::forward<Args>(args)...);
+        /*try_lock_timeout*/ std::nullopt,
+        /*guard*/ std::nullopt,
+        std::forward<Args>(args)...);
   }
 
   /**
@@ -335,7 +352,9 @@ class Client {
             TRequestResponse::Response::Load(&response, reader);
             return response;
           },
-          /*try_lock_timeout*/ try_lock_timeout, /*guard*/ std::nullopt, std::forward<Args>(args)...);
+          /*try_lock_timeout*/ try_lock_timeout,
+          /*guard*/ std::nullopt,
+          std::forward<Args>(args)...);
     } catch (FailedToGetRpcStreamException const &) {
       return std::nullopt;
     }
@@ -350,7 +369,9 @@ class Client {
           TRequestResponseNew::Response::Load(&response, reader);
           return response;
         },
-        /*try_lock_timeout*/ std::nullopt, /*guard*/ std::move(old_stream_handler.guard_), std::forward<Args>(args)...);
+        /*try_lock_timeout*/ std::nullopt,
+        /*guard*/ std::move(old_stream_handler.guard_),
+        std::forward<Args>(args)...);
   }
 
   /// Same as `Stream` but the first argument is a response loading function.
@@ -439,7 +460,7 @@ class Client {
   }
 
   /// Call this function from another thread to abort a pending RPC call.
-  void Abort();
+  void Shutdown();
 
   auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -142,7 +142,8 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
     throw memgraph::communication::bolt::ClientError(
         "Failed to impersonate user '{}' on database '{}'. Make sure you have the right privileges and that the user "
         "exists.",
-        impersonated_user, target_db.value_or("default"));
+        impersonated_user,
+        target_db.value_or("default"));
   }
 }
 
@@ -372,7 +373,10 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
     const auto &user_or_role = interpreter_.user_or_role_;
     const auto username = user_or_role ? (user_or_role->username() ? *user_or_role->username() : "") : "";
     audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
-                       username, query, params, db ? db->get()->name() : "");
+                       username,
+                       query,
+                       params,
+                       db ? db->get()->name() : "");
   }
 #endif
 
@@ -526,6 +530,7 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
   (void)run_time_info;
 #endif
 }
+
 SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
                      memgraph::communication::v2::OutputStream *output_stream)
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
@@ -632,7 +637,8 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
 
   // Handle user impersonation (check privileges based on target database)
   if (user) {
-    spdlog::trace("Trying to impersonate user '{}' on database '{}'...", user->username().value_or("----"),
+    spdlog::trace("Trying to impersonate user '{}' on database '{}'...",
+                  user->username().value_or("----"),
                   defined_db.value_or("----"));
     // Check impersonation privileges with the target database
     ImpersonateUserAuth(session_->session_user_or_role_.get(), user->username().value_or("----"), defined_db);

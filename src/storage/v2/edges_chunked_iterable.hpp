@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@ class EdgesChunkedIterable final {
   };
 
   Type type_;
+
   union {
     InMemoryEdgeTypeIndex::ChunkedIterable in_memory_chunked_edges_by_type_;
     InMemoryEdgeTypePropertyIndex::ChunkedIterable in_memory_chunked_edges_by_type_property_;
@@ -49,6 +50,7 @@ class EdgesChunkedIterable final {
 
   class Iterator final {
     Type type_;
+
     union {
       InMemoryEdgeTypeIndex::ChunkedIterable::Iterator in_memory_chunked_by_type_it_;
       InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator in_memory_chunked_by_type_property_it_;
@@ -83,6 +85,7 @@ class EdgesChunkedIterable final {
     explicit Chunk(auto &&chunk) : begin_{chunk.begin()}, end_{chunk.end()} {}
 
     Iterator begin() { return begin_; }
+
     Iterator end() { return end_; }
   };
 

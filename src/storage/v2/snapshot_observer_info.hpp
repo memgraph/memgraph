@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,9 +35,12 @@ struct SnapshotObserverInfo {
 
  private:
   static constexpr std::array<std::pair<UpdateType, uint16_t>, 6> update_factors{
-      std::pair{UpdateType::VERTICES, 1},      std::pair{UpdateType::EDGES, 1},
-      std::pair{UpdateType::TEXT_IDX, 10},     std::pair{UpdateType::POINT_IDX, 10},
-      std::pair{UpdateType::VECTOR_IDX, 1000}, std::pair{UpdateType::VECTOR_EDGE_IDX, 1000}};
+      std::pair{UpdateType::VERTICES, 1},
+      std::pair{UpdateType::EDGES, 1},
+      std::pair{UpdateType::TEXT_IDX, 10},
+      std::pair{UpdateType::POINT_IDX, 10},
+      std::pair{UpdateType::VECTOR_IDX, 1000},
+      std::pair{UpdateType::VECTOR_EDGE_IDX, 1000}};
   std::shared_ptr<utils::Observer<void>> observer_{nullptr};
   mutable utils::ResettableAtomicCounter cnt_;
 };

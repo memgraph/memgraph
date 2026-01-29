@@ -52,6 +52,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
+
   struct SingleThreadConstraintValidation {
     auto operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,

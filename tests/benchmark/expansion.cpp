@@ -16,10 +16,6 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
-#include "query/typed_value.hpp"
-#include "replication/status.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/isolation_level.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
@@ -41,17 +37,22 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     memgraph::storage::Config config{};
     config.durability.storage_directory = data_directory;
     config.disk.main_storage_directory = data_directory / "disk";
-    db_gk.emplace(std::move(config), *repl_state);
+    db_gk.emplace(std::move(config));
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
 
     system.emplace();
     auth_checker.emplace();
-    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, nullptr, repl_state.value(), *system
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{},
+                                nullptr,
+                                nullptr,
+                                repl_state.value(),
+                                *system
 #ifdef MG_ENTERPRISE
                                 ,
-                                std::nullopt, nullptr
+                                std::nullopt,
+                                nullptr
 #endif
     );
 

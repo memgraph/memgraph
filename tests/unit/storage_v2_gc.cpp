@@ -92,9 +92,10 @@ TEST(StorageV2Gc, Sanity) {
 
         auto labels_new = vertex->Labels(memgraph::storage::View::NEW);
         EXPECT_TRUE(labels_new.has_value());
-        EXPECT_THAT(labels_new.value(), UnorderedElementsAre(memgraph::storage::LabelId::FromUint(3 * i),
-                                                             memgraph::storage::LabelId::FromUint(3 * i + 1),
-                                                             memgraph::storage::LabelId::FromUint(3 * i + 2)));
+        EXPECT_THAT(labels_new.value(),
+                    UnorderedElementsAre(memgraph::storage::LabelId::FromUint(3 * i),
+                                         memgraph::storage::LabelId::FromUint(3 * i + 1),
+                                         memgraph::storage::LabelId::FromUint(3 * i + 2)));
       }
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -107,11 +107,13 @@ void UpdateKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     auto deleted_edges = mg_utility::GetEdgeEndpointIDs(mgp::value_get_list(mgp::list_at(args, 3)));
 
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kDirectedGraph);
-    std::transform(created_edge_ids.begin(), created_edge_ids.end(), created_edge_ids.begin(),
+    std::transform(created_edge_ids.begin(),
+                   created_edge_ids.end(),
+                   created_edge_ids.begin(),
                    [&graph](std::uint64_t id) -> std::uint64_t { return graph.get()->GetInnerEdgeId(id); });
 
-    auto katz_centralities = katz_alg::UpdateKatz(*graph, created_vertices, created_edges, created_edge_ids,
-                                                  deleted_vertices, deleted_edges);
+    auto katz_centralities = katz_alg::UpdateKatz(
+        *graph, created_vertices, created_edges, created_edge_ids, deleted_vertices, deleted_edges);
 
     for (auto &[vertex_id, centrality] : katz_centralities) {
       // Insert the Katz centrality record
@@ -123,6 +125,7 @@ void UpdateKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     return;
   }
 }
+
 void KatzCentralityReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
@@ -132,12 +135,12 @@ void KatzCentralityReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
     }
 
     katz_alg::Reset();
-    InsertMessageRecord(result, memory,
-                        "Katz centrality context is reset! Before running again it will run initialization.");
+    InsertMessageRecord(
+        result, memory, "Katz centrality context is reset! Before running again it will run initialization.");
   } catch (const std::exception &e) {
     // We must not let any exceptions out of our module.
-    InsertMessageRecord(result, memory,
-                        "Reset failed: An exception occurred, please check your `katz_centrality_online` module!");
+    InsertMessageRecord(
+        result, memory, "Reset failed: An exception occurred, please check your `katz_centrality_online` module!");
   }
 }
 }  // namespace
@@ -178,13 +181,21 @@ extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
       auto default_deleted_vertices = mgp::value_make_list(mgp::list_make_empty(0, memory));
       auto default_deleted_edges = mgp::value_make_list(mgp::list_make_empty(0, memory));
 
-      mgp::proc_add_opt_arg(proc, kArgumentCreatedVertices, mgp::type_nullable(mgp::type_list(mgp::type_node())),
+      mgp::proc_add_opt_arg(proc,
+                            kArgumentCreatedVertices,
+                            mgp::type_nullable(mgp::type_list(mgp::type_node())),
                             default_created_vertices);
-      mgp::proc_add_opt_arg(proc, kArgumentCreatedEdges, mgp::type_nullable(mgp::type_list(mgp::type_relationship())),
+      mgp::proc_add_opt_arg(proc,
+                            kArgumentCreatedEdges,
+                            mgp::type_nullable(mgp::type_list(mgp::type_relationship())),
                             default_created_edges);
-      mgp::proc_add_opt_arg(proc, kArgumentDeletedVertices, mgp::type_nullable(mgp::type_list(mgp::type_node())),
+      mgp::proc_add_opt_arg(proc,
+                            kArgumentDeletedVertices,
+                            mgp::type_nullable(mgp::type_list(mgp::type_node())),
                             default_deleted_vertices);
-      mgp::proc_add_opt_arg(proc, kArgumentDeletedEdges, mgp::type_nullable(mgp::type_list(mgp::type_relationship())),
+      mgp::proc_add_opt_arg(proc,
+                            kArgumentDeletedEdges,
+                            mgp::type_nullable(mgp::type_list(mgp::type_relationship())),
                             default_deleted_edges);
 
       mgp::value_destroy(default_created_vertices);

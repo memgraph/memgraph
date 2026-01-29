@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,6 +53,7 @@ class RetryBasicException : public utils::BasicException {
 class LexingException : public QueryException {
  public:
   using QueryException::QueryException;
+
   LexingException() : QueryException("") {}
   SPECIALIZE_GET_EXCEPTION_NAME(LexingException)
 };
@@ -60,6 +61,7 @@ class LexingException : public QueryException {
 class SyntaxException : public QueryException {
  public:
   using QueryException::QueryException;
+
   SyntaxException() : QueryException("") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SyntaxException)
 };
@@ -76,6 +78,7 @@ class SyntaxException : public QueryException {
 class SemanticException : public QueryException {
  public:
   using QueryException::QueryException;
+
   SemanticException() : QueryException("") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SemanticException)
 };
@@ -228,6 +231,7 @@ class HintedAbortError : public RetryBasicException {
         return "Transaction was asked to abort for an unknown reason."sv;
     }
   }
+
   AbortReason reason_;
 };
 
@@ -468,6 +472,7 @@ class AnalyzeGraphInMulticommandTxException : public MulticommandTxException {
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+
   explicit ReplicationException(const std::string &message)
       : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICAS' query.",
                               message) {}

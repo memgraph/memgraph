@@ -109,8 +109,8 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
-  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
-                                            CoordinationClusterChangeObserver{this});
+  raft_state_ = std::make_unique<RaftState>(
+      config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(), CoordinationClusterChangeObserver{this});
   UpdateClientConnectors(raft_state_->GetCoordinatorInstancesAux());
   raft_state_->InitRaftServer();
 
@@ -186,10 +186,12 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
       // to take a lock in state check, and this thread already has a lock and waits for instance to
       // be done with state check
       std::ranges::for_each(repl_instances_, [](auto &&repl_instance) {
-        spdlog::trace("Stopping state check for instance {} in thread {}.", repl_instance.InstanceName(),
+        spdlog::trace("Stopping state check for instance {} in thread {}.",
+                      repl_instance.InstanceName(),
                       std::this_thread::get_id());
         repl_instance.StopStateCheck();
-        spdlog::trace("Stopped state check for instance {} in thread {}.", repl_instance.InstanceName(),
+        spdlog::trace("Stopped state check for instance {} in thread {}.",
+                      repl_instance.InstanceName(),
                       std::this_thread::get_id());
       });
       auto lock = std::unique_lock{coord_instance_lock_};
@@ -222,7 +224,8 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
     if (coord_connector != connectors->end()) {
       continue;
     }
-    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", coordinator.id,
+    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.",
+                  coordinator.id,
                   coordinator.management_server);
     auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator.management_server);
     MG_ASSERT(mgmt_endpoint.has_value(), "Failed to create management server when creating new coordinator connector.");
@@ -285,8 +288,8 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
             .health = "unknown"};
   };
 
-  std::ranges::transform(raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status),
-                         process_repl_instance_as_follower);
+  std::ranges::transform(
+      raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status), process_repl_instance_as_follower);
   spdlog::trace("Returning set of instances as follower.");
   return instances_status;
 }
@@ -304,7 +307,8 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
 
   auto get_instance_status = [&](auto const &instance) -> InstanceStatus {
     auto maybe_connector = FindReplicationInstance(instance.config.instance_name, repl_instances_);
-    DMG_ASSERT(maybe_connector.has_value(), "Couldn't find ReplicationInstanceConnector for instance {}",
+    DMG_ASSERT(maybe_connector.has_value(),
+               "Couldn't find ReplicationInstanceConnector for instance {}",
                instance.config.instance_name);
     auto &connector = maybe_connector->get();
 
@@ -327,8 +331,8 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
   }
 
   auto instances_status = GetCoordinatorsInstanceStatus();
-  std::ranges::transform(raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status),
-                         get_instance_status);
+  std::ranges::transform(
+      raft_state_->GetDataInstancesContext(), std::back_inserter(instances_status), get_instance_status);
 
   spdlog::trace("Returning set of instances as leader.");
   return instances_status;
@@ -405,8 +409,8 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
     switch (auto const result = ReconcileClusterState_()) {
       case (ReconcileClusterStateStatus::SUCCESS): {
         auto expected = CoordinatorStatus::LEADER_NOT_READY;
-        if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_READY, std::memory_order_acq_rel,
-                                            std::memory_order_acquire)) {
+        if (!status.compare_exchange_strong(
+                expected, CoordinatorStatus::LEADER_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
           if (expected == CoordinatorStatus::FOLLOWER) {
             spdlog::trace(
                 "Reconcile cluster state finished successfully but coordinator in the meantime became follower.");
@@ -486,8 +490,8 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
-    auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
-                                                  instance_health_check_frequency_sec_);
+    auto &instance = repl_instances_.emplace_back(
+        data_instance.config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
     instance.StartStateCheck();
   });
 
@@ -531,8 +535,8 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
   // Follows nomenclature from replication handler where Try<> means doing action from the
   // user query.
   auto expected = CoordinatorStatus::LEADER_READY;
-  if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel,
-                                      std::memory_order_acquire)) {
+  if (!status.compare_exchange_strong(
+          expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
     return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
   }
   return ReconcileClusterState();
@@ -908,7 +912,8 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
 
 auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
     -> AddCoordinatorInstanceStatus {
-  spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
+  spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}",
+                config.coordinator_id,
                 raft_state_->InstanceName());
 
   auto const bolt_server_to_add = config.bolt_server.SocketAddress();
@@ -1004,8 +1009,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  if (constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica,
-                                    kMaxReplicaReadLag};
+  if (constexpr std::array settings{
+          kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica, kMaxReplicaReadLag};
       !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
@@ -1111,7 +1116,8 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       auto const data_instances = raft_state_->GetDataInstancesContext();
       auto const instance_raft_cache = std::ranges::find_if(
           data_instances, [&](auto const &instance) { return instance.config.instance_name == instance_name; });
-      DMG_ASSERT(instance_raft_cache != std::ranges::end(data_instances), "Data instance {} not found in Raft cache",
+      DMG_ASSERT(instance_raft_cache != std::ranges::end(data_instances),
+                 "Data instance {} not found in Raft cache",
                  instance_name);
 
       if (!instance.SendRpc<DemoteMainToReplicaRpc>(instance_raft_cache->config.replication_client_info,
@@ -1123,8 +1129,8 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
     if (!instance_state.uuid || *instance_state.uuid != curr_main_uuid) {
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
-        spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
-                      std::string{curr_main_uuid});
+        spdlog::error(
+            "Failed to set new uuid for replica instance {} to {}.", instance_name, std::string{curr_main_uuid});
       } else {
         spdlog::trace("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
       }
@@ -1257,7 +1263,9 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-                   curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
+                   curr_num_committed_txns,
+                   db_uuid,
+                   utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }
@@ -1269,11 +1277,13 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       newest_instance.emplace(instance_name, cnt_newest_dbs);
     } else if (newest_instance->second == cnt_newest_dbs) {
       // Instances are the best over the same number of instances, let the sum of timestamps decide
-      spdlog::info("Instances {} and {} are most up to date on the same number of instances.", instance_name,
+      spdlog::info("Instances {} and {} are most up to date on the same number of instances.",
+                   instance_name,
                    newest_instance->first);
       if (total_instances_sum[instance_name] > total_instances_sum[newest_instance->first]) {
         spdlog::info("Instance {} has the total sum of num_committed_txns larger than {}. It will be considered newer.",
-                     instance_name, newest_instance->first);
+                     instance_name,
+                     newest_instance->first);
         newest_instance.emplace(instance_name, cnt_newest_dbs);
       }
     }
@@ -1298,6 +1308,7 @@ auto CoordinatorInstance::GetRoutingTable(std::string_view const db_name) const 
 auto CoordinatorInstance::GetRoutingTableAsLeader(std::string_view const db_name) const -> RoutingTable {
   return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
 }
+
 auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string_view const db_name) const
     -> RoutingTable {
   CoordinatorInstanceConnector *leader{nullptr};
@@ -1388,7 +1399,11 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
               "Instance {} won't be used in a failover because it's too much behind the current main. Main has "
               "committed "
               "{} txns, while instance {} has committed {} txns for the database {}",
-              instance_name, main_db_info->second, instance_name, num_committed_txns, main_db_info->first);
+              instance_name,
+              main_db_info->second,
+              instance_name,
+              num_committed_txns,
+              main_db_info->first);
           replica_behind = true;
           break;
         }
@@ -1399,7 +1414,8 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
             "Skipping instance {} for a failover because one of its databases is too much behind the main's "
             "database. "
             "The current max replica lag is set to {}",
-            instance_name, max_allowed_lag);
+            instance_name,
+            max_allowed_lag);
         continue;
       }
 

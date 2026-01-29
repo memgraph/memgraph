@@ -303,7 +303,9 @@ void Initialize(utils::Settings &settings) {
    * @param validator - user defined value correctness checker
    */
   auto register_flag = [&](
-                           const std::string &flag, const std::string &key, bool restore,
+                           const std::string &flag,
+                           const std::string &key,
+                           bool restore,
                            std::function<void(const std::string &)> post_update = [](auto) {},
                            utils::Settings::Validation validator =
                                [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
@@ -344,14 +346,19 @@ void Initialize(utils::Settings &settings) {
    * Register hops limit partial results
    */
   register_flag(
-      kHopsLimitPartialResultsGFlagsKey, kHopsLimitPartialResultsSettingKey, kRestore,
-      [](const std::string &val) { hops_limit_partial_results = val == "true"; }, ValidBoolStr);
+      kHopsLimitPartialResultsGFlagsKey,
+      kHopsLimitPartialResultsSettingKey,
+      kRestore,
+      [](const std::string &val) { hops_limit_partial_results = val == "true"; },
+      ValidBoolStr);
 
   /*
    * Register log level
    */
   register_flag(
-      kLogLevelGFlagsKey, kLogLevelSettingKey, !kRestore,
+      kLogLevelGFlagsKey,
+      kLogLevelSettingKey,
+      !kRestore,
       [](const std::string &val) {
         const auto ll_enum = ToLLEnum(val);
         spdlog::set_level(ll_enum);
@@ -368,7 +375,9 @@ void Initialize(utils::Settings &settings) {
    * Register logging to stderr
    */
   register_flag(
-      kLogToStderrGFlagsKey, kLogToStderrSettingKey, !kRestore,
+      kLogToStderrGFlagsKey,
+      kLogToStderrSettingKey,
+      !kRestore,
       [](const std::string &val) {
         if (val == "true") {
           TurnOnStdErr();
@@ -382,28 +391,39 @@ void Initialize(utils::Settings &settings) {
    * Register cartesian enable flag
    */
   register_flag(
-      kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
-      [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
+      kCartesianProductEnabledGFlagsKey,
+      kCartesianProductEnabledSettingKey,
+      !kRestore,
+      [](const std::string &val) { cartesian_product_enabled_ = val == "true"; },
+      ValidBoolStr);
 
   /*
    * Register debug query plans
    */
   register_flag(
-      kDebugQueryPlansGFlagsKey, kDebugQueryPlansSettingKey, !kRestore,
-      [](const std::string &val) { debug_query_plans_ = val == "true"; }, ValidBoolStr);
+      kDebugQueryPlansGFlagsKey,
+      kDebugQueryPlansSettingKey,
+      !kRestore,
+      [](const std::string &val) { debug_query_plans_ = val == "true"; },
+      ValidBoolStr);
 
   /*
    * Register storage GC aggressive flag
    */
   register_flag(
-      kStorageGcAggressiveGFlagsKey, kStorageGcAggressiveSettingKey, kRestore,
-      [](const std::string &val) { storage_gc_aggressive_ = val == "true"; }, ValidBoolStr);
+      kStorageGcAggressiveGFlagsKey,
+      kStorageGcAggressiveSettingKey,
+      kRestore,
+      [](const std::string &val) { storage_gc_aggressive_ = val == "true"; },
+      ValidBoolStr);
 
   /*
    * Register timezone setting
    */
   register_flag(
-      kTimezoneGFlagsKey, kTimezoneSettingKey, kRestore,
+      kTimezoneGFlagsKey,
+      kTimezoneSettingKey,
+      kRestore,
       [](const std::string &val) {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
       },
@@ -438,7 +458,9 @@ void Initialize(utils::Settings &settings) {
   // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
   ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
   register_flag(
-      kSnapshotPeriodicGFlagsKey, kSnapshotPeriodicSettingKey, !kRestore,
+      kSnapshotPeriodicGFlagsKey,
+      kSnapshotPeriodicSettingKey,
+      !kRestore,
       [](std::string_view val) {
         try {
           const auto period = ValidPeriod(val);
@@ -465,7 +487,9 @@ void Initialize(utils::Settings &settings) {
   register_flag(kAwsEndpointUrlGFlagsKey, kAwsEndpointUrlSettingKey, kRestore);
 
   register_flag(
-      kFileDownloadConnTimeoutSecGFlagsKey, kFileDownloadConnTimeoutSecSettingKey, kRestore,
+      kFileDownloadConnTimeoutSecGFlagsKey,
+      kFileDownloadConnTimeoutSecSettingKey,
+      kRestore,
       [](std::string_view val) {
         file_download_conn_timeout_sec_ = utils::ParseStringToUint64(val);  // throw exception if not ok
       },

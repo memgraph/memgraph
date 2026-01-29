@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -196,8 +196,11 @@ struct ResourceLock {
 struct SharedResourceLockGuard {
  public:
   enum Type { WRITE, READ, READ_ONLY };
+
   SharedResourceLockGuard(ResourceLock &l, Type type) : ptr_{&l}, type_{type} { lock(); }
+
   SharedResourceLockGuard(ResourceLock &l, Type type, std::defer_lock_t /*tag*/) : ptr_{&l}, type_{type} {}
+
   SharedResourceLockGuard(ResourceLock &l, Type type, std::try_to_lock_t /*tag*/) : ptr_{&l}, type_{type} {
     try_lock();
   }
@@ -209,6 +212,7 @@ struct SharedResourceLockGuard {
 
   SharedResourceLockGuard(SharedResourceLockGuard &&other) noexcept
       : ptr_{std::exchange(other.ptr_, nullptr)}, type_{other.type_}, locked_{std::exchange(other.locked_, false)} {}
+
   SharedResourceLockGuard &operator=(SharedResourceLockGuard &&other) noexcept {
     if (this != &other) {
       // First unlock if guard is protecting a resource

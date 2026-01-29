@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -100,7 +100,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
       return {std::pair("has_more", true)};
     } else if (query_ == kQueryShowTx) {
-      encoder_.MessageRecord({"", 1234567890, query_, md_});
+      encoder_.MessageRecord({"", 1'234'567'890, query_, md_});
       return {};
     } else {
       throw ClientError("client sent invalid query");
@@ -115,7 +115,9 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
       if (!metadata.empty()) md_ = metadata;
     }
   }
+
   void CommitTransaction() { md_.clear(); }
+
   void RollbackTransaction() { md_.clear(); }
 
   void Abort() { md_.clear(); }
@@ -142,6 +144,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   std::optional<std::string> GetServerNameForInit() { return std::nullopt; }
 
   void Configure(const bolt_map_t &) {}
+
   std::string GetCurrentDB() const { return ""; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
@@ -224,11 +227,16 @@ inline constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 
                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 inline constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x03, 0x04};
 inline constexpr uint8_t route[] = {
-    0xb3,                               // struct with 3 fields
-    0x66,                               // ROUTE signature
-    0xa0,                               // empty map {}
-    0x90,                               // empty list []
-    0x85, 0x6e, 0x65, 0x6f, 0x34, 0x6a  // "neo4j"
+    0xb3,  // struct with 3 fields
+    0x66,  // ROUTE signature
+    0xa0,  // empty map {}
+    0x90,  // empty list []
+    0x85,
+    0x6e,
+    0x65,
+    0x6f,
+    0x34,
+    0x6a  // "neo4j"
 };
 constexpr std::string_view extra_w_metadata =
     "\xa2"                                              // Map size 2
@@ -1079,118 +1087,120 @@ TEST(BoltSession, Noop) {
   }
 }
 
-TEST(BoltSession, Route){{SCOPED_TRACE("v1");
-INIT_VARS;
+TEST(BoltSession, Route) {
+  {
+    SCOPED_TRACE("v1");
+    INIT_VARS;
 
-ExecuteHandshake(input_stream, session, output);
-ExecuteInit(input_stream, session, output);
-ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
-EXPECT_EQ(session.state_, State::Close);
-}
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+    EXPECT_EQ(session.state_, State::Close);
+  }
 #ifdef MG_ENTERPRISE
-{
-  SCOPED_TRACE("v4");
-  INIT_VARS;
+  {
+    SCOPED_TRACE("v4");
+    INIT_VARS;
 
-  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
-  ExecuteInit(input_stream, session, output, true);
-  ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
-  EXPECT_EQ(session.state_, State::Idle);
-  CheckSuccessMessage(output);
-}
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
+    EXPECT_EQ(session.state_, State::Idle);
+    CheckSuccessMessage(output);
+  }
 #else
-{
-  SCOPED_TRACE("v4");
-  INIT_VARS;
+  {
+    SCOPED_TRACE("v4");
+    INIT_VARS;
 
-  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
-  ExecuteInit(input_stream, session, output, true);
-  ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
-  static constexpr uint8_t expected_resp[] = {
-      0x00 /*two bytes of chunk header, chunk contains 64 bytes of data*/,
-      0x40,
-      0xb1 /*TinyStruct1*/,
-      0x7f /*Failure*/,
-      0xa2 /*TinyMap with 2 items*/,
-      0x84 /*TinyString with 4 chars*/,
-      'c',
-      'o',
-      'd',
-      'e',
-      0x82 /*TinyString with 2 chars*/,
-      '6',
-      '6',
-      0x87 /*TinyString with 7 chars*/,
-      'm',
-      'e',
-      's',
-      's',
-      'a',
-      'g',
-      'e',
-      0xd0 /*String*/,
-      0x2b /*With 43 chars*/,
-      'R',
-      'o',
-      'u',
-      't',
-      'e',
-      ' ',
-      'm',
-      'e',
-      's',
-      's',
-      'a',
-      'g',
-      'e',
-      ' ',
-      'i',
-      's',
-      ' ',
-      'n',
-      'o',
-      't',
-      ' ',
-      's',
-      'u',
-      'p',
-      'p',
-      'o',
-      'r',
-      't',
-      'e',
-      'd',
-      ' ',
-      'i',
-      'n',
-      ' ',
-      'M',
-      'e',
-      'm',
-      'g',
-      'r',
-      'a',
-      'p',
-      'h',
-      '!',
-      0x00 /*Terminating zeros*/,
-      0x00,
-  };
-  EXPECT_EQ(input_stream.size(), 0U);
-  auto to_validate = std::span<uint8_t const>{output};
-  CheckOutput(to_validate, expected_resp, sizeof(expected_resp));
-  output.clear();
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
+    static constexpr uint8_t expected_resp[] = {
+        0x00 /*two bytes of chunk header, chunk contains 64 bytes of data*/,
+        0x40,
+        0xb1 /*TinyStruct1*/,
+        0x7f /*Failure*/,
+        0xa2 /*TinyMap with 2 items*/,
+        0x84 /*TinyString with 4 chars*/,
+        'c',
+        'o',
+        'd',
+        'e',
+        0x82 /*TinyString with 2 chars*/,
+        '6',
+        '6',
+        0x87 /*TinyString with 7 chars*/,
+        'm',
+        'e',
+        's',
+        's',
+        'a',
+        'g',
+        'e',
+        0xd0 /*String*/,
+        0x2b /*With 43 chars*/,
+        'R',
+        'o',
+        'u',
+        't',
+        'e',
+        ' ',
+        'm',
+        'e',
+        's',
+        's',
+        'a',
+        'g',
+        'e',
+        ' ',
+        'i',
+        's',
+        ' ',
+        'n',
+        'o',
+        't',
+        ' ',
+        's',
+        'u',
+        'p',
+        'p',
+        'o',
+        'r',
+        't',
+        'e',
+        'd',
+        ' ',
+        'i',
+        'n',
+        ' ',
+        'M',
+        'e',
+        'm',
+        'g',
+        'r',
+        'a',
+        'p',
+        'h',
+        '!',
+        0x00 /*Terminating zeros*/,
+        0x00,
+    };
+    EXPECT_EQ(input_stream.size(), 0U);
+    auto to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, expected_resp, sizeof(expected_resp));
+    output.clear();
 
-  EXPECT_EQ(session.state_, State::Error);
+    EXPECT_EQ(session.state_, State::Error);
 
-  SCOPED_TRACE("Try to reset connection after ROUTE failed");
-  ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
-  EXPECT_EQ(input_stream.size(), 0U);
-  to_validate = std::span<uint8_t const>{output};
-  CheckOutput(to_validate, success_resp, sizeof(success_resp));
-  output.clear();
-  EXPECT_EQ(session.state_, State::Idle);
-}
+    SCOPED_TRACE("Try to reset connection after ROUTE failed");
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
+    EXPECT_EQ(input_stream.size(), 0U);
+    to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, success_resp, sizeof(success_resp));
+    output.clear();
+    EXPECT_EQ(session.state_, State::Idle);
+  }
 #endif
 }
 

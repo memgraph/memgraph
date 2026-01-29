@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -110,6 +110,7 @@ class ConcurrentUnorderedMap {
     using difference_type = std::ptrdiff_t;
 
     Iterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
+
     Iterator(auto itr) : itr_{std::move(itr)} {}
 
     auto operator++() -> Iterator & {
@@ -137,6 +138,7 @@ class ConcurrentUnorderedMap {
     using difference_type = std::ptrdiff_t;
 
     ConstIterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
+
     ConstIterator(auto itr) : itr_{std::move(itr)} {}
 
     auto operator++() -> ConstIterator & {

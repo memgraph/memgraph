@@ -157,7 +157,7 @@ class TTLFixture : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db_{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -454,8 +454,8 @@ TYPED_TEST(TTLFixture, Edge) {
 
   // Wait for first TTL deletion (vertex with older timestamp and possibly edges)
   // TTL runs every 700ms, so we expect deletion within ~1.4s max
-  ASSERT_TRUE(WaitForVertexAndEdgeCount(this->db_, expected_vertices_first, expected_edges_first,
-                                        std::chrono::milliseconds(1400)))
+  ASSERT_TRUE(WaitForVertexAndEdgeCount(
+      this->db_, expected_vertices_first, expected_edges_first, std::chrono::milliseconds(1400)))
       << "Failed to observe first TTL deletion (expected " << expected_vertices_first << " vertices and "
       << expected_edges_first << " edges)";
 
@@ -567,9 +567,7 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   config.durability.storage_directory = std::filesystem::temp_directory_path() / "ttl_user_check_test";
   std::filesystem::remove_all(config.durability.storage_directory);
 
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
 
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";

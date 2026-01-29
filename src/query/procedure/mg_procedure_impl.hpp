@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -304,7 +304,8 @@ struct mgp_zoned_date_time {
   mgp_zoned_date_time(const mgp_zoned_date_time_parameters *parameters, allocator_type alloc)
       : alloc(alloc),
         zoned_date_time(memgraph::utils::ZonedDateTimeParameters{
-            MapDateParameters(parameters->date_parameters), MapLocalTimeParameters(parameters->local_time_parameters),
+            MapDateParameters(parameters->date_parameters),
+            MapLocalTimeParameters(parameters->local_time_parameters),
             parameters->is_named_timezone
                 ? memgraph::utils::Timezone{std::string_view{parameters->timezone_info.timezone_name}}
                 : memgraph::utils::Timezone{std::chrono::minutes{parameters->timezone_info.offset_in_minutes}}}) {}
@@ -449,6 +450,7 @@ struct mgp_map {
 
   static constexpr struct MapTag {
   } map_tag_t;
+
   static constexpr struct UnorderedMapTag {
   } unordered_map_tag_t;
 
@@ -456,6 +458,7 @@ struct mgp_map {
   explicit mgp_map(allocator_type alloc) : items(std::in_place_type<map_type>, alloc) {}
 
   mgp_map(MapTag /*unused*/, allocator_type alloc) : items(std::in_place_type<map_type>, alloc) {}
+
   mgp_map(UnorderedMapTag /*unused*/, allocator_type alloc) : items(std::in_place_type<unordered_map_type>, alloc) {}
 
   mgp_map(map_type &&items, allocator_type alloc) : items(std::in_place_type<map_type>, std::move(items), alloc) {}
@@ -645,6 +648,7 @@ struct mgp_edge {
   ~mgp_edge() = default;
 
   bool operator==(const mgp_edge &other) const noexcept { return this->impl == other.impl; }
+
   bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
 
   memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
@@ -741,6 +745,7 @@ struct mgp_result {
 
 struct mgp_func_result {
   mgp_func_result() {}
+
   /// Return Magic function result. If user forgets it, the error is raised
   std::optional<memgraph::query::TypedValue> value;
   /// Return Magic function result with potential error
@@ -1096,6 +1101,7 @@ bool IsValidIdentifierName(const char *name);
 
 struct mgp_message {
   explicit mgp_message(const memgraph::integrations::kafka::Message &message) : msg{&message} {}
+
   explicit mgp_message(const memgraph::integrations::pulsar::Message &message) : msg{message} {}
 
   using KafkaMessage = const memgraph::integrations::kafka::Message *;
@@ -1106,6 +1112,7 @@ struct mgp_message {
 struct mgp_messages {
   using allocator_type = memgraph::utils::Allocator<mgp_messages>;
   using storage_type = memgraph::utils::pmr::vector<mgp_message>;
+
   explicit mgp_messages(storage_type &&storage) : messages(std::move(storage)) {}
 
   mgp_messages(const mgp_messages &) = delete;

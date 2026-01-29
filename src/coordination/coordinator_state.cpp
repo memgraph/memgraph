@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,7 +37,8 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
   };
   data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =
                                          std::make_unique<DataInstanceManagementServer>(mgmt_config)};
-  spdlog::trace("Created data instance management server on address {}:{}.", mgmt_config.endpoint.GetAddress(),
+  spdlog::trace("Created data instance management server on address {}:{}.",
+                mgmt_config.endpoint.GetAddress(),
                 mgmt_config.endpoint.GetPort());
 }
 

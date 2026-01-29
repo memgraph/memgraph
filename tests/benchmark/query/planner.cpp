@@ -38,7 +38,8 @@ static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph
         storage.Create<memgraph::query::NodeAtom>(storage.Create<memgraph::query::Identifier>(node1_name)));
     pattern->atoms_.emplace_back(storage.Create<memgraph::query::EdgeAtom>(
         storage.Create<memgraph::query::Identifier>("edge" + std::to_string(i)),
-        memgraph::query::EdgeAtom::Type::SINGLE, memgraph::query::EdgeAtom::Direction::BOTH));
+        memgraph::query::EdgeAtom::Type::SINGLE,
+        memgraph::query::EdgeAtom::Direction::BOTH));
     pattern->atoms_.emplace_back(storage.Create<memgraph::query::NodeAtom>(
         storage.Create<memgraph::query::Identifier>("node" + std::to_string(i))));
     single_query->clauses_.emplace_back(match);
@@ -139,8 +140,8 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&dba, symbol_table, parameters, *plan,
-                                              memgraph::query::plan::IndexHints());
+      memgraph::query::plan::EstimatePlanCost(
+          &dba, symbol_table, parameters, *plan, memgraph::query::plan::IndexHints());
     }
   }
 }
@@ -170,8 +171,8 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&vertex_counts, symbol_table, parameters, *plan,
-                                              memgraph::query::plan::IndexHints());
+      memgraph::query::plan::EstimatePlanCost(
+          &vertex_counts, symbol_table, parameters, *plan, memgraph::query::plan::IndexHints());
     }
   }
 }

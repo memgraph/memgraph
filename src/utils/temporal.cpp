@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -156,8 +156,9 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   };
 
   if (!std::any_of(
-          valid_sizes.begin(), valid_sizes.end(),
-          [date_string_size = date_string.size()](const auto valid_size) { return valid_size == date_string_size; })) {
+          valid_sizes.begin(), valid_sizes.end(), [date_string_size = date_string.size()](const auto valid_size) {
+            return valid_size == date_string_size;
+          })) {
     throw temporal::InvalidArgumentException("Invalid string for date. {}", kSupportedDateFormatsHelpMessage);
   }
 
@@ -423,8 +424,11 @@ std::string LocalTime::ToString() const {
   using micro = std::chrono::microseconds;
   const auto subseconds = milli(millisecond) + micro(microsecond);
 
-  return fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(hour), static_cast<int>(minute),
-                     static_cast<int>(second), subseconds.count());
+  return fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}",
+                     static_cast<int>(hour),
+                     static_cast<int>(minute),
+                     static_cast<int>(second),
+                     subseconds.count());
 }
 
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
@@ -560,6 +564,7 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
 
 // NOTE: Should be removed, but too many tests relly on it
 std::string LocalDateTime::ToString() const { return std::format("{:%Y-%m-%dT%H:%M:%S}", zoned_time()); }
+
 std::string LocalDateTime::ToStringWTZ() const { return std::format("{:%Y-%m-%dT%H:%M:%S%z}", zoned_time()); }
 
 Date LocalDateTime::date() const {

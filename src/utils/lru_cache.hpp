@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@ namespace memgraph::utils {
 template <class TKey, class TVal>
 class LRUCache {
  public:
-  explicit LRUCache(int cache_size_) : cache_size(cache_size_){};
+  explicit LRUCache(int cache_size_) : cache_size(cache_size_) {};
 
   void put(const TKey &key, const TVal &val) {
     auto it = item_map.find(key);

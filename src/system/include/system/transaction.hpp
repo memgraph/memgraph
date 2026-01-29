@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,8 +40,10 @@ struct System;
 
 struct Transaction {
   template <std::derived_from<ISystemAction> TAction, typename... Args>
-  requires std::constructible_from<TAction, Args...>
-  void AddAction(Args &&...args) { actions_.emplace_back(std::make_unique<TAction>(std::forward<Args>(args)...)); }
+    requires std::constructible_from<TAction, Args...>
+  void AddAction(Args &&...args) {
+    actions_.emplace_back(std::make_unique<TAction>(std::forward<Args>(args)...));
+  }
 
   template <ReplicationPolicy Handler>
   auto Commit(Handler handler) -> AllSyncReplicaStatus {
@@ -90,10 +92,12 @@ struct Transaction {
   auto last_committed_system_timestamp() const -> uint64_t {
     return state_->last_committed_system_timestamp_.load(std::memory_order_acquire);
   }
+
   auto timestamp() const -> uint64_t { return timestamp_; }
 
  private:
   friend struct System;
+
   Transaction(State &state, std::unique_lock<std::timed_mutex> lock, std::uint64_t timestamp)
       : state_{std::addressof(state)}, lock_(std::move(lock)), timestamp_{timestamp} {}
 
@@ -105,6 +109,7 @@ struct Transaction {
 
 struct DoReplication {
   explicit DoReplication(replication::RoleMainData &main_data) : main_data_{main_data} {}
+
   auto ApplyAction(ISystemAction const &action, Transaction const &system_tx) -> AllSyncReplicaStatus {
     if (action.IsEnterpriseOnly() && !license::global_license_checker.IsEnterpriseValidFast()) {
       return AllSyncReplicaStatus::SomeCommitsUnconfirmed;
@@ -129,8 +134,10 @@ struct DoReplication {
 
     for (auto &client : main_data_.registered_replicas_) {
       const bool completed = client.StreamAndFinalizeDelta<replication::FinalizeSystemTxRpc>(
-          [](const replication::FinalizeSystemTxRes &response) { return response.success; }, main_data_.uuid_,
-          system_tx.last_committed_system_timestamp(), system_tx.timestamp());
+          [](const replication::FinalizeSystemTxRes &response) { return response.success; },
+          main_data_.uuid_,
+          system_tx.last_committed_system_timestamp(),
+          system_tx.timestamp());
       if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
@@ -142,6 +149,7 @@ struct DoReplication {
  private:
   replication::RoleMainData &main_data_;
 };
+
 static_assert(ReplicationPolicy<DoReplication>);
 
 struct DoNothing {
@@ -153,6 +161,7 @@ struct DoNothing {
     return AllSyncReplicaStatus::AllCommitsConfirmed;
   }
 };
+
 static_assert(ReplicationPolicy<DoNothing>);
 
 }  // namespace memgraph::system

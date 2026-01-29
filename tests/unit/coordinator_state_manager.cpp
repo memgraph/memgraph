@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,9 +57,9 @@ class CoordinatorStateManagerTest : public ::testing::Test {
 TEST_F(CoordinatorStateManagerTest, SingleCoord) {
   CoordinatorStateManagerConfig config{
       .coordinator_id_ = 1,
-      .coordinator_port_ = 12345,
+      .coordinator_port_ = 12'345,
       .bolt_port_ = 9090,
-      .management_port_ = 20456,
+      .management_port_ = 20'456,
       .coordinator_hostname = "localhost",
       .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination",
       .log_store_durability_ = LogStoreDurability{
@@ -93,9 +93,9 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
   ptr<cluster_config> old_config;
   CoordinatorStateManagerConfig config{
       .coordinator_id_ = 0,
-      .coordinator_port_ = 12345,
+      .coordinator_port_ = 12'345,
       .bolt_port_ = 9090,
-      .management_port_ = 20345,
+      .management_port_ = 20'345,
       .coordinator_hostname = "localhost",
       .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination",
       .log_store_durability_ = LogStoreDurability{
@@ -113,8 +113,8 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
     auto const coord_instance_aux = CoordinatorInstanceAux{
         .id = config.coordinator_id_, .coordinator_server = "0.0.0.0:12346", .management_server = "0.0.0.0:2320"};
 
-    auto temp_srv_config = cs_new<srv_config>(1, 0, coord_instance_aux.coordinator_server,
-                                              nlohmann::json(coord_instance_aux).dump(), false);
+    auto temp_srv_config = cs_new<srv_config>(
+        1, 0, coord_instance_aux.coordinator_server, nlohmann::json(coord_instance_aux).dump(), false);
     // second coord stored here
     old_config->get_servers().push_back(temp_srv_config);
     state_manager_->save_config(*old_config);

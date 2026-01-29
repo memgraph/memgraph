@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,7 +93,9 @@ class EdgeAccessor final {
                                                                       View view) const;
 
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
+
   Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
@@ -101,6 +103,7 @@ class EdgeAccessor final {
   bool operator==(const EdgeAccessor &other) const noexcept {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }
+
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
   EdgeRef edge_;

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,9 @@ class Resource {
   };
 
   Resource() = default;
+
   explicit Resource(T limit) : limit_(limit) {}
+
   ~Resource() = default;
 
   Resource(const Resource &) = delete;
@@ -75,12 +77,12 @@ class Resource {
     if (current < size) {                                                           // Underflow protection
       auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;  // Rollback decrement
       auto gen_next = [&current, size] { return current < size ? T(0) : current - size; };
-      while (!allocated_.compare_exchange_weak(current, gen_next(), std::memory_order_acq_rel))
-        ;
+      while (!allocated_.compare_exchange_weak(current, gen_next(), std::memory_order_acq_rel));
     }
   }
 
   T GetCurrent() const { return allocated_.load(std::memory_order_acquire); }
+
   T GetLimit() const { return limit_.load(std::memory_order_acquire); }
 
  private:
@@ -88,10 +90,12 @@ class Resource {
   std::atomic<T> limit_{kUnlimited};
 };
 
-using SessionsResource = Resource<size_t>;                    // Number of sessions
+using SessionsResource = Resource<size_t>;  // Number of sessions
+
 class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed to be allocated
  public:
   TransactionsMemoryResource() = default;
+
   explicit TransactionsMemoryResource(size_t limit) : Resource(limit) {}
 
   bool Allocate(size_t size);
@@ -100,6 +104,7 @@ class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed t
 
 struct UserResources {
   UserResources() = default;
+
   UserResources(SessionsResource::value_type sessions_limit,
                 TransactionsMemoryResource::value_type transactions_memory_limit)
       : sessions(sessions_limit), transactions_memory(transactions_memory_limit) {}
@@ -111,8 +116,11 @@ struct UserResources {
 
   // Session limits
   void SetSessionLimit(SessionsResource::value_type limit) { sessions.UpdateLimit(limit); }
+
   bool IncrementSessions() { return sessions.Increment(1).success; }
+
   void DecrementSessions() { sessions.Decrement(1); }
+
   std::pair<SessionsResource::value_type, SessionsResource::value_type> GetSessions() const {
     return {sessions.GetCurrent(), sessions.GetLimit()};
   }
@@ -121,12 +129,15 @@ struct UserResources {
   void SetTransactionsMemoryLimit(TransactionsMemoryResource::value_type limit) {
     transactions_memory.UpdateLimit(limit);
   }
+
   bool IncrementTransactionsMemory(TransactionsMemoryResource::value_type size) {
     return transactions_memory.Allocate(size);
   }
+
   void DecrementTransactionsMemory(TransactionsMemoryResource::value_type size) {
     transactions_memory.Deallocate(size);
   }
+
   std::pair<TransactionsMemoryResource::value_type, TransactionsMemoryResource::value_type> GetTransactionsMemory()
       const {
     return {transactions_memory.GetCurrent(), transactions_memory.GetLimit()};

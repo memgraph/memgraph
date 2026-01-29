@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,6 +69,7 @@ bool IsSkipListGcRunning();
 class SkipListGcMarker {
  public:
   SkipListGcMarker() { SkipListGcRunning() = true; }
+
   ~SkipListGcMarker() { SkipListGcRunning() = false; }
 };
 
@@ -743,6 +744,7 @@ class SkipList final : detail::SkipListNode_base {
     }
 
     bool operator==(const ChunkedIterator &other) const { return node_ == other.node_; }
+
     // More complex because the end node can be removed from the skiplist, we check the order and stop if past end node
     bool operator!=(const ChunkedIterator &other) const {
       if (!node_) return false;       // end of skiplist (stop)
@@ -761,9 +763,11 @@ class SkipList final : detail::SkipListNode_base {
 
    public:
     Chunk(TNode *begin, TNode *end) : begin_{begin}, end_{end} {}
+
     Chunk(ChunkedIterator begin, ChunkedIterator end) : begin_{begin}, end_{end} {}
 
     ChunkedIterator begin() { return begin_; }
+
     ChunkedIterator end() { return end_; }
   };
 
@@ -817,7 +821,9 @@ class SkipList final : detail::SkipListNode_base {
 
   struct SamplingRange {
     SamplingRange(SamplingIterator begin, SamplingIterator end) : begin_(begin), end_(end) {}
+
     auto begin() const -> SamplingIterator { return begin_; }
+
     auto end() const -> SamplingIterator { return end_; }
 
    private:
@@ -850,6 +856,7 @@ class SkipList final : detail::SkipListNode_base {
     Accessor &operator=(const Accessor &) = delete;
 
     Accessor(Accessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) { other.skiplist_ = nullptr; }
+
     Accessor &operator=(Accessor &&other) noexcept {
       if (this != &other) {
         skiplist_ = other.skiplist_;
@@ -862,13 +869,17 @@ class SkipList final : detail::SkipListNode_base {
     /// Functions that return an Iterator (or ConstIterator) to the beginning of
     /// the list.
     Iterator begin() { return Iterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+
     ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+
     ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
 
     /// Functions that return an Iterator (or ConstIterator) to the end of the
     /// list.
     Iterator end() { return Iterator{nullptr}; }
+
     ConstIterator end() const { return ConstIterator{nullptr}; }
+
     ConstIterator cend() const { return ConstIterator{nullptr}; }
 
     auto sampling_range() const {
@@ -1040,6 +1051,7 @@ class SkipList final : detail::SkipListNode_base {
     ConstAccessor(ConstAccessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
     }
+
     ConstAccessor &operator=(ConstAccessor &&other) noexcept {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
@@ -1048,9 +1060,11 @@ class SkipList final : detail::SkipListNode_base {
     }
 
     ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+
     ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
 
     ConstIterator end() const { return ConstIterator{nullptr}; }
+
     ConstIterator cend() const { return ConstIterator{nullptr}; }
 
     auto sampling_range() const {
@@ -1180,6 +1194,7 @@ class SkipList final : detail::SkipListNode_base {
   /// Functions that return an accessor to the list. All operations on the list
   /// must be done through the Accessor (or ConstAccessor) proxy object.
   Accessor access() { return Accessor{this}; }
+
   ConstAccessor access() const { return ConstAccessor{this}; }
 
   /// The size of the list can be read directly from the list because it is an
@@ -1265,8 +1280,7 @@ class SkipList final : detail::SkipListNode_base {
       if (layer_found != -1) {
         TNode *node_found = succs[layer_found];
         if (!node_found->marked.load(std::memory_order_acquire)) {
-          while (!node_found->fully_linked.load(std::memory_order_acquire))
-            ;
+          while (!node_found->fully_linked.load(std::memory_order_acquire));
           return {Iterator{node_found}, false};
         }
         continue;
@@ -1694,8 +1708,7 @@ class SkipList final : detail::SkipListNode_base {
         // Find the first element over the bound
         while (current != nullptr && current->obj <= upper_bound.value()) {
           if (!current->marked.load(std::memory_order_acquire)) {
-            while (!current->fully_linked.load(std::memory_order_acquire))
-              ;
+            while (!current->fully_linked.load(std::memory_order_acquire));
           }
           current = current->nexts[layer].load(std::memory_order_acquire);
         }
@@ -1726,8 +1739,7 @@ class SkipList final : detail::SkipListNode_base {
         // Only count nodes that are both fully_linked and not marked
         if (!current->marked.load(std::memory_order_acquire)) {
           cached_layer_nodes.push_back(current);
-          while (!current->fully_linked.load(std::memory_order_acquire))
-            ;
+          while (!current->fully_linked.load(std::memory_order_acquire));
         }
         current = current->nexts[layer].load(std::memory_order_acquire);
       }

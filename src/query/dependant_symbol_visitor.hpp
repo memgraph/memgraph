@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,28 +64,48 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
 
   // binary operators
   void Visit(OrOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(XorOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(AndOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(AdditionOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(SubtractionOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(MultiplicationOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(DivisionOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(ModOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(ExponentiationOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(NotEqualOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(EqualOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(LessOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(GreaterOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(LessEqualOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(GreaterEqualOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(RangeOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(InListOperator &op) override { VisitBinaryOperator(op); }
+
   void Visit(SubscriptOperator &op) override { VisitBinaryOperator(op); }
 
   // unary operators
   void Visit(NotOperator &op) override { VisitUnaryOperator(op); }
+
   void Visit(UnaryPlusOperator &op) override { VisitUnaryOperator(op); }
+
   void Visit(UnaryMinusOperator &op) override { VisitUnaryOperator(op); }
+
   void Visit(IsNullOperator &op) override { VisitUnaryOperator(op); }
 
   void Visit(PropertyLookup &property_lookup) override { property_lookup.expression_->Accept(*this); }
@@ -208,17 +228,17 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
 
   // Named expressions and other types
   void Visit(NamedExpression &named_expr) override { named_expr.expression_->Accept(*this); }
+
   void Visit(MapProjectionLiteral &map_proj) override {
     std::ranges::for_each(map_proj.elements_, [this](const auto &pair) { pair.second->Accept(*this); });
   }
 
   // Primitive literals, parameters - safe to cache
-  void Visit(PrimitiveLiteral & /*literal*/) override { /* Safe to cache */
-  }
-  void Visit(ParameterLookup & /*param*/) override { /* Safe to cache */
-  }
-  void Visit(EnumValueAccess & /*enum_access*/) override { /* Safe to cache */
-  }
+  void Visit(PrimitiveLiteral & /*literal*/) override { /* Safe to cache */ }
+
+  void Visit(ParameterLookup & /*param*/) override { /* Safe to cache */ }
+
+  void Visit(EnumValueAccess & /*enum_access*/) override { /* Safe to cache */ }
 
   bool is_cacheable() const { return is_cacheable_; }
 

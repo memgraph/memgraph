@@ -39,7 +39,7 @@ class InfoTest : public testing::Test {
     config_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     if (std::is_same_v<StorageType, InMemoryStorage>) {
-      this->storage = memgraph::dbms::CreateInMemoryStorage(config_, repl_state_);
+      this->storage = memgraph::dbms::CreateInMemoryStorage(config_);
     } else {
       this->storage = std::make_unique<StorageType>(config_);
     }
@@ -83,8 +83,6 @@ class InfoTest : public testing::Test {
   }
 
   memgraph::storage::Config config_;
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state_{
-      storage_directory};
   std::unique_ptr<memgraph::storage::Storage> storage;
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
@@ -93,6 +91,7 @@ class InfoTest : public testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 
 TYPED_TEST_SUITE(InfoTest, StorageTypes);
+
 // TYPED_TEST_SUITE(IndexTest, InMemoryStorageType);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -204,7 +203,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_GT(info.memory_res, 10'000'000);  // 200MB < > 10MB
   ASSERT_LT(info.memory_res, 200'000'000);
   ASSERT_GT(info.disk_usage, 100);  // 1MB < > 100B
-  ASSERT_LT(info.disk_usage, 1000'000);
+  ASSERT_LT(info.disk_usage, 1'000'000);
   ASSERT_EQ(info.label_indices, 1);
   ASSERT_EQ(info.label_property_indices, is_using_disk_storage ? 1 : 2);
   ASSERT_EQ(info.text_indices, 0);

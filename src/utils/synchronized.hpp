@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,10 +91,12 @@ class Synchronized {
     friend class Synchronized<T, TMutex>;
 
     LockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+
     LockedPtr(T *object_ptr, std::unique_lock<TMutex> &&guard) : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
     T *operator->() { return object_ptr_; }
+
     T &operator*() { return *object_ptr_; }
 
    private:
@@ -107,11 +109,13 @@ class Synchronized {
     friend class Synchronized<T, TMutex>;
 
     ReadLockedPtr(const T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+
     ReadLockedPtr(const T *object_ptr, std::shared_lock<TMutex> &&guard)
         : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
     const T *operator->() const { return object_ptr_; }
+
     const T &operator*() const { return *object_ptr_; }
 
    private:
@@ -126,11 +130,13 @@ class Synchronized {
     friend class Synchronized<T, TMutex>;
 
     MutableSharedLockPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+
     MutableSharedLockPtr(T *object_ptr, std::shared_lock<TMutex> &&guard)
         : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
     T *operator->() { return object_ptr_; }
+
     T &operator*() { return *object_ptr_; }
 
    private:
@@ -139,6 +145,7 @@ class Synchronized {
   };
 
   LockedPtr Lock() { return LockedPtr(&object_, &mutex_); }
+
   LockedPtr TryLock() {
     auto guard = std::unique_lock{mutex_, std::defer_lock};
     if (guard.try_lock()) {
@@ -151,6 +158,7 @@ class Synchronized {
   auto WithLock(TCallable &&callable) {
     return callable(*Lock());
   }
+
   template <class TCallable>
   auto TryWithLock(TCallable &&callable) {
     return callable(*TryLock());
@@ -159,11 +167,14 @@ class Synchronized {
   LockedPtr operator->() { return LockedPtr(&object_, &mutex_); }
 
   template <typename = void>
-  requires SharedMutex<TMutex> ReadLockedPtr ReadLock()
-  const { return ReadLockedPtr(&object_, &mutex_); }
+    requires SharedMutex<TMutex>
+  ReadLockedPtr ReadLock() const {
+    return ReadLockedPtr(&object_, &mutex_);
+  }
+
   template <typename = void>
-  requires SharedMutex<TMutex> ReadLockedPtr TryReadLock()
-  const {
+    requires SharedMutex<TMutex>
+  ReadLockedPtr TryReadLock() const {
     auto guard = std::shared_lock{mutex_, std::defer_lock};
     if (guard.try_lock()) {
       return {&object_, std::move(guard)};
@@ -172,26 +183,40 @@ class Synchronized {
   }
 
   template <class TCallable>
-  requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
-  auto WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
+    requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
+  auto WithReadLock(TCallable &&callable) const {
+    return callable(*ReadLock());
+  }
+
   template <class TCallable>
-  requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
-  auto TryWithReadLock(TCallable &&callable) const { return callable(*TryReadLock()); }
+    requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
+  auto TryWithReadLock(TCallable &&callable) const {
+    return callable(*TryReadLock());
+  }
 
   template <typename = void>
-  requires SharedMutex<TMutex> ReadLockedPtr operator->() const { return ReadLockedPtr(&object_, &mutex_); }
+    requires SharedMutex<TMutex>
+  ReadLockedPtr operator->() const {
+    return ReadLockedPtr(&object_, &mutex_);
+  }
 
   template <typename = void>
-  requires SharedMutex<TMutex> MutableSharedLockPtr MutableSharedLock() {
+    requires SharedMutex<TMutex>
+  MutableSharedLockPtr MutableSharedLock() {
     return MutableSharedLockPtr(&object_, &mutex_);
   }
 
   template <class TCallable>
-  requires SharedMutex<TMutex>
-  auto WithMutableSharedLock(TCallable &&callable) { return callable(*MutableSharedLock()); }
+    requires SharedMutex<TMutex>
+  auto WithMutableSharedLock(TCallable &&callable) {
+    return callable(*MutableSharedLock());
+  }
 
   template <typename = void>
-  requires SharedMutex<TMutex> MutableSharedLockPtr operator->() { return MutableSharedLockPtr(&object_, &mutex_); }
+    requires SharedMutex<TMutex>
+  MutableSharedLockPtr operator->() {
+    return MutableSharedLockPtr(&object_, &mutex_);
+  }
 
  private:
   T object_;

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@
 namespace memgraph::query {
 
 class Path;
+
 /**
  *  A data structure that holds a graph. A graph consists of at least one
  * vertex, and zero or more edges.

@@ -59,6 +59,7 @@ using memgraph::storage::View;
 auto MakeCommitArgs(const memgraph::dbms::DatabaseAccess &db_acc) -> memgraph::storage::CommitArgs {
   return memgraph::storage::CommitArgs::make_main(std::make_unique<memgraph::dbms::DatabaseProtector>(db_acc));
 }
+
 using memgraph::storage::replication::ReplicaState;
 
 class ReplicationTest : public ::testing::Test {
@@ -69,6 +70,7 @@ class ReplicationTest : public ::testing::Test {
                                                "MG_test_unit_storage_v2_replication_repl"};
   std::filesystem::path repl2_storage_directory{std::filesystem::temp_directory_path() /
                                                 "MG_test_unit_storage_v2_replication_repl2"};
+
   void SetUp() override { Clear(); }
 
   void TearDown() override { Clear(); }
@@ -114,7 +116,7 @@ class ReplicationTest : public ::testing::Test {
   }();
 
   const std::string local_host = ("127.0.0.1");
-  const std::array<uint16_t, 2> ports{10000, 20000};
+  const std::array<uint16_t, 2> ports{10'000, 20'000};
   const std::array<std::string, 2> replicas = {"REPLICA1", "REPLICA2"};
 
  private:
@@ -129,10 +131,11 @@ struct MinMemgraph {
   explicit MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
         repl_state{ReplicationStateRootPath(conf)},
-        dbms{conf, repl_state
+        dbms{conf
 #ifdef MG_ENTERPRISE
              ,
-             auth, true
+             auth,
+             true
 #endif
         },
         db_acc{dbms.Get()},
@@ -220,8 +223,9 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto properties = v->Properties(View::OLD);
     ASSERT_TRUE(properties.has_value());
     ASSERT_EQ(properties->size(), 1);
-    ASSERT_THAT(*properties, UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(vertex_property),
-                                                                 PropertyValue(vertex_property_value))));
+    ASSERT_THAT(*properties,
+                UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(vertex_property),
+                                                    PropertyValue(vertex_property_value))));
 
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -301,8 +305,9 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto properties = edge->Properties(View::OLD);
     ASSERT_TRUE(properties.has_value());
     ASSERT_EQ(properties->size(), 1);
-    ASSERT_THAT(*properties, UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(edge_property),
-                                                                 PropertyValue(edge_property_value))));
+    ASSERT_THAT(*properties,
+                UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToProperty(edge_property),
+                                                    PropertyValue(edge_property_value))));
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
@@ -360,11 +365,11 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
   {
     auto unique_acc = main.CreateIndexAccessor();
-    ASSERT_FALSE(
-        !unique_acc
-             ->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
-                                                                   main.db.storage()->NameToProperty(property_extra)})
-             .has_value());
+    ASSERT_FALSE(!unique_acc
+                      ->CreateIndex(main.db.storage()->NameToLabel(label),
+                                    {main.db.storage()->NameToProperty(property),
+                                     main.db.storage()->NameToProperty(property_extra)})
+                      .has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
@@ -535,11 +540,11 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
   {
     auto unique_acc = main.DropIndexAccessor();
-    ASSERT_FALSE(
-        !unique_acc
-             ->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
-                                                                 main.db.storage()->NameToProperty(property_extra)})
-             .has_value());
+    ASSERT_FALSE(!unique_acc
+                      ->DropIndex(main.db.storage()->NameToLabel(label),
+                                  {main.db.storage()->NameToProperty(property),
+                                   main.db.storage()->NameToProperty(property_extra)})
+                      .has_value());
     ASSERT_TRUE(unique_acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
   }
   {
@@ -860,7 +865,7 @@ TEST_F(ReplicationTest, EpochTest) {
 
   MinMemgraph replica2(repl2_conf);
   replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
-      .repl_server = Endpoint(local_host, 10001),
+      .repl_server = Endpoint(local_host, 10'001),
   });
 
   ASSERT_TRUE(main.repl_handler
@@ -875,7 +880,7 @@ TEST_F(ReplicationTest, EpochTest) {
                   .TryRegisterReplica(ReplicationClientConfig{
                       .name = replicas[1],
                       .mode = ReplicationMode::SYNC,
-                      .repl_server_endpoint = Endpoint(local_host, 10001),
+                      .repl_server_endpoint = Endpoint(local_host, 10'001),
                   })
                   .has_value());
 
@@ -908,7 +913,7 @@ TEST_F(ReplicationTest, EpochTest) {
                   .TryRegisterReplica(ReplicationClientConfig{
                       .name = replicas[1],
                       .mode = ReplicationMode::SYNC,
-                      .repl_server_endpoint = Endpoint(local_host, 10001),
+                      .repl_server_endpoint = Endpoint(local_host, 10'001),
                   })
                   .has_value());
 
@@ -962,12 +967,12 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
 
-  uint16_t replica1_port = 10001;
+  uint16_t replica1_port = 10'001;
   replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, replica1_port),
   });
 
-  uint16_t replica2_port = 10002;
+  uint16_t replica2_port = 10'002;
   MinMemgraph replica2(repl2_conf);
   replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, replica2_port),
@@ -1013,12 +1018,12 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
 
-  uint16_t replica1_port = 10001;
+  uint16_t replica1_port = 10'001;
   replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, replica1_port),
   });
 
-  uint16_t replica2_port = 10002;
+  uint16_t replica2_port = 10'002;
   MinMemgraph replica2(repl2_conf);
   replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, replica2_port),
@@ -1041,7 +1046,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
 }
 
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
-  uint16_t common_port = 10001;
+  uint16_t common_port = 10'001;
 
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);

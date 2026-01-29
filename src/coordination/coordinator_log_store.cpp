@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,8 +28,8 @@ using nuraft::buffer_serializer;
 
 namespace {
 std::shared_ptr<log_entry> MakeClone(const std::shared_ptr<log_entry> &entry) {
-  return std::make_shared<log_entry>(entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(),
-                                     entry->get_timestamp());
+  return std::make_shared<log_entry>(
+      entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(), entry->get_timestamp());
 }
 }  // namespace
 
@@ -74,8 +74,9 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
         auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
         if (!entry) {
-          logger_.Log(nuraft_log_level::TRACE, fmt::format("Missing entry with id {} in range [{}:{}]", id,
-                                                           durable_start_idx_value, last_log_entry));
+          logger_.Log(
+              nuraft_log_level::TRACE,
+              fmt::format("Missing entry with id {} in range [{}:{}]", id, durable_start_idx_value, last_log_entry));
           continue;
         }
 

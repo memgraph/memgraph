@@ -149,6 +149,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
 
   auto GetReplState() const { return repl_state_.ReadLock(); }
+
   auto GetReplState() { return repl_state_.Lock(); }
 
 #ifdef MG_ENTERPRISE
@@ -305,7 +306,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
         return true;
       }
       locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
-      return StartRpcServer(dbms_handler_, replica_data, auth_, system_, parameters_);
+      return StartRpcServer(dbms_handler_, repl_state_, replica_data, auth_, system_, parameters_);
     }
 
     // Shutdown any clients we might have had
@@ -320,7 +321,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
                                                         return false;
                                                       },
                                                       [this](RoleReplicaData &data) {
-                                                        return StartRpcServer(dbms_handler_, data, auth_, system_,
+                                                        return StartRpcServer(dbms_handler_, repl_state_, data, auth_, system_,
                                                                               parameters_);
                                                       }},
                                     locked_repl_state->ReplicationData());

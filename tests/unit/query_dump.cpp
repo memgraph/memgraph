@@ -170,6 +170,7 @@ bool operator<(const DatabaseState::LabelPropertiesItem &first, const DatabaseSt
   if (first.label != second.label) return first.label < second.label;
   return first.properties < second.properties;
 }
+
 bool operator<(const DatabaseState::LabelPropertyType &first, const DatabaseState::LabelPropertyType &second) {
   if (first.label != second.label) return first.label < second.label;
   if (first.property != second.property) return first.property < second.property;
@@ -323,8 +324,16 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
   }
 
-  return {vertices,          edges,         label_indices,         label_properties_indices, text_indices,
-          text_edge_indices, point_indices, existence_constraints, unique_constraints,       type_constraints};
+  return {vertices,
+          edges,
+          label_indices,
+          label_properties_indices,
+          text_indices,
+          text_edge_indices,
+          point_indices,
+          existence_constraints,
+          unique_constraints,
+          type_constraints};
 }
 
 auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db,
@@ -419,7 +428,7 @@ class DumpTest : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -516,8 +525,11 @@ TYPED_TEST(DumpTest, SingleVertex) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -537,8 +549,11 @@ TYPED_TEST(DumpTest, VertexWithSingleLabel) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1` {__mg_id__: 0});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1` {__mg_id__: 0});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -558,8 +573,10 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0});", kDropInternalIndex,
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0});",
+                  kDropInternalIndex,
                   kRemoveInternalLabelProperty);
   }
 }
@@ -581,8 +598,11 @@ TYPED_TEST(DumpTest, VertexWithSingleProperty) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0, `prop`: 42});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0, `prop`: 42});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -604,9 +624,13 @@ TYPED_TEST(DumpTest, MultipleVertices) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-                  "CREATE (:__mg_vertex__ {__mg_id__: 1});", "CREATE (:__mg_vertex__ {__mg_id__: 2});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 2});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -651,13 +675,15 @@ void test_PropertyValue(auto *test) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, test->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex,
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
                   "`prop``2```: true}, Null, -1.2, DATE(\"1994-12-07\"), "
                   "LOCALTIME(\"14:10:44.099099\"), LOCALDATETIME(\"1994-12-07T14:10:44.099099\"), "
                   "DURATION(\"P3DT4H5M6.010011S\"), DATETIME(\"1994-12-07T06:10:44.099099-08:00[America/Los_Angeles]\")"
                   "], `p2`: \"hello \\'world\\'\"});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -693,11 +719,14 @@ TYPED_TEST(DumpTest, SingleEdge) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
                   "CREATE (:__mg_vertex__ {__mg_id__: 1});",
                   "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
                   "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -722,15 +751,19 @@ TYPED_TEST(DumpTest, MultipleEdges) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-                  "CREATE (:__mg_vertex__ {__mg_id__: 1});", "CREATE (:__mg_vertex__ {__mg_id__: 2});",
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 2});",
                   "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
                   "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
                   "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
                   "v.__mg_id__ = 0 CREATE (u)-[:`EdgeType 2`]->(v);",
                   "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND "
                   "v.__mg_id__ = 2 CREATE (u)-[:`EdgeType ``!\"`]->(v);",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -753,11 +786,14 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
                   "CREATE (:__mg_vertex__ {__mg_id__: 1});",
                   "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
                   "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`prop`: 13}]->(v);",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -795,9 +831,13 @@ TYPED_TEST(DumpTest, IndicesKeys) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);", "CREATE INDEX ON :`Label 2`(`prop ```);",
-                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  "CREATE INDEX ON :`Label1`(`prop`);",
+                  "CREATE INDEX ON :`Label 2`(`prop ```);",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -815,12 +855,12 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
 
   {
     auto index_acc = this->CreateIndexAccessor();
-    ASSERT_TRUE(
-        index_acc
-            ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
-                          {this->db->storage()->NameToProperty("prop_a"), this->db->storage()->NameToProperty("prop_b"),
-                           this->db->storage()->NameToProperty("prop_c")})
-            .has_value());
+    ASSERT_TRUE(index_acc
+                    ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
+                                  {this->db->storage()->NameToProperty("prop_a"),
+                                   this->db->storage()->NameToProperty("prop_b"),
+                                   this->db->storage()->NameToProperty("prop_c")})
+                    .has_value());
     ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
@@ -832,8 +872,11 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`, `prop_b`, `prop_c`);", kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});", kDropInternalIndex,
+    VerifyQueries(stream.GetResults(),
+                  "CREATE INDEX ON :`Label1`(`prop_a`, `prop_b`, `prop_c`);",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex,
                   kRemoveInternalLabelProperty);
   }
 }
@@ -870,9 +913,12 @@ TYPED_TEST(DumpTest, CompositeNestedIndicesKeys) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`.`prop_b`, `prop_a`.`prop_c`);",
-                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  "CREATE INDEX ON :`Label1`(`prop_a`.`prop_b`, `prop_a`.`prop_c`);",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -919,12 +965,17 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), "CREATE EDGE INDEX ON :`EdgeType`;", "CREATE EDGE INDEX ON :`EdgeType`(`prop`);",
-                  "CREATE GLOBAL EDGE INDEX ON :(`prop`);", kCreateInternalIndex,
-                  "CREATE (:__mg_vertex__ {__mg_id__: 0});", "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+    VerifyQueries(stream.GetResults(),
+                  "CREATE EDGE INDEX ON :`EdgeType`;",
+                  "CREATE EDGE INDEX ON :`EdgeType`(`prop`);",
+                  "CREATE GLOBAL EDGE INDEX ON :(`prop`);",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
                   "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
                   "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -966,10 +1017,13 @@ TYPED_TEST(DumpTest, PointIndices) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), "CREATE POINT INDEX ON :`Label1`(`prop`);",
-                  "CREATE POINT INDEX ON :`Label 2`(`prop ```);", kCreateInternalIndex,
+    VerifyQueries(stream.GetResults(),
+                  "CREATE POINT INDEX ON :`Label1`(`prop`);",
+                  "CREATE POINT INDEX ON :`Label 2`(`prop ```);",
+                  kCreateInternalIndex,
                   "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: POINT({ x:1, y:1, srid: 7203 })});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -1035,8 +1089,10 @@ TYPED_TEST(DumpTest, VectorIndices) {
         stream.GetResults(),
         R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
-        kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+        kCreateInternalIndex,
+        "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
+        kDropInternalIndex,
+        kRemoveInternalLabelProperty);
   }
 }
 
@@ -1088,10 +1144,13 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
     VerifyQueries(
         stream.GetResults(),
         R"(CREATE VECTOR EDGE INDEX `test_index1` ON :`EdgeType`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
-        kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});", "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+        kCreateInternalIndex,
+        "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+        "CREATE (:__mg_vertex__ {__mg_id__: 1});",
         "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
         "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`vector_property`: [1, 1]}]->(v);",
-        kDropInternalIndex, kRemoveInternalLabelProperty);
+        kDropInternalIndex,
+        kRemoveInternalLabelProperty);
   }
 }
 
@@ -1119,9 +1178,12 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
-    VerifyQueries(stream.GetResults(), "CREATE CONSTRAINT ON (u:`L``abel 1`) ASSERT EXISTS (u.`prop`);",
-                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`L``abel 1` {__mg_id__: 0, `prop`: 1});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+    VerifyQueries(stream.GetResults(),
+                  "CREATE CONSTRAINT ON (u:`L``abel 1`) ASSERT EXISTS (u.`prop`);",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`L``abel 1` {__mg_id__: 0, `prop`: 1});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -1130,10 +1192,12 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     auto dba = this->db->Access(memgraph::storage::WRITE);
     auto prop_id = dba->NameToProperty("prop");
     auto prop2_id = dba->NameToProperty("prop2");
-    CreateVertex(dba.get(), {"Label"},
+    CreateVertex(dba.get(),
+                 {"Label"},
                  {{prop_id, memgraph::storage::PropertyValue(1)}, {prop2_id, memgraph::storage::PropertyValue(2)}},
                  false);
-    CreateVertex(dba.get(), {"Label"},
+    CreateVertex(dba.get(),
+                 {"Label"},
                  {{prop_id, memgraph::storage::PropertyValue(2)}, {prop2_id, memgraph::storage::PropertyValue(2)}},
                  false);
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1164,7 +1228,8 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
                   "`prop2`: 2});",
                   "CREATE (:__mg_vertex__:`Label` {__mg_id__: 1, `prop`: 2, "
                   "`prop2`: 2});",
-                  kDropInternalIndex, kRemoveInternalLabelProperty);
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -1180,7 +1245,8 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                      {map_key_2, memgraph::storage::PropertyValue(3.14)}};
 
     CreateVertex(
-        dba.get(), {"Label1", "Label2"},
+        dba.get(),
+        {"Label1", "Label2"},
         {{prop1_id, memgraph::storage::PropertyValue(prop1)}, {prop2_id, memgraph::storage::PropertyValue("$'\t'")}});
 
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1203,7 +1269,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state(
       ReplicationStateRootPath(config));
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config);
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
@@ -1213,11 +1279,15 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
-                                                          repl_state, system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          repl_state,
+                                                          system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt, nullptr
+                                                          std::nullopt,
+                                                          nullptr
 #endif
   );
 
@@ -1248,10 +1318,12 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     auto u = CreateVertex(dba.get(), {"Person"}, {{name_id, memgraph::storage::PropertyValue("Ivan")}});
     auto v = CreateVertex(dba.get(), {"Person"}, {{name_id, memgraph::storage::PropertyValue("Josko")}});
     auto w = CreateVertex(
-        dba.get(), {"Person"},
+        dba.get(),
+        {"Person"},
         {{name_id, memgraph::storage::PropertyValue("Bosko")}, {id_id, memgraph::storage::PropertyValue(0)}});
     auto z = CreateVertex(
-        dba.get(), {"Person"},
+        dba.get(),
+        {"Person"},
         {{name_id, memgraph::storage::PropertyValue("Buha")}, {id_id, memgraph::storage::PropertyValue(1)}});
     auto zdt = memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime,
@@ -1270,28 +1342,47 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     CreateEdge(dba.get(), &z, &u, "Knows", {});
     CreateEdge(dba.get(), &w, &z, "Knows", {{how_id, memgraph::storage::PropertyValue("school")}});
     CreateEdge(dba.get(), &w, &z, "Likes", {{how_id, memgraph::storage::PropertyValue("1234567890")}});
-    CreateEdge(dba.get(), &w, &z, "Date",
-               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                              memgraph::storage::TemporalType::Date,
-                              memgraph::utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()))}});
-    CreateEdge(dba.get(), &w, &z, "LocalTime",
-               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                              memgraph::storage::TemporalType::LocalTime,
-                              memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
     CreateEdge(
-        dba.get(), &w, &z, "LocalDateTime",
+        dba.get(),
+        &w,
+        &z,
+        "Date",
+        {{time_id,
+          memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+              memgraph::storage::TemporalType::Date, memgraph::utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()))}});
+    CreateEdge(dba.get(),
+               &w,
+               &z,
+               "LocalTime",
+               {{time_id,
+                 memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+                     memgraph::storage::TemporalType::LocalTime,
+                     memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
+    CreateEdge(
+        dba.get(),
+        &w,
+        &z,
+        "LocalDateTime",
         {{time_id,
           memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
               memgraph::storage::TemporalType::LocalDateTime,
               memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()))}});
-    CreateEdge(dba.get(), &w, &z, "Duration",
-               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                              memgraph::storage::TemporalType::Duration,
-                              memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds))}});
-    CreateEdge(dba.get(), &w, &z, "NegativeDuration",
-               {{time_id, memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                              memgraph::storage::TemporalType::Duration,
-                              memgraph::utils::Duration({-3, -4, -5, -6, -10, -11}).microseconds))}});
+    CreateEdge(dba.get(),
+               &w,
+               &z,
+               "Duration",
+               {{time_id,
+                 memgraph::storage::PropertyValue(
+                     memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration,
+                                                     memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds))}});
+    CreateEdge(dba.get(),
+               &w,
+               &z,
+               "NegativeDuration",
+               {{time_id,
+                 memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+                     memgraph::storage::TemporalType::Duration,
+                     memgraph::utils::Duration({-3, -4, -5, -6, -10, -11}).microseconds))}});
     CreateEdge(dba.get(), &w, &z, "ZonedDateTime", {{time_id, memgraph::storage::PropertyValue(zdt)}});
     ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1384,7 +1475,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
@@ -1394,11 +1485,15 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, nullptr,
-                                                          repl_state, system_state
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          repl_state,
+                                                          system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt, nullptr
+                                                          std::nullopt,
+                                                          nullptr
 #endif
   );
   {
@@ -1593,23 +1688,28 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     auto dba = this->db->Access(memgraph::storage::WRITE);
     auto name_id = dba->NameToProperty("name");
     auto surname_id = dba->NameToProperty("surname");
-    auto p1 = CreateVertex(dba.get(), {"PERSON"},
+    auto p1 = CreateVertex(dba.get(),
+                           {"PERSON"},
                            {{name_id, memgraph::storage::PropertyValue("Person1")},
                             {surname_id, memgraph::storage::PropertyValue("Unique1")}},
                            false);
-    auto p2 = CreateVertex(dba.get(), {"PERSON"},
+    auto p2 = CreateVertex(dba.get(),
+                           {"PERSON"},
                            {{name_id, memgraph::storage::PropertyValue("Person2")},
                             {surname_id, memgraph::storage::PropertyValue("Unique2")}},
                            false);
-    auto p3 = CreateVertex(dba.get(), {"PERSON"},
+    auto p3 = CreateVertex(dba.get(),
+                           {"PERSON"},
                            {{name_id, memgraph::storage::PropertyValue("Person3")},
                             {surname_id, memgraph::storage::PropertyValue("Unique3")}},
                            false);
-    auto p4 = CreateVertex(dba.get(), {"PERSON"},
+    auto p4 = CreateVertex(dba.get(),
+                           {"PERSON"},
                            {{name_id, memgraph::storage::PropertyValue("Person4")},
                             {surname_id, memgraph::storage::PropertyValue("Unique4")}},
                            false);
-    auto p5 = CreateVertex(dba.get(), {"PERSON"},
+    auto p5 = CreateVertex(dba.get(),
+                           {"PERSON"},
                            {{name_id, memgraph::storage::PropertyValue("Person5")},
                             {surname_id, memgraph::storage::PropertyValue("Unique5")}},
                            false);
@@ -1682,9 +1782,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "UNWIND createdVertices AS newNodes SET newNodes.created = timestamp()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1692,9 +1800,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE (:DummyUpdate)";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_UPDATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1702,9 +1818,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE (:DummyDelete)";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_DELETE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1712,9 +1836,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE ()-[:DummyCreate]->()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_CREATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1722,9 +1854,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE ()-[:DummyUpdate]->()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_UPDATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1732,9 +1872,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE ()-[:DummyDelete]->()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_DELETE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1742,9 +1890,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE ()-[:Any]->()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1752,9 +1908,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE ()-[:Any]->()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::INVOKER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::INVOKER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1762,9 +1926,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "UNWIND createdVertices AS newNodes SET newNodes.created = timestamp()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::DEFINER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1772,9 +1944,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE (:DummyUpdate)";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_UPDATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::DEFINER);
   }
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1782,14 +1962,24 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     const std::string trigger_statement = "CREATE ()-[:Any]->()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
-    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, {}),
-                              memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+    trigger_store->AddTrigger(trigger_name,
+                              trigger_statement,
+                              props,
+                              trigger_event_type,
+                              trigger_phase,
+                              &ast_cache,
+                              &dba,
+                              query_config,
+                              auth_checker.GenQueryUser(std::nullopt, {}),
+                              memgraph::dbms::kDefaultDB,
+                              memgraph::query::TriggerPrivilegeContext::DEFINER);
   }
   {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
-    { memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db); }
+    {
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
     VerifyQueries(
         stream.GetResults(),
         "CREATE TRIGGER trigger_on_vcreate SECURITY INVOKER ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices "
@@ -1858,7 +2048,8 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
     memgraph::query::DbAccessor dba(acc.get());
     memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
   }
-  VerifyQueries(stream.GetResults(), "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);",
+  VerifyQueries(stream.GetResults(),
+                "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);",
                 "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;",
                 "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS TYPED INTEGER;",
                 "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS TYPED STRING;");

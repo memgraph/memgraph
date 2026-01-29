@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -171,11 +171,13 @@ class MetricsService {
     auto const is_coordinator = flags::CoordinationSetupInstance().IsCoordinator();
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
       if (is_coordinator && std::find(coord_counters_to_reset.cbegin(), coord_counters_to_reset.cend(), i)) {
-        event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
+        event_counters.emplace_back(memgraph::metrics::GetCounterName(i),
+                                    memgraph::metrics::GetCounterType(i),
                                     memgraph::metrics::global_counters[i].exchange(0, std::memory_order_acq_rel));
 
       } else {
-        event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
+        event_counters.emplace_back(memgraph::metrics::GetCounterName(i),
+                                    memgraph::metrics::GetCounterType(i),
                                     memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
       }
     }
@@ -189,7 +191,8 @@ class MetricsService {
     event_gauges.reserve(memgraph::metrics::GaugeEnd());
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
-      event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeTypeString(i),
+      event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i),
+                                memgraph::metrics::GetGaugeTypeString(i),
                                 memgraph::metrics::global_gauges[i].load(std::memory_order_acquire));
     }
 
@@ -279,7 +282,8 @@ class MetricsRequestHandler final {
     // Respond to GET request
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     boost::beast::http::response<boost::beast::http::string_body> res{
-        std::piecewise_construct, std::make_tuple(std::move(body)),
+        std::piecewise_construct,
+        std::make_tuple(std::move(body)),
         std::make_tuple(boost::beast::http::status::ok, req.version())};
     res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
     res.set(boost::beast::http::field::content_type, "application/json");

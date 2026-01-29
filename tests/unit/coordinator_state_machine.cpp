@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,8 +68,8 @@ class CoordinatorStateMachineTest : public ::testing::Test {
                                      "MG_tests_unit_coordinator_state_machine"};
 
   uint16_t const bolt_port = 9687;
-  uint16_t const mgt_port = 30112;
-  uint16_t const replication_port = 30001;
+  uint16_t const mgt_port = 30'112;
+  uint16_t const replication_port = 30'001;
 };
 
 class CoordinatorStateMachineTestParam : public ::testing::TestWithParam<memgraph::coordination::LogStoreVersion> {
@@ -95,8 +95,8 @@ class CoordinatorStateMachineTestParam : public ::testing::TestWithParam<memgrap
                                      "MG_tests_unit_coordinator_state_machine"};
 
   uint16_t const bolt_port = 9687;
-  uint16_t const mgt_port = 30112;
-  uint16_t const replication_port = 30001;
+  uint16_t const mgt_port = 30'112;
+  uint16_t const replication_port = 30'001;
 };
 
 TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
@@ -116,9 +116,9 @@ TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
     CoordinatorStateMachine state_machine{my_logger, log_store_durability};
     CoordinatorStateManagerConfig config{
         .coordinator_id_ = 0,
-        .coordinator_port_ = 12345,
+        .coordinator_port_ = 12'345,
         .bolt_port_ = 9090,
-        .management_port_ = 20223,
+        .management_port_ = 20'223,
         .coordinator_hostname = "localhost",
         .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination" / "state_manager",
         .log_store_durability_ = log_store_durability};
@@ -129,8 +129,8 @@ TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
     auto const coord_instance_aux = CoordinatorInstanceAux{
         .id = config.coordinator_id_, .coordinator_server = "0.0.0.0:12346", .management_server = "0.0.0.0:20223"};
 
-    auto temp_srv_config = std::make_shared<srv_config>(1, 0, coord_instance_aux.coordinator_server,
-                                                        nlohmann::json(coord_instance_aux).dump(), false);
+    auto temp_srv_config = std::make_shared<srv_config>(
+        1, 0, coord_instance_aux.coordinator_server, nlohmann::json(coord_instance_aux).dump(), false);
     // second coord stored here
     old_config->get_servers().push_back(temp_srv_config);
     state_manager_->save_config(*old_config);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -53,7 +53,8 @@ void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::au
 }
 
 void ResetUserProfileLimits(const std::string &user_or_role, memgraph::utils::ResourceMonitoring &resource_monitor) {
-  resource_monitor.UpdateUserLimits(user_or_role, memgraph::utils::SessionsResource::kUnlimited,
+  resource_monitor.UpdateUserLimits(user_or_role,
+                                    memgraph::utils::SessionsResource::kUnlimited,
                                     memgraph::utils::TransactionsMemoryResource::kUnlimited);
 }
 
@@ -125,6 +126,7 @@ DEFINE_VALIDATED_HIDDEN_string(
       }
       return true;
     });
+
 namespace memgraph::auth {
 
 const Auth::Epoch Auth::kStartEpoch = 1;
@@ -136,11 +138,12 @@ namespace {
  */
 struct UpdateAuthData : memgraph::system::ISystemAction {
   explicit UpdateAuthData(User user) : user_{std::move(user)} {}
+
   explicit UpdateAuthData(Role role) : role_{std::move(role)} {}
+
   explicit UpdateAuthData(UserProfiles::Profile profile) : profile_{std::move(profile)} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool IsEnterpriseOnly() const override { return true; }
 
@@ -177,8 +180,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool IsEnterpriseOnly() const override { return true; }
 
@@ -201,6 +203,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
     return client.StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
   }
+
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
@@ -488,7 +491,8 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   auto get_string_field = [&ret](const auto &name) -> std::optional<std::string> {
     if (!ret.contains(name)) {
       spdlog::warn(utils::MessageWithLink(
-          "Couldn't authenticate user: the field \"{}\" was not returned by the external auth module.", name,
+          "Couldn't authenticate user: the field \"{}\" was not returned by the external auth module.",
+          name,
           "https://memgr.ph/sso"));
       return std::nullopt;
     }
@@ -498,7 +502,8 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
       spdlog::warn(
           utils::MessageWithLink("Couldn't authenticate user: the field \"{}\" returned by the external auth module "
                                  "needs to have a string value.",
-                                 name, "https://memgr.ph/sso"));
+                                 name,
+                                 "https://memgr.ph/sso"));
       return std::nullopt;
     }
 
@@ -569,7 +574,8 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     auto role = GetRole(role_name);
     if (!role) {
       spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
-                                          role_name, "https://memgr.ph/auth"));
+                                          role_name,
+                                          "https://memgr.ph/auth"));
       return std::nullopt;
     }
     roles.AddRole(*role);
@@ -586,13 +592,14 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   auto already_existing_user = GetUser(*username);
   if (already_existing_user) {
     spdlog::warn(utils::MessageWithLink(
-        "Couldn't authenticate external user because a local user {} with the same name already exists.", *username,
+        "Couldn't authenticate external user because a local user {} with the same name already exists.",
+        *username,
         "https://memgr.ph/auth"));
     return std::nullopt;
   }
 
-  spdlog::trace("Authenticated user '{}' with roles: {}.", *username,
-                memgraph::utils::JoinVector(roles.rolenames(), ", "));
+  spdlog::trace(
+      "Authenticated user '{}' with roles: {}.", *username, memgraph::utils::JoinVector(roles.rolenames(), ", "));
   return UserOrRole(auth::RoleWUsername{*username, roles});
 }
 
@@ -603,13 +610,13 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
      */
     auto user = GetUser(username);
     if (!user) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
-                                          "https://memgr.ph/auth"));
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate user '{}' because the user doesn't exist.", username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
     if (!user->CheckPassword(password)) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
-                                          username, "https://memgr.ph/auth"));
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
     if (user->UpgradeHash(password)) {
@@ -658,14 +665,14 @@ void Auth::LinkUser(User &user) const {
       }
       for (const auto &[db, roles_array] : json_data.items()) {
         if (!roles_array.is_array()) {
-          spdlog::warn("Invalid mtlink entry for user '{}': expected array of rolenames for db '{}'", user.username(),
-                       db);
+          spdlog::warn(
+              "Invalid mtlink entry for user '{}': expected array of rolenames for db '{}'", user.username(), db);
           continue;
         }
         for (const auto &rolename_json : roles_array) {
           if (!rolename_json.is_string()) {
-            spdlog::warn("Invalid mtlink entry for user '{}': expected string rolename for db '{}'", user.username(),
-                         db);
+            spdlog::warn(
+                "Invalid mtlink entry for user '{}': expected string rolename for db '{}'", user.username(), db);
             continue;
           }
           const auto &rolename = rolename_json.get<std::string>();
@@ -677,8 +684,11 @@ void Auth::LinkUser(User &user) const {
           try {
             user.AddMultiTenantRole(*role, db);
           } catch (const AuthException &e) {
-            spdlog::warn("Couldn't add multi-tenant role '{}' to user '{}' on database '{}': {}", rolename,
-                         user.username(), db, e.what());
+            spdlog::warn("Couldn't add multi-tenant role '{}' to user '{}' on database '{}': {}",
+                         rolename,
+                         user.username(),
+                         db,
+                         e.what());
             failed_mt_roles.insert(rolename);
           }
         }
@@ -1448,8 +1458,7 @@ void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction 
 
 bool Auth::NameRegexMatch(const std::string &user_or_role) const {
   if (config_.custom_name_regex) {
-    if (const auto license_check_result =
-            memgraph::license::global_license_checker.IsEnterpriseValid();
+    if (const auto license_check_result = memgraph::license::global_license_checker.IsEnterpriseValid();
         !license_check_result.has_value()) {
       throw memgraph::auth::AuthException(
           "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "

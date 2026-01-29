@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,7 @@
 namespace memgraph::communication::http {
 
 inline constexpr uint16_t kSSLExpirySeconds = 30;
+
 inline void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("HTTP session failed on {}: {}", what, ec.message());
 }
@@ -110,7 +111,9 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
       boost::beast::get_lowest_layer(stream).expires_after(std::chrono::seconds(kSSLExpirySeconds));
 
       boost::beast::http::async_read(
-          stream, buffer_, req_,
+          stream,
+          buffer_,
+          req_,
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
     });
   }
@@ -161,6 +164,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
                                  }},
                stream_);
   }
+
   void OnClose(boost::beast::error_code ec) {
     if (ec) {
       LogError(ec, "close");

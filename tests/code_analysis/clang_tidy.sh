@@ -39,22 +39,30 @@ THREADS=${THREADS:-$DEFAULT_THREADS}
 # Directories to exclude from clang-tidy analysis
 EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!mage/cpp/community_detection_module/grappolo :!mage/cpp/text_module/utf8 :!mage/cpp/util_module/algorithm/md5.hpp :!mage/cpp/util_module/algorithm/md5.cpp"
 VENV_DIR="${VENV_DIR:-env}"
+FIX_FLAG=""
+CONFIG_FILE=".clang-tidy"
 # until https://github.com/conan-io/conan/issues/19285 is fixed
 CLASSPATH=
 DYLD_LIBRARY_PATH=
 LD_LIBRARY_PATH=
 
-if [[ "$#" -gt 0 ]]; then
+while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --base-branch)
       BASE_BRANCH=$2
+      shift 2
+    ;;
+    --fix)
+      FIX_FLAG="-fix"
+      shift
     ;;
     *)
       echo "Error: Unknown flag '$1'"
+      echo "Usage: $0 [--base-branch BRANCH] [--fix]"
       exit 1
     ;;
   esac
-fi
+done
 
 cd $PROJECT_ROOT
 
@@ -109,11 +117,30 @@ fi
 echo "Running clang-tidy on changed files..."
 echo "Using clang-tidy: $(command -v clang-tidy)"
 echo "clang-tidy version: $(clang-tidy --version | head -1)"
+echo "Config file: $CONFIG_FILE"
 echo "Parallel jobs: $THREADS (CPU cores: $MAX_THREADS_BY_CPU, Memory limit: $MAX_THREADS_BY_MEM based on ${AVAILABLE_MEM_GB}GB available)"
 
-git diff -U0 $BASE_BRANCH... -- src mage/cpp $EXCLUSIONS | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cppm?" | tee ./build/clang_tidy_output.txt
+FIXES_DIR="./build/clang_tidy_fixes"
+FIXES_FILE="$FIXES_DIR/fixes.yaml"
+EXPORT_FIXES_FLAG=""
+if [[ -n "$FIX_FLAG" ]]; then
+  echo "Fix mode: ENABLED (using export-fixes to handle parallel processing)"
+  rm -rf "$FIXES_DIR"
+  mkdir -p "$FIXES_DIR"
+  EXPORT_FIXES_FLAG="-export-fixes $FIXES_FILE"
+fi
+
+git diff -U0 $BASE_BRANCH... -- src mage/cpp $EXCLUSIONS | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build -regex ".+\.cppm?" -config-file "$CONFIG_FILE" $EXPORT_FIXES_FLAG 2>&1 | tee ./build/clang_tidy_output.txt
 
 echo ""
+
+# Apply fixes using clang-apply-replacements if we exported fixes
+if [[ -n "$FIX_FLAG" && -f "$FIXES_FILE" && -s "$FIXES_FILE" ]]; then
+    echo "Applying fixes from $FIXES_FILE..."
+    clang-apply-replacements --style=file "$FIXES_DIR" 2>&1 || true
+    echo "Fixes applied."
+fi
+
 echo "Checking for errors in clang-tidy output..."
 # Fail if any warning is reported
 if ./tools/github/clang-tidy/grep_error_lines.sh < ./build/clang_tidy_output.txt > /dev/null; then

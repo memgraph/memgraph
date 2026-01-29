@@ -21,7 +21,6 @@
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
-#include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
@@ -141,10 +140,8 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(storage::Config config,
-                         utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
-                         auth::SynchedAuth &auth, bool recovery_on_startup)
-    : default_config_{std::move(config)}, auth_{auth}, repl_state_{repl_state} {
+DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool recovery_on_startup)
+    : default_config_{std::move(config)}, auth_{auth} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 
@@ -445,7 +442,7 @@ struct CreateDatabase : memgraph::system::ISystemAction {
 };
 
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
-  auto new_db = db_handler_.New(storage_config, repl_state_);
+  auto new_db = db_handler_.New(storage_config);
 
   if (new_db) {  // Success
                  // Save delta

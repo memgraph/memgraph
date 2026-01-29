@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -82,8 +82,8 @@ void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit
   if (proc_memory_trackers_.contains(procedure_id)) {
     return;
   }
-  auto [it, inserted] = proc_memory_trackers_.emplace(std::piecewise_construct, std::forward_as_tuple(procedure_id),
-                                                      std::forward_as_tuple());
+  auto [it, inserted] = proc_memory_trackers_.emplace(
+      std::piecewise_construct, std::forward_as_tuple(procedure_id), std::forward_as_tuple());
   it->second.SetMaximumHardLimit(static_cast<int64_t>(limit));
   it->second.SetHardLimit(static_cast<int64_t>(limit));
 }

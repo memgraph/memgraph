@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -119,7 +119,9 @@ double epsilon{};
 std::uint64_t MaxDegree(const mg_graph::GraphView<> &graph) {
   std::vector<std::size_t> deg_vector;
   // Calculate the vector of graph degrees
-  std::transform(graph.Nodes().begin(), graph.Nodes().end(), std::back_inserter(deg_vector),
+  std::transform(graph.Nodes().begin(),
+                 graph.Nodes().end(),
+                 std::back_inserter(deg_vector),
                  [&graph](mg_graph::Node<> vertex) -> std::size_t { return graph.Neighbours(vertex.id).size(); });
   auto deg_max = *std::max_element(deg_vector.begin(), deg_vector.end());
   return deg_max;
@@ -150,7 +152,8 @@ bool Converged(std::set<std::uint64_t> &active_nodes, std::uint64_t k, double ep
   }
 
   // Partially sort the centralities. Keep only the first `k` sorted
-  std::partial_sort(active_centrality.begin(), active_centrality.begin() + std::min(k, active_centrality.size()),
+  std::partial_sort(active_centrality.begin(),
+                    active_centrality.begin() + std::min(k, active_centrality.size()),
                     active_centrality.end(),
                     [](std::pair<std::uint64_t, double> a, std::pair<std::uint64_t, double> b) -> bool {
                       return a.second > b.second;
@@ -365,12 +368,13 @@ std::vector<std::pair<std::uint64_t, double>> SetKatz(const mg_graph::GraphView<
   double gamma = deg_max / (1. - (alpha * alpha * deg_max));
 
   // Initialize the active vector
-  std::transform(graph.Nodes().begin(), graph.Nodes().end(),
+  std::transform(graph.Nodes().begin(),
+                 graph.Nodes().end(),
                  std::inserter(katz_alg::context.active_nodes, katz_alg::context.active_nodes.end()),
                  [&graph](mg_graph::Node<> vertex) -> std::uint64_t { return graph.GetMemgraphNodeId(vertex.id); });
 
-  return KatzCentralityLoop(katz_alg::context.active_nodes, graph, katz_alg::alpha, katz_alg::k, katz_alg::epsilon,
-                            gamma);
+  return KatzCentralityLoop(
+      katz_alg::context.active_nodes, graph, katz_alg::alpha, katz_alg::k, katz_alg::epsilon, gamma);
 }
 
 std::vector<std::pair<std::uint64_t, double>> UpdateKatz(
@@ -459,8 +463,8 @@ std::vector<std::pair<std::uint64_t, double>> UpdateKatz(
     katz_alg::context.active_nodes.erase(katz_alg::context.active_nodes.find(v));
   }
 
-  return KatzCentralityLoop(katz_alg::context.active_nodes, graph, katz_alg::alpha, katz_alg::k, katz_alg::epsilon,
-                            gamma);
+  return KatzCentralityLoop(
+      katz_alg::context.active_nodes, graph, katz_alg::alpha, katz_alg::k, katz_alg::epsilon, gamma);
 }
 
 void Reset() { katz_alg::context.Clear(); }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,9 @@ TEST(Rpc, Call) {
     server.AwaitShutdown();
   }};
   server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                          uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                          uint64_t const request_version,
+                          auto *req_reader,
+                          auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
@@ -54,7 +56,9 @@ TEST(Rpc, Abort) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                          uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                          uint64_t const request_version,
+                          auto *req_reader,
+                          auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
@@ -71,7 +75,7 @@ TEST(Rpc, Abort) {
   std::thread thread([&client]() {
     std::this_thread::sleep_for(100ms);
     spdlog::info("Shutting down the connection!");
-    client.Abort();
+    client.Shutdown();
   });
 
   memgraph::utils::Timer const timer;
@@ -88,7 +92,9 @@ TEST(Rpc, ClientPool) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                          uint64_t const request_version, const auto &req_reader, auto *res_builder) {
+                          uint64_t const request_version,
+                          const auto &req_reader,
+                          auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
@@ -148,7 +154,9 @@ TEST(Rpc, LargeMessage) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
     EchoMessage req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     memgraph::rpc::SendFinalResponse(req, request_version, res_builder);
@@ -156,7 +164,7 @@ TEST(Rpc, LargeMessage) {
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  std::string testdata(100000, 'a');
+  std::string testdata(100'000, 'a');
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
@@ -171,7 +179,9 @@ TEST(Rpc, JumboMessage) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
     EchoMessage req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     memgraph::rpc::SendFinalResponse(req, request_version, res_builder);
@@ -180,7 +190,7 @@ TEST(Rpc, JumboMessage) {
   std::this_thread::sleep_for(100ms);
 
   // NOLINTNEXTLINE (bugprone-string-constructor)
-  std::string testdata(10000000, 'a');
+  std::string testdata(10'000'000, 'a');
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
@@ -195,7 +205,9 @@ TEST(Rpc, Stream) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
     EchoMessage req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::string payload;
@@ -221,7 +233,9 @@ TEST(Rpc, StreamLarge) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
     EchoMessage req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::string payload;
@@ -232,8 +246,8 @@ TEST(Rpc, StreamLarge) {
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  std::string testdata1(50000, 'a');
-  std::string testdata2(50000, 'b');
+  std::string testdata1(50'000, 'a');
+  std::string testdata2(50'000, 'b');
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
@@ -250,7 +264,9 @@ TEST(Rpc, StreamJumbo) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                           uint64_t const request_version, auto *req_reader, auto *res_builder) {
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
     EchoMessage req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::string payload;
@@ -262,9 +278,9 @@ TEST(Rpc, StreamJumbo) {
   std::this_thread::sleep_for(100ms);
 
   // NOLINTNEXTLINE (bugprone-string-constructor)
-  std::string testdata1(5000000, 'a');
+  std::string testdata1(5'000'000, 'a');
   // NOLINTNEXTLINE (bugprone-string-constructor)
-  std::string testdata2(5000000, 'b');
+  std::string testdata2(5'000'000, 'b');
 
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);

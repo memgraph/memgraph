@@ -1,3 +1,6 @@
+# Claude
+.claude/
+
 # Conan files
 conanbuild.sh
 conanbuildenv*

@@ -98,8 +98,9 @@ class QueryCostEstimator : public ::testing::Test {
         ASSERT_TRUE(vertex.SetProperty(prop_c, ms::PropertyValue(i)).has_value());
 
         ASSERT_TRUE(vertex
-                        .SetProperty(prop_d, ms::PropertyValue{ms::PropertyValue::map_t{
-                                                 {prop_a, ms::PropertyValue(i)}, {prop_b, ms::PropertyValue(i)}}})
+                        .SetProperty(prop_d,
+                                     ms::PropertyValue{ms::PropertyValue::map_t{{prop_a, ms::PropertyValue(i)},
+                                                                                {prop_b, ms::PropertyValue(i)}}})
                         .has_value());
       }
     }
@@ -108,8 +109,8 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, symbol_table_, parameters_,
-                                                              memgraph::query::plan::IndexHints());
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(
+        &*dba, symbol_table_, parameters_, memgraph::query::plan::IndexHints());
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -158,7 +159,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
+    MakeOp<ScanAllByLabelProperties>(nullptr,
+                                     NextSymbol(),
+                                     label,
+                                     std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Equal(const_val)});
     EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
   }
@@ -168,7 +172,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstExpr) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
+        nullptr,
+        NextSymbol(),
+        label,
+        std::vector{ms::PropertyPath{prop_a}},
         std::vector{ExpressionRange::Equal(storage_.Create<UnaryPlusOperator>(const_val))});
     // once we make expression const-folding this test case will fail
     EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelProperties);
@@ -178,7 +185,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstExpr) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesUpperConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
+    MakeOp<ScanAllByLabelProperties>(nullptr,
+                                     NextSymbol(),
+                                     label,
+                                     std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Range(std::nullopt, InclusiveBound(const_val))});
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(13 * CostParam::kScanAllByLabelProperties);
@@ -188,7 +198,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesUpperConstant) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesLowerConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(17), Parameter(17)}) {
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
+    MakeOp<ScanAllByLabelProperties>(nullptr,
+                                     NextSymbol(),
+                                     label,
+                                     std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Range(InclusiveBound(const_val), std::nullopt)});
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(3 * CostParam::kScanAllByLabelProperties);
@@ -201,7 +214,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertieRangeConstExpr) {
     auto bound = std::make_optional(
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
 
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
+    MakeOp<ScanAllByLabelProperties>(nullptr,
+                                     NextSymbol(),
+                                     label,
+                                     std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Range(bound, std::nullopt)});
 
     EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelProperties);
@@ -214,9 +230,12 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite) {
     auto bound = InclusiveBound(const_val);
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label,
+        nullptr,
+        NextSymbol(),
+        label,
         std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
-        std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(bound, bound),
+        std::vector{ExpressionRange::Range(bound, bound),
+                    ExpressionRange::Range(bound, bound),
                     ExpressionRange::Range(bound, bound)});
 
     EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
@@ -230,9 +249,12 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite_CostIs0IfPropIsNotI
     auto bound = InclusiveBound(const_val);
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label,
+        nullptr,
+        NextSymbol(),
+        label,
         std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
-        std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound),
+        std::vector{ExpressionRange::Range(bound, bound),
+                    ExpressionRange::Range(b_bound, b_bound),
                     ExpressionRange::Range(bound, bound)});
 
     EXPECT_COST(CostParam::kMinimumCost);
@@ -248,9 +270,12 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite_EstimateCostWhenOpC
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label,
+        nullptr,
+        NextSymbol(),
+        label,
         std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
-        std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound),
+        std::vector{ExpressionRange::Range(bound, bound),
+                    ExpressionRange::Range(b_bound, b_bound),
                     ExpressionRange::Range(bound, bound)});
 
     // This computation is based on having 60 vertices in the index. Technically
@@ -267,7 +292,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesCompositeNested) {
     auto bound = InclusiveBound(const_val);
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
+        nullptr,
+        NextSymbol(),
+        label,
+        std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(bound, bound)});
 
     EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
@@ -281,7 +309,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesCompositeNested_CostIs0IfProp
     auto bound = InclusiveBound(const_val);
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
+        nullptr,
+        NextSymbol(),
+        label,
+        std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound)});
 
     EXPECT_COST(CostParam::kMinimumCost);
@@ -297,7 +328,10 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesCompositeNested_EstimateCostW
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
+        nullptr,
+        NextSymbol(),
+        label,
+        std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound)});
 
     EXPECT_COST(5 * CostParam::kScanAllByLabelProperties);
@@ -305,15 +339,33 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesCompositeNested_EstimateCostW
 }
 
 TEST_F(QueryCostEstimator, Expand) {
-  MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-                 std::vector<ms::EdgeTypeId>{}, false, ms::View::OLD);
+  MakeOp<Expand>(last_op_,
+                 NextSymbol(),
+                 NextSymbol(),
+                 NextSymbol(),
+                 EdgeAtom::Direction::IN,
+                 std::vector<ms::EdgeTypeId>{},
+                 false,
+                 ms::View::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
-  MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Type::DEPTH_FIRST,
-                         EdgeAtom::Direction::IN, std::vector<ms::EdgeTypeId>{}, false, nullptr, nullptr, false,
-                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt, nullptr);
+  MakeOp<ExpandVariable>(last_op_,
+                         NextSymbol(),
+                         NextSymbol(),
+                         NextSymbol(),
+                         EdgeAtom::Type::DEPTH_FIRST,
+                         EdgeAtom::Direction::IN,
+                         std::vector<ms::EdgeTypeId>{},
+                         false,
+                         nullptr,
+                         nullptr,
+                         false,
+                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr},
+                         std::nullopt,
+                         std::nullopt,
+                         nullptr);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 
@@ -356,8 +408,8 @@ TEST_F(QueryCostEstimator, Union) {
   std::vector<Symbol> union_symbols{NextSymbol()};
   std::shared_ptr<LogicalOperator> left_op = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   std::shared_ptr<LogicalOperator> right_op = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
-  MakeOp<memgraph::query::plan::Union>(left_op, right_op, union_symbols, left_op->OutputSymbols(symbol_table_),
-                                       right_op->OutputSymbols(symbol_table_));
+  MakeOp<memgraph::query::plan::Union>(
+      left_op, right_op, union_symbols, left_op->OutputSymbols(symbol_table_), right_op->OutputSymbols(symbol_table_));
   EXPECT_COST(CostParam::kUnion * (no_vertices + no_vertices));
 }
 
@@ -371,23 +423,27 @@ TEST_F(QueryCostEstimator, Union) {
   EXPECT_COST(OP_COST_PARAM + OP_CARD_PARAM * OP_COST_PARAM);
 
 TEST_F(QueryCostEstimator, Filter) {
-  TEST_OP(MakeOp<Filter>(last_op_, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true)), CostParam::kFilter,
+  TEST_OP(MakeOp<Filter>(last_op_, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true)),
+          CostParam::kFilter,
           CardParam::kFilter);
 }
 
 TEST_F(QueryCostEstimator, EdgeUniquenessFilter) {
-  TEST_OP(MakeOp<EdgeUniquenessFilter>(last_op_, NextSymbol(), std::vector<Symbol>()), CostParam::kEdgeUniquenessFilter,
+  TEST_OP(MakeOp<EdgeUniquenessFilter>(last_op_, NextSymbol(), std::vector<Symbol>()),
+          CostParam::kEdgeUniquenessFilter,
           CardParam::kEdgeUniquenessFilter);
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {
   TEST_OP(MakeOp<memgraph::query::plan::Unwind>(
               last_op_, storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)), NextSymbol()),
-          CostParam::kUnwind, 7);
+          CostParam::kUnwind,
+          7);
 }
 
 TEST_F(QueryCostEstimator, UnwindNoLiteral) {
-  TEST_OP(MakeOp<memgraph::query::plan::Unwind>(last_op_, nullptr, NextSymbol()), CostParam::kUnwind,
+  TEST_OP(MakeOp<memgraph::query::plan::Unwind>(last_op_, nullptr, NextSymbol()),
+          CostParam::kUnwind,
           MiscParam::kUnwindNoLiteral);
 }
 

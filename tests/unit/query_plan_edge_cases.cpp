@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,7 +60,7 @@ class QueryExecution : public testing::Test {
     }();  // iile
 
     repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
-    db_gk.emplace(config, *repl_state);
+    db_gk.emplace(config);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
@@ -70,11 +70,15 @@ class QueryExecution : public testing::Test {
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
     system_state.emplace();
-    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, nullptr, repl_state.value(),
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{},
+                                 nullptr,
+                                 nullptr,
+                                 repl_state.value(),
                                  *system_state
 #ifdef MG_ENTERPRISE
                                  ,
-                                 std::nullopt, nullptr
+                                 std::nullopt,
+                                 nullptr
 #endif
     );
     auth_checker_.emplace();

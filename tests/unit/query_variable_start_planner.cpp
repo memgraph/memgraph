@@ -42,11 +42,12 @@ std::string ToString(const std::vector<TypedValue> &row, const TAccessor &acc) {
   memgraph::utils::PrintIterable(os, row, ", ", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
   return os.str();
 }
+
 template <class TAccessor>
 std::string ToString(const std::vector<std::vector<TypedValue>> &rows, const TAccessor &acc) {
   std::ostringstream os;
-  memgraph::utils::PrintIterable(os, rows, "\n",
-                                 [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
+  memgraph::utils::PrintIterable(
+      os, rows, "\n", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
   return os.str();
 }
 
@@ -174,9 +175,9 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
   ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
-                         OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))), RETURN("n", "l")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
+                                   RETURN("n", "l")));
   // We have 3 entities, `n`, `r` and `m` from which we could start the MATCH, and 3
   // entities for OPTIONAL MATCH. This should produce 3 * 3 plans.
   CheckPlansProduce(9, query, this->storage, &dba, [&](const auto &results) {
@@ -223,9 +224,10 @@ TYPED_TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), WITH("n"),
-                         MATCH(PATTERN(NODE("m"), EDGE("r", Direction::OUT), NODE("l"))), RETURN("n", "m", "l")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   WITH("n"),
+                                   MATCH(PATTERN(NODE("m"), EDGE("r", Direction::OUT), NODE("l"))),
+                                   RETURN("n", "m", "l")));
   // We can start from 3 entities in each match. Since WITH separates query parts,
   // we expect to get 3 plans for each, which totals 3 * 3.
   CheckPlansProduce(9, query, this->storage, &dba, [&](const auto &results) {
@@ -280,9 +282,8 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});
   // [r2] (v2 -[*..2]-> v3)
   TypedValue r2_list(std::vector<TypedValue>{TypedValue(r2)});
-  CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}, {r2_list}}, dba);
-  });
+  CheckPlansProduce(
+      3, query, this->storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}, {r2_list}}, dba); });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
@@ -306,9 +307,8 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
   // [r1, r2]
   TypedValue r1_r2_list(std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
-  CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}, {r1_r2_list}}, dba);
-  });
+  CheckPlansProduce(
+      3, query, this->storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}, {r1_r2_list}}, dba); });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
@@ -368,8 +368,10 @@ TYPED_TEST(TestVariableStartPlanner, MatchKShortest) {
   std::get<0>(node_n->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(1);
   auto node_m = NODE("m");
   std::get<0>(node_m->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(3);
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), WITH("n", "m"),
-                                   MATCH(PATTERN(NODE("n"), kshortest, NODE("m"))), RETURN("r")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)),
+                                   WITH("n", "m"),
+                                   MATCH(PATTERN(NODE("n"), kshortest, NODE("m"))),
+                                   RETURN("r")));
   // We expect to get a single column with the following rows:
   const auto result = std::vector<TypedValue>{TypedValue{std::vector<TypedValue>{TypedValue(r3)}},
                                               TypedValue{std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)}}};
@@ -382,8 +384,11 @@ TYPED_TEST(TestVariableStartPlanner, MatchKShortest) {
     ASSERT_EQ(results[1][0].ValueList().size(), 2);
     auto result_list = results[1][0].ValueList();
     auto expected_result_list = result[1].ValueList();
-    ASSERT_TRUE(std::is_permutation(result_list.begin(), result_list.end(), expected_result_list.begin(),
-                                    expected_result_list.end(), TypedValue::BoolEqual()));
+    ASSERT_TRUE(std::is_permutation(result_list.begin(),
+                                    result_list.end(),
+                                    expected_result_list.begin(),
+                                    expected_result_list.end(),
+                                    TypedValue::BoolEqual()));
   });
 }
 
@@ -423,7 +428,8 @@ TYPED_TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
       SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))), RETURN("m2"));
 
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
-                                   CALL_SUBQUERY(subquery), RETURN("m1", "m2")));
+                                   CALL_SUBQUERY(subquery),
+                                   RETURN("m1", "m2")));
 
   CheckPlansProduce(9, query, this->storage, &dba, [&](const auto &results) {
     AssertRows(results, {{TypedValue(v1), TypedValue(v1)}}, dba);
@@ -451,7 +457,8 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
                                    RETURN("n2"))));
 
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
-                                   CALL_SUBQUERY(subquery), RETURN("m1", "n2")));
+                                   CALL_SUBQUERY(subquery),
+                                   RETURN("m1", "n2")));
 
   CheckPlansProduce(27, query, this->storage, &dba, [&](const auto &results) {
     AssertRows(results, {{TypedValue(v1), TypedValue(v2)}, {TypedValue(v1), TypedValue(v2)}}, dba);
@@ -481,7 +488,8 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
                                    RETURN("n2"))));
 
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
-                                   CALL_SUBQUERY(subquery), RETURN("m1", "n2")));
+                                   CALL_SUBQUERY(subquery),
+                                   RETURN("m1", "n2")));
 
   CheckPlansProduce(81, query, this->storage, &dba, [&](const auto &results) {
     AssertRows(results,
@@ -517,15 +525,18 @@ TYPED_TEST(TestVariableStartPlanner, NestedPatternComprehensionChainedExpansion)
   // Inner pattern comprehension: [(m)-[]->(x) | x.id]
   // This starts from 'm' which is discovered by the outer pattern comprehension
   auto *inner_pc =
-      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("m"), EDGE("anon_inner_edge", EdgeAtom::Direction::OUT), NODE("x")),
-                            nullptr, PROPERTY_LOOKUP(dba, "x", id));
+      PATTERN_COMPREHENSION(nullptr,
+                            PATTERN(NODE("m"), EDGE("anon_inner_edge", EdgeAtom::Direction::OUT), NODE("x")),
+                            nullptr,
+                            PROPERTY_LOOKUP(dba, "x", id));
 
   // Outer pattern comprehension: [(n)-[]->(m) | <inner_pc>]
   auto *outer_pc = PATTERN_COMPREHENSION(
       nullptr, PATTERN(NODE("n"), EDGE("anon_outer_edge", EdgeAtom::Direction::OUT), NODE("m")), nullptr, inner_pc);
 
   // Query: MATCH (n) WHERE n.id = 1 RETURN <outer_pc> AS result
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "n", id), LITERAL(1))),
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", id), LITERAL(1))),
                                    RETURN(NEXPR("result", outer_pc))));
 
   CheckPlansProduce(1, query, this->storage, &dba, [&](const auto &results) {
@@ -564,8 +575,11 @@ TYPED_TEST(TestVariableStartPlanner, PatternComprehensionVLEAfterCreate) {
   std::get<0>(node_c->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(3);
 
   // Single pattern chain: (a)-[:R]->(b)-[:R]->(c)
-  auto *create_clause = CREATE(PATTERN(node_a, EDGE("r1", EdgeAtom::Direction::OUT, {"R"}), node_b,
-                                       EDGE("r2", EdgeAtom::Direction::OUT, {"R"}), node_c));
+  auto *create_clause = CREATE(PATTERN(node_a,
+                                       EDGE("r1", EdgeAtom::Direction::OUT, {"R"}),
+                                       node_b,
+                                       EDGE("r2", EdgeAtom::Direction::OUT, {"R"}),
+                                       node_c));
 
   // Build: WITH a
   auto *with_clause = WITH(NEXPR("a", IDENT("a")));

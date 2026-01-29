@@ -32,11 +32,16 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 
 namespace {
 const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
-    memgraph::query::TriggerEventType::ANY,           memgraph::query::TriggerEventType::VERTEX_CREATE,
-    memgraph::query::TriggerEventType::EDGE_CREATE,   memgraph::query::TriggerEventType::CREATE,
-    memgraph::query::TriggerEventType::VERTEX_DELETE, memgraph::query::TriggerEventType::EDGE_DELETE,
-    memgraph::query::TriggerEventType::DELETE,        memgraph::query::TriggerEventType::VERTEX_UPDATE,
-    memgraph::query::TriggerEventType::EDGE_UPDATE,   memgraph::query::TriggerEventType::UPDATE,
+    memgraph::query::TriggerEventType::ANY,
+    memgraph::query::TriggerEventType::VERTEX_CREATE,
+    memgraph::query::TriggerEventType::EDGE_CREATE,
+    memgraph::query::TriggerEventType::CREATE,
+    memgraph::query::TriggerEventType::VERTEX_DELETE,
+    memgraph::query::TriggerEventType::EDGE_DELETE,
+    memgraph::query::TriggerEventType::DELETE,
+    memgraph::query::TriggerEventType::VERTEX_UPDATE,
+    memgraph::query::TriggerEventType::EDGE_UPDATE,
+    memgraph::query::TriggerEventType::UPDATE,
 };
 
 class MockAuthChecker : public memgraph::query::AuthChecker {
@@ -58,6 +63,7 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
 class MockQueryUser : public memgraph::query::QueryUserOrRole {
  public:
   MockQueryUser(std::optional<std::string> name) : memgraph::query::QueryUserOrRole(std::move(name), {}) {}
+
   MOCK_CONST_METHOD3(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                         std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy));
   MOCK_CONST_METHOD1(GetRolenames, std::vector<std::string>(std::optional<std::string> db_name));
@@ -190,8 +196,8 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     // Should have all the created objects
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
-                        vertex_count + edge_count, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS, vertex_count + edge_count, dba);
 
     // we delete one of the vertices and edges in the same transaction
     ASSERT_TRUE(dba.DetachRemoveVertex(&vertices[0]).has_value());
@@ -203,8 +209,8 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     // Should have one less created object for vertex and edge
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
-                        vertex_count + edge_count, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS, vertex_count + edge_count, dba);
 
     ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -216,8 +222,8 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     // Should have one less created object for vertex and edge
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
-                        vertex_count + edge_count, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS, vertex_count + edge_count, dba);
   }
 
   size_t deleted_vertex_count = 0;
@@ -229,11 +235,12 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     {
       auto vertices = dba.Vertices(memgraph::storage::View::OLD);
       for (auto vertex : vertices) {
-        trigger_context_collector.RegisterSetObjectProperty(vertex, dba.NameToProperty("PROPERTY1"),
+        trigger_context_collector.RegisterSetObjectProperty(vertex,
+                                                            dba.NameToProperty("PROPERTY1"),
                                                             memgraph::query::TypedValue("Value"),
                                                             memgraph::query::TypedValue("ValueNew"));
-        trigger_context_collector.RegisterRemovedObjectProperty(vertex, dba.NameToProperty("PROPERTY2"),
-                                                                memgraph::query::TypedValue("Value"));
+        trigger_context_collector.RegisterRemovedObjectProperty(
+            vertex, dba.NameToProperty("PROPERTY2"), memgraph::query::TypedValue("Value"));
         trigger_context_collector.RegisterSetVertexLabel(vertex, dba.NameToLabel("LABEL1"));
         trigger_context_collector.RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
 
@@ -241,11 +248,12 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
         ASSERT_TRUE(out_edges.has_value());
 
         for (auto edge : out_edges->edges) {
-          trigger_context_collector.RegisterSetObjectProperty(edge, dba.NameToProperty("PROPERTY1"),
+          trigger_context_collector.RegisterSetObjectProperty(edge,
+                                                              dba.NameToProperty("PROPERTY1"),
                                                               memgraph::query::TypedValue("Value"),
                                                               memgraph::query::TypedValue("ValueNew"));
-          trigger_context_collector.RegisterRemovedObjectProperty(edge, dba.NameToProperty("PROPERTY2"),
-                                                                  memgraph::query::TypedValue("Value"));
+          trigger_context_collector.RegisterRemovedObjectProperty(
+              edge, dba.NameToProperty("PROPERTY2"), memgraph::query::TypedValue("Value"));
         }
       }
     }
@@ -278,29 +286,33 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     trigger_context_collector = memgraph::query::TriggerContextCollector{kAllEventTypes};
 
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count,
-                        dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
     CheckLabelList(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
     CheckLabelList(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
 
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_OBJECTS,
-                        4 * vertex_count + 2 * edge_count, dba);
-
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertex_count,
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::UPDATED_OBJECTS,
+                        4 * vertex_count + 2 * edge_count,
                         dba);
+
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_OBJECTS,
-                        deleted_vertex_count + deleted_edge_count, dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::DELETED_OBJECTS,
+                        deleted_vertex_count + deleted_edge_count,
+                        dba);
   }
 
   // delete a single vertex with its edges, it should reduce number of typed values returned by the trigger context
@@ -325,29 +337,33 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     memgraph::query::DbAccessor dba{this->StartTransaction()};
     trigger_context.AdaptForAccessor(&dba);
 
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count,
-                        dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
     CheckLabelList(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
     CheckLabelList(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
 
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_OBJECTS,
-                        4 * vertex_count + 2 * edge_count, dba);
-
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertex_count,
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::UPDATED_OBJECTS,
+                        4 * vertex_count + 2 * edge_count,
                         dba);
+
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_OBJECTS,
-                        deleted_vertex_count + deleted_edge_count, dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::DELETED_OBJECTS,
+                        deleted_vertex_count + deleted_edge_count,
+                        dba);
   }
 }
 
@@ -362,11 +378,12 @@ TYPED_TEST(TriggerContextTest, ReturnCreateOnlyEvent) {
   auto create_vertex = [&] {
     auto vertex = dba.InsertVertex();
     trigger_context_collector.RegisterCreatedObject(vertex);
-    trigger_context_collector.RegisterSetObjectProperty(vertex, dba.NameToProperty("PROPERTY1"),
+    trigger_context_collector.RegisterSetObjectProperty(vertex,
+                                                        dba.NameToProperty("PROPERTY1"),
                                                         memgraph::query::TypedValue("Value"),
                                                         memgraph::query::TypedValue("ValueNew"));
-    trigger_context_collector.RegisterRemovedObjectProperty(vertex, dba.NameToProperty("PROPERTY2"),
-                                                            memgraph::query::TypedValue("Value"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        vertex, dba.NameToProperty("PROPERTY2"), memgraph::query::TypedValue("Value"));
     trigger_context_collector.RegisterSetVertexLabel(vertex, dba.NameToLabel("LABEL1"));
     trigger_context_collector.RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
     return vertex;
@@ -377,11 +394,12 @@ TYPED_TEST(TriggerContextTest, ReturnCreateOnlyEvent) {
   auto maybe_edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("EDGE"));
   ASSERT_TRUE(maybe_edge.has_value());
   trigger_context_collector.RegisterCreatedObject(*maybe_edge);
-  trigger_context_collector.RegisterSetObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY1"),
+  trigger_context_collector.RegisterSetObjectProperty(*maybe_edge,
+                                                      dba.NameToProperty("PROPERTY1"),
                                                       memgraph::query::TypedValue("Value"),
                                                       memgraph::query::TypedValue("ValueNew"));
-  trigger_context_collector.RegisterRemovedObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY2"),
-                                                          memgraph::query::TypedValue("Value"));
+  trigger_context_collector.RegisterRemovedObjectProperty(
+      *maybe_edge, dba.NameToProperty("PROPERTY2"), memgraph::query::TypedValue("Value"));
 
   dba.AdvanceCommand();
 
@@ -429,10 +447,12 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
   {
     SPDLOG_DEBUG("SET -> SET");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+    trigger_context_collector.RegisterSetObjectProperty(v,
+                                                        dba.NameToProperty("PROPERTY"),
                                                         memgraph::query::TypedValue("Value"),
                                                         memgraph::query::TypedValue("ValueNew"));
-    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+    trigger_context_collector.RegisterSetObjectProperty(v,
+                                                        dba.NameToProperty("PROPERTY"),
                                                         memgraph::query::TypedValue("ValueNew"),
                                                         memgraph::query::TypedValue("ValueNewer"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -443,22 +463,24 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
     ASSERT_EQ(updated_vertices_list.size(), 1);
     auto &update = updated_vertices_list[0];
     ASSERT_TRUE(update.IsMap());
-    EXPECT_PROP_EQ(update, memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
-                               {"event_type", memgraph::query::TypedValue{"set_vertex_property"}},
-                               {"vertex", memgraph::query::TypedValue{v}},
-                               {"key", memgraph::query::TypedValue{"PROPERTY"}},
-                               {"old", memgraph::query::TypedValue{"Value"}},
-                               {"new", memgraph::query::TypedValue{"ValueNewer"}}}});
+    EXPECT_PROP_EQ(update,
+                   memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+                       {"event_type", memgraph::query::TypedValue{"set_vertex_property"}},
+                       {"vertex", memgraph::query::TypedValue{v}},
+                       {"key", memgraph::query::TypedValue{"PROPERTY"}},
+                       {"old", memgraph::query::TypedValue{"Value"}},
+                       {"new", memgraph::query::TypedValue{"ValueNewer"}}}});
   }
 
   {
     SPDLOG_DEBUG("SET -> REMOVE");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+    trigger_context_collector.RegisterSetObjectProperty(v,
+                                                        dba.NameToProperty("PROPERTY"),
                                                         memgraph::query::TypedValue("Value"),
                                                         memgraph::query::TypedValue("ValueNew"));
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue("ValueNew"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue("ValueNew"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices =
         trigger_context.GetTypedValue(memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
@@ -467,18 +489,19 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
     ASSERT_EQ(updated_vertices_list.size(), 1);
     auto &update = updated_vertices_list[0];
     ASSERT_TRUE(update.IsMap());
-    EXPECT_PROP_EQ(update, memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
-                               {"event_type", memgraph::query::TypedValue{"removed_vertex_property"}},
-                               {"vertex", memgraph::query::TypedValue{v}},
-                               {"key", memgraph::query::TypedValue{"PROPERTY"}},
-                               {"old", memgraph::query::TypedValue{"Value"}}}});
+    EXPECT_PROP_EQ(update,
+                   memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+                       {"event_type", memgraph::query::TypedValue{"removed_vertex_property"}},
+                       {"vertex", memgraph::query::TypedValue{v}},
+                       {"key", memgraph::query::TypedValue{"PROPERTY"}},
+                       {"old", memgraph::query::TypedValue{"Value"}}}});
   }
 
   {
     SPDLOG_DEBUG("REMOVE -> SET");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue("Value"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue("Value"));
     trigger_context_collector.RegisterSetObjectProperty(
         v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue(), memgraph::query::TypedValue("ValueNew"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -489,21 +512,22 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
     ASSERT_EQ(updated_vertices_list.size(), 1);
     auto &update = updated_vertices_list[0];
     ASSERT_TRUE(update.IsMap());
-    EXPECT_PROP_EQ(update, memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
-                               {"event_type", memgraph::query::TypedValue{"set_vertex_property"}},
-                               {"vertex", memgraph::query::TypedValue{v}},
-                               {"key", memgraph::query::TypedValue{"PROPERTY"}},
-                               {"old", memgraph::query::TypedValue{"Value"}},
-                               {"new", memgraph::query::TypedValue{"ValueNew"}}}});
+    EXPECT_PROP_EQ(update,
+                   memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+                       {"event_type", memgraph::query::TypedValue{"set_vertex_property"}},
+                       {"vertex", memgraph::query::TypedValue{v}},
+                       {"key", memgraph::query::TypedValue{"PROPERTY"}},
+                       {"old", memgraph::query::TypedValue{"Value"}},
+                       {"new", memgraph::query::TypedValue{"ValueNew"}}}});
   }
 
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue("Value"));
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue());
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue("Value"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue());
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices =
         trigger_context.GetTypedValue(memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
@@ -512,20 +536,23 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
     ASSERT_EQ(updated_vertices_list.size(), 1);
     auto &update = updated_vertices_list[0];
     ASSERT_TRUE(update.IsMap());
-    EXPECT_PROP_EQ(update, memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
-                               {"event_type", memgraph::query::TypedValue{"removed_vertex_property"}},
-                               {"vertex", memgraph::query::TypedValue{v}},
-                               {"key", memgraph::query::TypedValue{"PROPERTY"}},
-                               {"old", memgraph::query::TypedValue{"Value"}}}});
+    EXPECT_PROP_EQ(update,
+                   memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+                       {"event_type", memgraph::query::TypedValue{"removed_vertex_property"}},
+                       {"vertex", memgraph::query::TypedValue{v}},
+                       {"key", memgraph::query::TypedValue{"PROPERTY"}},
+                       {"old", memgraph::query::TypedValue{"Value"}}}});
   }
 
   {
     SPDLOG_DEBUG("SET -> SET (no change on transaction level)");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+    trigger_context_collector.RegisterSetObjectProperty(v,
+                                                        dba.NameToProperty("PROPERTY"),
                                                         memgraph::query::TypedValue("Value"),
                                                         memgraph::query::TypedValue("ValueNew"));
-    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+    trigger_context_collector.RegisterSetObjectProperty(v,
+                                                        dba.NameToProperty("PROPERTY"),
                                                         memgraph::query::TypedValue("ValueNew"),
                                                         memgraph::query::TypedValue("Value"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -541,8 +568,8 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(
         v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue(), memgraph::query::TypedValue("ValueNew"));
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue("ValueNew"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue("ValueNew"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices =
         trigger_context.GetTypedValue(memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
@@ -554,8 +581,8 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
   {
     SPDLOG_DEBUG("REMOVE -> SET (no change on transaction level)");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue("Value"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue("Value"));
     trigger_context_collector.RegisterSetObjectProperty(
         v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue(), memgraph::query::TypedValue("Value"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -569,10 +596,10 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE (no change on transaction level)");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue());
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue());
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue());
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue());
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices =
         trigger_context.GetTypedValue(memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
@@ -584,15 +611,16 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
   {
     SPDLOG_DEBUG("SET -> REMOVE -> SET -> REMOVE -> SET");
     memgraph::query::TriggerContextCollector trigger_context_collector{event_types};
-    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+    trigger_context_collector.RegisterSetObjectProperty(v,
+                                                        dba.NameToProperty("PROPERTY"),
                                                         memgraph::query::TypedValue("Value0"),
                                                         memgraph::query::TypedValue("Value1"));
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue("Value1"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue("Value1"));
     trigger_context_collector.RegisterSetObjectProperty(
         v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue(), memgraph::query::TypedValue("Value2"));
-    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
-                                                            memgraph::query::TypedValue("Value2"));
+    trigger_context_collector.RegisterRemovedObjectProperty(
+        v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue("Value2"));
     trigger_context_collector.RegisterSetObjectProperty(
         v, dba.NameToProperty("PROPERTY"), memgraph::query::TypedValue(), memgraph::query::TypedValue("Value3"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -603,12 +631,13 @@ TYPED_TEST(TriggerContextTest, GlobalPropertyChange) {
     ASSERT_EQ(updated_vertices_list.size(), 1);
     auto &update = updated_vertices_list[0];
     ASSERT_TRUE(update.IsMap());
-    EXPECT_PROP_EQ(update, memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
-                               {"event_type", memgraph::query::TypedValue{"set_vertex_property"}},
-                               {"vertex", memgraph::query::TypedValue{v}},
-                               {"key", memgraph::query::TypedValue{"PROPERTY"}},
-                               {"old", memgraph::query::TypedValue{"Value0"}},
-                               {"new", memgraph::query::TypedValue{"Value3"}}}});
+    EXPECT_PROP_EQ(update,
+                   memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+                       {"event_type", memgraph::query::TypedValue{"set_vertex_property"}},
+                       {"vertex", memgraph::query::TypedValue{v}},
+                       {"key", memgraph::query::TypedValue{"PROPERTY"}},
+                       {"old", memgraph::query::TypedValue{"Value0"}},
+                       {"new", memgraph::query::TypedValue{"Value3"}}}});
   }
 }
 
@@ -666,10 +695,11 @@ TYPED_TEST(TriggerContextTest, GlobalLabelChange) {
     ASSERT_EQ(updated_vertices_list.size(), 1);
     auto &update = updated_vertices_list[0];
     ASSERT_TRUE(update.IsMap());
-    EXPECT_PROP_EQ(update, memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
-                               {"event_type", memgraph::query::TypedValue{"set_vertex_label"}},
-                               {"vertex", memgraph::query::TypedValue{v}},
-                               {"label", memgraph::query::TypedValue{"LABEL"}}}});
+    EXPECT_PROP_EQ(update,
+                   memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+                       {"event_type", memgraph::query::TypedValue{"set_vertex_label"}},
+                       {"vertex", memgraph::query::TypedValue{v}},
+                       {"label", memgraph::query::TypedValue{"LABEL"}}}});
   }
 
   {
@@ -688,10 +718,11 @@ TYPED_TEST(TriggerContextTest, GlobalLabelChange) {
     ASSERT_EQ(updated_vertices_list.size(), 1);
     auto &update = updated_vertices_list[0];
     ASSERT_TRUE(update.IsMap());
-    EXPECT_PROP_EQ(update, memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
-                               {"event_type", memgraph::query::TypedValue{"removed_vertex_label"}},
-                               {"vertex", memgraph::query::TypedValue{v}},
-                               {"label", memgraph::query::TypedValue{"LABEL"}}}});
+    EXPECT_PROP_EQ(update,
+                   memgraph::query::TypedValue{std::map<std::string, memgraph::query::TypedValue>{
+                       {"event_type", memgraph::query::TypedValue{"removed_vertex_label"}},
+                       {"vertex", memgraph::query::TypedValue{v}},
+                       {"label", memgraph::query::TypedValue{"LABEL"}}}});
   }
 }
 
@@ -747,12 +778,12 @@ void CheckFilters(const std::unordered_set<memgraph::query::TriggerEventType> &e
   collector.RegisterCreatedObject(created_edge);
   collector.RegisterDeletedObject(dba.RemoveEdge(&edge_to_delete).value().value());
   collector.RegisterDeletedObject(dba.RemoveVertex(&vertex_to_delete).value().value());
-  collector.RegisterSetObjectProperty(vertex_to_modify, dba.NameToProperty("UPDATE"), memgraph::query::TypedValue{1},
-                                      memgraph::query::TypedValue{2});
-  collector.RegisterRemovedObjectProperty(vertex_to_modify, dba.NameToProperty("REMOVE"),
-                                          memgraph::query::TypedValue{1});
-  collector.RegisterSetObjectProperty(edge_to_modify, dba.NameToProperty("UPDATE"), memgraph::query::TypedValue{1},
-                                      memgraph::query::TypedValue{2});
+  collector.RegisterSetObjectProperty(
+      vertex_to_modify, dba.NameToProperty("UPDATE"), memgraph::query::TypedValue{1}, memgraph::query::TypedValue{2});
+  collector.RegisterRemovedObjectProperty(
+      vertex_to_modify, dba.NameToProperty("REMOVE"), memgraph::query::TypedValue{1});
+  collector.RegisterSetObjectProperty(
+      edge_to_modify, dba.NameToProperty("UPDATE"), memgraph::query::TypedValue{1}, memgraph::query::TypedValue{2});
   collector.RegisterRemovedObjectProperty(edge_to_modify, dba.NameToProperty("REMOVE"), memgraph::query::TypedValue{1});
   collector.RegisterSetVertexLabel(vertex_to_modify, dba.NameToLabel("SET"));
   collector.RegisterRemovedVertexLabel(vertex_to_modify, dba.NameToLabel("REMOVE"));
@@ -762,8 +793,8 @@ void CheckFilters(const std::unordered_set<memgraph::query::TriggerEventType> &e
   const auto created_vertices = BoolToSize(vertex_expectation.creation);
   {
     SCOPED_TRACE("CREATED_VERTICES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_VERTICES, created_vertices,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_VERTICES, created_vertices, dba);
   }
   const auto created_edges = BoolToSize(edge_expectation.creation);
   {
@@ -772,14 +803,14 @@ void CheckFilters(const std::unordered_set<memgraph::query::TriggerEventType> &e
   }
   {
     SCOPED_TRACE("CREATED_OBJECTS");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
-                        created_vertices + created_edges, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS, created_vertices + created_edges, dba);
   }
   const auto deleted_vertices = BoolToSize(vertex_expectation.deletion);
   {
     SCOPED_TRACE("DELETED_VERTICES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertices,
-                        dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertices, dba);
   }
   const auto deleted_edges = BoolToSize(edge_expectation.deletion);
   {
@@ -788,56 +819,72 @@ void CheckFilters(const std::unordered_set<memgraph::query::TriggerEventType> &e
   }
   {
     SCOPED_TRACE("DELETED_OBJECTS");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_OBJECTS,
-                        deleted_vertices + deleted_edges, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::DELETED_OBJECTS, deleted_vertices + deleted_edges, dba);
   }
   {
     SCOPED_TRACE("SET_VERTEX_PROPERTIES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES,
-                        BoolToSize(vertex_expectation.update), dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES,
+                        BoolToSize(vertex_expectation.update),
+                        dba);
   }
   {
     SCOPED_TRACE("SET_EDGE_PROPERTIES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_EDGE_PROPERTIES,
-                        BoolToSize(edge_expectation.update), dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::SET_EDGE_PROPERTIES,
+                        BoolToSize(edge_expectation.update),
+                        dba);
   }
   {
     SCOPED_TRACE("REMOVED_VERTEX_PROPERTIES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES,
-                        BoolToSize(vertex_expectation.update), dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                        BoolToSize(vertex_expectation.update),
+                        dba);
   }
   {
     SCOPED_TRACE("REMOVED_EDGE_PROPERTIES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES,
-                        BoolToSize(edge_expectation.update), dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES,
+                        BoolToSize(edge_expectation.update),
+                        dba);
   }
   const auto set_and_removed_vertex_props_and_labels = BoolToSize(vertex_expectation.update) * 4;
   {
     SCOPED_TRACE("UPDATED_VERTICES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES,
-                        set_and_removed_vertex_props_and_labels, dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::UPDATED_VERTICES,
+                        set_and_removed_vertex_props_and_labels,
+                        dba);
   }
   const auto set_and_removed_edge_props = BoolToSize(edge_expectation.update) * 2;
   {
     SCOPED_TRACE("UPDATED_EDGES");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_EDGES,
-                        set_and_removed_edge_props, dba);
+    CheckTypedValueSize(
+        trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_EDGES, set_and_removed_edge_props, dba);
   }
   // sum of the previous
   {
     SCOPED_TRACE("UPDATED_OBJECTS");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::UPDATED_OBJECTS,
-                        set_and_removed_vertex_props_and_labels + set_and_removed_edge_props, dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::UPDATED_OBJECTS,
+                        set_and_removed_vertex_props_and_labels + set_and_removed_edge_props,
+                        dba);
   }
   {
     SCOPED_TRACE("SET_VERTEX_LABELS");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_LABELS,
-                        BoolToSize(vertex_expectation.update), dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::SET_VERTEX_LABELS,
+                        BoolToSize(vertex_expectation.update),
+                        dba);
   }
   {
     SCOPED_TRACE("REMOVED_VERTEX_LABELS");
-    CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS,
-                        BoolToSize(vertex_expectation.update), dba);
+    CheckTypedValueSize(trigger_context,
+                        memgraph::query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS,
+                        BoolToSize(vertex_expectation.update),
+                        dba);
   }
 
   dba.Abort();
@@ -849,79 +896,109 @@ TYPED_TEST(TriggerContextTest, Filtering) {
   // Check all event type individually
   {
     SCOPED_TRACE("TET::ANY");
-    CheckFilters({TET::ANY}, ShouldRegisterExpectation{true, true, true}, ShouldRegisterExpectation{true, true, true},
+    CheckFilters({TET::ANY},
+                 ShouldRegisterExpectation{true, true, true},
+                 ShouldRegisterExpectation{true, true, true},
                  this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_CREATE");
-    CheckFilters({TET::VERTEX_CREATE}, ShouldRegisterExpectation{true, false, false},
-                 ShouldRegisterExpectation{false, false, false}, this->StartTransaction());
+    CheckFilters({TET::VERTEX_CREATE},
+                 ShouldRegisterExpectation{true, false, false},
+                 ShouldRegisterExpectation{false, false, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_CREATE");
-    CheckFilters({TET::EDGE_CREATE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, false, false}, this->StartTransaction());
+    CheckFilters({TET::EDGE_CREATE},
+                 ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::CREATE");
-    CheckFilters({TET::CREATE}, ShouldRegisterExpectation{true, false, false},
-                 ShouldRegisterExpectation{true, false, false}, this->StartTransaction());
+    CheckFilters({TET::CREATE},
+                 ShouldRegisterExpectation{true, false, false},
+                 ShouldRegisterExpectation{true, false, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_DELETE");
-    CheckFilters({TET::VERTEX_DELETE}, ShouldRegisterExpectation{true, true, false},
-                 ShouldRegisterExpectation{false, false, false}, this->StartTransaction());
+    CheckFilters({TET::VERTEX_DELETE},
+                 ShouldRegisterExpectation{true, true, false},
+                 ShouldRegisterExpectation{false, false, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_DELETE");
-    CheckFilters({TET::EDGE_DELETE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, true, false}, this->StartTransaction());
+    CheckFilters({TET::EDGE_DELETE},
+                 ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, true, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::DELETE");
-    CheckFilters({TET::DELETE}, ShouldRegisterExpectation{true, true, false},
-                 ShouldRegisterExpectation{true, true, false}, this->StartTransaction());
+    CheckFilters({TET::DELETE},
+                 ShouldRegisterExpectation{true, true, false},
+                 ShouldRegisterExpectation{true, true, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_UPDATE");
-    CheckFilters({TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{false, false, false}, this->StartTransaction());
+    CheckFilters({TET::VERTEX_UPDATE},
+                 ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{false, false, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_UPDATE");
-    CheckFilters({TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, false, true}, this->StartTransaction());
+    CheckFilters({TET::EDGE_UPDATE},
+                 ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, true},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::UPDATE");
-    CheckFilters({TET::UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{true, false, true}, this->StartTransaction());
+    CheckFilters({TET::UPDATE},
+                 ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{true, false, true},
+                 this->StartTransaction());
   }
   // Some combined versions
   {
     SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE");
-    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{true, false, true}, this->StartTransaction());
+    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE},
+                 ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{true, false, true},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE");
-    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE}, ShouldRegisterExpectation{true, true, true},
-                 ShouldRegisterExpectation{true, true, true}, this->StartTransaction());
+    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE},
+                 ShouldRegisterExpectation{true, true, true},
+                 ShouldRegisterExpectation{true, true, true},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE");
-    CheckFilters({TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE}, ShouldRegisterExpectation{true, true, true},
-                 ShouldRegisterExpectation{true, true, true}, this->StartTransaction());
+    CheckFilters({TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE},
+                 ShouldRegisterExpectation{true, true, true},
+                 ShouldRegisterExpectation{true, true, true},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_CREATE, TET::VERTEX_UPDATE");
-    CheckFilters({TET::VERTEX_CREATE, TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{false, false, false}, this->StartTransaction());
+    CheckFilters({TET::VERTEX_CREATE, TET::VERTEX_UPDATE},
+                 ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{false, false, false},
+                 this->StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_CREATE, TET::EDGE_UPDATE");
-    CheckFilters({TET::EDGE_CREATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, false, true}, this->StartTransaction());
+    CheckFilters({TET::EDGE_CREATE, TET::EDGE_UPDATE},
+                 ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, true},
+                 this->StartTransaction());
   }
 }
 
@@ -974,8 +1051,8 @@ TYPED_TEST(TriggerStoreTest, Restore) {
 
   const auto reset_store = [&] {
     store.emplace(this->testing_directory);
-    store->RestoreTriggers(&this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{},
-                           &this->auth_checker, "memgraph");
+    store->RestoreTriggers(
+        &this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{}, &this->auth_checker, "memgraph");
   };
 
   reset_store();
@@ -994,17 +1071,29 @@ TYPED_TEST(TriggerStoreTest, Restore) {
   const auto event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
   const std::string owner{"owner"};
   store->AddTrigger(
-      trigger_name_before, trigger_statement,
+      trigger_name_before,
+      trigger_statement,
       memgraph::storage::ExternalPropertyValue::map_t{{"parameter", memgraph::storage::ExternalPropertyValue{1}}},
-      event_type, memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-      memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-      memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+      event_type,
+      memgraph::query::TriggerPhase::BEFORE_COMMIT,
+      &this->ast_cache,
+      &*this->dba,
+      memgraph::query::InterpreterConfig::Query{},
+      this->auth_checker.GenQueryUser(std::nullopt, {}),
+      memgraph::dbms::kDefaultDB,
+      memgraph::query::TriggerPrivilegeContext::DEFINER);
   store->AddTrigger(
-      trigger_name_after, trigger_statement,
+      trigger_name_after,
+      trigger_statement,
       memgraph::storage::ExternalPropertyValue::map_t{{"parameter", memgraph::storage::ExternalPropertyValue{"value"}}},
-      event_type, memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-      memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(owner, {}),
-      memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+      event_type,
+      memgraph::query::TriggerPhase::AFTER_COMMIT,
+      &this->ast_cache,
+      &*this->dba,
+      memgraph::query::InterpreterConfig::Query{},
+      this->auth_checker.GenQueryUser(owner, {}),
+      memgraph::dbms::kDefaultDB,
+      memgraph::query::TriggerPrivilegeContext::DEFINER);
 
   const auto check_triggers = [&] {
     ASSERT_EQ(store->GetTriggerInfo().size(), 2);
@@ -1053,46 +1142,82 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   memgraph::query::TriggerStore store{this->testing_directory};
 
   // Invalid query in statements
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETUR 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                       memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER),
-      memgraph::utils::BasicException);
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN createdEdges", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                       memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER),
-      memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger",
+                                "RETUR 1",
+                                {},
+                                memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                &this->ast_cache,
+                                &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                memgraph::dbms::kDefaultDB,
+                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+               memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger",
+                                "RETURN createdEdges",
+                                {},
+                                memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                &this->ast_cache,
+                                &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                memgraph::dbms::kDefaultDB,
+                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+               memgraph::utils::BasicException);
 
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN $parameter", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                       memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER),
-      memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger",
+                                "RETURN $parameter",
+                                {},
+                                memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                &this->ast_cache,
+                                &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                memgraph::dbms::kDefaultDB,
+                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+               memgraph::utils::BasicException);
 
   ASSERT_NO_THROW(store.AddTrigger(
-      "trigger", "RETURN $parameter",
+      "trigger",
+      "RETURN $parameter",
       memgraph::storage::ExternalPropertyValue::map_t{{"parameter", memgraph::storage::ExternalPropertyValue{1}}},
-      memgraph::query::TriggerEventType::VERTEX_CREATE, memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache,
-      &*this->dba, memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-      memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER));
+      memgraph::query::TriggerEventType::VERTEX_CREATE,
+      memgraph::query::TriggerPhase::BEFORE_COMMIT,
+      &this->ast_cache,
+      &*this->dba,
+      memgraph::query::InterpreterConfig::Query{},
+      this->auth_checker.GenQueryUser(std::nullopt, {}),
+      memgraph::dbms::kDefaultDB,
+      memgraph::query::TriggerPrivilegeContext::DEFINER));
 
   // Inserting with the same name
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                       memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER),
-      memgraph::utils::BasicException);
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                       memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER),
-      memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger",
+                                "RETURN 1",
+                                {},
+                                memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                &this->ast_cache,
+                                &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                memgraph::dbms::kDefaultDB,
+                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+               memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger",
+                                "RETURN 1",
+                                {},
+                                memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::AFTER_COMMIT,
+                                &this->ast_cache,
+                                &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                memgraph::dbms::kDefaultDB,
+                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+               memgraph::utils::BasicException);
 
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
   ASSERT_EQ(store.BeforeCommitTriggers().size(), 1);
@@ -1105,10 +1230,17 @@ TYPED_TEST(TriggerStoreTest, DropTrigger) {
   ASSERT_THROW(store.DropTrigger("Unknown"), memgraph::utils::BasicException);
 
   const auto *trigger_name = "trigger";
-  store.AddTrigger(trigger_name, "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                   memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                   memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                   memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+  store.AddTrigger(trigger_name,
+                   "RETURN 1",
+                   {},
+                   memgraph::query::TriggerEventType::VERTEX_CREATE,
+                   memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                   &this->ast_cache,
+                   &*this->dba,
+                   memgraph::query::InterpreterConfig::Query{},
+                   this->auth_checker.GenQueryUser(std::nullopt, {}),
+                   memgraph::dbms::kDefaultDB,
+                   memgraph::query::TriggerPrivilegeContext::DEFINER);
 
   ASSERT_THROW(store.DropTrigger("Unknown"), memgraph::utils::BasicException);
   ASSERT_NO_THROW(store.DropTrigger(trigger_name));
@@ -1119,10 +1251,17 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
   memgraph::query::TriggerStore store{this->testing_directory};
 
   std::vector<memgraph::query::TriggerStore::TriggerInfo> expected_info;
-  store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                   memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                   memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                   memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+  store.AddTrigger("trigger",
+                   "RETURN 1",
+                   {},
+                   memgraph::query::TriggerEventType::VERTEX_CREATE,
+                   memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                   &this->ast_cache,
+                   &*this->dba,
+                   memgraph::query::InterpreterConfig::Query{},
+                   this->auth_checker.GenQueryUser(std::nullopt, {}),
+                   memgraph::dbms::kDefaultDB,
+                   memgraph::query::TriggerPrivilegeContext::DEFINER);
   expected_info.push_back({"trigger",
                            "RETURN 1",
                            memgraph::query::TriggerEventType::VERTEX_CREATE,
@@ -1143,10 +1282,17 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
 
   check_trigger_info();
 
-  store.AddTrigger("edge_update_trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::EDGE_UPDATE,
-                   memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-                   memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, {}),
-                   memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER);
+  store.AddTrigger("edge_update_trigger",
+                   "RETURN 1",
+                   {},
+                   memgraph::query::TriggerEventType::EDGE_UPDATE,
+                   memgraph::query::TriggerPhase::AFTER_COMMIT,
+                   &this->ast_cache,
+                   &*this->dba,
+                   memgraph::query::InterpreterConfig::Query{},
+                   this->auth_checker.GenQueryUser(std::nullopt, {}),
+                   memgraph::dbms::kDefaultDB,
+                   memgraph::query::TriggerPrivilegeContext::DEFINER);
   expected_info.push_back({"edge_update_trigger",
                            "RETURN 1",
                            memgraph::query::TriggerEventType::EDGE_UPDATE,
@@ -1261,10 +1407,16 @@ TYPED_TEST(TriggerStoreTest, AnyTriggerAllKeywords) {
     SCOPED_TRACE(memgraph::query::TriggerEventTypeToString(event_type));
     for (const auto keyword : keywords) {
       SCOPED_TRACE(keyword);
-      EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
-                                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
+      EXPECT_NO_THROW(store.AddTrigger(trigger_name,
+                                       fmt::format("RETURN {}", keyword),
+                                       {},
+                                       event_type,
+                                       memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                                       &this->ast_cache,
+                                       &*this->dba,
                                        memgraph::query::InterpreterConfig::Query{},
-                                       this->auth_checker.GenQueryUser(std::nullopt, {}), memgraph::dbms::kDefaultDB,
+                                       this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                       memgraph::dbms::kDefaultDB,
                                        memgraph::query::TriggerPrivilegeContext::DEFINER));
       store.DropTrigger(trigger_name);
     }
@@ -1291,34 +1443,57 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   ::testing::InSequence s;
 
   // TODO Userless
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
-                                      &memgraph::query::up_to_date_policy))
-      .WillOnce(Return(true));
-  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", {},
-                                    memgraph::query::TriggerEventType::EDGE_UPDATE,
-                                    memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-                                    memgraph::query::InterpreterConfig::Query{}, mock_user_ptr,
-                                    memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER));
-
-  EXPECT_CALL(mock_userless,
-              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
+  EXPECT_CALL(mock_user,
+              IsAuthorized(ElementsAre(Privilege::CREATE),
+                           std::make_optional(memgraph::dbms::kDefaultDB),
                            &memgraph::query::up_to_date_policy))
       .WillOnce(Return(true));
-  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2", "CREATE (n:VERTEX) RETURN n", {},
+  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1",
+                                    "CREATE (n:VERTEX) RETURN n",
+                                    {},
                                     memgraph::query::TriggerEventType::EDGE_UPDATE,
-                                    memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-                                    memgraph::query::InterpreterConfig::Query{}, mock_userless_ptr,
-                                    memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER));
+                                    memgraph::query::TriggerPhase::AFTER_COMMIT,
+                                    &this->ast_cache,
+                                    &*this->dba,
+                                    memgraph::query::InterpreterConfig::Query{},
+                                    mock_user_ptr,
+                                    memgraph::dbms::kDefaultDB,
+                                    memgraph::query::TriggerPrivilegeContext::DEFINER));
 
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::MATCH), std::make_optional(memgraph::dbms::kDefaultDB),
-                                      &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_userless,
+              IsAuthorized(ElementsAre(Privilege::CREATE),
+                           std::make_optional(memgraph::dbms::kDefaultDB),
+                           &memgraph::query::up_to_date_policy))
+      .WillOnce(Return(true));
+  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2",
+                                    "CREATE (n:VERTEX) RETURN n",
+                                    {},
+                                    memgraph::query::TriggerEventType::EDGE_UPDATE,
+                                    memgraph::query::TriggerPhase::AFTER_COMMIT,
+                                    &this->ast_cache,
+                                    &*this->dba,
+                                    memgraph::query::InterpreterConfig::Query{},
+                                    mock_userless_ptr,
+                                    memgraph::dbms::kDefaultDB,
+                                    memgraph::query::TriggerPrivilegeContext::DEFINER));
+
+  EXPECT_CALL(mock_user,
+              IsAuthorized(ElementsAre(Privilege::MATCH),
+                           std::make_optional(memgraph::dbms::kDefaultDB),
+                           &memgraph::query::up_to_date_policy))
       .WillOnce(Return(false));
-  ASSERT_THROW(
-      store->AddTrigger("unprivileged_trigger", "MATCH (n:VERTEX) RETURN n", {},
-                        memgraph::query::TriggerEventType::EDGE_UPDATE, memgraph::query::TriggerPhase::AFTER_COMMIT,
-                        &this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{}, mock_user_ptr,
-                        memgraph::dbms::kDefaultDB, memgraph::query::TriggerPrivilegeContext::DEFINER),
-      memgraph::utils::BasicException);
+  ASSERT_THROW(store->AddTrigger("unprivileged_trigger",
+                                 "MATCH (n:VERTEX) RETURN n",
+                                 {},
+                                 memgraph::query::TriggerEventType::EDGE_UPDATE,
+                                 memgraph::query::TriggerPhase::AFTER_COMMIT,
+                                 &this->ast_cache,
+                                 &*this->dba,
+                                 memgraph::query::InterpreterConfig::Query{},
+                                 mock_user_ptr,
+                                 memgraph::dbms::kDefaultDB,
+                                 memgraph::query::TriggerPrivilegeContext::DEFINER),
+               memgraph::utils::BasicException);
 
   // Restore
   store.emplace(this->testing_directory);
@@ -1326,17 +1501,23 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   std::optional<std::string> nopt{};
   std::vector<std::string> novec{};
   EXPECT_CALL(mock_checker, GenQueryUser(owner, novec)).WillOnce(Return(mock_user_ptr));
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
-                                      &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user,
+              IsAuthorized(ElementsAre(Privilege::CREATE),
+                           std::make_optional(memgraph::dbms::kDefaultDB),
+                           &memgraph::query::up_to_date_policy))
       .WillOnce(Return(true));
   EXPECT_CALL(mock_checker, GenQueryUser(nopt, novec)).WillOnce(Return(mock_userless_ptr));
   EXPECT_CALL(mock_userless,
-              IsAuthorized(ElementsAre(Privilege::CREATE), std::make_optional(memgraph::dbms::kDefaultDB),
+              IsAuthorized(ElementsAre(Privilege::CREATE),
+                           std::make_optional(memgraph::dbms::kDefaultDB),
                            &memgraph::query::up_to_date_policy))
       .WillOnce(Return(false));
 
-  ASSERT_NO_THROW(store->RestoreTriggers(&this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{},
-                                         &mock_checker, memgraph::dbms::kDefaultDB));
+  ASSERT_NO_THROW(store->RestoreTriggers(&this->ast_cache,
+                                         &*this->dba,
+                                         memgraph::query::InterpreterConfig::Query{},
+                                         &mock_checker,
+                                         memgraph::dbms::kDefaultDB));
 
   const auto triggers = store->GetTriggerInfo();
   ASSERT_EQ(triggers.size(), 1);
