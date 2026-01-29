@@ -1,12 +1,12 @@
 Types: deb
-URIs: https://mirror.hetzner.com/ubuntu/packages
+URIs: http://mirror.hetzner.com/ubuntu/packages
 Suites: noble noble-updates noble-backports
 Components: main universe restricted multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 ## Ubuntu security updates
 Types: deb
-URIs: https://mirror.hetzner.com/ubuntu/security
+URIs: http://mirror.hetzner.com/ubuntu/security
 Suites: noble-security
 Components: main universe restricted multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
