@@ -87,7 +87,7 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
     spdlog::error("Error when saving REPLICA replication role in settings.");
     return false;
   }
-  role_persisted.store(RolePersisted::YES, std::memory_order_release);
+  role_persisted_.store(RolePersisted::YES, std::memory_order_release);
 
   // Cleanup remove registered replicas (assume successful delete)
   // NOTE: we could do the alternative which would be on REPLICA -> MAIN we recover these registered replicas
@@ -106,7 +106,7 @@ bool ReplicationState::TryPersistRoleMain(utils::UUID main_uuid) {
   auto data = durability::ReplicationRoleEntry{.role = durability::MainRole{.main_uuid = main_uuid}};
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
-    role_persisted.store(RolePersisted::YES, std::memory_order_release);
+    role_persisted_.store(RolePersisted::YES, std::memory_order_release);
     return true;
   }
   spdlog::error("Error when saving MAIN replication role in settings.");
@@ -142,7 +142,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     }
 
     // To get here this must be the case
-    role_persisted.store(RolePersisted::YES, std::memory_order_release);
+    role_persisted_.store(RolePersisted::YES, std::memory_order_release);
 
     return std::visit(
         utils::Overloaded{
@@ -262,7 +262,7 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   if (!HasDurability()) return true;
 
   // If any replicas are persisted then Role must be persisted
-  if (role_persisted.load(std::memory_order_acquire) != RolePersisted::YES) {
+  if (role_persisted_.load(std::memory_order_acquire) != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
     if (!TryPersistRoleMain(main_uuid)) return false;
   }
@@ -383,6 +383,17 @@ std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {
   };
 
   return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+}
+
+void ReplicationState::Shutdown() {
+  auto const replica_handler = [](RoleReplicaData &replica) { replica.server->Shutdown(); };
+  auto const main_handler = [](RoleMainData &main) {
+    for (auto &repl_client : main.registered_replicas_) {
+      repl_client.Shutdown();
+    }
+  };
+
+  std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
 }
 
 }  // namespace memgraph::replication

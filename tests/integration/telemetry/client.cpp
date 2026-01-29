@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,27 +51,34 @@ int main(int argc, char **argv) {
       ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
-                                           auth_, false
+                                           auth_,
+                                           false
 #endif
   );
-  memgraph::query::InterpreterContext interpreter_context_({}, nullptr, &dbms_handler, repl_state, system_state
+  memgraph::query::InterpreterContext interpreter_context_({},
+                                                           nullptr,
+                                                           &dbms_handler,
+                                                           repl_state,
+                                                           system_state
 #ifdef MG_ENTERPRISE
                                                            ,
-                                                           std::nullopt, nullptr
+                                                           std::nullopt,
+                                                           nullptr
 #endif
                                                            ,
-                                                           &auth_handler, &auth_checker);
+                                                           &auth_handler,
+                                                           &auth_checker);
 
 #ifdef MG_ENTERPRISE
   std::shared_ptr<CoordinatorState> coord_state;
   coord_state = std::make_shared<CoordinatorState>(
       CoordinatorInstanceInitConfig{.coordinator_id = 1,
-                                    .coordinator_port = 20000,
+                                    .coordinator_port = 20'000,
                                     .bolt_port = 7689,
-                                    .management_port = 10000,
+                                    .management_port = 10'000,
                                     .durability_dir = "coord_state_dir",
                                     .coordinator_hostname = "localhost",
                                     .nuraft_log_file = "test.log",
@@ -80,9 +87,14 @@ int main(int argc, char **argv) {
 #endif
 
   memgraph::requests::Init();
-  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
-                                           memgraph::utils::GetMachineId(), false, FLAGS_root_directory,
-                                           std::chrono::seconds(FLAGS_interval), 1);
+  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint,
+                                           FLAGS_storage_directory,
+                                           memgraph::utils::GenerateUUID(),
+                                           memgraph::utils::GetMachineId(),
+                                           false,
+                                           FLAGS_root_directory,
+                                           std::chrono::seconds(FLAGS_interval),
+                                           1);
 
   // User defined collector
   uint64_t counter = 0;

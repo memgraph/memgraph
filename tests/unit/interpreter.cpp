@@ -83,7 +83,7 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -1170,7 +1170,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
 
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state2{
         memgraph::storage::ReplicationStateRootPath(config2)};
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2, repl_state2);
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2);
     auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
     auto &db_acc = *db_acc_opt;

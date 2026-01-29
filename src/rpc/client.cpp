@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@ Client::Client(io::network::Endpoint endpoint, communication::ClientContext *con
                std::unordered_map<std::string_view, int> const &rpc_timeouts_ms)
     : endpoint_(std::move(endpoint)), context_(context), rpc_timeouts_ms_(rpc_timeouts_ms) {}
 
-void Client::Abort() {
+void Client::Shutdown() {
   if (!client_) return;
   // We need to call Shutdown on the client to abort any pending read or
   // write operations.
