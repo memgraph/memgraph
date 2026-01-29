@@ -61,9 +61,7 @@ ln -s /usr/bin/$(ls /usr/bin | grep perf) /usr/bin/perf
 
 # In CI, we clean up the apt cache to save space in the Docker container.
 if [[ "$CI" == true ]]; then
-    rm -rf /var/lib/apt/lists/* /var/tmp/*
-    # Clean /tmp but exclude mounted secret files
-    find /tmp -mindepth 1 -maxdepth 1 ! -name ubuntu.sources -exec rm -rf {} +
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 fi
 
 if [[ "${TARGET_ARCH}" == "arm64" ]]; then

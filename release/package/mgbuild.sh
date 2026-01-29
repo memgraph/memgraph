@@ -799,6 +799,7 @@ package_docker() {
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local generate_sbom=false
   local malloc=false
+  local custom_mirror=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -817,6 +818,14 @@ package_docker() {
         malloc=$2
         shift 2
       ;;
+      --custom-mirror)
+        if [[ "$2" == "true" ]]; then
+          custom_mirror=true
+        else
+          custom_mirror=false
+        fi
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -828,14 +837,7 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  if [[ "$os" == "ubuntu-24.04" && "$arch" == "amd" ]]; then
-    echo "Finding best mirror"
-    mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"
-  else
-    echo "Using default mirror"
-    mirror=""
-  fi
-  echo "Using mirror: $mirror"
+  echo "Using custom mirror: $custom_mirror"
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"

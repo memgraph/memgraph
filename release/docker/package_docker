@@ -17,7 +17,7 @@ toolchain_version="v7"
 package_path=""
 arch=""
 src_path=""
-custom_mirror=""
+custom_mirror=false
 generate_sbom=false
 malloc=false
 while [[ $# -gt 0 ]]; do
@@ -48,7 +48,11 @@ while [[ $# -gt 0 ]]; do
         exit 0
     ;;
     --custom-mirror)
-        custom_mirror=$2
+        if [[ "$2" == "true" ]]; then
+          custom_mirror=true
+        else
+          custom_mirror=false
+        fi
         shift 2
     ;;
     --generate-sbom)

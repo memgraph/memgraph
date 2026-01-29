@@ -7,29 +7,24 @@ ARG TARGETARCH
 ARG SOURCE_CODE
 ARG CUSTOM_MIRROR
 
-COPY openssl/* /tmp/
-RUN apt-get update && apt-get install -y \
-  /tmp/openssl*.deb \
-  /tmp/libssl3t64*.deb \
-  --no-install-recommends && \
-  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# If CUSTOM_MIRROR is set, replace the default archive.ubuntu.com
-# and security.ubuntu.com URIs in your .sources file
-RUN if [ -n "$CUSTOM_MIRROR" ]; then \
-  sed -E -i \
-  -e '/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
-  -e '/^URIs:/ s#https?://security\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
-  /etc/apt/sources.list.d/ubuntu.sources; \
+COPY openssl/* /tmp/openssl/
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  apt-get update && apt-get install -y \
+    /tmp/openssl/openssl*.deb \
+    /tmp/openssl/libssl3t64*.deb \
+    --no-install-recommends && \
+  apt-get install -y \
+    libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
+    gdb procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg libxmlsec1 \
+    --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
-  libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
-  gdb procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg \
-  --no-install-recommends && \
-  apt install -y libxmlsec1 && \
-  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
 
 # NOTE: The following are required to run built-in Python modules. For the full
 # list, please visit query_modules/CMakeLists.txt.
@@ -52,14 +47,6 @@ RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && rm "${BINARY_NAME}${TARGETARCH}
 # truth requirements file is located under
 # src/auth/reference_modules/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /usr/lib/memgraph/auth_module/requirements.txt
-
-# revert to default mirror
-RUN if [ -n "$CUSTOM_MIRROR" ]; then \
-  sed -E -i \
-  -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
-  -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
-  /etc/apt/sources.list.d/ubuntu.sources; \
-  fi
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687

@@ -17,16 +17,16 @@ ARG MEMGRAPH_PACKAGE
 # copy custom openssl packages
 COPY openssl/ /tmp/openssl/
 COPY install_runtime_requirements.sh /install_runtime_requirements.sh
-RUN --mount=type=secret,id=ubuntu_sources,target=/tmp/ubuntu.sources,required=false \
-  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /tmp/ubuntu.sources ]; then \
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
-    cp -v /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
   if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
       apt-get update && apt-get install -y \
       /tmp/openssl/*.deb \
       --no-install-recommends && \
-      rm -rf /var/lib/apt/lists/* /tmp/openssl /var/tmp/*; \
+      rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
   fi && \
   chmod +x /install_runtime_requirements.sh && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
