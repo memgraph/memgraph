@@ -2008,7 +2008,7 @@ case $command in
       fi
 
       # set custom mirror for CI
-      if [[ "$custom_mirror" = true && "$os" =~ ^"ubuntu-24.04".* ]]; then
+      if [[ "$custom_mirror" = "true" && "$os" =~ ^"ubuntu-24.04".* ]]; then
         echo "Copying custom mirror to container..."
         docker cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $build_container:/etc/apt/sources.list.d/ubuntu.sources
       fi
