@@ -9,7 +9,7 @@ ARG BUILD_TYPE
 ENV BUILD_TYPE=${BUILD_TYPE}
 ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
-ARG CUSTOM_MIRROR="https://archive.ubuntu.com/ubuntu"
+ARG CUSTOM_MIRROR=false
 ARG CUDA=false
 ARG CACHE_PRESENT=false
 ARG MEMGRAPH_PACKAGE
@@ -23,13 +23,18 @@ RUN if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/de
       rm -rf /var/lib/apt/lists/* /tmp/openssl /var/tmp/*; \
     fi
 
-# Install runtime requirements for MAGE
-COPY install_runtime_requirements.sh /install_runtime_requirements.sh
-RUN chmod +x /install_runtime_requirements.sh && \
-    /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
-      --py-version ${PY_VERSION} --custom-mirror ${CUSTOM_MIRROR} \
-      --cuda ${CUDA} && \
-    rm /install_runtime_requirements.sh
+RUN --mount=type=bind,source=ci.sources,target=/tmp/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /tmp/ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  chmod +x /install_runtime_requirements.sh && \
+  /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
+    --py-version ${PY_VERSION} --cuda ${CUDA} && \
+  rm /install_runtime_requirements.sh && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  fi
 
 # install memgraph
 COPY memgraph.deb .
@@ -78,13 +83,6 @@ ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
-RUN if [ -n "$CUSTOM_MIRROR" ]; then \
-      sed -E -i \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
-        /etc/apt/sources.list.d/ubuntu.sources; \
-    fi
-
 USER memgraph
 EXPOSE 7687
 
@@ -106,10 +104,18 @@ ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
 # Add gdb
-RUN apt-get update && apt-get install -y \
-    gdb libc6-dbg \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+RUN --mount=type=bind,source=ci.sources,target=/tmp/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /tmp/ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  apt-get update && apt-get install -y \
+  gdb libc6-dbg \
+  --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  fi
 
 # Copy entire mage repo
 COPY --chown=memgraph:memgraph ./ /mage/
@@ -117,13 +123,6 @@ COPY --chown=memgraph:memgraph ./ /mage/
 # Copy heaptrack and install it properly
 COPY heaptrack /tmp/heaptrack
 RUN cp -vr /tmp/heaptrack/* /usr/ && rm -rf /tmp/heaptrack
-
-RUN if [ -n "$CUSTOM_MIRROR" ]; then \
-      sed -E -i \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
-        /etc/apt/sources.list.d/ubuntu.sources; \
-    fi
 
 # Copy script from Memgraph repo to run Memgraph with GDB - override the entrypoint to use it
 COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh

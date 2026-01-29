@@ -1351,7 +1351,7 @@ package_mage_docker() {
   local image_tag=""
   local memgraph_ref=""
   local cache_present=false
-  local custom_mirror="http://archive.ubuntu.com/ubuntu"
+  local custom_mirror=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --docker-repository-name)

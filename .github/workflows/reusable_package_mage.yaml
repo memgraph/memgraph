@@ -322,11 +322,6 @@ jobs:
           mv -v build/openssl*.deb mage/openssl
           mv -v build/libssl3t64*.deb mage/openssl
 
-      - name: Probe fastest mirror
-        run: |
-          FASTEST=$(bash tools/ci/test-mirrors.sh)
-          echo "CUSTOM_MIRROR=${FASTEST}" >> $GITHUB_ENV
-
       - name: Build Query Modules in MGBUILD container
         run: |
           ./release/package/mgbuild.sh \
@@ -411,7 +406,7 @@ jobs:
             --image-tag $IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror $CUSTOM_MIRROR
+            --custom-mirror true
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
