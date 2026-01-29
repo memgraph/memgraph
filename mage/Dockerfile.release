@@ -23,7 +23,7 @@ RUN if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/de
       rm -rf /var/lib/apt/lists/* /tmp/openssl /var/tmp/*; \
     fi
 
-RUN --mount=type=bind,source=ci.sources,target=/tmp/ubuntu.sources,required=false \
+RUN --mount=type=secret,id=ubuntu_sources,target=/tmp/ubuntu.sources,required=false \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /tmp/ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
@@ -104,7 +104,7 @@ ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
 # Add gdb
-RUN --mount=type=bind,source=ci.sources,target=/tmp/ubuntu.sources,required=false \
+RUN --mount=type=secret,id=ubuntu_sources,target=/tmp/ubuntu.sources,required=false \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /tmp/ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \

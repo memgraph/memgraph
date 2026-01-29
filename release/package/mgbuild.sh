@@ -1426,6 +1426,7 @@ package_mage_docker() {
     --build-arg BUILD_TYPE=$build_type \
     --build-arg CACHE_PRESENT=$cache_present \
     --build-arg CUSTOM_MIRROR=$custom_mirror \
+    --secret id=ubuntu_sources,src=ci.sources \
     --load .
 
   # print the image size in both SI and IEC units
