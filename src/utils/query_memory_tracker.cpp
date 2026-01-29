@@ -70,7 +70,7 @@ void QueryMemoryTracker::CreateOrSetProcTracker(int64_t procedure_id, size_t lim
   }
   // Read-only access to the proc tracker
   {
-    std::shared_lock lock(proc_trackers_mutex_);
+    const std::shared_lock lock(proc_trackers_mutex_);
     auto it = proc_memory_trackers_.find(procedure_id);
     if (it != proc_memory_trackers_.end()) {
       proc_tracker = &it->second;
@@ -79,7 +79,7 @@ void QueryMemoryTracker::CreateOrSetProcTracker(int64_t procedure_id, size_t lim
   }
   // Write access to the proc tracker
   {
-    std::unique_lock lock(proc_trackers_mutex_);
+    const std::unique_lock lock(proc_trackers_mutex_);
     auto [it, inserted] = proc_memory_trackers_.emplace(
         std::piecewise_construct, std::forward_as_tuple(procedure_id), std::forward_as_tuple());
     // Only set limits if we actually inserted a new entry.
