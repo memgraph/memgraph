@@ -1,4 +1,4 @@
-name: "Package mage"
+name: "Package mage (External)"
 
 on:
   #push:
@@ -108,3 +108,18 @@ jobs:
             "${{ github.event.inputs.pr_number }}" \
             "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \
             "$status"
+
+  CleanupStagingBranch:
+    needs: [CallCreateStagingBranch, TriggerPackageWorkflow]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cleanup staging branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./tools/ci/external-contributions/cleanup_staging_branch.sh \
+          "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}"
