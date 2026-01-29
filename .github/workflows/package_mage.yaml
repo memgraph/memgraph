@@ -137,7 +137,7 @@ jobs:
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
       run_tests: ${{ matrix.run_tests == 'true' }}
-      package_deb: ${{ matrix.package_deb == 'true' }}
+      package_deb: ${{ matrix.package_deb }}
       generate_sbom: ${{ matrix.generate_sbom == 'true' }}
       ref: ${{ matrix.ref }}
     secrets: inherit
