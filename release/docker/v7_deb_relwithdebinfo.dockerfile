@@ -21,7 +21,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
     gdb procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg libxmlsec1 \
     --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi

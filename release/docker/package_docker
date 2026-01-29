@@ -120,6 +120,10 @@ tag="${version}${tag_extension}"
 image_name="memgraph/memgraph:${tag}"
 image_package_name="memgraph-${tag}-docker.tar.gz"
 
+if [[ "$custom_mirror" == true ]]; then
+  cp -v ../../tools/ci/ubuntu-mirrors/${arch}/ci.sources "${working_dir}/ci.sources"
+fi
+
 # Build docker image.
 # NOTE: --pull is here to always pull that latest base image because of security patches.
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \

@@ -23,10 +23,10 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
   if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
-      apt-get update && apt-get install -y \
-      /tmp/openssl/*.deb \
-      --no-install-recommends && \
-      rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
+    apt-get update && apt-get install -y \
+    /tmp/openssl/*.deb \
+    --no-install-recommends && \
+    rm -rf /tmp/*; \
   fi && \
   chmod +x /install_runtime_requirements.sh && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
