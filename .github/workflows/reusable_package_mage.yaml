@@ -228,7 +228,7 @@ jobs:
 
       - name: "Spin up mgbuild container"
         run: |
-          if [[ "$OS" == "ubuntu-24.04" ]]; then
+          if [[ "$OS" =~ ^ubuntu-24.04.* ]]; then
             USE_CUSTOM_MIRROR=true
           else
             USE_CUSTOM_MIRROR=false
