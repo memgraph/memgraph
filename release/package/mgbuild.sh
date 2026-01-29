@@ -819,11 +819,7 @@ package_docker() {
         shift 2
       ;;
       --custom-mirror)
-        if [[ "$2" == "true" ]]; then
-          custom_mirror=true
-        else
-          custom_mirror=false
-        fi
+        [[ "$2" == "true" ]] && custom_mirror=true
         shift 2
       ;;
       *)
@@ -1373,11 +1369,7 @@ package_mage_docker() {
         shift 2
       ;;
       --custom-mirror)
-        if [[ "$2" == "true" ]]; then
-          custom_mirror=true
-        else
-          custom_mirror=false
-        fi
+        [[ "$2" == "true" ]] && custom_mirror=true
         shift 2
       ;;
       *)
@@ -1970,11 +1962,7 @@ case $command in
               shift 1
             ;;
             --custom-mirror)
-              if [[ "$2" == "true" ]]; then
-                custom_mirror=true
-              else
-                custom_mirror=false
-              fi
+              [[ "$2" == "true" ]] && custom_mirror=true
               shift 2
             ;;
             *)
