@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include "query/parameters.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/parameters.hpp"
 #include "utils/synchronized.hpp"
 
 #include "gflags/gflags.h"
@@ -59,17 +60,21 @@ class LogicalPlan {
 
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters;
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            utils::Parameters const *global_parameters = nullptr) -> Parameters;
 
 class PlanWrapper {
  public:
   explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
 
   auto plan() const -> plan::LogicalOperator const & { return plan_->GetRoot(); }
+
   double cost() const { return plan_->GetCost(); }
+
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
+
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
+
   auto rw_type() const { return plan_->RWType(); }
 
  private:
@@ -85,8 +90,11 @@ struct CachedQuery {
 
 struct QueryCacheEntry {
   bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
+
   bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
+
   bool operator==(const uint64_t &other) const { return first == other; }
+
   bool operator<(const uint64_t &other) const { return first < other; }
 
   uint64_t first;
@@ -119,9 +127,13 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
                         SymbolTable symbol_table, plan::ReadWriteTypeChecker::RWType rw_type);
 
   const plan::LogicalOperator &GetRoot() const override { return *root_; }
+
   double GetCost() const override { return cost_; }
+
   const SymbolTable &GetSymbolTable() const override;
+
   const AstStorage &GetAstStorage() const override { return storage_; }
+
   plan::ReadWriteTypeChecker::RWType RWType() const override { return rw_type_; }
 
  private:
