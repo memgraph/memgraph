@@ -23,23 +23,19 @@ inline void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, co
                 current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
 }
 
-#ifdef MG_ENTERPRISE
 void SystemRecoveryHandler(system::ReplicaHandlerAccessToState &system_state_access,
-                           std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
-                           auth::SynchedAuth &auth, uint64_t request_version, slk::Reader *req_reader,
-                           slk::Builder *res_builder);
+                           const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
+                           auth::SynchedAuth &auth, utils::Parameters *parameters, uint64_t request_version,
+                           slk::Reader *req_reader, slk::Builder *res_builder);
 
 void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                             std::optional<utils::UUID> &current_main_uuid, uint64_t request_version,
+                             const std::optional<utils::UUID> &current_main_uuid, uint64_t request_version,
                              slk::Reader *req_reader, slk::Builder *res_builder);
 
 void Register(RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
-              auth::SynchedAuth &auth);
+              auth::SynchedAuth &auth, utils::Parameters *parameters);
 
 bool StartRpcServer(dbms::DbmsHandler &dbms_handler, RoleReplicaData &data, auth::SynchedAuth &auth,
-                    system::System &system);
-#else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, RoleReplicaData &data);
-#endif
+                    system::System &system, utils::Parameters *parameters);
 
 }  // namespace memgraph::replication

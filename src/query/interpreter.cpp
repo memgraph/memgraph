@@ -2591,11 +2591,13 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 }
 
 Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters &query_parameters,
-                              InterpreterContext *interpreter_context) {
+                              InterpreterContext *interpreter_context, Interpreter *interpreter) {
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = query_parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  constexpr auto kParamScope = utils::ParameterScope::GLOBAL;
 
   Callback callback;
   switch (parameter_query->action_) {
@@ -2603,34 +2605,38 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       const auto parameter_value = EvaluateOptionalExpression(parameter_query->parameter_value_, evaluator);
       auto value_str = serialization::SerializeTypedValue(parameter_value).dump();
 
-      callback.fn = [parameter_name = parameter_query->parameter_name_, value_str, parameters = interpreter_context->parameters]() mutable {
+      callback.fn = [parameter_name = parameter_query->parameter_name_, value_str,
+                    parameters = interpreter_context->parameters, interpreter]() mutable {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        // For now, always use GLOBAL scope
-        if (!parameters->SetParameter(parameter_name, value_str, utils::ParameterScope::GLOBAL)) {
+        if (!parameters->SetParameter(parameter_name, value_str, kParamScope)) {
           throw utils::BasicException("Failed to set parameter '{}'", parameter_name);
         }
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        utils::AddSetParameterAction(*interpreter->system_transaction_, parameter_name, value_str, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }
     case ParameterQuery::Action::UNSET_PARAMETER: {
-      callback.fn = [parameter_name = parameter_query->parameter_name_, parameters = interpreter_context->parameters]() mutable {
+      callback.fn = [parameter_name = parameter_query->parameter_name_, parameters = interpreter_context->parameters,
+                    interpreter]() mutable {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        // For now, always use GLOBAL scope
-        if (!parameters->UnsetParameter(parameter_name, utils::ParameterScope::GLOBAL)) {
+        if (!parameters->UnsetParameter(parameter_name, kParamScope)) {
           throw utils::BasicException("Parameter '{}' does not exist", parameter_name);
         }
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        utils::AddUnsetParameterAction(*interpreter->system_transaction_, parameter_name, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }
     case ParameterQuery::Action::SHOW_PARAMETERS: {
       callback.header = {"name", "value", "scope"};
-      callback.fn = [parameters = interpreter_context->parameters] {
+      callback.fn = [parameters = interpreter_context->parameters]() {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
@@ -5631,7 +5637,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                    InterpreterContext *interpreter_context) {
+                                    InterpreterContext *interpreter_context, Interpreter &interpreter) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
@@ -5639,7 +5645,7 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
   auto *parameter_query = utils::Downcast<ParameterQuery>(parsed_query.query);
   MG_ASSERT(parameter_query);
 
-  auto callback = HandleParameterQuery(parameter_query, parsed_query.parameters, interpreter_context);
+  auto callback = HandleParameterQuery(parameter_query, parsed_query.parameters, interpreter_context, &interpreter);
 
   return PreparedQuery{
       .header = std::move(callback.header),
@@ -8047,7 +8053,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
     bool system_queries =
         utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-        utils::Downcast<ReplicationQuery>(parsed_query.query) || utils::Downcast<UserProfileQuery>(parsed_query.query);
+        utils::Downcast<ReplicationQuery>(parsed_query.query) || utils::Downcast<UserProfileQuery>(parsed_query.query) ||
+        utils::Downcast<ParameterQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
@@ -8279,7 +8286,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<ParameterQuery>(parsed_query.query)) {
       /// SYSTEM PURE
-      prepared_query = PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);

@@ -26,13 +26,15 @@ struct ISystemAction {
   /// Durability step which is defered until commit time
   virtual void DoDurability() = 0;
 
-#ifdef MG_ENTERPRISE
+  /// If true, replication is only performed when the enterprise license is valid.
+  /// If false (community feature), replication is always attempted.
+  virtual bool IsEnterpriseOnly() const = 0;
+
   /// Prepare the RPC payload that will be sent to all replicas clients
   virtual bool DoReplication(memgraph::replication::ReplicationClient &client, const utils::UUID &main_uuid,
                              Transaction const &system_tx) const = 0;
 
   virtual void PostReplication(memgraph::replication::RoleMainData &main_data) const = 0;
-#endif
 
   virtual ~ISystemAction() = default;
 };

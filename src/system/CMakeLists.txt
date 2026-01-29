@@ -21,4 +21,5 @@ target_include_directories(mg-system PUBLIC include)
 target_link_libraries(mg-system
         PUBLIC
         mg::replication
+        mg-license
 )

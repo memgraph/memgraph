@@ -142,6 +142,8 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
   void DoDurability() override { /* Done during Auth execution */
   }
 
+  bool IsEnterpriseOnly() const override { return true; }
+
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
@@ -177,6 +179,8 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   void DoDurability() override { /* Done during Auth execution */
   }
+
+  bool IsEnterpriseOnly() const override { return true; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {

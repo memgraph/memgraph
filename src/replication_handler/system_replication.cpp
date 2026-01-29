@@ -19,6 +19,7 @@
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "system/rpc.hpp"
+#include "utils/replication_handlers.hpp"
 
 namespace memgraph::rpc {
 class FileReplicationHandler;
@@ -26,12 +27,10 @@ class FileReplicationHandler;
 
 namespace memgraph::replication {
 
-#ifdef MG_ENTERPRISE
-
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
-                           auth::SynchedAuth &auth, uint64_t const request_version, slk::Reader *req_reader,
-                           slk::Builder *res_builder) {
+                           auth::SynchedAuth &auth, utils::Parameters *parameters, uint64_t const request_version,
+                           slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
@@ -56,6 +55,11 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
    */
   if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles))
     return;  // Failure sent on exit
+
+  /*
+   * PARAMETERS (works without license/enterprise)
+   */
+  if (!utils::ApplyParametersRecovery(parameters, req.parameters)) return;
 
   /*
    * SUCCESSFUL RECOVERY
@@ -100,20 +104,20 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
 }
 
 void Register(replication::RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
-              auth::SynchedAuth &auth) {
+              auth::SynchedAuth &auth, utils::Parameters *parameters) {
   // NOTE: Register even without license as the user could add a license at run-time
 
   auto system_state_access = system.CreateSystemStateAccess();
 
   // need to tell REPLICA the uuid to use for "memgraph" default database
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
-      [&data, system_state_access, &dbms_handler, &auth](
+      [&data, system_state_access, &dbms_handler, &auth, parameters](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
           auto *req_reader,
           auto *res_builder) mutable {
         SystemRecoveryHandler(
-            system_state_access, data.uuid_, dbms_handler, auth, request_version, req_reader, res_builder);
+            system_state_access, data.uuid_, dbms_handler, auth, parameters, request_version, req_reader, res_builder);
       });
 
   // Generic finalize message
@@ -130,21 +134,17 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
 
   // Auth
   auth::Register(data, system_state_access, auth);
-}
-#endif
 
-#ifdef MG_ENTERPRISE
+  // Parameters
+  utils::Register(data, system_state_access, parameters);
+}
+
 bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data, auth::SynchedAuth &auth,
-                    system::System &system) {
-#else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data) {
-#endif
+                    system::System &system, utils::Parameters *parameters) {
   // Register storage handlers
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
-#ifdef MG_ENTERPRISE
   // Register system handlers
-  Register(data, system, dbms_handler, auth);
-#endif
+  Register(data, system, dbms_handler, auth, parameters);
   // Start server
   if (!data.server->Start()) {
     spdlog::error("Unable to start the replication server.");

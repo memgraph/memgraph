@@ -18,20 +18,21 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/config.hpp"
+#include "utils/parameters.hpp"
 
 namespace memgraph::replication {
 
-struct SystemRecoveryReq {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
+struct SystemRecoveryReqV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReqV1"};
   static constexpr uint64_t kVersion{1};
 
-  static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
-  SystemRecoveryReq() = default;
-  SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
-                    std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
-                    std::vector<auth::User> users, std::vector<auth::Role> roles,
-                    std::vector<auth::UserProfiles::Profile> profiles)
+  static void Load(SystemRecoveryReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryReqV1 &self, memgraph::slk::Builder *builder);
+  SystemRecoveryReqV1() = default;
+  SystemRecoveryReqV1(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
+                      std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
+                      std::vector<auth::User> users, std::vector<auth::Role> roles,
+                      std::vector<auth::UserProfiles::Profile> profiles)
       : main_uuid(main_uuid),
         forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
@@ -47,6 +48,43 @@ struct SystemRecoveryReq {
   std::vector<auth::User> users;
   std::vector<auth::Role> roles;
   std::vector<auth::UserProfiles::Profile> profiles;
+};
+
+struct SystemRecoveryReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
+  static constexpr uint64_t kVersion{2};
+
+  static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
+  SystemRecoveryReq() = default;
+  SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
+                    std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
+                    std::vector<auth::User> users, std::vector<auth::Role> roles,
+                    std::vector<auth::UserProfiles::Profile> profiles,
+                    std::vector<utils::ParameterInfo> parameters = {})
+      : main_uuid(main_uuid),
+        forced_group_timestamp{forced_group_timestamp},
+        database_configs(std::move(database_configs)),
+        auth_config(std::move(auth_config)),
+        users{std::move(users)},
+        roles{std::move(roles)},
+        profiles{std::move(profiles)},
+        parameters{std::move(parameters)} {}
+
+  static SystemRecoveryReq Upgrade(SystemRecoveryReqV1 const &v1) {
+    return SystemRecoveryReq{v1.main_uuid,       v1.forced_group_timestamp, v1.database_configs,
+                             v1.auth_config,    v1.users,                  v1.roles,
+                             v1.profiles,        {}};
+  }
+
+  utils::UUID main_uuid;
+  uint64_t forced_group_timestamp;
+  std::vector<storage::SalientConfig> database_configs;
+  auth::Auth::Config auth_config;
+  std::vector<auth::User> users;
+  std::vector<auth::Role> roles;
+  std::vector<auth::UserProfiles::Profile> profiles;
+  std::vector<utils::ParameterInfo> parameters;
 };
 
 struct SystemRecoveryRes {
@@ -68,6 +106,8 @@ using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecovery
 }  // namespace memgraph::replication
 
 namespace memgraph::slk {
+void Save(const memgraph::replication::SystemRecoveryReqV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::SystemRecoveryReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder);

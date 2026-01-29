@@ -18,6 +18,10 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/rw_lock.hpp"
 
+namespace memgraph::system {
+struct Transaction;
+}  // namespace memgraph::system
+
 namespace memgraph::utils {
 
 enum class ParameterScope { GLOBAL, DATABASE, SESSION };
@@ -67,5 +71,13 @@ struct Parameters {
   mutable utils::RWLock parameters_lock_{RWLock::Priority::WRITE};
   std::optional<kvstore::KVStore> storage_;
 };
+
+/// Add a SetParameter replication action to a system transaction. Call after Parameters::SetParameter for replication.
+void AddSetParameterAction(system::Transaction &txn, std::string_view name, std::string_view value,
+                           ParameterScope scope = ParameterScope::GLOBAL);
+
+/// Add an UnsetParameter replication action to a system transaction. Call after Parameters::UnsetParameter for replication.
+void AddUnsetParameterAction(system::Transaction &txn, std::string_view name,
+                             ParameterScope scope = ParameterScope::GLOBAL);
 
 }  // namespace memgraph::utils

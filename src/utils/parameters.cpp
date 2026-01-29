@@ -13,10 +13,69 @@
 #include <shared_mutex>
 
 #include "flags/general.hpp"
+#include "replication/include/replication/replication_client.hpp"
+#include "replication/include/replication/state.hpp"
+#include "system/include/system/action.hpp"
+#include "system/include/system/transaction.hpp"
 #include "utils/file.hpp"
 #include "utils/parameters.hpp"
+#include "utils/parameters_rpc.hpp"
 
 namespace memgraph::utils {
+
+struct SetParameter : memgraph::system::ISystemAction {
+  explicit SetParameter(std::string_view name, std::string_view value, ParameterScope scope)
+      : name_{name}, value_{value}, scope_{scope} {}
+
+  void DoDurability() override { /* Done during Parameters execution */ }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::SetParameterRes &response) { return response.success; };
+    return client.StreamAndFinalizeDelta<storage::replication::SetParameterRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(),
+        ParameterInfo{.name=std::string(name_), .value=value_, .scope=scope_});
+  }
+
+  bool IsEnterpriseOnly() const override { return false; }
+
+  void PostReplication(replication::RoleMainData & /*main_data*/) const override {}
+
+ private:
+  std::string name_;
+  std::string value_;
+  ParameterScope scope_;
+};
+
+struct UnsetParameter : memgraph::system::ISystemAction {
+  explicit UnsetParameter(std::string_view name, ParameterScope scope) : name_{name}, scope_{scope} {}
+
+  void DoDurability() override { /* Done during Parameters execution */ }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::UnsetParameterRes &response) { return response.success; };
+    return client.StreamAndFinalizeDelta<storage::replication::UnsetParameterRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), name_, scope_);
+  }
+
+  bool IsEnterpriseOnly() const override { return false; }
+
+  void PostReplication(replication::RoleMainData & /*main_data*/) const override {}
+
+ private:
+  std::string name_;
+  ParameterScope scope_;
+};
+
+void AddSetParameterAction(system::Transaction &txn, std::string_view name, std::string_view value,
+                           ParameterScope scope) {
+  txn.AddAction<SetParameter>(name, value, scope);
+}
+
+void AddUnsetParameterAction(system::Transaction &txn, std::string_view name, ParameterScope scope) {
+  txn.AddAction<UnsetParameter>(name, scope);
+}
 
 Parameters::Parameters(std::filesystem::path storage_path) {
   std::lock_guard parameters_guard{parameters_lock_};
