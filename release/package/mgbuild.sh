@@ -1407,6 +1407,11 @@ package_mage_docker() {
   cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
   cd $PROJECT_ROOT/mage
 
+  # copy custom mirror for CI
+  if [[ "$custom_mirror" = true ]]; then
+    cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/mage/ci.sources
+  fi
+
   # build the docker image
   docker buildx build \
     --target $docker_target \
