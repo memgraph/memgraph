@@ -241,6 +241,11 @@ jobs:
           if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
             malloc=true
           fi
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -250,7 +255,7 @@ jobs:
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_ARTIFACT_DIR \
           --generate-sbom $GENERATE_SBOM \
-          --malloc $malloc
+          --malloc $malloc --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
