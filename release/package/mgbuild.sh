@@ -1371,7 +1371,11 @@ package_mage_docker() {
         shift 2
       ;;
       --custom-mirror)
-        custom_mirror=$2
+        if [[ "$2" == "true" ]]; then
+          custom_mirror=true
+        else
+          custom_mirror=false
+        fi
         shift 2
       ;;
       *)
@@ -1955,11 +1959,20 @@ case $command in
     run)
       cd $SCRIPT_DIR
       pull=false
+      custom_mirror=false
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --pull)
               pull=true
               shift 1
+            ;;
+            --custom-mirror)
+              if [[ "$2" == "true" ]]; then
+                custom_mirror=true
+              else
+                custom_mirror=false
+              fi
+              shift 2
             ;;
             *)
               echo "Error: Unknown flag '$1'"
@@ -1991,43 +2004,13 @@ case $command in
           $docker_compose_cmd $compose_files pull --ignore-pull-failures $build_container
         fi
         $docker_compose_cmd $compose_files up -d $build_container
+      fi
 
-        # set local mirror for Ubuntu
-        if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
-          if [[ "$os" == "ubuntu-22.04" ]]; then
-            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh 'jammy')"; then
-              # set custom mirror within build container
-              docker exec -i -u root \
-                -e CUSTOM_MIRROR=$mirror \
-                $build_container \
-              bash -c '
-                if [ -n "$CUSTOM_MIRROR" ]; then
-                  sed -E -i \
-                    -e "s#https?://[^ ]*archive\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                    -e "s#https?://[^ ]*security\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                    /etc/apt/sources.list
-                  apt-get update -qq
-                fi
-              '
-            fi
-          else
-            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"; then
-              # set custom mirror within build container
-              docker exec -i -u root \
-                -e CUSTOM_MIRROR=$mirror \
-                $build_container \
-              bash -c '
-                if [ -n "$CUSTOM_MIRROR" ]; then
-                  sed -E -i \
-                    -e "/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                    -e "/^URIs:/ s#https?://security\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                    /etc/apt/sources.list.d/ubuntu.sources
-                  apt-get update -qq
-                fi
-              '
-            fi
-          fi
-        fi
+      # set custom mirror for CI
+      if [[ "$custom_mirror" = true && "$os" =~ ^"ubuntu-24.04".* ]]; then
+        docker exec -u root $build_container bash -c "
+          cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources /etc/apt/sources.list.d/ubuntu.sources
+        "
       fi
 
       # Install ccache if enabled
