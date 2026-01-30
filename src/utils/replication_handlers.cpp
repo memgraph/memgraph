@@ -46,7 +46,6 @@ void SetParameterHandler(system::ReplicaHandlerAccessToState &system_state_acces
   }
 
   if (parameters.SetParameter(req.parameter.name, req.parameter.value, req.parameter.scope)) {
-    system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = SetParameterRes(true);
   }
 
@@ -77,7 +76,6 @@ void UnsetParameterHandler(system::ReplicaHandlerAccessToState &system_state_acc
   }
 
   if (parameters.UnsetParameter(req.name, req.scope)) {
-    system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = UnsetParameterRes(true);
   }
 
@@ -109,7 +107,6 @@ void DeleteAllParametersHandler(system::ReplicaHandlerAccessToState &system_stat
   }
 
   if (parameters.DeleteAllParameters()) {
-    system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = DeleteAllParametersRes(true);
   }
 

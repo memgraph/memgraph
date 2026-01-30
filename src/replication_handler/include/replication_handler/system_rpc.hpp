@@ -90,7 +90,7 @@ struct SystemRecoveryReq {
 
 struct SystemRecoveryRes {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_RES, .name = "SystemRecoveryRes"};
-  static constexpr uint64_t kVersion{1};
+  static constexpr uint64_t kVersion{2};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
