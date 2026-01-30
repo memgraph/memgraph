@@ -379,54 +379,52 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     bool source_has_index = HasIndexedSource(expand.input());
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // For BFS: only try to create indexed scan for destination if we have source index
-      // This prevents removing filters when we won't use STShortestPath
+      // For BFS: store cardinalities and destination filters for BFSCursor to decide algorithm
       std::unique_ptr<LogicalOperator> indexed_scan = nullptr;
       bool destination_has_index = false;
-      // Track expressions marked for removal by GenScanByIndex so we can unmark them
-      // if we don't use the indexed scan
-      std::unordered_set<Expression *> marked_for_removal;
+      Expression *destination_filter_expr = nullptr;
 
       if (source_has_index) {
-        // Save current state of filter_exprs_for_removal_ before calling GenScanByIndex
-        std::unordered_set<Expression *> before_removal(filter_exprs_for_removal_);
-        // Only try to create indexed scan if we have source index
-        // This way filters are only removed if we might use STShortestPath
-        indexed_scan = GenScanByIndex(dst_scan);
-        destination_has_index = (indexed_scan != nullptr);
-        // Track what was marked for removal by this call
-        if (destination_has_index) {
-          // Collect expressions that were newly marked for removal
-          for (auto *expr : filter_exprs_for_removal_) {
-            if (!before_removal.contains(expr)) {
-              marked_for_removal.insert(expr);
-            }
+        // Collect destination filter expressions before GenScanByIndex removes them
+        std::vector<Expression *> destination_filters;
+
+        // Collect property filters for destination node
+        for (const auto &filter_info : filters_.PropertyFilters(expand.common_.node_symbol)) {
+          destination_filters.push_back(filter_info.expression);
+        }
+
+        // Collect ID filters for destination node
+        for (const auto &filter_info : filters_.IdFilters(expand.common_.node_symbol)) {
+          destination_filters.push_back(filter_info.expression);
+        }
+
+        // Collect point filters for destination node
+        for (const auto &filter_info : filters_.PointFilters(expand.common_.node_symbol)) {
+          destination_filters.push_back(filter_info.expression);
+        }
+
+        // Combine destination filters into a single expression if there are any
+        if (!destination_filters.empty()) {
+          destination_filter_expr = destination_filters[0];
+          for (size_t i = 1; i < destination_filters.size(); ++i) {
+            destination_filter_expr =
+                ast_storage_->Create<AndOperator>(destination_filter_expr, destination_filters[i]);
           }
         }
-      }
 
-      // Only use STShortestPath if we have indexes for both source and destination
-      if (source_has_index && destination_has_index) {
-        // Estimate cardinalities
-        double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
-        double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
+        // Try to create indexed scan for destination
+        indexed_scan = GenScanByIndex(dst_scan);
+        destination_has_index = (indexed_scan != nullptr);
 
-        // Use cost-based decision with the formula
-        if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
+        if (destination_has_index) {
+          // Use indexed scan - BFSCursor will estimate cardinalities at runtime and decide algorithm
           expand.set_input(std::move(indexed_scan));
           expand.common_.existing_node = true;
         } else {
-          // If STShortestPath is not beneficial, don't use the indexed scan
-          // Unmark filters that were marked for removal so they remain in place
-          for (auto *expr : marked_for_removal) {
-            filter_exprs_for_removal_.erase(expr);
-          }
-          // Note: We can't easily restore filters_ that were erased, but the expressions
-          // being unmarked should prevent Filter operators from being removed
+          // Only source has index, store destination filter for single-source BFS
+          expand.destination_filter_expression_ = destination_filter_expr;
         }
       }
-      // If we don't have indexes for both, don't use STShortestPath
-      // Filters remain intact since GenScanByIndex was never called
     } else {
       // For non-BFS: use indexed scan if available (existing behavior)
       std::unique_ptr<LogicalOperator> indexed_scan =
@@ -1433,37 +1431,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     return type_info == ScanAllByLabel::kType || type_info == ScanAllByLabelProperties::kType ||
            type_info == ScanAllById::kType;
-  }
-
-  // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
-  // compared to SingleSourceShortestPath (multi-source BFS).
-  // assumes STShortestPaths is source*destination complexity
-  bool ShouldUseSTShortestPath(double S, double T, EdgeAtom::Direction direction) {
-    if (S == 0 || T == 0) return false;
-
-    const double V = db_->VerticesCount();
-    const double E = db_->EdgesCount();
-    if (V == 0 || E == 0) return false;
-
-    // 1. Pair explosion guard
-    if (S * T > 1024) return false;
-
-    // 2. Balance heuristic
-    const double ratio = std::max(S, T) / std::min(S, T);
-    if (ratio > 4.0) return false;
-
-    // 3. Branching factor (cheap structural hint)
-    const bool undirected = (direction == EdgeAtom::Direction::BOTH);
-    const double b = undirected ? (2.0 * E / V) : (E / V);
-
-    // If graph is chain-like or tree-like, bidirectional shines
-    if (b <= 2.0) return true;
-
-    // 4. Otherwise fall back to conservative math
-    double d = std::log(V) / std::log(std::max(b, 1.01));
-    d = std::clamp(d, 2.0, 12.0);
-
-    return T < std::pow(b, d / 2.0) / 8.0;
   }
 
   // Estimates cardinality for indexed scan operators only.
