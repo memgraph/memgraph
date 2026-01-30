@@ -102,6 +102,36 @@ Create tests in `mage/tests/e2e/<module>_test/` using:
 
 See the [Testing (Required)](#testing-required) section below for detailed format.
 
+### Step 8: Run E2E Tests Locally
+
+Before committing, validate your implementation by running the e2e tests locally.
+
+**Prerequisites:**
+- Memgraph instance with MAGE must be running (see `mage/README.md` for setup)
+- Python dependencies installed: `pip install -r mage/python/tests/requirements.txt`
+
+**Run tests from the `mage/tests` directory:**
+
+```bash
+cd mage/tests
+
+# Run ALL e2e tests (takes a while)
+python3 test_e2e
+
+# Run tests for YOUR specific module only (recommended)
+python3 test_e2e -k <module_name>
+
+# Examples:
+python3 test_e2e -k mg_semantics
+python3 test_e2e -k json_util
+python3 test_e2e -k map
+```
+
+**Important:**
+- The `-k` flag filters tests by substring match on test directory names
+- Always run at least your module's tests before committing
+- Fix any failing tests before submitting
+
 ## Naming Conventions
 
 ### Critical: Single Dot Limitation
@@ -529,6 +559,22 @@ For each translated procedure, create tests for:
 2. **Edge cases** - Empty inputs, null values, large data
 3. **Error cases** - Invalid inputs, expected exceptions
 4. **Documentation examples** - All examples from Neo4j docs
+
+### Running Tests Locally
+
+After creating test files, run them locally to validate before committing:
+
+```bash
+cd mage/tests
+
+# Run only your module's tests
+python3 test_e2e -k <module_name>
+
+# Example: test the mg_semantics module
+python3 test_e2e -k mg_semantics
+```
+
+**Note:** Memgraph with MAGE must be running. See `mage/README.md` for setup instructions.
 
 ## Additional Resources
 
