@@ -531,6 +531,13 @@ std::string GetQueryLogDirectory() {
   return s;
 }
 
+bool GetAlsoLogToStderr() {
+  std::string v;
+  gflags::GetCommandLineOption(kLogToStderrGFlagsKey, &v);
+  constexpr auto always_true = "true";
+  return v == always_true;
+}
+
 auto GetAwsAccessKey() -> std::string {
   std::string access_key;
   gflags::GetCommandLineOption(kAwsAccessGFlagsKey, &access_key);
@@ -553,6 +560,12 @@ auto GetAwsEndpointUrl() -> std::string {
   std::string endpoint_url;
   gflags::GetCommandLineOption(kAwsEndpointUrlGFlagsKey, &endpoint_url);
   return endpoint_url;
+}
+
+auto GetStorageSnapshotInterval() -> std::string {
+  std::string storage_snp_interval;
+  gflags::GetCommandLineOption(kSnapshotPeriodicGFlagsKey, &storage_snp_interval);
+  return storage_snp_interval;
 }
 
 auto GetFileDownloadConnTimeoutSec() -> uint64_t { return file_download_conn_timeout_sec_; }

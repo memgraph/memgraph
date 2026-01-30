@@ -10,16 +10,11 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "gflags/gflags.h"
-
 #include <chrono>
 #include <string>
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(also_log_to_stderr);
 
 namespace memgraph::flags::run_time {
 
@@ -86,6 +81,11 @@ const std::chrono::time_zone *GetTimezone();
 std::string GetQueryLogDirectory();
 
 /**
+ * @brief Get the also-log-to-stderr value
+ * @return bool
+ */
+bool GetAlsoLogToStderr();
+/**
  * @brief Get the AWS region setting
  * @return std::string
  */
@@ -108,6 +108,12 @@ auto GetAwsSecretKey() -> std::string;
  * @return std::string
  */
 auto GetAwsEndpointUrl() -> std::string;
+
+/**
+ * @brief Get the storage snapshot interval
+ * @return std::string
+ */
+auto GetStorageSnapshotInterval() -> std::string;
 
 /**
  * @brief Get the file_download_timeout run-time config value

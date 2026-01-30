@@ -82,7 +82,7 @@ std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::st
 // This allows us MT safe
 void memgraph::flags::InitializeLogger() {
   // stderr subsink
-  stderr_sink()->set_level(FLAGS_also_log_to_stderr ? spdlog::level::trace : spdlog::level::off);
+  stderr_sink()->set_level(run_time::GetAlsoLogToStderr() ? spdlog::level::trace : spdlog::level::off);
 
   std::vector<spdlog::sink_ptr> sub_sinks;
   sub_sinks.emplace_back(stderr_sink());
