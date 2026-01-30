@@ -17,8 +17,8 @@ on:
 jobs:
   release_benchmarks:
     name: "Daily benchmarks"
-    runs-on: [self-hosted, Linux, "${{ github.ref == 'refs/heads/master' && 'laufey' || 'benchmark' }}"]
-    timeout-minutes: 350
+    runs-on: [self-hosted, Linux, "doctor-doom"]
+    timeout-minutes: 600
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - macro-benchmark: 2.13 minutes
@@ -61,6 +61,14 @@ jobs:
           --arch $ARCH \
           run
 
+      - name: Force container in numa group
+        run: |
+          docker update \
+          --cpuset-cpus="0-5,24-29" \
+          --cpuset-mems="0" \
+          mgbuild_v7_ubuntu-24.04
+
+
       - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
@@ -84,11 +92,12 @@ jobs:
       - name: Get branch name
         shell: bash
         run: |
-          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
-            echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
-          else
-            echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
-          fi
+          # if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+          #   echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+          # else
+          #   echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+          # fi
+          echo "BRANCH_NAME=doctor-doom-benchmark-env-numa-6" >> $GITHUB_ENV
 
       - name: Run and upload load_parquet benchmark
         id: load-parquet
