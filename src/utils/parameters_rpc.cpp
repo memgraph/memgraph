@@ -18,25 +18,44 @@ namespace memgraph::storage::replication {
 void SetParameterReq::Save(const SetParameterReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
-void SetParameterReq::Load(SetParameterReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
+
+void SetParameterReq::Load(SetParameterReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void SetParameterRes::Save(const SetParameterRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
-void SetParameterRes::Load(SetParameterRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
+
+void SetParameterRes::Load(SetParameterRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void UnsetParameterReq::Save(const UnsetParameterReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void UnsetParameterReq::Load(UnsetParameterReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
+
 void UnsetParameterRes::Save(const UnsetParameterRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void UnsetParameterRes::Load(UnsetParameterRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void DeleteAllParametersReq::Save(const DeleteAllParametersReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void DeleteAllParametersReq::Load(DeleteAllParametersReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void DeleteAllParametersRes::Save(const DeleteAllParametersRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void DeleteAllParametersRes::Load(DeleteAllParametersRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -95,6 +114,26 @@ void Save(const memgraph::storage::replication::UnsetParameterRes &self, memgrap
 }
 
 void Load(memgraph::storage::replication::UnsetParameterRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
+
+void Save(const memgraph::storage::replication::DeleteAllParametersReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
+}
+
+void Load(memgraph::storage::replication::DeleteAllParametersReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
+}
+
+void Save(const memgraph::storage::replication::DeleteAllParametersRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::storage::replication::DeleteAllParametersRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
 

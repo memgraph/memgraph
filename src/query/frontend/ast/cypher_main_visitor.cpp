@@ -3848,7 +3848,7 @@ antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfig
   return query_;
 }
 
-antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) {  
+antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "ParameterQuery should have exactly one child!");
   auto *parameter_query = std::any_cast<ParameterQuery *>(ctx->children[0]->accept(this));
   query_ = parameter_query;
@@ -3879,6 +3879,12 @@ antlrcpp::Any CypherMainVisitor::visitUnsetParameter(MemgraphCypher::UnsetParame
 antlrcpp::Any CypherMainVisitor::visitShowParameters(MemgraphCypher::ShowParametersContext * /*ctx*/) {
   auto *parameter_query = storage_->Create<ParameterQuery>();
   parameter_query->action_ = ParameterQuery::Action::SHOW_PARAMETERS;
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDeleteAllParameters(MemgraphCypher::DeleteAllParametersContext * /*ctx*/) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::DELETE_ALL_PARAMETERS;
   return parameter_query;
 }
 

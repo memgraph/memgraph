@@ -33,8 +33,11 @@ struct SetParameter : memgraph::system::ISystemAction {
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::SetParameterRes &response) { return response.success; };
     return client.StreamAndFinalizeDelta<storage::replication::SetParameterRpc>(
-        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(),
-        ParameterInfo{.name=std::string(name_), .value=value_, .scope=scope_});
+        check_response,
+        main_uuid,
+        txn.last_committed_system_timestamp(),
+        txn.timestamp(),
+        ParameterInfo{.name = std::string(name_), .value = value_, .scope = scope_});
   }
 
   bool IsEnterpriseOnly() const override { return false; }
@@ -77,6 +80,23 @@ void AddUnsetParameterAction(system::Transaction &txn, std::string_view name, Pa
   txn.AddAction<UnsetParameter>(name, scope);
 }
 
+struct DeleteAllParameters : memgraph::system::ISystemAction {
+  void DoDurability() override { /* Done during Parameters execution */ }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::DeleteAllParametersRes &response) { return response.success; };
+    return client.StreamAndFinalizeDelta<storage::replication::DeleteAllParametersRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp());
+  }
+
+  bool IsEnterpriseOnly() const override { return false; }
+
+  void PostReplication(replication::RoleMainData & /*main_data*/) const override {}
+};
+
+void AddDeleteAllParametersAction(system::Transaction &txn) { txn.AddAction<DeleteAllParameters>(); }
+
 Parameters::Parameters(std::filesystem::path storage_path) {
   std::lock_guard parameters_guard{parameters_lock_};
   if (!FLAGS_data_recovery_on_startup) {
@@ -108,8 +128,6 @@ bool Parameters::SetParameter(std::string_view name, std::string_view value, Par
     SPDLOG_ERROR("Failed to set parameter '{}' with scope '{}'", name, static_cast<int>(scope));
     return false;
   }
-
-  SPDLOG_DEBUG("Set parameter '{}' = '{}' with scope '{}'", name, value, static_cast<int>(scope));
   return true;
 }
 
@@ -128,8 +146,6 @@ bool Parameters::UnsetParameter(std::string_view name, ParameterScope scope) {
     SPDLOG_ERROR("Failed to delete parameter '{}' with scope '{}'", name, static_cast<int>(scope));
     return false;
   }
-
-  SPDLOG_DEBUG("Unset parameter '{}' with scope '{}'", name, static_cast<int>(scope));
   return true;
 }
 
@@ -143,6 +159,18 @@ std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) co
     parameters.emplace_back(ParameterInfo{.name = key, .value = value, .scope = scope});
   }
   return parameters;
+}
+
+bool Parameters::DeleteAllParameters() {
+  std::lock_guard parameters_guard{parameters_lock_};
+  if (!storage_) return false;
+
+  for (const auto &[key, _] : *storage_) {
+    if (!storage_->Delete(key)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace memgraph::utils

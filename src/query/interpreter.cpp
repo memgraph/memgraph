@@ -168,7 +168,6 @@ using memgraph::query::Expression;
 using memgraph::query::ExpressionVisitor;
 using memgraph::query::TypedValue;
 
-
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
                     ExpressionVisitor<TypedValue> &evaluator)
     -> std::optional<std::map<std::string, std::string, std::less<>>> {
@@ -2652,6 +2651,20 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
               TypedValue(param.name), TypedValue(param.value), TypedValue(utils::ParameterScopeToString(param.scope))});
         }
         return results;
+      };
+      return callback;
+    }
+    case ParameterQuery::Action::DELETE_ALL_PARAMETERS: {
+      callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
+        if (!parameters) {
+          throw QueryRuntimeException("Parameters are not available");
+        }
+        if (!parameters->DeleteAllParameters()) {
+          throw utils::BasicException("Failed to delete all parameters");
+        }
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        utils::AddDeleteAllParametersAction(*interpreter->system_transaction_);
+        return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }

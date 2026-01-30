@@ -3784,7 +3784,7 @@ class ParameterQuery : public memgraph::query::Query {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SET_PARAMETER, UNSET_PARAMETER, SHOW_PARAMETERS };
+  enum class Action { SET_PARAMETER, UNSET_PARAMETER, SHOW_PARAMETERS, DELETE_ALL_PARAMETERS };
 
   ParameterQuery() = default;
 

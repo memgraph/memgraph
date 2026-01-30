@@ -67,17 +67,22 @@ struct Parameters {
    */
   std::vector<ParameterInfo> GetAllParameters(ParameterScope scope) const;
 
+  /**
+   * @brief Delete all parameters.
+   */
+  bool DeleteAllParameters();
+
  private:
   mutable utils::RWLock parameters_lock_{RWLock::Priority::WRITE};
   std::optional<kvstore::KVStore> storage_;
 };
 
-/// Add a SetParameter replication action to a system transaction. Call after Parameters::SetParameter for replication.
 void AddSetParameterAction(system::Transaction &txn, std::string_view name, std::string_view value,
                            ParameterScope scope = ParameterScope::GLOBAL);
 
-/// Add an UnsetParameter replication action to a system transaction. Call after Parameters::UnsetParameter for replication.
 void AddUnsetParameterAction(system::Transaction &txn, std::string_view name,
                              ParameterScope scope = ParameterScope::GLOBAL);
+
+void AddDeleteAllParametersAction(system::Transaction &txn);
 
 }  // namespace memgraph::utils

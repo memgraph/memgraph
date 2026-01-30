@@ -403,6 +403,7 @@ settingQuery : setSetting
 parameterQuery : setParameter
               | unsetParameter
               | showParameters
+              | deleteAllParameters
               ;
 
 transactionQueueQuery : showTransactions
@@ -716,6 +717,8 @@ setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
 unsetParameter : UNSET PARAMETER parameterName ;
 
 showParameters : SHOW PARAMETERS ;
+
+deleteAllParameters : DELETE ALL PARAMETERS ;
 
 showConfigQuery : SHOW CONFIG ;
 
