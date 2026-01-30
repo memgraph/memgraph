@@ -799,6 +799,7 @@ package_docker() {
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local generate_sbom=false
   local malloc=false
+  local custom_mirror=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -817,6 +818,10 @@ package_docker() {
         malloc=$2
         shift 2
       ;;
+      --custom-mirror)
+        [[ "$2" == "true" ]] && custom_mirror=true
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -828,21 +833,14 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  if [[ "$os" == "ubuntu-24.04" && "$arch" == "amd" ]]; then
-    echo "Finding best mirror"
-    mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"
-  else
-    echo "Using default mirror"
-    mirror=""
-  fi
-  echo "Using mirror: $mirror"
+  echo "Using custom mirror: $custom_mirror"
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -1351,7 +1349,7 @@ package_mage_docker() {
   local image_tag=""
   local memgraph_ref=""
   local cache_present=false
-  local custom_mirror="http://archive.ubuntu.com/ubuntu"
+  local custom_mirror=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --docker-repository-name)
@@ -1371,7 +1369,7 @@ package_mage_docker() {
         shift 2
       ;;
       --custom-mirror)
-        custom_mirror=$2
+        [[ "$2" == "true" ]] && custom_mirror=true
         shift 2
       ;;
       *)
@@ -1407,6 +1405,11 @@ package_mage_docker() {
   cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
   cd $PROJECT_ROOT/mage
 
+  # copy custom mirror for CI
+  if [[ "$custom_mirror" = "true" ]]; then
+    cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/mage/ci.sources
+  fi
+
   # build the docker image
   docker buildx build \
     --target $docker_target \
@@ -1417,6 +1420,7 @@ package_mage_docker() {
     --build-arg BUILD_TYPE=$build_type \
     --build-arg CACHE_PRESENT=$cache_present \
     --build-arg CUSTOM_MIRROR=$custom_mirror \
+    --secret id=ubuntu_sources,src=ci.sources \
     --load .
 
   # print the image size in both SI and IEC units
@@ -1950,11 +1954,16 @@ case $command in
     run)
       cd $SCRIPT_DIR
       pull=false
+      custom_mirror=false
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --pull)
               pull=true
               shift 1
+            ;;
+            --custom-mirror)
+              [[ "$2" == "true" ]] && custom_mirror=true
+              shift 2
             ;;
             *)
               echo "Error: Unknown flag '$1'"
@@ -1986,43 +1995,12 @@ case $command in
           $docker_compose_cmd $compose_files pull --ignore-pull-failures $build_container
         fi
         $docker_compose_cmd $compose_files up -d $build_container
+      fi
 
-        # set local mirror for Ubuntu
-        if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
-          if [[ "$os" == "ubuntu-22.04" ]]; then
-            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh 'jammy')"; then
-              # set custom mirror within build container
-              docker exec -i -u root \
-                -e CUSTOM_MIRROR=$mirror \
-                $build_container \
-              bash -c '
-                if [ -n "$CUSTOM_MIRROR" ]; then
-                  sed -E -i \
-                    -e "s#https?://[^ ]*archive\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                    -e "s#https?://[^ ]*security\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                    /etc/apt/sources.list
-                  apt-get update -qq
-                fi
-              '
-            fi
-          else
-            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"; then
-              # set custom mirror within build container
-              docker exec -i -u root \
-                -e CUSTOM_MIRROR=$mirror \
-                $build_container \
-              bash -c '
-                if [ -n "$CUSTOM_MIRROR" ]; then
-                  sed -E -i \
-                    -e "/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                    -e "/^URIs:/ s#https?://security\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                    /etc/apt/sources.list.d/ubuntu.sources
-                  apt-get update -qq
-                fi
-              '
-            fi
-          fi
-        fi
+      # set custom mirror for CI
+      if [[ "$custom_mirror" = "true" && "$os" =~ ^"ubuntu-24.04".* ]]; then
+        echo "Copying custom mirror to container..."
+        docker cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $build_container:/etc/apt/sources.list.d/ubuntu.sources
       fi
 
       # Install ccache if enabled
