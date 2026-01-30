@@ -29,6 +29,7 @@
 #include "system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/parameters.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
@@ -41,11 +42,6 @@
 namespace memgraph::dbms {
 class DbmsHandler;
 }  // namespace memgraph::dbms
-
-namespace memgraph::utils {
-struct Parameters;
-struct Settings;
-}  // namespace memgraph::utils
 
 namespace memgraph::query {
 
@@ -128,8 +124,8 @@ class InterpreterContextHolder {
   }
 
  private:
-  static void Initialize(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-                         memgraph::utils::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+  static void Initialize(InterpreterConfig interpreter_config, utils::Settings *settings, utils::Parameters *parameters,
+                         dbms::DbmsHandler *dbms_handler,
                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
                          system::System &system,
 #ifdef MG_ENTERPRISE

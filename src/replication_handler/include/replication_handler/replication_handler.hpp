@@ -43,8 +43,6 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
                         utils::Parameters &parameters);
 #endif
 
-// Parameters replication works with or without MG_ENTERPRISE (full recovery when MAIN sends SystemRecoveryRpc).
-// Auth and dbms (multi-db) replication require MG_ENTERPRISE.
 // TODO: Split into 2 functions: dbms and auth
 // When being called by interpreter no need to gain lock, it should already be under a system transaction
 // But concurrently the FrequentCheck is running and will need to lock before reading last_committed_system_timestamp_
@@ -52,6 +50,11 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 template <bool REQUIRE_LOCK = false>
 void SystemRestore(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
                    const utils::UUID &main_uuid, auth::SynchedAuth &auth, utils::Parameters &parameters) {
+#else
+template <bool REQUIRE_LOCK = false>
+void SystemRestore(ReplicationClient &client, dbms::DbmsHandler &dbms_handler, const utils::UUID &main_uuid,
+                   utils::Parameters &parameters) {
+#endif
   // If the state was BEHIND, change it to RECOVERY, do the recovery process and change it to READY.
   // If the state was something else than BEHIND, return immediately.
   if (!client.state_.WithLock([](auto &state) {
@@ -92,6 +95,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
     auto const params_snapshot = utils::GetParametersSnapshotForRecovery(parameters);
     auto stream = std::invoke([&]() {
+#ifdef MG_ENTERPRISE
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                             db_info.last_committed_timestamp,
@@ -112,6 +116,16 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             locked_auth.AllProfiles(),
                                                             params_snapshot);
       });
+#else
+      return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                          db_info.last_committed_timestamp,
+                                                          std::move(db_info.configs),
+                                                          auth::Auth::Config{},
+                                                          std::vector<auth::User>{},
+                                                          std::vector<auth::Role>{},
+                                                          std::vector<auth::UserProfiles::Profile>{},
+                                                          params_snapshot);
+#endif
     });
     if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
@@ -121,52 +135,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
     return;
   }
-
-  // Successfully recovered
   client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
 }
-#else
-template <bool REQUIRE_LOCK = false>
-void SystemRestore(ReplicationClient &client, dbms::DbmsHandler &dbms_handler, const utils::UUID &main_uuid,
-                   utils::Parameters &parameters) {
-  (void)REQUIRE_LOCK;  // No system in community, lock not used
-  // If the state was BEHIND, change it to RECOVERY, do the recovery process and change it to READY.
-  if (!client.state_.WithLock([](auto &state) {
-        bool const is_behind = state == ReplicationClient::State::BEHIND;
-        if (is_behind) {
-          state = ReplicationClient::State::RECOVERY;
-        }
-        return is_behind;
-      })) {
-    return;
-  }
-
-  // Community: parameters replication only (single default config, empty auth, no system timestamp)
-  auto configs = std::vector<storage::SalientConfig>{{dbms_handler.Get()->config().salient}};
-  uint64_t const last_committed_timestamp = 0;
-  try {
-    utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
-    auto const params_snapshot = utils::GetParametersSnapshotForRecovery(parameters);
-    auto stream = client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
-                                                               last_committed_timestamp,
-                                                               std::move(configs),
-                                                               auth::Auth::Config{},
-                                                               std::vector<auth::User>{},
-                                                               std::vector<auth::Role>{},
-                                                               std::vector<auth::UserProfiles::Profile>{},
-                                                               params_snapshot);
-    if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
-      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-      return;
-    }
-  } catch (rpc::GenericRpcFailedException const &) {
-    client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-    return;
-  }
-
-  client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
-}
-#endif
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 struct ReplicationHandler : public query::ReplicationQueryHandler {

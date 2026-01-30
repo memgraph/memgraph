@@ -16,7 +16,6 @@
 
 #include "query/interpreter.hpp"
 #include "utils/parameters.hpp"
-#include "utils/settings.hpp"
 
 #include "system/include/system/system.hpp"
 #include "utils/resource_monitoring.hpp"

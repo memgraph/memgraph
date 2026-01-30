@@ -75,7 +75,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 #else
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
                         dbms::DbmsHandler &dbms_handler, utils::Parameters &parameters) {
-  // Startup replication state (if recovered at startup) – parameters RPCs registered for delta replication
+  // Startup replication state (if recovered at startup)
   auto replica = [&dbms_handler, &repl_state, &system, parameters](replication::RoleReplicaData &data) {
     return replication::StartRpcServer(dbms_handler, repl_state, data, system, parameters);
   };

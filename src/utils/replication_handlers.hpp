@@ -18,10 +18,9 @@
 namespace memgraph::utils {
 
 /// Applies parameter recovery snapshot from main (used by SystemRecoveryHandler).
-/// Works with or without license/enterprise. No-op if parameters is nullptr.
 bool ApplyParametersRecovery(Parameters &parameters, const std::vector<ParameterInfo> &params);
 
-/// Returns snapshot of all parameters for SystemRecoveryReq (main side). Works without license/enterprise.
+/// Returns snapshot of all parameters for SystemRecoveryReq (main side).
 std::vector<ParameterInfo> GetParametersSnapshotForRecovery(Parameters &parameters);
 
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,

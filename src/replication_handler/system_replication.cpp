@@ -58,7 +58,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;  // Failure sent on exit
 
   /*
-   * PARAMETERS (works without license/enterprise)
+   * PARAMETERS
    */
   if (!utils::ApplyParametersRecovery(parameters, req.parameters)) return;
 
@@ -88,7 +88,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   }
 
   /*
-   * PARAMETERS (community: parameters replication only)
+   * PARAMETERS
    */
   if (!utils::ApplyParametersRecovery(parameters, req.parameters)) return;
 
@@ -175,7 +175,6 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
 void Register(replication::RoleReplicaData const &data, system::System &system, utils::Parameters &parameters) {
   auto system_state_access = system.CreateSystemStateAccess();
 
-  // System recovery RPC (parameters only in community)
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&data, system_state_access, &parameters](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
