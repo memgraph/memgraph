@@ -119,7 +119,6 @@ DECLARE_string(pulsar_service_url);
 // Query flags.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_callable_mappings_path);

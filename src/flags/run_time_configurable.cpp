@@ -534,8 +534,10 @@ std::string GetQueryLogDirectory() {
 bool GetAlsoLogToStderr() {
   std::string v;
   gflags::GetCommandLineOption(kLogToStderrGFlagsKey, &v);
-  constexpr auto always_true = "true";
-  return v == always_true;
+  if (!ValidBoolStr(v).has_value()) {
+    throw std::invalid_argument("Wrong value provided for the --also-log-to-stderr value");
+  }
+  return v == "true";
 }
 
 auto GetAwsAccessKey() -> std::string {
