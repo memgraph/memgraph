@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -150,8 +151,13 @@ struct HashPair {
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
+                      const Parameters &parameters)
+      : symbol_table_(symbol_table),
+        ast_storage_(ast_storage),
+        db_(db),
+        index_hints_(std::move(index_hints)),
+        parameters_(parameters) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -367,17 +373,66 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
-    // With expand to existing we only get real gains with BFS, because we use a
-    // different algorithm then, so prefer expand to existing.
-    // TODO: Perhaps take average node degree into consideration, instead of
-    // unconditionally creating an indexed scan.
-    std::unique_ptr<LogicalOperator> indexed_scan =
-        expand.type_ == EdgeAtom::Type::BREADTH_FIRST
-            ? GenScanByIndex(dst_scan)
-            : GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    if (indexed_scan) {
-      expand.set_input(std::move(indexed_scan));
-      expand.common_.existing_node = true;
+
+    // Check if we have indexes for both source and destination
+    // We only use STShortestPath if we know both cardinalities (both have indexes)
+    bool source_has_index = HasIndexedSource(expand.input());
+
+    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
+      // For BFS: store cardinalities and destination filters for BFSCursor to decide algorithm
+      std::unique_ptr<LogicalOperator> indexed_scan = nullptr;
+      bool destination_has_index = false;
+      Expression *destination_filter_expr = nullptr;
+
+      if (source_has_index) {
+        // Collect destination filter expressions before GenScanByIndex removes them
+        std::vector<Expression *> destination_filters;
+
+        // Collect property filters for destination node
+        for (const auto &filter_info : filters_.PropertyFilters(expand.common_.node_symbol)) {
+          destination_filters.push_back(filter_info.expression);
+        }
+
+        // Collect ID filters for destination node
+        for (const auto &filter_info : filters_.IdFilters(expand.common_.node_symbol)) {
+          destination_filters.push_back(filter_info.expression);
+        }
+
+        // Collect point filters for destination node
+        for (const auto &filter_info : filters_.PointFilters(expand.common_.node_symbol)) {
+          destination_filters.push_back(filter_info.expression);
+        }
+
+        // Combine destination filters into a single expression if there are any
+        if (!destination_filters.empty()) {
+          destination_filter_expr = destination_filters[0];
+          for (size_t i = 1; i < destination_filters.size(); ++i) {
+            destination_filter_expr =
+                ast_storage_->Create<AndOperator>(destination_filter_expr, destination_filters[i]);
+          }
+        }
+
+        // Try to create indexed scan for destination
+        indexed_scan = GenScanByIndex(dst_scan);
+        destination_has_index = (indexed_scan != nullptr);
+
+        if (destination_has_index) {
+          // Use indexed scan - BFSCursor will estimate cardinalities at runtime and decide algorithm
+          expand.set_input(std::move(indexed_scan));
+          expand.common_.existing_node = true;
+        } else {
+          // Only source has index, store destination filter for single-source BFS
+          expand.destination_filter_expression_ = destination_filter_expr;
+        }
+      }
+    } else {
+      // For non-BFS: use indexed scan if available (existing behavior)
+      std::unique_ptr<LogicalOperator> indexed_scan =
+          GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+      if (indexed_scan) {
+        expand.set_input(std::move(indexed_scan));
+        expand.common_.existing_node = true;
+      }
     }
     return true;
   }
@@ -846,6 +901,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
   IndexHints index_hints_;
+  const Parameters &parameters_;
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
@@ -907,7 +963,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_, parameters_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -1361,6 +1417,67 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_group;
   }
 
+  // Checks if the input operator uses an index (indicating we know the source cardinality).
+  bool HasIndexedSource(std::shared_ptr<LogicalOperator> input_op) {
+    // TODO(ivan): check that operator is replaced by an indexed scan operator here already
+    if (!input_op) {
+      return false;
+    }
+    const auto &type_info = input_op->GetTypeInfo();
+    // if the input is filtered, we need to check if the filter uses an index
+    if (type_info == Filter::kType) {
+      return HasIndexedSource(input_op->input());
+    }
+
+    return type_info == ScanAllByLabel::kType || type_info == ScanAllByLabelProperties::kType ||
+           type_info == ScanAllById::kType;
+  }
+
+  // Estimates cardinality for indexed scan operators only.
+  // Since we only call this when we know the operator uses an index, we only need
+  // to handle the indexed scan operator types.
+  double EstimateIndexedScanCardinality(LogicalOperator *op) {
+    MG_ASSERT(op, "Input operator is null");
+
+    const auto &type_info = op->GetTypeInfo();
+    if (type_info == ScanAllById::kType) {
+      return 1.0;
+    }
+    if (type_info == ScanAllByLabel::kType) {
+      auto *scan_op = dynamic_cast<ScanAllByLabel *>(op);
+      return static_cast<double>(db_->VerticesCount(scan_op->label_));
+    }
+    if (type_info == ScanAllByLabelProperties::kType) {
+      auto *scan_op = dynamic_cast<ScanAllByLabelProperties *>(op);
+
+      auto maybe_propertyvalue_ranges =
+          scan_op->expression_ranges_ | ranges::views::transform([&](ExpressionRange const &er) {
+            return er.ResolveAtPlantime(parameters_, db_->GetStorageAccessor()->GetNameIdMapper());
+          }) |
+          ranges::to_vector;
+
+      auto cardinality = std::invoke([&]() -> double {
+        if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+          auto propertyvalue_ranges = maybe_propertyvalue_ranges |
+                                      ranges::views::transform([](auto &&optional) { return *optional; }) |
+                                      ranges::to_vector;
+
+          return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
+        }
+        // no values, but we still have the label + properties
+        // use basic count without property ranges (ranges depend on runtime parameters)
+        return db_->VerticesCount(scan_op->label_, scan_op->properties_);
+      });
+      return static_cast<double>(cardinality);
+    }
+    // For other operators, traverse to find the underlying scan
+    // This handles cases like Filter -> ScanAllByLabel
+    if (op->HasSingleInput()) {
+      return EstimateIndexedScanCardinality(op->input().get());
+    }
+    MG_ASSERT(false, "Unknown indexed scan operator type");
+  }
+
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
   // does not have at least a label, no indexed lookup can be created and
   // `nullptr` is returned. The operator is chained after `input`. Optional
@@ -1544,8 +1661,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (!or_labels.empty()) {
       auto best_group = FindBestIndexGroup(node_symbol, bound_symbols, or_labels);
-      // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain it
-      // in unions
+      // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain
+      // it in unions
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
         std::unique_ptr<LogicalOperator> prev;
         std::vector<LabelIx> labels_to_erase;
@@ -1624,8 +1741,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db, IndexHints index_hints) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
+                                                        TDbAccessor *db, IndexHints index_hints,
+                                                        const Parameters &parameters) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter

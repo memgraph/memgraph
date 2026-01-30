@@ -1939,7 +1939,8 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       filter_lambda_(std::move(filter_lambda)),
       weight_lambda_(std::move(weight_lambda)),
       total_weight_(std::move(total_weight)),
-      limit_(limit) {
+      limit_(limit),
+      destination_filter_expression_(nullptr) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
                  type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
                  type_ == EdgeAtom::Type::KSHORTEST,
@@ -2275,19 +2276,162 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-class STShortestPathCursor : public query::plan::Cursor {
- public:
-  STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
-    MG_ASSERT(self_.common_.existing_node,
-              "s-t shortest path algorithm should only "
-              "be used when `existing_node` flag is "
-              "set!");
+namespace {
+// Estimates whether bidirectional BFS is beneficial compared to single-source BFS.
+// assumes bidirectional BFS is source*destination complexity
+bool ShouldUseBidirectionalBFS(double S, double T, EdgeAtom::Direction direction, DbAccessor *db_accessor) {
+  if (S == 0 || T == 0) return false;
+
+  const double V = db_accessor->VerticesCount();
+  const double E = db_accessor->EdgesCount();
+  if (V == 0 || E == 0) return false;
+
+  // 1. Pair explosion guard
+  if (S * T > 1024) return false;
+
+  // 2. Balance heuristic
+  const double ratio = std::max(S, T) / std::min(S, T);
+  if (ratio > 4.0) return false;
+
+  // 3. Branching factor (cheap structural hint)
+  const bool undirected = (direction == EdgeAtom::Direction::BOTH);
+  const double b = undirected ? (2.0 * E / V) : (E / V);
+
+  // If graph is chain-like or tree-like, bidirectional shines
+  if (b <= 2.0) return true;
+
+  // 4. Otherwise fall back to conservative math
+  double d = std::log(V) / std::log(std::max(b, 1.01));
+  d = std::clamp(d, 2.0, 12.0);
+
+  return T < std::pow(b, d / 2.0) / 8.0;
+}
+
+// Estimates cardinality for indexed scan operators at runtime.
+// Similar to EstimateIndexedScanCardinality but uses runtime DbAccessor and evaluates expressions.
+double EstimateIndexedScanCardinalityRuntime(LogicalOperator *op, ExpressionEvaluator *evaluator,
+                                             DbAccessor *db_accessor) {
+  if (!op) return 0.0;
+
+  const auto &type_info = op->GetTypeInfo();
+  if (type_info == ScanAllById::kType) {
+    return 1.0;
   }
+  if (type_info == ScanAllByLabel::kType) {
+    auto *scan_op = dynamic_cast<ScanAllByLabel *>(op);
+    return static_cast<double>(db_accessor->VerticesCount(scan_op->label_));
+  }
+  if (type_info == ScanAllByLabelProperties::kType) {
+    auto *scan_op = dynamic_cast<ScanAllByLabelProperties *>(op);
+
+    // Evaluate expression ranges at runtime
+    std::vector<storage::PropertyValueRange> propertyvalue_ranges;
+    propertyvalue_ranges.reserve(scan_op->expression_ranges_.size());
+    for (const auto &er : scan_op->expression_ranges_) {
+      propertyvalue_ranges.push_back(er.Evaluate(*evaluator));
+    }
+
+    auto cardinality = db_accessor->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
+    return static_cast<double>(cardinality);
+  }
+  // For other operators, traverse to find the underlying scan
+  // This handles cases like Filter -> ScanAllByLabel
+  if (op->HasSingleInput()) {
+    return EstimateIndexedScanCardinalityRuntime(op->input().get(), evaluator, db_accessor);
+  }
+  // Fallback: return 0 if we can't estimate
+  return 0.0;
+}
+}  // namespace
+
+// Unified BFS cursor for SingleSourceShortestPath and STShortestPath
+// STShortestPath is bidirectional
+class BFSCursor : public query::plan::Cursor {
+ public:
+  enum class AlgorithmType : uint8_t { SingleSource, Bidirectional };
+
+  BFSCursor(const ExpandVariable &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self_.input()->MakeCursor(mem)),
+        processed_(mem),
+        to_visit_next_(mem),
+        to_visit_current_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    // Determine algorithm type based on runtime cardinality estimates
+    // Note: bidirectional requires existing_node=true (destination must be in frame)
+
+    if (!algorithm_type_ && self_.common_.existing_node) {
+      algorithm_type_ = AlgorithmType::SingleSource;
+
+      // estimate cardinalities at runtime
+      ExpressionEvaluator evaluator(&frame,
+                                    context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor,
+                                    storage::View::OLD,
+                                    nullptr,
+                                    &context.number_of_hops,
+                                    context.user_or_role);
+
+      // When existing_node is true, the input() is the destination scan operator
+      // The source scan operator is the input of the destination scan
+      double destination_cardinality =
+          EstimateIndexedScanCardinalityRuntime(self_.input().get(), &evaluator, context.db_accessor);
+      double source_cardinality = 0.0;
+
+      // Estimate source cardinality from the source operator (input of destination scan)
+      if (self_.input() && self_.input()->HasSingleInput()) {
+        source_cardinality =
+            EstimateIndexedScanCardinalityRuntime(self_.input()->input().get(), &evaluator, context.db_accessor);
+      }
+
+      if (source_cardinality > 0 && destination_cardinality > 0) {
+        if (ShouldUseBidirectionalBFS(
+                source_cardinality, destination_cardinality, self_.common_.direction, context.db_accessor)) {
+          algorithm_type_ = AlgorithmType::Bidirectional;
+        }
+      }
+    } else if (!algorithm_type_) {
+      algorithm_type_ = AlgorithmType::SingleSource;
+    }
+
+    if (algorithm_type_ == AlgorithmType::Bidirectional) {
+      return PullBidirectional(frame, context);
+    } else {
+      return PullSingleSource(frame, context);
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    processed_.clear();
+    to_visit_next_.clear();
+    to_visit_current_.clear();
+  }
+
+ private:
+  const ExpandVariable &self_;
+  UniqueCursorPtr input_cursor_;
+  // cache for algorithm type to avoid re-evaluating it on every Pull
+  std::optional<AlgorithmType> algorithm_type_;
+
+  // Member variables for SingleSource algorithm
+  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>> processed_;
+  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
+  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
+  int64_t lower_bound_{-1};
+  int64_t upper_bound_{-1};
+
+  // Type alias for ST algorithm
+  using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+
+  // Bidirectional algorithm implementation (bidirectional BFS)
+  bool PullBidirectional(Frame &frame, ExecutionContext &context) {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("STShortestPath");
+    SCOPED_PROFILE_OP("BFS");
 
     AbortCheck(context);
 
@@ -2320,25 +2464,15 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       if (upper_bound < 1 || lower_bound > upper_bound) continue;
 
-      if (FindPath(source, sink, lower_bound, upper_bound, &frame, &evaluator, context)) {
+      if (FindPathBidirectional(source, sink, lower_bound, upper_bound, &frame, &evaluator, context)) {
         return true;
       }
     }
     return false;
   }
 
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override { input_cursor_->Reset(); }
-
- private:
-  const ExpandVariable &self_;
-  UniqueCursorPtr input_cursor_;
-
-  using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
-
-  void ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge, const VertexEdgeMapT &out_edge,
-                       Frame *frame, ExecutionContext &ctx) {
+  void ReconstructPathBidirectional(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
+                                    const VertexEdgeMapT &out_edge, Frame *frame, ExecutionContext &ctx) {
     utils::pmr::vector<TypedValue> result(ctx.evaluation_context.memory);
     auto last_vertex = midpoint;
     while (true) {
@@ -2359,8 +2493,8 @@ class STShortestPathCursor : public query::plan::Cursor {
     frame_writer.WriteAt(self_.common_.edge_symbol, std::move(result));
   }
 
-  bool ShouldExpand(const VertexAccessor &vertex, const EdgeAccessor &edge, Frame *frame,
-                    ExpressionEvaluator *evaluator, ExecutionContext &context) {
+  bool ShouldExpandBidirectional(const VertexAccessor &vertex, const EdgeAccessor &edge, Frame *frame,
+                                 ExpressionEvaluator *evaluator, ExecutionContext &context) {
     if (!self_.filter_lambda_.expression) return true;
 
     auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -2375,8 +2509,9 @@ class STShortestPathCursor : public query::plan::Cursor {
     throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
   }
 
-  bool FindPath(const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound, int64_t upper_bound,
-                Frame *frame, ExpressionEvaluator *evaluator, ExecutionContext &context) {
+  bool FindPathBidirectional(const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound,
+                             int64_t upper_bound, Frame *frame, ExpressionEvaluator *evaluator,
+                             ExecutionContext &context) {
     if (source == sink) return false;
 
     // We expand from both directions, both from the source and the sink.
@@ -2428,11 +2563,11 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(edge.To(), edge, frame, evaluator, context) && !in_edge.contains(edge.To())) {
+            if (ShouldExpandBidirectional(edge.To(), edge, frame, evaluator, context) && !in_edge.contains(edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (out_edge.contains(edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
+                  ReconstructPathBidirectional(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2455,11 +2590,12 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(edge.From(), edge, frame, evaluator, context) && !in_edge.contains(edge.From())) {
+            if (ShouldExpandBidirectional(edge.From(), edge, frame, evaluator, context) &&
+                !in_edge.contains(edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (out_edge.contains(edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
+                  ReconstructPathBidirectional(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2497,11 +2633,11 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.To())) {
+            if (ShouldExpandBidirectional(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.To())) {
               out_edge.emplace(edge.To(), edge);
               if (in_edge.contains(edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
+                  ReconstructPathBidirectional(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2524,11 +2660,11 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.From())) {
+            if (ShouldExpandBidirectional(vertex, edge, frame, evaluator, context) && !out_edge.contains(edge.From())) {
               out_edge.emplace(edge.From(), edge);
               if (in_edge.contains(edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
+                  ReconstructPathBidirectional(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2545,24 +2681,9 @@ class STShortestPathCursor : public query::plan::Cursor {
       std::swap(sink_frontier, sink_next);
     }
   }
-};
 
-class SingleSourceShortestPathCursor : public query::plan::Cursor {
- public:
-  SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input()->MakeCursor(mem)),
-        processed_(mem),
-        to_visit_next_(mem),
-        to_visit_current_(mem) {
-    MG_ASSERT(!self_.common_.existing_node,
-              "Single source shortest path algorithm "
-              "should not be used when `existing_node` "
-              "flag is set, s-t shortest path algorithm "
-              "should be used instead!");
-  }
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  // SingleSource algorithm implementation
+  bool PullSingleSource(Frame &frame, ExecutionContext &context) {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("SingleSourceShortestPath");
 
@@ -2730,6 +2851,21 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
+      // Apply destination filter if present (for single-source BFS)
+      if (self_.destination_filter_expression_) {
+        frame_writer.Write(self_.common_.node_symbol, curr_vertex);
+        TypedValue result = self_.destination_filter_expression_->Accept(evaluator);
+        switch (result.type()) {
+          case TypedValue::Type::Null:
+            continue;  // Skip this destination if filter evaluates to null
+          case TypedValue::Type::Bool:
+            if (!result.ValueBool()) continue;  // Skip if filter evaluates to false
+            break;
+          default:
+            throw QueryRuntimeException("Destination filter condition must evaluate to boolean or null.");
+        }
+      }
+
       frame_writer.Write(self_.common_.node_symbol, curr_vertex);
 
       // place edges on the frame in the correct order
@@ -2739,32 +2875,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       return true;
     }
   }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    processed_.clear();
-    to_visit_next_.clear();
-    to_visit_current_.clear();
-  }
-
- private:
-  const ExpandVariable &self_;
-  const UniqueCursorPtr input_cursor_;
-
-  // Depth bounds. Calculated on each pull from the input, the initial value
-  // is irrelevant.
-  int64_t lower_bound_{-1};
-  int64_t upper_bound_{-1};
-
-  // maps vertices to the edge they got expanded from. it is an optional
-  // edge because the root does not get expanded from anything.
-  // contains visited vertices as well as those scheduled to be visited.
-  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>> processed_;
-  // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
-  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
-  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
 };
 
 namespace {
@@ -4083,11 +4193,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
 
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
-      if (common_.existing_node) {
-        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem);
-      } else {
-        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-      }
+      return MakeUniqueCursorPtr<BFSCursor>(mem, *this, mem);
     case EdgeAtom::Type::DEPTH_FIRST:
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
@@ -4139,20 +4245,23 @@ std::string_view ExpandVariable::OperatorName() const {
   using namespace std::string_view_literals;
   using Type = query::EdgeAtom::Type;
   switch (type_) {
-    case Type::DEPTH_FIRST:
+    case Type::DEPTH_FIRST: {
       return "ExpandVariable"sv;
-    case Type::BREADTH_FIRST:
-      return (common_.existing_node ? "STShortestPath"sv : "BFSExpand"sv);
+    }
+    case Type::BREADTH_FIRST: {
+      return "BFS"sv;
+    }
     case Type::WEIGHTED_SHORTEST_PATH:
       return "WeightedShortestPath"sv;
-    case Type::ALL_SHORTEST_PATHS:
+    case Type::ALL_SHORTEST_PATHS: {
       return "AllShortestPaths"sv;
-    case Type::KSHORTEST:
+    }
+    case Type::KSHORTEST: {
       return "KShortest"sv;
-    case Type::SINGLE:
+    }
+    default: {
       LOG_FATAL("Unexpected ExpandVariable::type_");
-    default:
-      LOG_FATAL("Unexpected ExpandVariable::type_");
+    }
   }
 }
 

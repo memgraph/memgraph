@@ -1154,6 +1154,9 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
 
+  /// Optional destination filter expression for single-source BFS (when bidirectional is not used).
+  Expression *destination_filter_expression_{nullptr};
+
   std::string_view OperatorName() const;
 
   std::string ToString() const override;
