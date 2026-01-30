@@ -1,0 +1,8 @@
+query: >
+  CALL mg_semantics.nsprefixes_list() YIELD prefix, namespace
+  WHERE prefix = "rdf"
+  RETURN prefix, namespace;
+
+output:
+  - prefix: "rdf"
+    namespace: "http://www.w3.org/1999/02/22-rdf-syntax-ns#"

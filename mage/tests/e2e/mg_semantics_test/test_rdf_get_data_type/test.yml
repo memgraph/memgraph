@@ -1,0 +1,5 @@
+query: >
+  RETURN mg_semantics.rdf_get_data_type("42^^xsd__integer") AS datatype;
+
+output:
+  - datatype: "xsd__integer"

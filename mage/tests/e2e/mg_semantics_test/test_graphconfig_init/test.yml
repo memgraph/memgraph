@@ -1,0 +1,7 @@
+query: >
+  CALL mg_semantics.graphconfig_init() YIELD param, value
+  WITH param, value ORDER BY param
+  RETURN collect([param, value]) AS config;
+
+output:
+  - config: [["applyNeo4jNaming", false], ["customDataTypePropList", []], ["handleMultival", "OVERWRITE"], ["handleRDFTypes", "LABELS"], ["handleVocabUris", "SHORTEN"], ["keepCustomDataTypes", false], ["keepLangTag", false], ["multivalPropList", []], ["predicateExclusionList", []], ["typesToLabels", true]]

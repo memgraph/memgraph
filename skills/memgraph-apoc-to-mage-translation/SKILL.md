@@ -80,7 +80,20 @@ This allows users to call either:
 - `CALL apoc.map.flatten(...)` (Neo4j syntax - via alias)
 - `CALL map.flatten(...)` (Memgraph native syntax)
 
-### Step 6: Create End-to-End Tests
+### Step 6: Add Dependencies (if needed)
+
+If your module requires external Python packages (e.g., `rdflib` for RDF parsing, `requests` for HTTP calls), add them to `mage/python/requirements.txt`:
+
+```
+mage/python/requirements.txt
+```
+
+**Important:**
+- Use specific version pins (e.g., `rdflib==7.1.1`, not just `rdflib`)
+- Check if the dependency is already in the file before adding
+- Prefer using the package manager to find the latest stable version
+
+### Step 7: Create End-to-End Tests
 
 Create tests in `mage/tests/e2e/<module>_test/` using:
 - Examples from the Neo4j documentation as test cases
@@ -336,24 +349,32 @@ mage/python/
         └── helpers.py
 ```
 
-**After creating the module, update the alias mappings:**
+**After creating the module, update these files as needed:**
 
 ```
 config/
 └── mappings.json           # Add Neo4j → Memgraph name mappings
+
+mage/python/
+└── requirements.txt        # Add new Python dependencies (if any)
 ```
 
 ### Complete Workflow Example
 
 1. **Create module:** `mage/python/rdf_util.py`
 2. **Define function:** `def fetch(...)` → callable as `rdf_util.fetch(...)`
-3. **Add mapping to `config/mappings.json`:**
+3. **Add dependencies to `mage/python/requirements.txt`** (if needed):
+   ```
+   rdflib==7.1.1
+   requests==2.32.3
+   ```
+4. **Add mapping to `config/mappings.json`:**
    ```json
    {
        "n10s.rdf.import.fetch": "rdf_util.fetch"
    }
    ```
-4. Now both work:
+5. Now both work:
    - `CALL n10s.rdf.import.fetch(...)` (Neo4j syntax)
    - `CALL rdf_util.fetch(...)` (Memgraph syntax)
 
