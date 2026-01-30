@@ -101,6 +101,11 @@ add_unit_test(query_expression_evaluator
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_frame_change
+    SOURCES query_frame_change.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_cache
     SOURCES query_cache.cpp
     LINK_TARGETS mg-query
@@ -108,6 +113,11 @@ add_unit_test(query_cache
 
 add_unit_test(query_plan
     SOURCES query_plan.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_parallel_plan
+    SOURCES query_parallel_plan.cpp
     LINK_TARGETS mg-query
 )
 
@@ -477,6 +487,11 @@ add_unit_test(utils_settings
     LINK_TARGETS mg-utils mg-settings
 )
 
+add_unit_test(utils_shared_quota
+    SOURCES utils_shared_quota.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_temporal
     SOURCES utils_temporal.cpp
     LINK_TARGETS mg-utils mg-flags
@@ -550,6 +565,11 @@ add_unit_test(storage_v2_acc
 
 add_unit_test(storage_v2_chunk_iterator
     SOURCES storage_v2_chunk_iterator.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
+add_unit_test(db_accessor_chunked_test
+    SOURCES db_accessor_chunked_test.cpp
     LINK_TARGETS mg-query storage_test_utils
 )
 

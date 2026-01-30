@@ -70,6 +70,7 @@ def main():
     add_argument("--stats-file", default="", help="statistics output file")
     add_argument("--storage-mode", help="Memgraph storage mode")
     add_argument("--scenario", help="Single scenario to run")
+    add_argument("--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to read queries")
 
     # Parse arguments
     parsed_args = argp.parse_args()

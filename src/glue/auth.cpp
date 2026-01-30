@@ -73,6 +73,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::IMPERSONATE_USER;
     case query::AuthQuery::Privilege::PROFILE_RESTRICTION:
       return auth::Permission::PROFILE_RESTRICTION;
+    case query::AuthQuery::Privilege::PARALLEL_EXECUTION:
+      return auth::Permission::PARALLEL_EXECUTION;
   }
 }
 

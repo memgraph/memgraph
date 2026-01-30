@@ -11,31 +11,52 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
+
+#include "utils/shared_quota.hpp"
 
 namespace memgraph::query {
 
 struct HopsLimit {
-  std::optional<int64_t> limit;
-  int64_t hops_counter{0};
-  bool limit_reached{false};
+  std::optional<int64_t> limit{std::nullopt};
+  int64_t batch{0};
+  std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
+  bool is_limit_reached{false};
+
+  HopsLimit() = default;
+
+  HopsLimit(int64_t limit, int64_t batch)
+      : limit(limit), batch(batch), shared_quota_{std::in_place, limit, std::max(batch, 1L)} {}
 
   bool IsUsed() const { return limit.has_value(); }
 
-  int64_t GetLimit() const { return *limit; }
+  int64_t GetLimit() const { return limit.value(); }
 
-  int64_t GetHopsCounter() const { return hops_counter; }
+  bool IsLimitReached() const { return is_limit_reached; }
 
-  bool IsLimitReached() const { return limit_reached; }
+  // Used for multi-threaded execution where each thread needs to free its left quota.
+  void Free() {
+    if (shared_quota_) shared_quota_->Free();
+  }
 
-  int64_t LeftHops() const { return *limit - hops_counter; }
+  // Return the number of available hops (or consumed amount which behaves similarly for check > 0)
+  int64_t IncrementHopsCount(int64_t increment = 1) {
+    if (IsUsed()) {
+      if (is_limit_reached) return 0;
 
-  void IncrementHopsCount(int64_t increment) {
-    if (limit) {
-      hops_counter += increment;
-      limit_reached = hops_counter > *limit;
+      if (!shared_quota_) {
+        shared_quota_.emplace(limit.value(), std::max(batch, 1L));
+      }
+
+      auto consumed = shared_quota_->Decrement(increment);
+      if (consumed < increment) {
+        is_limit_reached = true;
+      }
+      return consumed;
     }
+    return increment;
   }
 };
 

@@ -76,6 +76,7 @@ target_sources(mg-query
     plan_v2/egraph.cpp
     plan_v2/ast_converter.cpp
     plan_v2/egraph_converter.cpp
+    plan/parallel_checker.cpp
     procedure/mg_procedure_impl.cpp
     procedure/callable_alias_mapper.cpp
     procedure/cypher_types.cpp
@@ -127,6 +128,8 @@ target_sources(mg-query
     plan/point_distance_condition.hpp
     plan/read_write_type_checker.hpp
     plan/rewrite/enum.hpp
+    plan/rewrite/parallel_rewrite.hpp
+    plan/parallel_checker.hpp
     plan/used_index_checker.hpp
     procedure/cypher_types.hpp
     string_helpers.hpp

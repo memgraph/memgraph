@@ -85,6 +85,14 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool HasAllGlobalPrivilegesOnEdges() const override;
 
+  void MakeThreadSafe() const override;
+  bool IsThreadSafe() const override;
+
+  // Used to force the cache to be populated
+  // Once populated, the cache is not invalidated and allows multi-threaded access
+  void PopulateCachedPermissions() const;
+  bool IsCachedPermissionsPopulated() const;
+
  private:
   auth::FineGrainedAccessPermissions const &GetCachedLabelPermissions() const;
   auth::FineGrainedAccessPermissions const &GetCachedEdgePermissions() const;
