@@ -54,6 +54,12 @@ else
 fi
 
 if [ "$CI" = true ]; then
+  # take torch from the wheel house if the cache is present
+  if [ "$CACHE_PRESENT" = "true" ]; then
+    echo "Installing torch from wheel cache"
+    python3 -m pip install --no-cache-dir --no-index --find-links=$WHEEL_CACHE_DIR torch
+  fi
+
   # for building the docker image
   python3 -m pip install --no-cache-dir -r "/tmp/${requirements_file}"
   python3 -m pip install --no-cache-dir -r /tmp/auth_module-requirements.txt

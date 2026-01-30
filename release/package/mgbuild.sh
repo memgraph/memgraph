@@ -1390,6 +1390,12 @@ package_mage_docker() {
     docker_target="prod"
   fi
 
+  if [[ "$cugraph" = "true" ]]; then
+    dockerfile="Dockerfile.cugraph"
+  else
+    dockerfile="Dockerfile.release"
+  fi
+
   echo -e "${YELLOW_BOLD}build options:"
   echo -e "  docker_repository_name: $docker_repository_name"
   echo -e "  image_tag: $image_tag"
@@ -1415,12 +1421,12 @@ package_mage_docker() {
     --target $docker_target \
     --platform linux/${arch}64 \
     --tag ${docker_repository_name}:$image_tag \
-    --file Dockerfile.release \
+    --file $dockerfile \
     --build-arg MEMGRAPH_REF=$memgraph_ref \
     --build-arg BUILD_TYPE=$build_type \
     --build-arg CACHE_PRESENT=$cache_present \
     --build-arg CUSTOM_MIRROR=$custom_mirror \
-    --load .
+    --load . --progress=plain
 
   # print the image size in both SI and IEC units
   $PROJECT_ROOT/tools/ci/print_image_size.sh ${docker_repository_name} $image_tag
