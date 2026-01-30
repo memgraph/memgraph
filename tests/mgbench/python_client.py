@@ -390,10 +390,14 @@ def main():
         throughput = raw_throughput = count / final_duration
 
     latency_stats = calculate_latency_statistics(results)
+    execution_times = []
+    for worker_result in results:
+        execution_times.extend(worker_result["latencies"])
 
     summary = {
         "count": count,
         "duration": final_duration,
+        "execution_times": execution_times,
         "latency_stats": latency_stats,
         "metadata": {},
         "num_workers": args.num_workers,

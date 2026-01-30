@@ -236,7 +236,7 @@ class BoltClient(BaseClient):
                     json.dump(query, f)
                     f.write("\n")
 
-        args = self._get_args(
+        kwargs = dict(
             input=file_path,
             num_workers=num_workers,
             max_retries=max_retries,
@@ -249,6 +249,9 @@ class BoltClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
             databases=self._databases,
         )
+        if getattr(self.benchmark_context, "detailed_stats", None):
+            kwargs["detailed_stats"] = self.benchmark_context.detailed_stats
+        args = self._get_args(**kwargs)
 
         log.info("Client args: {}".format(args))
 
@@ -392,7 +395,7 @@ class BoltClientDocker(BaseClient):
         # Query file JSON or Cypher
         file = Path(file_path)
 
-        args = self._get_args(
+        kwargs = dict(
             address=ip,
             input="/bin/" + file.name,
             num_workers=num_workers,
@@ -404,6 +407,9 @@ class BoltClientDocker(BaseClient):
             validation=validation,
             time_dependent_execution=time_dependent_execution,
         )
+        if getattr(self.benchmark_context, "detailed_stats", None):
+            kwargs["detailed_stats"] = self.benchmark_context.detailed_stats
+        args = self._get_args(**kwargs)
 
         self._create_container(*args)
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,9 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <numeric>
+#include <optional>
 #include <ostream>
 #include <random>
 #include <string>
@@ -65,6 +67,9 @@ DEFINE_int64(time_dependent_execution, 0,
              "Time-dependent executions execute the queries for a specified number of seconds."
              "If all queries are executed, and there is still time, queries are rerun again."
              "If the time runs out, the client is done with the job and returning results.");
+DEFINE_string(detailed_stats, "",
+              "If set to a directory path (e.g. /tmp), write mgbench round-trip times and server "
+              "summary times (parsing+planning+plan_execution) to two files in that directory for comparison.");
 
 using bolt_map_t = memgraph::communication::bolt::map_t;
 
@@ -102,6 +107,52 @@ std::pair<bolt_map_t, uint64_t> ExecuteNTimesTillSuccess(memgraph::communication
     }
   }
   LOG_FATAL("Could not execute query '{}' {} times!", query, max_attempts);
+}
+
+/// Extract run_id from server summary (metadata) if present; Memgraph sends it with every query.
+std::optional<std::string> GetRunIdFromMetadata(const bolt_map_t &metadata) {
+  auto it = metadata.find("run_id");
+  if (it != metadata.end() && it->second.IsString()) return it->second.ValueString();
+  return std::nullopt;
+}
+
+/// Extract numeric value from server summary (for parsing_time, planning_time, plan_execution_time).
+double GetSummaryDouble(const bolt_map_t &metadata, const std::string &key) {
+  auto it = metadata.find(key);
+  if (it == metadata.end()) return 0.0;
+  if (it->second.IsDouble()) return it->second.ValueDouble();
+  if (it->second.IsInt()) return static_cast<double>(it->second.ValueInt());
+  return 0.0;
+}
+
+/// Write detailed stats to two files when --detailed_stats is set (only if more than one execution).
+/// round_trip_times and summary_times are in seconds (Timer::Elapsed().count() and server summary).
+void WriteDetailedStatsIfRequested(const std::string &run_id, const std::vector<double> &round_trip_times,
+                                   const std::vector<double> &summary_times) {
+  if (FLAGS_detailed_stats.empty()) return;
+  if (round_trip_times.size() <= 1u) return;
+  try {
+    auto dir = std::filesystem::path(FLAGS_detailed_stats);
+    if (!std::filesystem::is_directory(dir)) std::filesystem::create_directories(dir);
+    auto round_trip_path = dir / "mgbench_round_trip_times.txt";
+    auto summary_path = dir / "mgbench_summary_times.txt";
+    for (const auto &[file_path, times_ptr] :
+         std::vector<std::pair<std::filesystem::path, const std::vector<double> *>>{
+             {round_trip_path, &round_trip_times}, {summary_path, &summary_times}}) {
+      std::ofstream out(file_path, std::ios::app);
+      if (!out.is_open()) continue;
+      out << "=== " << file_path.stem().string() << " (Run ID: " << run_id << ") ===\n";
+      out << "Execution times (seconds): ";
+      for (size_t i = 0; i < times_ptr->size(); ++i) {
+        out << (*times_ptr)[i];
+        if (i < times_ptr->size() - 1) out << ", ";
+      }
+      out << "\n\n";
+      out.flush();
+    }
+  } catch (const std::exception &e) {
+    spdlog::warn("Failed to write detailed stats: {}", e.what());
+  }
 }
 
 // Validation returns results and metadata
@@ -254,6 +305,9 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   std::vector<Metadata> worker_metadata(FLAGS_num_workers, Metadata());
   std::vector<double> worker_duration(FLAGS_num_workers, 0.0);
   std::vector<std::vector<double>> worker_query_durations(FLAGS_num_workers);
+  std::vector<std::vector<double>> worker_summary_times(FLAGS_num_workers);
+  std::string server_run_id;
+  std::mutex server_run_id_mutex;
 
   // Start workers and execute queries.
   auto size = queries.size();
@@ -277,6 +331,7 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
       auto &metadata = worker_metadata[worker];
       auto &duration = worker_duration[worker];
       auto &query_duration = worker_query_durations[worker];
+      auto &summary_times = worker_summary_times[worker];
 
       // After all threads have been initialised, start the workload timer
       if (!start_workload_timer.load()) {
@@ -299,6 +354,14 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
         query_duration.emplace_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
+        if (auto run_id = GetRunIdFromMetadata(ret.first)) {
+          std::lock_guard<std::mutex> lock(server_run_id_mutex);
+          if (server_run_id.empty()) server_run_id = *run_id;
+        }
+        double sum_summary = GetSummaryDouble(ret.first, "parsing_time") +
+                             GetSummaryDouble(ret.first, "planning_time") +
+                             GetSummaryDouble(ret.first, "plan_execution_time");
+        summary_times.push_back(sum_summary);
         duration = worker_timer.Elapsed().count();
       }
       client.Close();
@@ -324,8 +387,15 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   }
 
   int total_iterations = 0;
-  std::for_each(worker_query_durations.begin(), worker_query_durations.end(),
-                [&](const std::vector<double> &v) { total_iterations += v.size(); });
+  std::vector<double> execution_times;
+  std::vector<double> all_summary_times;
+  for (size_t i = 0; i < worker_query_durations.size(); ++i) {
+    total_iterations += worker_query_durations[i].size();
+    execution_times.insert(execution_times.end(), worker_query_durations[i].begin(), worker_query_durations[i].end());
+    all_summary_times.insert(all_summary_times.end(), worker_summary_times[i].begin(), worker_summary_times[i].end());
+  }
+
+  WriteDetailedStatsIfRequested(server_run_id.empty() ? "unknown" : server_run_id, execution_times, all_summary_times);
 
   final_duration /= FLAGS_num_workers;
   double execution_delta = time_limit.count() / final_duration;
@@ -342,9 +412,11 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   summary["throughput"] = throughput;
   summary["raw_throughput"] = raw_throughput;
   summary["latency_stats"] = LatencyStatistics(worker_query_durations);
+  summary["execution_times"] = execution_times;
   summary["retries"] = final_retries;
   summary["metadata"] = final_metadata.Export();
   summary["num_workers"] = FLAGS_num_workers;
+  if (!server_run_id.empty()) summary["run_id"] = server_run_id;
 
   (*stream) << summary.dump() << '\n';
 }
@@ -360,6 +432,9 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   std::vector<Metadata> worker_metadata(FLAGS_num_workers, Metadata());
   std::vector<double> worker_duration(FLAGS_num_workers, 0.0);
   std::vector<std::vector<double>> worker_query_durations(FLAGS_num_workers);
+  std::vector<std::vector<double>> worker_summary_times(FLAGS_num_workers);
+  std::string server_run_id;
+  std::mutex server_run_id_mutex;
 
   // Start workers and execute queries.
   auto size = queries.size();
@@ -385,6 +460,7 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
       auto &metadata = worker_metadata[worker_id];
       auto &duration = worker_duration[worker_id];
       auto &query_duration = worker_query_durations[worker_id];
+      auto &summary_times = worker_summary_times[worker_id];
 
       memgraph::utils::Timer worker_timer;
       while (true) {
@@ -397,6 +473,14 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
         query_duration.emplace_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
+        if (auto run_id = GetRunIdFromMetadata(ret.first)) {
+          std::lock_guard<std::mutex> lock(server_run_id_mutex);
+          if (server_run_id.empty()) server_run_id = *run_id;
+        }
+        double sum_summary = GetSummaryDouble(ret.first, "parsing_time") +
+                             GetSummaryDouble(ret.first, "planning_time") +
+                             GetSummaryDouble(ret.first, "plan_execution_time");
+        summary_times.push_back(sum_summary);
       }
       duration = worker_timer.Elapsed().count();
       client.Close();
@@ -425,6 +509,15 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   auto total_time = std::chrono::duration_cast<std::chrono::duration<double>>(total_time_end - total_time_start);
 
   final_duration /= FLAGS_num_workers;
+  std::vector<double> execution_times;
+  std::vector<double> all_summary_times;
+  for (size_t i = 0; i < worker_query_durations.size(); ++i) {
+    execution_times.insert(execution_times.end(), worker_query_durations[i].begin(), worker_query_durations[i].end());
+    all_summary_times.insert(all_summary_times.end(), worker_summary_times[i].begin(), worker_summary_times[i].end());
+  }
+
+  WriteDetailedStatsIfRequested(server_run_id.empty() ? "unknown" : server_run_id, execution_times, all_summary_times);
+
   nlohmann::json summary = nlohmann::json::object();
   summary["total_time"] = total_time.count();
   summary["count"] = queries.size();
@@ -434,6 +527,8 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   summary["metadata"] = final_metadata.Export();
   summary["num_workers"] = FLAGS_num_workers;
   summary["latency_stats"] = LatencyStatistics(worker_query_durations);
+  summary["execution_times"] = execution_times;
+  if (!server_run_id.empty()) summary["run_id"] = server_run_id;
   (*stream) << summary.dump() << '\n';
 }
 
@@ -464,6 +559,7 @@ void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &qu
   memgraph::communication::bolt::Client client(context);
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
+  std::string server_run_id;
   if (size == 1) {
     const auto &query = queries[0];
     memgraph::utils::Timer timer;
@@ -471,6 +567,7 @@ void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &qu
     metadata.Append(ret.first);
     results = ret.second;
     duration = timer.Elapsed().count();
+    if (auto run_id = GetRunIdFromMetadata(ret.first)) server_run_id = *run_id;
     client.Close();
   } else {
     spdlog::info("Validation works with single query, pass just one query!");
@@ -482,6 +579,7 @@ void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &qu
   summary["metadata"] = metadata.Export();
   summary["results"] = BoltRecordsToJSONStrings(results);
   summary["num_workers"] = FLAGS_num_workers;
+  if (!server_run_id.empty()) summary["run_id"] = server_run_id;
 
   (*stream) << summary.dump() << '\n';
 }

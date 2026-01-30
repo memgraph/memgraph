@@ -18,7 +18,9 @@ import pathlib
 import platform
 import random
 import sys
+import tempfile
 import time
+import uuid
 from copy import deepcopy
 from typing import Dict, List
 
@@ -238,6 +240,14 @@ def parse_args():
         type=str,
         help="Vendor binary used for benchmarking, by default it is memgraph",
         default=helpers.get_binary_path(GraphVendors.MEMGRAPH),
+    )
+
+    benchmark_parser.add_argument(
+        "--detailed-stats",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="If set (e.g. /tmp), pass to client to write round-trip and server summary times to two files in DIR.",
     )
 
     benchmark_parser.add_argument(
@@ -880,6 +890,97 @@ def validate_target_workloads(benchmark_context, target_workloads):
         sys.exit(1)
 
 
+def _write_mgbench_stats_block(f, results_data, storage_mode):
+    """Write one storage mode's benchmark stats in SessionHL-like format."""
+    has_any = False
+    for dataset, variants in results_data.items():
+        if dataset == RUN_CONFIGURATION:
+            continue
+        for groups in variants.values():
+            for group, queries in groups.items():
+                if group in (IMPORT, EMPTY_DB, IMPORTED_DATA):
+                    continue
+                for query, auth in queries.items():
+                    for value in auth.values():
+                        has_any = True
+                        # Escape newlines in query name for single-line display
+                        query_display = f"{dataset}/{group}/{query}".replace("\n", "\\n")
+                        f.write(f"Query: {query_display}\n")
+                        f.write(f"  Storage mode: {storage_mode}\n")
+                        f.write(f"  Count: {value.get(COUNT, 0)}\n")
+                        f.write(f"  Duration: {value.get(DURATION, 0)} seconds\n")
+                        f.write(f"  Throughput: {value.get(THROUGHPUT, 0)} QPS\n")
+                        latency = value.get(LATENCY_STATS) or {}
+                        iters = latency.get(ITERATIONS, 0)
+                        f.write(f"  Iterations: {iters}\n")
+                        if iters > 1:
+                            for key in ("min", "max", "mean", "p50", "p75", "p90", "p95", "p99"):
+                                if key in latency:
+                                    f.write(f"  {key}: {latency[key]} seconds\n")
+                        times = value.get("execution_times")
+                        if times:
+                            f.write("  Execution times (seconds): ")
+                            f.write(", ".join(str(t) for t in times))
+                            f.write("\n")
+                        if value.get(DATABASE):
+                            mem_mb = value[DATABASE].get(MEMORY, 0) / (1024.0 * 1024.0)
+                            f.write(f"  Peak memory: {mem_mb:.2f} MiB\n")
+                        f.write("\n")
+    return has_any
+
+
+def _get_run_id_from_bench_results(bench_results):
+    """Extract run_id from first benchmark result that has it (from Memgraph summary)."""
+    for results in (
+        bench_results.in_memory_txn_results.get_data(),
+        bench_results.in_memory_analytical_results.get_data(),
+        bench_results.disk_results.get_data(),
+    ):
+        if not results:
+            continue
+        for dataset, variants in results.items():
+            if dataset == RUN_CONFIGURATION:
+                continue
+            for groups in variants.values():
+                for group, queries in groups.items():
+                    if group in (IMPORT, EMPTY_DB, IMPORTED_DATA):
+                        continue
+                    for auth in queries.values():
+                        for value in auth.values():
+                            if value.get("run_id"):
+                                return value["run_id"]
+    return None
+
+
+def write_mgbench_stats_to_tmp(bench_results, run_id):
+    """Append benchmark run stats to /tmp/mgbench_stats.txt in SessionHL-like format."""
+    # Prefer run_id from Memgraph summary (client captured it) so we match SessionHL stats
+    display_run_id = _get_run_id_from_bench_results(bench_results) or run_id
+    tmp_path = pathlib.Path(tempfile.gettempdir()) / "mgbench_stats.txt"
+    try:
+        with open(tmp_path, "a") as f:
+            f.write(f"=== Mgbench Stats (Run ID: {display_run_id}) ===\n")
+            wrote_any = False
+            if bench_results.in_memory_txn_results.get_data():
+                if _write_mgbench_stats_block(
+                    f, bench_results.in_memory_txn_results.get_data(), IN_MEMORY_TRANSACTIONAL
+                ):
+                    wrote_any = True
+            if bench_results.in_memory_analytical_results.get_data():
+                if _write_mgbench_stats_block(
+                    f, bench_results.in_memory_analytical_results.get_data(), IN_MEMORY_ANALYTICAL
+                ):
+                    wrote_any = True
+            if bench_results.disk_results.get_data():
+                if _write_mgbench_stats_block(f, bench_results.disk_results.get_data(), ON_DISK_TRANSACTIONAL):
+                    wrote_any = True
+            if not wrote_any:
+                f.write("(no benchmark query results)\n")
+            f.write("\n")
+    except Exception as e:
+        log.log(f"Failed to write mgbench stats to {tmp_path}: {e}")
+
+
 def log_benchmark_summary(results: Dict, storage_mode):
     log.log("\n")
     log.summary(f"Benchmark summary of {storage_mode} mode")
@@ -948,6 +1049,7 @@ def log_output_summary(benchmark_context, ret, usage, funcname, sample_query):
 if __name__ == "__main__":
     args = parse_args()
     sanitize_args(args)
+    run_id = str(uuid.uuid4())
     vendor_specific_args = helpers.parse_kwargs(args.vendor_specific)
 
     temp_dir = pathlib.Path.cwd() / ".temp"
@@ -984,6 +1086,7 @@ if __name__ == "__main__":
         no_authorization=args.no_authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
+        detailed_stats=args.detailed_stats,
     )
 
     log_benchmark_arguments(benchmark_context)
@@ -1026,6 +1129,9 @@ if __name__ == "__main__":
 
     validate_target_workloads(benchmark_context, target_workloads)
     run_target_workloads(benchmark_context, target_workloads, bench_results)
+
+    if benchmark_context.detailed_stats:
+        write_mgbench_stats_to_tmp(bench_results, run_id)
 
     if not benchmark_context.no_save_query_counts:
         cache.save_config(config)

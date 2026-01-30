@@ -146,8 +146,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
-  std::string current_query_;           // Current query string being executed
-  std::map<std::string, std::vector<double>> pull_stats_;  // Map from query string to execution times (in seconds)
 };
 
 }  // namespace memgraph::glue

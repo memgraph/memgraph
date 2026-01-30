@@ -9,11 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-from workload_mode import (
-  BENCHMARK_MODE_ISOLATED,
-  BENCHMARK_MODE_MIXED,
-  BENCHMARK_MODE_REALISTIC,
-)
+from workload_mode import BENCHMARK_MODE_ISOLATED, BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
 
 
 class BenchmarkContext:
@@ -49,6 +45,7 @@ class BenchmarkContext:
         no_authorization: bool = True,
         customer_workloads: str = None,
         vendor_args: dict = {},
+        detailed_stats: str = None,
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.databases = databases
@@ -89,6 +86,7 @@ class BenchmarkContext:
         self.no_authorization = no_authorization
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
+        self.detailed_stats = detailed_stats
         self.active_workload = None
         self.active_variant = None
 
