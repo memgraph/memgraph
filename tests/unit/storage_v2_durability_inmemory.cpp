@@ -1885,8 +1885,6 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::utils::Settings settings{storage_directory / "settings"};
-  memgraph::license::global_license_checker.CheckEnvLicense(settings);
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = true}},
