@@ -1,0 +1,5 @@
+query: >
+  RETURN mg_semantics.rdf_short_form_from_full_uri("http://www.w3.org/1999/02/22-rdf-syntax-ns#type") AS short;
+
+output:
+  - short: "rdf__type"

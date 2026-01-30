@@ -1,0 +1,5 @@
+query: >
+  RETURN mg_semantics.rdf_get_lang_tag("That Seventies Show@en-US") AS tag;
+
+output:
+  - tag: "en-US"

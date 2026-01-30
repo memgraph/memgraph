@@ -1,0 +1,5 @@
+query: >
+  RETURN mg_semantics.rdf_get_lang_value("fr", ["Hello@en", "Bonjour@fr", "Hola@es"]) AS value;
+
+output:
+  - value: "Bonjour"
