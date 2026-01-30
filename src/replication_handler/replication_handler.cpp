@@ -35,8 +35,8 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
    */
 
   // Startup replication state (if recovered at startup)
-  auto replica = [&dbms_handler, &auth, &system, parameters](RoleReplicaData &data) {
-    return StartRpcServer(dbms_handler, data, auth, system, parameters);
+  auto replica = [&dbms_handler, &repl_state, &auth, &system, parameters](RoleReplicaData &data) {
+    return StartRpcServer(dbms_handler, repl_state, data, auth, system, parameters);
   };
 
   // Replication recovery and frequent check start
@@ -78,8 +78,8 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
                         system::System &system, dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth,
                         utils::Parameters *parameters) {
   // Startup replication state (if recovered at startup) – parameters RPCs registered for delta replication
-  auto replica = [&dbms_handler, &auth, &system, parameters](replication::RoleReplicaData &data) {
-    return replication::StartRpcServer(dbms_handler, data, auth, system, parameters);
+  auto replica = [&dbms_handler, &repl_state, &auth, &system, parameters](replication::RoleReplicaData &data) {
+    return replication::StartRpcServer(dbms_handler, repl_state, data, auth, system, parameters);
   };
 
   // Replication recovery and frequent check start
