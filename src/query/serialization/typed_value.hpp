@@ -11,10 +11,7 @@
 
 #pragma once
 
-#include <map>
 #include <nlohmann/json.hpp>
-#include <vector>
-
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::serialization {
@@ -32,19 +29,5 @@ nlohmann::json SerializeTypedValue(const TypedValue &value);
  * @return TypedValue representation of the JSON data
  */
 TypedValue DeserializeTypedValue(const nlohmann::json &data);
-
-/**
- * @brief Deserialize a list of TypedValues from JSON array.
- * @param data The JSON array to deserialize
- * @return Vector of TypedValues
- */
-std::vector<TypedValue> DeserializeTypedValueList(const nlohmann::json::array_t &data);
-
-/**
- * @brief Deserialize a map of TypedValues from JSON object.
- * @param data The JSON object to deserialize
- * @return Map of string to TypedValue
- */
-std::map<std::string, TypedValue> DeserializeTypedValueMap(const nlohmann::json::object_t &data);
 
 }  // namespace memgraph::query::serialization

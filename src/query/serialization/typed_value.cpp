@@ -67,31 +67,24 @@ TypedValue DeserializeTypedValue(const nlohmann::json &data) {
   }
 
   if (data.is_array()) {
-    return TypedValue(DeserializeTypedValueList(data.get<nlohmann::json::array_t>()));
+    TypedValue::TVector typed_values;
+    for (const auto &value : data) {
+      typed_values.emplace_back(DeserializeTypedValue(value));
+    }
+    return TypedValue(std::move(typed_values));
   }
 
   if (data.is_object()) {
-    return TypedValue(DeserializeTypedValueMap(data.get<nlohmann::json::object_t>()));
+    TypedValue::TMap typed_map;
+    for (const auto &item : data.items()) {
+      const auto &key = item.key();
+      const auto &value = item.value();
+      typed_map.emplace(key, DeserializeTypedValue(value));
+    }
+    return TypedValue(std::move(typed_map));
   }
 
   throw utils::BasicException("Unsupported JSON type for TypedValue deserialization");
-}
-
-std::vector<TypedValue> DeserializeTypedValueList(const nlohmann::json::array_t &data) {
-  std::vector<TypedValue> typed_values;
-  typed_values.reserve(data.size());
-  for (const auto &value : data) {
-    typed_values.emplace_back(DeserializeTypedValue(value));
-  }
-  return typed_values;
-}
-
-std::map<std::string, TypedValue> DeserializeTypedValueMap(const nlohmann::json::object_t &data) {
-  std::map<std::string, TypedValue> typed_map;
-  for (const auto &[key, value] : data) {
-    typed_map.emplace(key, DeserializeTypedValue(value));
-  }
-  return typed_map;
 }
 
 }  // namespace memgraph::query::serialization

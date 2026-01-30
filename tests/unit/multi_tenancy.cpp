@@ -41,6 +41,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/parameters.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.csv.parsing;
@@ -111,10 +112,12 @@ class MultiTenantTest : public ::testing::Test {
     explicit MinMemgraph(const memgraph::storage::Config &conf)
         : settings{conf.durability.storage_directory / "settings"},
           auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+          parameters{conf.durability.storage_directory},
           repl_state{ReplicationStateRootPath(conf)},
           dbms{conf, auth, true},
           interpreter_context{{},
                               &settings,
+                              &parameters,
                               &dbms,
                               repl_state,
                               system
@@ -134,6 +137,7 @@ class MultiTenantTest : public ::testing::Test {
     memgraph::utils::Settings settings;
     memgraph::auth::SynchedAuth auth;
     memgraph::system::System system;
+    memgraph::utils::Parameters parameters;
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
     memgraph::dbms::DbmsHandler dbms;
     memgraph::query::InterpreterContext interpreter_context;
