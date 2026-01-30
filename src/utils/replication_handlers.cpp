@@ -14,9 +14,9 @@
 #include <spdlog/spdlog.h>
 
 #include "replication_handler/system_replication.hpp"
-#include "rpc/utils.hpp"
 #include "utils/parameters.hpp"
 #include "utils/parameters_rpc.hpp"
+#include "rpc/utils.hpp"
 
 namespace memgraph::utils {
 
