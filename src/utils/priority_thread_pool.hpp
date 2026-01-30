@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@ class HotMask {
     DMG_ASSERT(id < n_elements_, "Trying to set out-of-bounds");
     hot_masks_[GetGroup(id)].fetch_or(GroupMask(id), std::memory_order::acq_rel);
   }
+
   inline void Reset(const uint64_t id) {
     DMG_ASSERT(id < n_elements_, "Trying to reset out-of-bounds");
     hot_masks_[GetGroup(id)].fetch_and(~GroupMask(id), std::memory_order::acq_rel);
@@ -55,8 +56,10 @@ class HotMask {
 
   // Get element's group
   static constexpr uint16_t GetGroup(const uint64_t id) { return id / kGroupSize; }
+
   // Get number of groups
   static inline uint16_t GetNumGroups(const uint64_t n_elements) { return (n_elements - 1) / kGroupSize + 1; }
+
   // Mask as seen by the appropriate group
   static constexpr uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
 
@@ -67,9 +70,51 @@ class HotMask {
   const uint16_t n_groups_;
 };
 
+using TaskSignature = std::move_only_function<void(utils::Priority)>;
+
+// Collection of tasks that can be executed by the thread pool
+// The idea is to batch tasks and have the ability to wait on them
+// Also execute non scheduler tasks in the local thread
+class TaskCollection {
+ public:
+  void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
+
+  class Task {
+   public:
+    explicit Task(TaskSignature task)
+        : state_(std::make_shared<std::atomic<State>>(State::IDLE)), task_(std::move(task)) {}
+
+    ~Task() = default;
+    Task(const Task &) = delete;
+    Task(Task &&) = default;
+    Task &operator=(const Task &) = delete;
+    Task &operator=(Task &&) = default;
+
+    enum class State : uint8_t {
+      IDLE,
+      SCHEDULED,
+      FINISHED,
+    };
+    std::shared_ptr<std::atomic<State>> state_;
+    TaskSignature task_;
+  };
+
+  Task &operator[](size_t index) { return tasks_[index]; }
+
+  TaskSignature WrapTask(size_t index);
+
+  void Wait();
+
+  void WaitOrSteal();
+
+  size_t Size() const { return tasks_.size(); }
+
+ private:
+  std::vector<Task> tasks_;
+};
+
 class PriorityThreadPool {
  public:
-  using TaskSignature = std::function<void(utils::Priority)>;
   using TaskID = uint64_t;
 
   PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count);
@@ -87,6 +132,12 @@ class PriorityThreadPool {
 
   void ScheduledAddTask(TaskSignature new_task, Priority priority);
 
+  void ScheduledCollection(TaskCollection &collection) {
+    for (size_t i = 0; i < collection.Size(); ++i) {
+      ScheduledAddTask(collection.WrapTask(i), Priority::LOW);
+    }
+  }
+
   // Single worker implementation
   class Worker {
    public:
@@ -101,6 +152,7 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+
       bool operator<(const Work &other) const { return id < other.id; }
     };
 

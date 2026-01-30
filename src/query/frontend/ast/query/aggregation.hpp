@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <array>
+#include <string_view>
+
 #include "query/frontend/ast/query/binary_operator.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 
@@ -18,27 +21,29 @@ namespace memgraph::query {
 class Aggregation : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT_LIST, COLLECT_MAP, PROJECT_PATH, PROJECT_LISTS };
 
   Aggregation() = default;
 
-  static const constexpr char *const kCount = "COUNT";
-  static const constexpr char *const kMin = "MIN";
-  static const constexpr char *const kMax = "MAX";
-  static const constexpr char *const kSum = "SUM";
-  static const constexpr char *const kAvg = "AVG";
-  static const constexpr char *const kCollect = "COLLECT";
-  static const constexpr char *const kProject = "PROJECT";
+  static constexpr std::string_view kCount = "COUNT";
+  static constexpr std::string_view kMin = "MIN";
+  static constexpr std::string_view kMax = "MAX";
+  static constexpr std::string_view kSum = "SUM";
+  static constexpr std::string_view kAvg = "AVG";
+  static constexpr std::string_view kCollect = "COLLECT";
+  static constexpr std::string_view kProject = "PROJECT";
 
   static std::string OpToString(Op op) {
-    const char *op_strings[] = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject};
-    return op_strings[static_cast<int>(op)];
+    static constexpr std::array op_strings = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject};
+    return std::string{op_strings[static_cast<int>(op)]};
   }
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue const *>);
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 

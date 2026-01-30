@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -21,6 +21,7 @@
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "system/action.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/settings.hpp"
 #include "utils/synchronized.hpp"
 
@@ -35,11 +36,13 @@ struct RoleWUsername : Roles {
   RoleWUsername(std::string_view username, const Roles &roles) : Roles(roles), username_{username} {}
 
   std::string username() { return username_; }
+
   const std::string &username() const { return username_; }
 
  private:
   std::string username_;
 };
+
 using UserOrRole = std::variant<User, RoleWUsername>;
 
 /**
@@ -53,6 +56,7 @@ class Auth final {
  public:
   struct Config {
     Config() {}
+
     Config(std::string name_regex, std::string password_regex, bool password_permit_null)
         : name_regex_str{std::move(name_regex)},
           password_regex_str{std::move(password_regex)},
@@ -76,9 +80,11 @@ class Auth final {
 
   struct Epoch {
     Epoch() : epoch_{0} {}
+
     Epoch(unsigned e) : epoch_{e} {}
 
     Epoch operator++() { return ++epoch_; }
+
     bool operator==(const Epoch &rhs) const = default;
 
    private:
@@ -237,6 +243,13 @@ class Auth final {
   bool UsingAuthModule() const { return !modules_.empty(); }
 
   /**
+   * Returns whether the access is controlled by basic authentication.
+   *
+   * @return `true` if basic authentication is used
+   */
+  bool UsingBasicAuth() const { return modules_.contains("basic"); }
+
+  /**
    * Gets a role from the storage.
    *
    * @param rolename
@@ -264,8 +277,8 @@ class Auth final {
       return roles;
     };
 
-    // Special case if we are using a module; we must find the specified role
-    if (UsingAuthModule()) {
+    // Special case if we are using an LDAP module; we must find the specified role
+    if (UsingBasicAuth()) {
       expect(username && !rolenames.empty(), "When using a module, a role needs to be connected to a username.");
       auto roles = get_roles(rolenames);
       expect(roles.size() == rolenames.size(), "Couldn't find all roles");
@@ -462,9 +475,9 @@ class Auth final {
    * @return `true` if auth needs to run
    */
   bool HasAuthModulePrerequisites(const std::string &scheme) const {
-    const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-    if (license_check_result.HasError()) {
-      spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+    const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
+    if (!license_check_result) {
+      spdlog::warn(license::LicenseCheckErrorToString(license_check_result.error(), "authentication modules"));
       return false;
     }
 
@@ -476,7 +489,8 @@ class Auth final {
 
     if (!modules_.contains(scheme)) {
       spdlog::warn(utils::MessageWithLink("Couldn't authenticate user: no module is specified for the {} auth scheme.",
-                                          scheme, "https://memgr.ph/sso"));
+                                          scheme,
+                                          "https://memgr.ph/sso"));
       return false;
     }
 

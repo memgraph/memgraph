@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,8 +49,8 @@ class DataInstanceManagementServerHandlers {
   static void GetDatabaseHistoriesHandler(replication::ReplicationHandler const &replication_handler,
                                           uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void GetReplicationLagHandler(replication::ReplicationHandler const &replication_handler, uint64_t request_version,
-                                       slk::Reader *req_reader, slk::Builder *res_builder);
+  static void GetReplicationLagHandler(replication::ReplicationHandler const &replication_handler,
+                                       uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                 coordination::ReplicationClientInfo const &config) -> bool;

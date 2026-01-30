@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,11 +39,9 @@ class Database {
    * @brief Construct a new Database object
    *
    * @param config storage configuration
-   * @param repl_state replication state
    * @param database_protector_factory factory function to create database protectors for async operations
    */
   explicit Database(storage::Config config,
-                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
                     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   /**
@@ -54,6 +52,7 @@ class Database {
    * @return storage::Storage*
    */
   storage::Storage *storage() { return storage_.get(); }
+
   storage::Storage const *storage() const { return storage_.get(); }
 
   /**
@@ -87,6 +86,7 @@ class Database {
    * @return std::string
    */
   std::string name() const { return storage_->name(); }
+
   auto name_view() const { return storage_->name_view(); }
 
   /**
@@ -156,7 +156,7 @@ class Database {
    *
    * @param new_task
    */
-  void AddTask(std::function<void()> new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
+  void AddTask(utils::ThreadPool::TaskSignature new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
 
   /**
    * @brief Returns the PlanCache vector raw pointer

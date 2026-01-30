@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <map>
+#include <deque>
 #include <string>
 
 #include "query/frontend/ast/query/aggregation.hpp"
@@ -22,40 +22,43 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "utils/logging.hpp"
 
+#include <absl/container/flat_hash_map.h>
+
 namespace memgraph::query {
 
 class SymbolTable final {
  public:
   SymbolTable() = default;
-  const Symbol &CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
+
+  const Symbol &CreateSymbol(std::string name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
                              int32_t token_position = -1) {
     MG_ASSERT(table_.size() <= std::numeric_limits<int32_t>::max(),
               "SymbolTable size doesn't fit into 32-bit integer!");
-    auto got = table_.emplace(position_, Symbol(name, position_, user_declared, type, token_position));
-    MG_ASSERT(got.second, "Duplicate symbol ID!");
-    position_++;
-    return got.first->second;
+    auto position = table_.size();
+    return table_.emplace_back(std::move(name), position, user_declared, type, token_position);
   }
 
   // TODO(buda): This is the same logic as in the cypher_main_visitor. During
   // parsing phase symbol table doesn't exist. Figure out a better solution.
   const Symbol &CreateAnonymousSymbol(Symbol::Type type = Symbol::Type::ANY) {
-    int id = 1;
     while (true) {
       static const std::string &kAnonPrefix = "anon";
-      std::string name_candidate = kAnonPrefix + std::to_string(id++);
-      if (std::find_if(std::begin(table_), std::end(table_), [&name_candidate](const auto &item) -> bool {
-            return item.second.name_ == name_candidate;
-          }) == std::end(table_)) {
-        return CreateSymbol(name_candidate, false, type);
+      std::string name_candidate = kAnonPrefix + std::to_string(anon_couter_++);
+      if (std::ranges::find_if(table_, [&](const auto &item) -> bool { return item.name() == name_candidate; }) ==
+          std::end(table_)) {
+        return CreateSymbol(std::move(name_candidate), false, type);
       }
     }
   }
 
   const Symbol &at(const Identifier &ident) const { return table_.at(ident.symbol_pos_); }
+
   const Symbol &at(const NamedExpression &nexpr) const { return table_.at(nexpr.symbol_pos_); }
+
   const Symbol &at(const Aggregation &aggr) const { return table_.at(aggr.symbol_pos_); }
+
   const Symbol &at(const Exists &exists) const { return table_.at(exists.symbol_pos_); }
+
   const Symbol &at(const PatternComprehension &pattern_comprehension) const {
     return table_.at(pattern_comprehension.symbol_pos_);
   }
@@ -65,8 +68,8 @@ class SymbolTable final {
 
   const auto &table() const { return table_; }
 
-  int32_t position_{0};
-  std::map<int32_t, Symbol> table_;
+  int anon_couter_ = 1;
+  std::deque<Symbol> table_;
 };
 
 }  // namespace memgraph::query

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@ namespace memgraph::query {
 class AuthQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action {
@@ -83,7 +84,9 @@ class AuthQuery : public memgraph::query::Query {
     PROFILE_RESTRICTION,
   };
 
-  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
+  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE, DELETE, ALL };
+
+  enum class LabelMatchingMode { ANY, EXACTLY };
 
   enum class DatabaseSpecification {
     NONE,     // No database specification (non-enterprise)
@@ -109,6 +112,7 @@ class AuthQuery : public memgraph::query::Query {
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       label_privileges_;
+  std::vector<memgraph::query::AuthQuery::LabelMatchingMode> label_matching_modes_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
@@ -130,6 +134,7 @@ class AuthQuery : public memgraph::query::Query {
     object->database_ = database_;
     object->privileges_ = privileges_;
     object->label_privileges_ = label_privileges_;
+    object->label_matching_modes_ = label_matching_modes_;
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
     object->database_specification_ = database_specification_;
@@ -140,6 +145,7 @@ class AuthQuery : public memgraph::query::Query {
   AuthQuery(Action action, std::string user, std::vector<std::string> roles, std::string user_or_role,
             bool if_not_exists, Expression *password, std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
+            std::vector<LabelMatchingMode> label_matching_modes,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges,
             std::vector<std::string> impersonation_targets,
             DatabaseSpecification database_specification = DatabaseSpecification::NONE,
@@ -154,6 +160,7 @@ class AuthQuery : public memgraph::query::Query {
         database_(std::move(database)),
         privileges_(std::move(privileges)),
         label_privileges_(std::move(label_privileges)),
+        label_matching_modes_(std::move(label_matching_modes)),
         edge_type_privileges_(std::move(edge_type_privileges)),
         impersonation_targets_(std::move(impersonation_targets)),
         database_specification_(database_specification) {}

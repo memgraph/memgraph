@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 ///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros
 ///     // rely on a DbAccessor *reference* named dba.
 ///     database::GraphDb db;
-///     auto dba_ptr = db.Access();
+///     auto dba_ptr = db.Access(memgraph::storage::WRITE);
 ///     auto &dba = *dba_ptr;
 ///
 ///     QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
@@ -72,7 +72,7 @@ auto ToIntMap(const TypedValue &t) {
 std::string ToString(Expression *expr) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
-  auto storage_acc = store->Access();
+  auto storage_acc = store->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_acc.get());
 
   std::ostringstream ss;
@@ -83,7 +83,7 @@ std::string ToString(Expression *expr) {
 std::string ToString(NamedExpression *expr) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
-  auto storage_acc = store->Access();
+  auto storage_acc = store->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_acc.get());
 
   std::ostringstream ss;
@@ -96,15 +96,19 @@ std::string ToString(NamedExpression *expr) {
 struct OrderBy {
   std::vector<SortItem> expressions;
 };
+
 struct Skip {
   Expression *expression = nullptr;
 };
+
 struct Limit {
   Expression *expression = nullptr;
 };
+
 struct OnMatch {
   std::vector<Clause *> set;
 };
+
 struct OnCreate {
   std::vector<Clause *> set;
 };
@@ -117,11 +121,13 @@ struct CommitFrequency {
 auto FillOrderBy(OrderBy &order_by, Expression *expression, Ordering ordering = Ordering::ASC) {
   order_by.expressions.push_back({ordering, expression});
 }
+
 template <class... T>
 auto FillOrderBy(OrderBy &order_by, Expression *expression, Ordering ordering, T... rest) {
   FillOrderBy(order_by, expression, ordering);
   FillOrderBy(order_by, rest...);
 }
+
 template <class... T>
 auto FillOrderBy(OrderBy &order_by, Expression *expression, T... rest) {
   FillOrderBy(order_by, expression);
@@ -210,13 +216,25 @@ auto GetAllPropertiesLookup(AstStorage &storage, Expression *expr) { return stor
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdge(AstStorage &storage, const std::string &name, EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<std::string> &edge_types = {}, const bool user_declared = true) {
+             const std::vector<std::string> &edge_types = {}, const bool user_declared = true,
+             Expression *properties = nullptr) {
   std::vector<QueryEdgeType> types;
   types.reserve(edge_types.size());
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
   }
-  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
+  auto *edge =
+      storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
+  if (properties) {
+    if (auto *map_literal = dynamic_cast<MapLiteral *>(properties)) {
+      edge->properties_ = map_literal->elements_;
+    } else {
+      // Assume it's a ParameterLookup
+      DMG_ASSERT(properties->GetTypeInfo() == ParameterLookup::kType);
+      edge->properties_ = dynamic_cast<ParameterLookup *>(properties);
+    }
+  }
+  return edge;
 }
 
 /// Create a variable length expansion EdgeAtom with given name, direction and
@@ -309,22 +327,26 @@ auto GetSingleQuery(SingleQuery *single_query, Clause *clause) {
   single_query->clauses_.emplace_back(clause);
   return single_query;
 }
+
 auto GetSingleQuery(SingleQuery *single_query, Match *match, Where *where) {
   match->where_ = where;
   single_query->clauses_.emplace_back(match);
   return single_query;
 }
+
 auto GetSingleQuery(SingleQuery *single_query, With *with, Where *where) {
   with->where_ = where;
   single_query->clauses_.emplace_back(with);
   return single_query;
 }
+
 template <class... T>
 auto GetSingleQuery(SingleQuery *single_query, Match *match, Where *where, T *...clauses) {
   match->where_ = where;
   single_query->clauses_.emplace_back(match);
   return GetSingleQuery(single_query, clauses...);
 }
+
 template <class... T>
 auto GetSingleQuery(SingleQuery *single_query, With *with, Where *where, T *...clauses) {
   with->where_ = where;
@@ -376,14 +398,23 @@ auto GetLoadCSV(AstStorage &storage, Expression *file_name, const std::string &r
 }
 
 auto GetLoadCSV(AstStorage &storage, Expression *file_name, Identifier *row_var) {
-  auto *load_csv = storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
-  return load_csv;
+  return storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
+}
+
+auto GetLoadParquet(AstStorage &storage, Expression *file_name, std::string const &row_var) {
+  auto *ident = storage.Create<memgraph::query::Identifier>(row_var);
+  return storage.Create<memgraph::query::LoadParquet>(file_name, ident);
+}
+
+auto GetLoadParquet(AstStorage &storage, Expression *file_name, Identifier *row_var) {
+  return storage.Create<memgraph::query::LoadParquet>(file_name, row_var);
 }
 
 // Helper functions for constructing RETURN and WITH clauses.
 void FillReturnBody(AstStorage &, ReturnBody &body, NamedExpression *named_expr) {
   body.named_expressions.emplace_back(named_expr);
 }
+
 void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &name) {
   if (name == "*") {
     body.all_identifiers = true;
@@ -393,41 +424,53 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
     body.named_expressions.emplace_back(named_expr);
   }
 }
+
 void FillReturnBody(AstStorage &, ReturnBody &body, Limit limit) { body.limit = limit.expression; }
+
 void FillReturnBody(AstStorage &, ReturnBody &body, Skip skip, Limit limit = Limit{}) {
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
+
 void FillReturnBody(AstStorage &, ReturnBody &body, OrderBy order_by, Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
   body.limit = limit.expression;
 }
+
 void FillReturnBody(AstStorage &, ReturnBody &body, OrderBy order_by, Skip skip, Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
+
 void FillReturnBody(AstStorage &, ReturnBody &body, Expression *expr, NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
 }
+
 void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &name, NamedExpression *named_expr) {
   named_expr->expression_ = storage.Create<memgraph::query::Identifier>(name);
   body.named_expressions.emplace_back(named_expr);
 }
+
 template <class... T>
 void FillReturnBody(AstStorage &storage, ReturnBody &body, Expression *expr, NamedExpression *named_expr, T... rest) {
+  // This overload supports `RETURN(expr, AS(name), ...)`
   named_expr->expression_ = expr;
+  named_expr->is_aliased_ = true;  // Using AS() implies explicit aliasing
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }
+
 template <class... T>
 void FillReturnBody(AstStorage &storage, ReturnBody &body, NamedExpression *named_expr, T... rest) {
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }
+
 template <class... T>
 void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &name, NamedExpression *named_expr,
                     T... rest) {
@@ -435,6 +478,7 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }
+
 template <class... T>
 void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &name, T... rest) {
   auto *ident = storage.Create<memgraph::query::Identifier>(name);
@@ -481,6 +525,7 @@ auto GetWith(AstStorage &storage, bool distinct, T... exprs) {
 auto GetUnwind(AstStorage &storage, NamedExpression *named_expr) {
   return storage.Create<memgraph::query::Unwind>(named_expr);
 }
+
 auto GetUnwind(AstStorage &storage, Expression *expr, NamedExpression *as) {
   as->expression_ = expr;
   return GetUnwind(storage, as);
@@ -537,6 +582,7 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnCreate on_create = OnCrea
   merge->on_create_ = on_create.set;
   return merge;
 }
+
 auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match, OnCreate on_create = OnCreate{}) {
   auto *merge = storage.Create<memgraph::query::Merge>();
   merge->pattern_ = pattern;
@@ -675,8 +721,9 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
   memgraph::query::test_common::OnCreate {                 \
     std::vector<memgraph::query::Clause *> { __VA_ARGS__ } \
   }
-#define CREATE_INDEX_ON(label, property)                                                            \
-  storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
+#define CREATE_INDEX_ON(label, property)                                                   \
+  storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, \
+                                              (label),                                     \
                                               std::vector<memgraph::query::PropertyIxPath>{{(property)}})
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
 #define PERIODIC_QUERY(...) memgraph::query::test_common::GetPeriodicQuery(this->storage, __VA_ARGS__)
@@ -698,17 +745,17 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define LESS_EQ(expr1, expr2) this->storage.template Create<memgraph::query::LessEqualOperator>((expr1), (expr2))
 #define GREATER(expr1, expr2) this->storage.template Create<memgraph::query::GreaterOperator>((expr1), (expr2))
 #define GREATER_EQ(expr1, expr2) this->storage.template Create<memgraph::query::GreaterEqualOperator>((expr1), (expr2))
-#define SUM(expr, distinct)                                                                                           \
-  this->storage.template Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::SUM, \
-                                                              (distinct))
-#define COUNT(expr, distinct)                                                  \
-  this->storage.template Create<memgraph::query::Aggregation>((expr), nullptr, \
-                                                              memgraph::query::Aggregation::Op::COUNT, (distinct))
+#define SUM(expr, distinct)                                    \
+  this->storage.template Create<memgraph::query::Aggregation>( \
+      (expr), nullptr, memgraph::query::Aggregation::Op::SUM, (distinct))
+#define COUNT(expr, distinct)                                  \
+  this->storage.template Create<memgraph::query::Aggregation>( \
+      (expr), nullptr, memgraph::query::Aggregation::Op::COUNT, (distinct))
 #define AVG(expr, distinct) \
   storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::AVG, (distinct))
-#define COLLECT_LIST(expr, distinct)                                                                            \
-  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST, \
-                                               (distinct))
+#define COLLECT_LIST(expr, distinct)            \
+  storage.Create<memgraph::query::Aggregation>( \
+      (expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST, (distinct))
 #define EQ(expr1, expr2) this->storage.template Create<memgraph::query::EqualOperator>((expr1), (expr2))
 #define NEQ(expr1, expr2) this->storage.template Create<memgraph::query::NotEqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) this->storage.template Create<memgraph::query::AndOperator>((expr1), (expr2))
@@ -733,10 +780,13 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
   storage.Create<memgraph::query::Any>(storage.Create<memgraph::query::Identifier>(variable), list, where)
 #define NONE(variable, list, where) \
   storage.Create<memgraph::query::None>(storage.Create<memgraph::query::Identifier>(variable), list, where)
-#define REDUCE(accumulator, initializer, variable, list, expr)                              \
-  this->storage.template Create<memgraph::query::Reduce>(                                   \
-      this->storage.template Create<memgraph::query::Identifier>(accumulator), initializer, \
-      this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
+#define REDUCE(accumulator, initializer, variable, list, expr)                 \
+  this->storage.template Create<memgraph::query::Reduce>(                      \
+      this->storage.template Create<memgraph::query::Identifier>(accumulator), \
+      initializer,                                                             \
+      this->storage.template Create<memgraph::query::Identifier>(variable),    \
+      list,                                                                    \
+      expr)
 #define COALESCE(...) \
   this->storage.template Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr)                      \
@@ -744,10 +794,30 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
 #define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
-#define AUTH_QUERY(action, user, role, user_or_role, if_not_exists, password, database, privileges, labels, edgeTypes, \
-                   impersonation_target)                                                                               \
-  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), (if_not_exists), password,      \
-                                             (database), (privileges), (labels), (edgeTypes), (impersonation_target))
+#define AUTH_QUERY(action,                                           \
+                   user,                                             \
+                   role,                                             \
+                   user_or_role,                                     \
+                   if_not_exists,                                    \
+                   password,                                         \
+                   database,                                         \
+                   privileges,                                       \
+                   labels,                                           \
+                   label_matching_modes,                             \
+                   edgeTypes,                                        \
+                   impersonation_target)                             \
+  storage.Create<memgraph::query::AuthQuery>((action),               \
+                                             (user),                 \
+                                             (role),                 \
+                                             (user_or_role),         \
+                                             (if_not_exists),        \
+                                             password,               \
+                                             (database),             \
+                                             (privileges),           \
+                                             (labels),               \
+                                             (label_matching_modes), \
+                                             (edgeTypes),            \
+                                             (impersonation_target))
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
@@ -758,5 +828,6 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define COMMIT_FREQUENCY(expr) \
   memgraph::query::test_common::CommitFrequency { (expr) }
 #define LOAD_CSV(...) memgraph::query::test_common::GetLoadCSV(this->storage, __VA_ARGS__)
+#define LOAD_PARQUET(...) memgraph::query::test_common::GetLoadParquet(this->storage, __VA_ARGS__)
 #define LIST_COMPREHENSION(variable, list, where, expr) \
   this->storage.template Create<memgraph::query::ListComprehension>(variable, list, where, expr)

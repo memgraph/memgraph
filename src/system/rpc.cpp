@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@ void Save(const memgraph::replication::FinalizeSystemTxReq &self, memgraph::slk:
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
 }
+
 void Load(memgraph::replication::FinalizeSystemTxReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
@@ -32,6 +33,7 @@ void Load(memgraph::replication::FinalizeSystemTxReq *self, memgraph::slk::Reade
 void Save(const memgraph::replication::FinalizeSystemTxRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
+
 void Load(memgraph::replication::FinalizeSystemTxRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
@@ -42,12 +44,15 @@ namespace memgraph::replication {
 void FinalizeSystemTxReq::Save(const FinalizeSystemTxReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void FinalizeSystemTxReq::Load(FinalizeSystemTxReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
+
 void FinalizeSystemTxRes::Save(const FinalizeSystemTxRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void FinalizeSystemTxRes::Load(FinalizeSystemTxRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,16 +27,19 @@ struct UpdateAuthDataReq {
   static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
   UpdateAuthDataReq() = default;
+
   UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::User user)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         user{std::move(user)} {}
+
   UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::Role role)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         role{std::move(role)} {}
+
   UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t expected_ts, uint64_t new_ts,
                     auth::UserProfiles::Profile profile)
       : main_uuid(main_uuid),
@@ -59,6 +62,7 @@ struct UpdateAuthDataRes {
   static void Load(UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
   UpdateAuthDataRes() = default;
+
   explicit UpdateAuthDataRes(bool success) : success{success} {}
 
   bool success;
@@ -74,7 +78,7 @@ struct DropAuthDataReq {
   static void Save(const DropAuthDataReq &self, memgraph::slk::Builder *builder);
   DropAuthDataReq() = default;
 
-  enum class DataType : uint8_t { USER, ROLE, PROFILE };
+  enum class DataType : uint8_t { USER, ROLE, PROFILE, /* Leave at end */ N };
 
   DropAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, DataType const type,
                   std::string_view const name)
@@ -98,6 +102,7 @@ struct DropAuthDataRes {
   static void Load(DropAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const DropAuthDataRes &self, memgraph::slk::Builder *builder);
   DropAuthDataRes() = default;
+
   explicit DropAuthDataRes(bool const success) : success{success} {}
 
   bool success;

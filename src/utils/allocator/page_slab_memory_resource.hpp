@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     std::swap(ptr, other.ptr);
     std::swap(space, other.space);
   }
+
   PageSlabMemoryResource &operator=(PageSlabMemoryResource &&other) noexcept {
     if (this == &other) return *this;
     std::swap(*this, other);
@@ -54,42 +55,50 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
  private:
   struct header {
     explicit header(header *next, std::align_val_t alignment) : next(next), alignment{alignment} {}
+
     header *next = nullptr;
     std::align_val_t alignment;
   };
 
-  constexpr static size_t alignSize(size_t size, size_t alignment) { return (size + alignment - 1) & ~(alignment - 1); }
+  constexpr static size_t alignSize(size_t size, size_t alignment) noexcept {
+    return (size + alignment - 1) & ~(alignment - 1);
+  }
 
   void *do_allocate(size_t bytes, size_t alignment) final {
     // 1. could this fit inside a page slab?
-    auto earliest_slab_position = alignSize(sizeof(header), alignment);
+    constexpr auto header_size = sizeof(header);
+    auto earliest_slab_position = alignSize(header_size, alignment);
     auto max_slab_capacity = PAGE_SIZE - earliest_slab_position;
     if (max_slab_capacity < bytes) [[unlikely]] {
       auto required_bytes = bytes + earliest_slab_position;
-      auto *newmem = reinterpret_cast<header *>(operator new (required_bytes, std::align_val_t{alignment}));
+      auto *newmem = reinterpret_cast<header *>(operator new(required_bytes, std::align_val_t{alignment}));
       // add to the allocation list
       pages = std::construct_at<header>(newmem, pages, std::align_val_t{alignment});
       return reinterpret_cast<std::byte *>(pages) + earliest_slab_position;
     }
 
     // 2. can it fit in existing slab?
-    if (!std::align(alignment, bytes, ptr, space)) {
-      auto *newmem = reinterpret_cast<header *>(operator new (PAGE_SIZE, std::align_val_t{PAGE_SIZE}));
+    if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
+      auto *newmem = reinterpret_cast<header *>(operator new(PAGE_SIZE, std::align_val_t{PAGE_SIZE}));
       pages = std::construct_at<header>(newmem, pages, std::align_val_t{PAGE_SIZE});
-      ptr = reinterpret_cast<std::byte *>(pages) + sizeof(header);
-      space = PAGE_SIZE - sizeof(header);
-      std::align(alignment, bytes, ptr, space);
+      ptr = reinterpret_cast<std::byte *>(pages) + header_size;
+      space = PAGE_SIZE - header_size;
+      if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
+        // This should never happen for reasonable alignments
+        __builtin_unreachable();
+      }
     }
 
     // 3. use current slab
-    // NOTE: ptr and space have already been via std::align, alignment is correct here
+    // NOTE: ptr and space have already been updated via std::align
     void *res = ptr;
     ptr = reinterpret_cast<std::byte *>(ptr) + bytes;
     space -= bytes;
     return res;
   }
-  void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) final { /*noop*/
-  }
+
+  void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) final { /*noop*/ }
+
   bool do_is_equal(memory_resource const &other) const noexcept final { return std::addressof(other) == this; }
 
  private:

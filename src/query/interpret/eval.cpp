@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,12 +68,8 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, E
 
 TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
   auto target_string_value = regex_match.string_expr_->Accept(*this);
-  auto regex_value = regex_match.regex_->Accept(*this);
-  if (target_string_value.IsNull() || regex_value.IsNull()) {
+  if (target_string_value.IsNull()) {
     return TypedValue(ctx_->memory);
-  }
-  if (regex_value.type() != TypedValue::Type::String) {
-    throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex_value.type());
   }
   if (target_string_value.type() != TypedValue::Type::String) {
     // Instead of error, we return Null which makes it compatible in case we
@@ -81,14 +77,53 @@ TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
     // Assuming a property lookup is the target_string_value.
     return TypedValue(ctx_->memory);
   }
-  const auto &target_string = target_string_value.ValueString();
-  try {
-    std::regex const regex(regex_value.ValueString());
-    return TypedValue(std::regex_match(target_string, regex), ctx_->memory);
-  } catch (const std::regex_error &e) {
-    throw QueryRuntimeException("Regex error in '{}': {}", regex_value.ValueString(), e.what());
+
+  auto valid_regex_str = [&](TypedValue const &regex) {
+    if (regex.IsNull()) {
+      return false;
+    }
+    if (regex.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex.type());
+    }
+    return true;
+  };
+
+  auto build_regex = [](std::pmr::string const &str) {
+    try {
+      return std::regex{str};
+    } catch (const std::regex_error &e) {
+      throw QueryRuntimeException("Regex error in '{}': {}", str, e.what());
+    }
+  };
+
+  if (frame_change_collector_) {
+    const auto cached_id = memgraph::utils::GetFrameChangeId(regex_match);
+    if (frame_change_collector_->IsRegexKeyTracked(cached_id)) {
+      auto cached_value_ref = frame_change_collector_->TryGetRegexCachedValue(cached_id);
+      if (!cached_value_ref) {
+        // Check only first time if everything is okay, later when we use
+        // cache there is no need to check again as we did check first time
+        const auto regex_str = regex_match.regex_->Accept(*this);
+
+        if (!valid_regex_str(regex_str)) {
+          return TypedValue(ctx_->memory);
+        }
+        auto cached_value = frame_change_collector_->AddRegexKey(cached_id, build_regex(regex_str.ValueString()));
+        cached_value_ref = cached_value;
+      }
+      return TypedValue(std::regex_match(target_string_value.ValueString(), cached_value_ref->get()), ctx_->memory);
+    }
   }
+
+  // When caching is not an option, we need to evaluate regex literal every time
+  auto regex_value = regex_match.regex_->Accept(*this);
+  if (!valid_regex_str(regex_value)) {
+    return TypedValue(ctx_->memory);
+  }
+  return TypedValue(std::regex_match(target_string_value.ValueString(), build_regex(regex_value.ValueString())),
+                    ctx_->memory);
 }
+
 TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup) {
   TypedValue::TMap result(ctx_->memory);
 
@@ -97,16 +132,14 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Null:
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex: {
-      for (const auto properties = *expression_result.ValueVertex().Properties(view_);
-           const auto &[property_id, value] : properties) {
+      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueVertex())) {
         auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
         result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Edge: {
-      for (const auto properties = *expression_result.ValueEdge().Properties(view_);
-           const auto &[property_id, value] : properties) {
+      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueEdge())) {
         auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
         result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
@@ -206,10 +239,11 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
           "Only nodes, edges, maps, temporal types, points, and graphs have properties to be looked up.");
   }
 }
-TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
-  ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
 
-  TypedValue *expression_result_ptr = property_lookup.expression_->Accept(referenceExpressionEvaluator);
+TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
+  ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, ctx_);
+
+  TypedValue const *expression_result_ptr = property_lookup.expression_->Accept(referenceExpressionEvaluator);
   TypedValue expression_result;
 
   if (nullptr == expression_result_ptr) {
@@ -275,10 +309,10 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       return TypedValue(zdt.LocalYear(), ctx_->memory);
     }
     if (prop_name == "month") {
-      return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalMonth()), ctx_->memory);
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalMonth()), ctx_->memory);
     }
     if (prop_name == "day") {
-      return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalDay()), ctx_->memory);
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalDay()), ctx_->memory);
     }
     if (prop_name == "hour") {
       return TypedValue(zdt.LocalHour(), ctx_->memory);
@@ -390,7 +424,8 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), GetNameIdMapper(),
+        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
+                GetNameIdMapper(),
                 ctx_->memory};
       }
     case TypedValue::Type::Edge:
@@ -406,7 +441,8 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), GetNameIdMapper(),
+        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
+                GetNameIdMapper(),
                 ctx_->memory};
       }
     case TypedValue::Type::Map: {

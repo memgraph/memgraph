@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,7 @@
 #include "query/frontend/parsing.hpp"
 
 #include <cctype>
-#include <codecvt>
-#include <locale>
+#include <charconv>
 #include <stdexcept>
 
 #include "query/exceptions.hpp"
@@ -34,32 +33,83 @@ int64_t ParseIntegerLiteral(const std::string &s) {
 std::string ParseStringLiteral(const std::string &s) {
   // These functions is declared as lambda since its semantics is highly
   // specific for this conxtext and shouldn't be used elsewhere.
-  auto EncodeEscapedUnicodeCodepointUtf32 = [](const std::string &s, int &i) {
-    const int kLongUnicodeLength = 8;
+  // Encode a Unicode codepoint to UTF-8 bytes
+  // Assumes the codepoint is valid (caller must validate, especially for UTF-16 surrogates)
+  auto EncodeCodepointToUtf8 = [](uint32_t cp) -> std::string {
+    std::string result;
+    if (cp <= 0x7F) {
+      // 1-byte sequence: 0xxxxxxx
+      result += static_cast<char>(cp);
+    } else if (cp <= 0x7FF) {
+      // 2-byte sequence: 110xxxxx 10xxxxxx
+      result += static_cast<char>(0xC0U | ((cp >> 6U) & 0x1FU));
+      result += static_cast<char>(0x80U | (cp & 0x3FU));
+    } else if (cp <= 0xFFFF) {
+      // 3-byte sequence: 1110xxxx 10xxxxxx 10xxxxxx
+      result += static_cast<char>(0xE0U | ((cp >> 12U) & 0x0FU));
+      result += static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU));
+      result += static_cast<char>(0x80U | (cp & 0x3FU));
+    } else if (cp <= 0x10FFFF) {
+      // 4-byte sequence: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+      result += static_cast<char>(0xF0U | ((cp >> 18U) & 0x07U));
+      result += static_cast<char>(0x80U | ((cp >> 12U) & 0x3FU));
+      result += static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU));
+      result += static_cast<char>(0x80U | (cp & 0x3FU));
+    }
+    return result;
+  };
+
+  auto EncodeEscapedUnicodeCodepointUtf32 = [&EncodeCodepointToUtf8](const std::string &s, int &i) {
+    constexpr int kLongUnicodeLength = 8;
     int j = i + 1;
     while (j < static_cast<int>(s.size()) - 1 && j < i + kLongUnicodeLength + 1 && isxdigit(s[j])) {
       ++j;
     }
     if (j - i == kLongUnicodeLength + 1) {
-      char32_t t = stoi(s.substr(i + 1, kLongUnicodeLength), 0, 16);
+      uint32_t codepoint = 0;
+      const char *start = s.data() + i + 1;
+      const char *end = start + kLongUnicodeLength;
+      auto [ptr, ec] = std::from_chars(start, end, codepoint, 16);
+      if (ec != std::errc{} || ptr != end) {
+        throw SemanticException("Invalid UTF codepoint.");
+      }
       i += kLongUnicodeLength;
-      std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
-      return converter.to_bytes(t);
+      return EncodeCodepointToUtf8(codepoint);
     }
     throw SyntaxException(
         "Expected 8 hex digits as unicode codepoint started with \\U. "
         "Use \\u for 4 hex digits format.");
   };
-  auto EncodeEscapedUnicodeCodepointUtf16 = [](const std::string &s, int &i) {
-    const int kShortUnicodeLength = 4;
+  auto EncodeEscapedUnicodeCodepointUtf16 = [&EncodeCodepointToUtf8](const std::string &s, int &i) {
+    constexpr int kShortUnicodeLength = 4;
+
+    // Check if a UTF-16 code unit is a high surrogate (0xD800-0xDBFF)
+    auto IsHighSurrogate = [](uint16_t unit) { return unit >= 0xD800 && unit <= 0xDBFF; };
+
+    // Check if a UTF-16 code unit is a low surrogate (0xDC00-0xDFFF)
+    auto IsLowSurrogate = [](uint16_t unit) { return unit >= 0xDC00 && unit <= 0xDFFF; };
+
+    // Parse a UTF-16 code unit (4 hex digits) from the string at the given position
+    auto ParseUtf16Unit = [&s](int pos) -> uint16_t {
+      uint16_t unit = 0;
+      const char *start = s.data() + pos;
+      const char *end = start + kShortUnicodeLength;
+      auto [ptr, ec] = std::from_chars(start, end, unit, 16);
+      if (ec != std::errc{} || ptr != end) {
+        throw SemanticException("Invalid UTF codepoint.");
+      }
+      return unit;
+    };
+
     int j = i + 1;
     while (j < static_cast<int>(s.size()) - 1 && j < i + kShortUnicodeLength + 1 && isxdigit(s[j])) {
       ++j;
     }
     if (j - i >= kShortUnicodeLength + 1) {
-      char16_t t = stoi(s.substr(i + 1, kShortUnicodeLength), 0, 16);
-      if (t >= 0xD800 && t <= 0xDBFF) {
-        // t is high surrogate pair. Expect one more utf16 codepoint.
+      const uint16_t first_unit = ParseUtf16Unit(i + 1);
+
+      if (IsHighSurrogate(first_unit)) {
+        // High surrogate - expect a low surrogate to follow
         j = i + kShortUnicodeLength + 1;
         if (j >= static_cast<int>(s.size()) - 1 || s[j] != '\\') {
           throw SemanticException("Invalid UTF codepoint.");
@@ -76,15 +126,22 @@ std::string ParseStringLiteral(const std::string &s) {
         if (k != j + kShortUnicodeLength) {
           throw SemanticException("Invalid UTF codepoint.");
         }
-        char16_t surrogates[3] = {t, static_cast<char16_t>(stoi(s.substr(j, kShortUnicodeLength), 0, 16)), 0};
+
+        const uint16_t second_unit = ParseUtf16Unit(j);
+
+        // Convert UTF-16 surrogate pair to Unicode codepoint
+        // Formula: 0x10000 + ((high & 0x3FF) << 10) | (low & 0x3FF)
+        const uint32_t codepoint = 0x10000U + (((first_unit & 0x3FFU) << 10U) | (second_unit & 0x3FFU));
         i += kShortUnicodeLength + 2 + kShortUnicodeLength;
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-        return converter.to_bytes(surrogates);
-      } else {
-        i += kShortUnicodeLength;
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-        return converter.to_bytes(t);
+        return EncodeCodepointToUtf8(codepoint);
       }
+      if (IsLowSurrogate(first_unit)) {
+        // Low surrogate appearing alone - invalid
+        throw SemanticException("Invalid UTF codepoint.");
+      }
+      // Single UTF-16 code unit (not a surrogate), encode directly to UTF-8
+      i += kShortUnicodeLength;
+      return EncodeCodepointToUtf8(first_unit);
     }
     throw SyntaxException(
         "Expected 4 hex digits as unicode codepoint started with \\u. "

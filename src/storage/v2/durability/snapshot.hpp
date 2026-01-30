@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,7 @@
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
@@ -85,9 +86,9 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 
-auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory,
-                                        const std::string &current_snapshot_path, const std::string &uuid,
-                                        utils::FileRetainer *file_retainer, Storage *storage) -> OldSnapshotFiles;
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &uuid,
+                                        const std::string &current_snapshot_path, utils::FileRetainer *file_retainer,
+                                        Storage *storage) -> OldSnapshotFiles;
 
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
                             utils::FileRetainer *file_retainer);
@@ -96,11 +97,13 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer);
 
-std::optional<std::filesystem::path> CreateSnapshot(
-    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
-    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-    utils::UUID const &uuid, const memgraph::replication::ReplicationEpoch &epoch,
-    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
-    std::atomic_bool *abort_snapshot = nullptr);
+std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transaction *transaction,
+                                                    const std::filesystem::path &snapshot_directory,
+                                                    const std::filesystem::path &wal_directory,
+                                                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                                    utils::UUID const &uuid, std::string_view epoch_id,
+                                                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                                                    utils::FileRetainer *file_retainer,
+                                                    std::atomic_bool *abort_snapshot = nullptr);
 
 }  // namespace memgraph::storage::durability

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,12 +19,12 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
                                                                   query::HopsLimit *hops_limit) const {
   auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
-  if (maybe_result.HasError()) return maybe_result.GetError();
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  std::ranges::transform(
+      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
 }
@@ -34,12 +34,12 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
                                                                   const VertexAccessor &dest,
                                                                   query::HopsLimit *hops_limit) const {
   auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
-  if (maybe_result.HasError()) return maybe_result.GetError();
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  std::ranges::transform(
+      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
 }
@@ -52,12 +52,12 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
                                                                    const std::vector<storage::EdgeTypeId> &edge_types,
                                                                    query::HopsLimit *hops_limit) const {
   auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
-  if (maybe_result.HasError()) return maybe_result.GetError();
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  std::ranges::transform(
+      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
 }
@@ -67,12 +67,12 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
                                                                    VertexAccessor const &dest,
                                                                    query::HopsLimit *hops_limit) const {
   auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);
-  if (maybe_result.HasError()) return maybe_result.GetError();
+  if (!maybe_result) return std::unexpected{maybe_result.error()};
 
   std::vector<EdgeAccessor> edges;
   edges.reserve((*maybe_result).edges.size());
-  std::ranges::transform((*maybe_result).edges, std::back_inserter(edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  std::ranges::transform(
+      (*maybe_result).edges, std::back_inserter(edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = edges, .expanded_count = (*maybe_result).expanded_count};
 }

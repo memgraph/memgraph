@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/ttl.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
@@ -78,6 +77,20 @@ class DiskStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
+    VerticesChunkedIterable ChunkedVertices(View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
+    VerticesChunkedIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
+    VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
+                                            std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                            size_t num_chunks) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
@@ -98,6 +111,38 @@ class DiskStorage final : public Storage {
 
     EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/, const PropertyValue & /*value*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
+
+    EdgesChunkedIterable ChunkedEdges(PropertyId /*property*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                      const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/, View /*view*/,
+                                      size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedEdges is not implemented for DiskStorage.");
+    }
 
     uint64_t ApproximateVertexCount() const override;
 
@@ -235,10 +280,10 @@ class DiskStorage final : public Storage {
     void DropAllConstraints() override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) override;
+    std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitArgs commit_args) override;
+    std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
     void UpdateObjectsCountOnAbort();
 
@@ -246,63 +291,65 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
+    // Bring base class convenience overloads into scope (they provide default neverCancel)
+    using Storage::Accessor::CreateGlobalEdgeIndex;
+    using Storage::Accessor::CreateIndex;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
+                                                                 CheckCancelFunction cancel_check) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths,
+                                                                 CheckCancelFunction cancel_check) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
+                                                                 CheckCancelFunction cancel_check) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
+    std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                 CheckCancelFunction cancel_check) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+    std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
+                                                                           CheckCancelFunction cancel_check) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+    std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
+
+    std::expected<void, StorageIndexDefinitionError> DropIndex(
         LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
+    std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
-        storage::LabelId label, storage::PropertyId property) override;
+    std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
+                                                                               storage::PropertyId property) override;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
-        storage::LabelId label, storage::PropertyId property) override;
+    std::expected<void, storage::StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
+                                                                             storage::PropertyId property) override;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) override;
+    std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) override;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
-        std::string_view index_name) override;
+    std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) override;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
-        VectorEdgeIndexSpec spec) override;
+    std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
 
-    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+    std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
 
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-        LabelId label, PropertyId property) override;
+    std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
+                                                                                         PropertyId property) override;
 
-    utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+    std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> CreateUniqueConstraint(
+        LabelId label, const std::set<PropertyId> &properties) override;
 
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
-    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+    std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+    std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label, PropertyId property,
+                                                                                    TypeConstraintKind type) override;
 
     void DropGraph() override;
 
@@ -328,8 +375,8 @@ class DiskStorage final : public Storage {
     // TTL management methods
     void StartTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
       storage_->ttl_.Resume();
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
-                                          std::nullopt, std::nullopt, false);
+      transaction_.md_deltas.emplace_back(
+          MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE, std::nullopt, std::nullopt, false);
     }
 
     void DisableTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
@@ -338,28 +385,28 @@ class DiskStorage final : public Storage {
 
       // Drop indices
       auto index_result = DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
-      if (index_result.HasError()) {
+      if (!index_result) {
         // Silently fail if vertex index already dropped
       }
 
       // Check if edge TTL was enabled and drop edge index if needed
       if (storage_->ttl_.Config().should_run_edge_ttl) {
         auto edge_index_result = DropGlobalEdgeIndex(ttl_property);
-        if (edge_index_result.HasError()) {
+        if (!edge_index_result) {
           // Silently fail if edge index already dropped
         }
       }
 
       storage_->ttl_.Disable();
 
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
-                                          std::nullopt, std::nullopt, false);
+      transaction_.md_deltas.emplace_back(
+          MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE, std::nullopt, std::nullopt, false);
     }
 
     void StopTtl() override {
       storage_->ttl_.Pause();
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
-                                          std::nullopt, std::nullopt, false);
+      transaction_.md_deltas.emplace_back(
+          MetadataDelta::ttl_operation, durability::TtlOperationType::STOP, std::nullopt, std::nullopt, false);
     }
 
     void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs /*repl_args*/ = {}) override {
@@ -376,8 +423,11 @@ class DiskStorage final : public Storage {
       // Configure TTL
       if (!storage_->ttl_.Running()) storage_->ttl_.Configure(ttl_info.should_run_edge_ttl);
       storage_->ttl_.SetInterval(ttl_info.period, ttl_info.start_time);
-      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
-                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation,
+                                          durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period,
+                                          ttl_info.start_time,
+                                          ttl_info.should_run_edge_ttl);
     }
 
     storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
@@ -405,19 +455,19 @@ class DiskStorage final : public Storage {
                                            std::optional<std::chrono::milliseconds> timeout) override;
 
   /// Flushing methods
-  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
+  [[nodiscard]] std::expected<void, StorageManipulationError> FlushIndexCache(Transaction *transaction);
 
-  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
+  [[nodiscard]] std::expected<void, StorageManipulationError> FlushVertices(
       Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
 
-  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
+  [[nodiscard]] std::expected<void, StorageManipulationError> CheckVertexConstraintsBeforeCommit(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
-  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices(Transaction *transaction);
-  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges(Transaction *transaction);
-  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(Transaction *transaction,
-                                                                                      const auto &edges_acc);
-  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices(Transaction *transaction);
+  [[nodiscard]] std::expected<void, StorageManipulationError> FlushDeletedVertices(Transaction *transaction);
+  [[nodiscard]] std::expected<void, StorageManipulationError> FlushDeletedEdges(Transaction *transaction);
+  [[nodiscard]] std::expected<void, StorageManipulationError> FlushModifiedEdges(Transaction *transaction,
+                                                                                 const auto &edges_acc);
+  [[nodiscard]] std::expected<void, StorageManipulationError> ClearDanglingVertices(Transaction *transaction);
 
   /// Writing methods
   bool WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex);
@@ -518,10 +568,10 @@ class DiskStorage final : public Storage {
 
   uint64_t GetDiskSpaceUsage() const;
 
-  [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
+  [[nodiscard]] std::expected<void, ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
 
-  [[nodiscard]] utils::BasicResult<ConstraintViolation, std::vector<std::pair<std::string, std::string>>>
+  [[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>
   CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) const;
 
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelIndex(LabelId label);
@@ -531,6 +581,12 @@ class DiskStorage final : public Storage {
 
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo() override;
+
+  std::unordered_map<LabelId, uint64_t> GetLabelCounts() const override;
+
+  void UpdateLabelCount(LabelId /*label*/, int64_t /*change*/) override {
+    // Disk storage doesn't track and cache live label counts, so this is a no-op
+  }
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 

@@ -1,0 +1,15 @@
+memgraph_query: >
+  MATCH (ana:Ana),
+        (marija:Marija)
+  MATCH path = (ana)-[:KNOWS*]->(node)
+  WITH ana, marija, collect(path) as paths
+  CALL refactor.clone_subgraph_from_paths(paths)
+  YIELD input, output
+  RETURN input, output;
+
+neo4j_query: >
+  MATCH (ana:Ana),
+        (marija:Marija)
+  MATCH path = (ana)-[:KNOWS*]->(node)
+  WITH ana, marija, collect(path) as paths
+  CALL apoc.refactor.cloneSubgraphFromPaths(paths) YIELD input, output, error RETURN input, output, error;

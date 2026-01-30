@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,9 @@ namespace memgraph::replication {
 
 inline void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
                          std::string_view rpc_req) {
-  spdlog::error("Received {} with main_uuid: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+  spdlog::error("Received {} with main_uuid: {} != current_main_uuid: {}",
+                rpc_req,
+                std::string(main_req_id),
                 current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
 }
 
@@ -36,10 +38,15 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
 void Register(RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
               auth::SynchedAuth &auth);
 
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, RoleReplicaData &data, auth::SynchedAuth &auth,
-                    system::System &system);
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system);
 #else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, RoleReplicaData &data);
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    RoleReplicaData &data);
 #endif
 
 }  // namespace memgraph::replication

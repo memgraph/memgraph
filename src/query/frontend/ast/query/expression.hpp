@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,14 +21,17 @@ class Expression : public memgraph::query::Tree,
                    public utils::Visitable<HierarchicalTreeVisitor>,
                    public utils::Visitable<ExpressionVisitor<TypedValue>>,
                    public utils::Visitable<ExpressionVisitor<TypedValue *>>,
+                   public utils::Visitable<ExpressionVisitor<TypedValue const *>>,
                    public utils::Visitable<ExpressionVisitor<void>> {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   using utils::Visitable<HierarchicalTreeVisitor>::Accept;
   using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
   using utils::Visitable<ExpressionVisitor<TypedValue *>>::Accept;
+  using utils::Visitable<ExpressionVisitor<TypedValue const *>>::Accept;
   using utils::Visitable<ExpressionVisitor<void>>::Accept;
 
   Expression() = default;

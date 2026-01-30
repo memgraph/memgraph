@@ -1,0 +1,7 @@
+query: >
+    CALL graph_util.topological_sort() YIELD sorted_nodes
+    UNWIND sorted_nodes AS node
+    RETURN node.id AS id;
+
+exception:
+    - The graph is cyclic and therefore no topological ordering exists.

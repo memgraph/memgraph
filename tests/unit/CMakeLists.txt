@@ -1,21 +1,32 @@
+set(test_prefix memgraph__unit__)
+
 find_package(fmt REQUIRED)
-find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
-find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)
+find_package(antlr4-runtime REQUIRED)
+
+include_directories(${antlr4-runtime_INCLUDE_DIR})
+
+if(NOT TARGET memgraph__unit)
+    add_custom_target(memgraph__unit)
+endif()
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils GTest::gtest GTest::gmock Threads::Threads dl atomic)
 target_precompile_headers(memgraph_unit_main PRIVATE
     <gtest/gtest.h>
 )
+
+
 
 # Test utilities
 add_library(storage_test_utils storage_test_utils.cpp)
 target_link_libraries(storage_test_utils mg::storage)
 
+find_package(Boost REQUIRED CONFIG COMPONENTS filesystem)
+
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads gtest)
+target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer
@@ -87,6 +98,11 @@ add_unit_test(query_dump
 
 add_unit_test(query_expression_evaluator
     SOURCES query_expression_evaluator.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_cache
+    SOURCES query_cache.cpp
     LINK_TARGETS mg-query
 )
 
@@ -304,6 +320,12 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+
+add_unit_test(utils_aws
+    SOURCES utils_aws.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_barrier
     SOURCES utils_barrier.cpp
     LINK_TARGETS mg-utils
@@ -345,6 +367,11 @@ add_unit_test(utils_memory
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_memory_thread_safe
+    SOURCES utils_memory_thread_safe.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_memory_tracker
     SOURCES utils_memory_tracker.cpp
     LINK_TARGETS mg-utils
@@ -353,6 +380,11 @@ add_unit_test(utils_memory_tracker
 add_unit_test(utils_query_memory_tracker
     SOURCES utils_query_memory_tracker.cpp
     LINK_TARGETS mg-utils
+)
+
+add_unit_test(jemalloc_hook_stress_test
+    SOURCES jemalloc_hook_stress_test.cpp
+    LINK_TARGETS mg-memory mg-utils
 )
 
 add_unit_test(utils_on_scope_exit
@@ -405,19 +437,24 @@ add_unit_test(small_vector
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(skip_list_range_chunking
+    SOURCES skip_list_range_chunking.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_mask_sensitive_information
     SOURCES utils_mask_sensitive_information.cpp
-    LINK_TARGETS mg-utils fmt
+    LINK_TARGETS mg-utils fmt::fmt
 )
 
 add_unit_test(utils_file_locker
     SOURCES utils_file_locker.cpp
-    LINK_TARGETS mg-utils fmt
+    LINK_TARGETS mg-utils fmt::fmt
 )
 
 add_unit_test(utils_thread_pool
     SOURCES utils_thread_pool.cpp
-    LINK_TARGETS mg-utils fmt
+    LINK_TARGETS mg-utils fmt::fmt
 )
 
 add_unit_test(csv_csv_parsing
@@ -465,9 +502,14 @@ add_unit_test(utils_static_vector
     LINK_TARGETS mg::utils
 )
 
+add_unit_test(utils_stack
+    SOURCES utils_stack.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(exponential_backoff
     SOURCES exponential_backoff.cpp
-    LINK_TARGETS mg-utils lib::rangev3
+    LINK_TARGETS mg-utils range-v3::range-v3
 )
 
 add_unit_test(utils_compressor
@@ -506,6 +548,11 @@ add_unit_test(storage_v2_acc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_chunk_iterator
+    SOURCES storage_v2_chunk_iterator.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
 add_unit_test(storage_v2_delta_container
     SOURCES storage_v2_delta_container.cpp
     LINK_TARGETS mg::storage
@@ -533,6 +580,11 @@ add_unit_test(storage_v2_durability_inmemory
 
 add_unit_test(storage_v2_create_snapshot
     SOURCES storage_v2_create_snapshot.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
+add_unit_test(storage_v2_recover_snapshot
+    SOURCES storage_v2_recover_snapshot.cpp
     LINK_TARGETS mg::storage mg-dbms
 )
 
@@ -589,12 +641,12 @@ add_unit_test(storage_v2_property_store
 
 add_unit_test(storage_v2_wal_file
     SOURCES storage_v2_wal_file.cpp
-    LINK_TARGETS mg::storage storage_test_utils fmt
+    LINK_TARGETS mg::storage storage_test_utils fmt::fmt
 )
 
 add_unit_test(storage_v2_replication
     SOURCES storage_v2_replication.cpp
-    LINK_TARGETS mg::storage mg-dbms fmt mg-repl_coord_glue
+    LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue
 )
 
 add_unit_test(storage_v2_isolation_level
@@ -702,12 +754,12 @@ endif ()
 
 add_unit_test(slk_core
     SOURCES slk_core.cpp
-    LINK_TARGETS mg-slk gflags fmt
+    LINK_TARGETS mg-slk gflags fmt::fmt
 )
 
 add_unit_test(slk_streams
     SOURCES slk_streams.cpp
-    LINK_TARGETS mg-slk gflags fmt
+    LINK_TARGETS mg-slk gflags fmt::fmt
 )
 
 # Test utilities

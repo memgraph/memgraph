@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@ class VerticesIterable final {
   enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
 
   Type type_;
+
   union {
     AllVerticesIterable all_vertices_;
     InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
@@ -42,6 +43,7 @@ class VerticesIterable final {
 
   class Iterator final {
     Type type_;
+
     union {
       AllVerticesIterable::Iterator all_it_;
       InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
@@ -51,6 +53,9 @@ class VerticesIterable final {
     void Destroy() noexcept;
 
    public:
+    using difference_type = std::ptrdiff_t;
+    using value_type = VertexAccessor;
+
     explicit Iterator(AllVerticesIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
     explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
@@ -63,12 +68,11 @@ class VerticesIterable final {
 
     ~Iterator();
 
-    VertexAccessor const &operator*() const;
+    value_type const &operator*() const;
 
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const;
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
   Iterator begin();

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,6 @@
 #include <gtest/gtest.h>
 
 #include "slk/serialization.hpp"
-
 #include "slk_common.hpp"
 
 #define CREATE_PRIMITIVE_TEST(primitive_type, original_value, decoded_value) \
@@ -35,10 +34,10 @@ TEST(SlkCore, Primitive) {
   CREATE_PRIMITIVE_TEST(uint8_t, 0x12, 0);
   CREATE_PRIMITIVE_TEST(int16_t, 0x1234, 0);
   CREATE_PRIMITIVE_TEST(uint16_t, 0x1234, 0);
-  CREATE_PRIMITIVE_TEST(int32_t, 0x12345678, 0);
-  CREATE_PRIMITIVE_TEST(uint32_t, 0x12345678, 0);
-  CREATE_PRIMITIVE_TEST(int64_t, 0x1234567890abcdef, 0);
-  CREATE_PRIMITIVE_TEST(uint64_t, 0x1234567890abcdef, 0);
+  CREATE_PRIMITIVE_TEST(int32_t, 0x1234'5678, 0);
+  CREATE_PRIMITIVE_TEST(uint32_t, 0x1234'5678, 0);
+  CREATE_PRIMITIVE_TEST(int64_t, 0x1234'5678'90ab'cdef, 0);
+  CREATE_PRIMITIVE_TEST(uint64_t, 0x1234'5678'90ab'cdef, 0);
   CREATE_PRIMITIVE_TEST(float, 1.23456789, 0);
   CREATE_PRIMITIVE_TEST(double, 1234567890.1234567890, 0);
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@ namespace memgraph::storage {
 std::string ToJson(LabelIndexStats const &in) {
   return fmt::format(R"({{"count":{}, "avg_degree":{}}})", in.count, in.avg_degree);
 }
+
 bool FromJson(std::string const &json, LabelIndexStats &out) {
   bool res = true;
   res &= utils::GetJsonValue(json, "count", out.count);

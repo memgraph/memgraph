@@ -19,7 +19,6 @@
 #include "slk/serialization.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/cast.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::slk {
@@ -95,18 +94,21 @@ void Load(storage::ExternalPropertyValue::Type *type, slk::Reader *reader) {
   slk::Load(&value, reader);
   bool valid;
   switch (value) {
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Null):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Bool):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Int):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Double):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::String):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::List):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Map):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::TemporalData):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::ZonedTemporalData):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Enum):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point2d):
-    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point3d):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Null):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Bool):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Int):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Double):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::String):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::List):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::IntList):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::DoubleList):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::NumericList):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Map):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::TemporalData):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::ZonedTemporalData):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Enum):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Point2d):
+    case std::to_underlying(storage::ExternalPropertyValue::Type::Point3d):
       valid = true;
       break;
     default:
@@ -141,17 +143,53 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::List: {
       slk::Save(storage::ExternalPropertyValue::Type::List, builder);
       const auto &values = value.ValueList();
-      size_t size = values.size();
+      const auto size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
         slk::Save(v, builder);
       }
       return;
     }
+    case storage::ExternalPropertyValue::Type::IntList: {
+      slk::Save(storage::ExternalPropertyValue::Type::IntList, builder);
+      const auto &values = value.ValueIntList();
+      const auto size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        slk::Save(v, builder);
+      }
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::DoubleList: {
+      slk::Save(storage::ExternalPropertyValue::Type::DoubleList, builder);
+      const auto &values = value.ValueDoubleList();
+      const auto size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        slk::Save(v, builder);
+      }
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::NumericList: {
+      slk::Save(storage::ExternalPropertyValue::Type::NumericList, builder);
+      const auto &values = value.ValueNumericList();
+      const auto size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        if (std::holds_alternative<int>(v)) {
+          slk::Save(storage::ExternalPropertyValue::Type::Int, builder);
+          slk::Save(std::get<int>(v), builder);
+        } else {
+          slk::Save(storage::ExternalPropertyValue::Type::Double, builder);
+          slk::Save(std::get<double>(v), builder);
+        }
+      }
+      return;
+    }
     case storage::ExternalPropertyValue::Type::Map: {
       slk::Save(storage::ExternalPropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
-      size_t size = map.size();
+      const auto size = map.size();
       slk::Save(size, builder);
       for (const auto &kv : map) {
         slk::Save(kv, builder);
@@ -229,7 +267,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::List: {
-      size_t size;
+      size_t size = 0;
       slk::Load(&size, reader);
       std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -238,8 +276,51 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       *value = storage::ExternalPropertyValue(std::move(list));
       return;
     }
+    case storage::ExternalPropertyValue::Type::IntList: {
+      size_t size = 0;
+      slk::Load(&size, reader);
+      storage::ExternalPropertyValue::int_list_t list(size);
+      for (size_t i = 0; i < size; ++i) {
+        slk::Load(&list[i], reader);
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::DoubleList: {
+      size_t size = 0;
+      slk::Load(&size, reader);
+      storage::ExternalPropertyValue::double_list_t list(size);
+      for (size_t i = 0; i < size; ++i) {
+        slk::Load(&list[i], reader);
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::NumericList: {
+      size_t size = 0;
+      slk::Load(&size, reader);
+      storage::ExternalPropertyValue::numeric_list_t list;
+      list.reserve(size);
+      for (size_t i = 0; i < size; ++i) {
+        storage::ExternalPropertyValue::Type type{};
+        slk::Load(&type, reader);
+        if (type == storage::ExternalPropertyValue::Type::Int) {
+          int v = 0;
+          slk::Load(&v, reader);
+          list.emplace_back(v);
+        } else if (type == storage::ExternalPropertyValue::Type::Double) {
+          double v = NAN;
+          slk::Load(&v, reader);
+          list.emplace_back(v);
+        } else {
+          throw slk::SlkDecodeException("Trying to load NumericList with invalid type!");
+        }
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
     case storage::ExternalPropertyValue::Type::Map: {
-      size_t size;
+      size_t size = 0;
       slk::Load(&size, reader);
       auto map = storage::ExternalPropertyValue::map_t{};
       do_reserve(map, size);

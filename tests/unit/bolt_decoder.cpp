@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@ using memgraph::communication::bolt::Value;
 
 namespace {
 
-inline constexpr const int SIZE = 131072;
+inline constexpr const int SIZE = 131'072;
 uint8_t data[SIZE];
 
 }  // namespace
@@ -178,11 +178,11 @@ TEST_F(BoltDecoder, StringLarge) {
   // test all ok
   buffer.Clear();
   buffer.Write(header, 5);
-  buffer.Write(data, 100000);
+  buffer.Write(data, 100'000);
   ASSERT_EQ(decoder.ReadValue(&dv), true);
   ASSERT_EQ(dv.type(), Value::Type::String);
   std::string &str = dv.ValueString();
-  for (int j = 0; j < 100000; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
+  for (int j = 0; j < 100'000; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
 }
 
 TEST_F(BoltDecoder, List) {
@@ -496,7 +496,7 @@ TEST_F(BoltDecoder, DateRecent) {
   using Sig = memgraph::communication::bolt::Signature;
   const auto date = memgraph::utils::Date({2021, 7, 20});
   const auto days = date.DaysSinceEpoch();
-  ASSERT_EQ(days, 18828);
+  ASSERT_EQ(days, 18'828);
   const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
   // clang-format off
   std::array<uint8_t, 7> data = {
@@ -583,7 +583,7 @@ TEST_F(BoltDecoder, ArbitraryDuration) {
   ASSERT_EQ(secs, 3723);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 5000000);
+  ASSERT_EQ(nanos, 5'000'000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
@@ -649,7 +649,7 @@ TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
   const auto value = Value(memgraph::utils::LocalTime(1000));
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.NanosecondsSinceEpoch();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 1'000'000);
   const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
@@ -674,14 +674,14 @@ void test_LocalDateTime() {
   Value dv;
 
   const auto local_time = memgraph::utils::LocalTime(memgraph::utils::LocalTimeParameters({0, 0, 30, 1, 0}));
-  const auto date = memgraph::utils::Date(1);
+  const auto date = memgraph::utils::Date(std::chrono::microseconds{1});
   const auto value = Value(memgraph::utils::LocalDateTime(date, local_time));
   const auto local_date_time = value.ValueLocalDateTime();
   const auto secs = local_date_time.SecondsSinceEpoch();
   ASSERT_EQ(secs, 30);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = local_date_time.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 1'000'000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;

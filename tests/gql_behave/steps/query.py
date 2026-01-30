@@ -100,6 +100,18 @@ def cleanup_vector_index(index_name, context, params):
     database.query(drop_query, context, params)
 
 
+def cleanup_global_edge_index(property, context, params):
+    drop_query = f"DROP GLOBAL EDGE INDEX ON :({property});"
+    database.query(drop_query, context, params)
+
+
+@step("with new edge index :({index_arg})")
+def with_new_edge_index_step(context, index_arg):
+    index_creation_query = f"CREATE GLOBAL EDGE INDEX ON :({index_arg});"
+    context.results = database.query(index_creation_query, context, context.test_parameters.get_parameters())
+    context.add_cleanup(cleanup_global_edge_index, index_arg, context, context.test_parameters.get_parameters())
+
+
 @when("executing query")
 def executing_query_step(context):
     context.results = database.query(context.text, context, context.test_parameters.get_parameters())

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,7 @@ namespace memgraph::storage {
  *            n.a > 42 and n.a < "hello".
  */
 enum class PropertyRangeType { BOUNDED, IS_NOT_NULL, INVALID };
+
 struct PropertyValueRange {
   using Type = PropertyRangeType;
 
@@ -42,6 +43,7 @@ struct PropertyValueRange {
                       std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
     return {Type::BOUNDED, std::move(lower), std::move(upper)};
   }
+
   static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
   bool IsValueInRange(PropertyValue const &value) const {
@@ -146,8 +148,8 @@ struct PropertiesPermutationHelper {
    * values. This returns a vector of boolean flags indicating per-element
    * equality (in monotonic property id order.)
    */
-  auto MatchesValues(PropertyStore const &properties,
-                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+      -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,6 +48,7 @@ struct InterpreterFaker {
     stream.Summary(summary);
     return std::move(stream);
   }
+
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::query::Interpreter interpreter;

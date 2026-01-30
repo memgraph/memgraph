@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,7 +47,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -62,6 +62,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
   };
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
                                                           nullptr,
                                                           repl_state,
                                                           system_state
@@ -83,16 +84,16 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(TransactionQueueSimpleTest, StorageTypes);
 
 TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
-  bool started = false;
+  std::atomic<bool> started{false};
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
         this->running_interpreter.Interpret("BEGIN");
-        started = true;
+        started.store(true, std::memory_order_release);
       },
       0);
 
   {
-    while (!started) {
+    while (!started.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     this->main_interpreter.Interpret("CREATE (:Person {prop: 1})");

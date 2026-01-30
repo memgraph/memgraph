@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "telemetry/telemetry.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/system_info.hpp"
 #include "utils/uuid.hpp"
 
@@ -50,37 +51,50 @@ int main(int argc, char **argv) {
       ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
-                                           auth_, false
+                                           auth_,
+                                           false
 #endif
   );
-  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, repl_state, system_state
+  memgraph::query::InterpreterContext interpreter_context_({},
+                                                           nullptr,
+                                                           &dbms_handler,
+                                                           repl_state,
+                                                           system_state
 #ifdef MG_ENTERPRISE
                                                            ,
-                                                           std::nullopt, nullptr
+                                                           std::nullopt,
+                                                           nullptr
 #endif
                                                            ,
-                                                           &auth_handler, &auth_checker);
+                                                           &auth_handler,
+                                                           &auth_checker);
 
 #ifdef MG_ENTERPRISE
-  std::optional<CoordinatorState> coord_state;
-  coord_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = 1,
-                                                    .coordinator_port = 20000,
-                                                    .bolt_port = 7689,
-                                                    .management_port = 10000,
-                                                    .durability_dir = "coord_state_dir",
-                                                    .coordinator_hostname = "localhost",
-                                                    .nuraft_log_file = "test.log",
-                                                    .instance_down_timeout_sec = std::chrono::seconds(5),
-                                                    .instance_health_check_frequency_sec = std::chrono::seconds(1)});
+  std::shared_ptr<CoordinatorState> coord_state;
+  coord_state = std::make_shared<CoordinatorState>(
+      CoordinatorInstanceInitConfig{.coordinator_id = 1,
+                                    .coordinator_port = 20'000,
+                                    .bolt_port = 7689,
+                                    .management_port = 10'000,
+                                    .durability_dir = "coord_state_dir",
+                                    .coordinator_hostname = "localhost",
+                                    .nuraft_log_file = "test.log",
+                                    .instance_down_timeout_sec = std::chrono::seconds(5),
+                                    .instance_health_check_frequency_sec = std::chrono::seconds(1)});
 #endif
 
   memgraph::requests::Init();
-  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
-                                           memgraph::utils::GetMachineId(), false, FLAGS_root_directory,
-                                           std::chrono::seconds(FLAGS_interval), 1);
+  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint,
+                                           FLAGS_storage_directory,
+                                           memgraph::utils::GenerateUUID(),
+                                           memgraph::utils::GetMachineId(),
+                                           false,
+                                           FLAGS_root_directory,
+                                           std::chrono::seconds(FLAGS_interval),
+                                           1);
 
   // User defined collector
   uint64_t counter = 0;

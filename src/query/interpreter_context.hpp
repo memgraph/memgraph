@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -58,12 +59,13 @@ struct QueryUserOrRole;
  *
  */
 struct InterpreterContext {
-  memgraph::dbms::DbmsHandler *dbms_handler;
+  utils::Settings *settings;
+  dbms::DbmsHandler *dbms_handler;
 
   // Internal
   const InterpreterConfig config;
   std::atomic<bool> is_shutting_down{false};  // TODO: Do we even need this, since there is a global one also
-  memgraph::utils::SkipList<QueryCacheEntry> ast_cache;
+  utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state;
@@ -79,7 +81,7 @@ struct InterpreterContext {
 
   // Used to check active transactions
   // TODO: Have a way to read the current database
-  memgraph::utils::Synchronized<std::unordered_set<Interpreter *>, memgraph::utils::SpinLock> interpreters;
+  utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
 
   struct {
     auto next() -> uint64_t { return transaction_id++; }
@@ -100,9 +102,8 @@ struct InterpreterContext {
                                                            std::string_view db_name);
 
   // TODO: Make this constructor private
-  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
-                     memgraph::system::System &system,
+  InterpreterContext(InterpreterConfig interpreter_config, utils::Settings *settings, dbms::DbmsHandler *dbms_handler,
+                     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
 #ifdef MG_ENTERPRISE
                      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
                      utils::ResourceMonitoring *resource_monitoring,
@@ -120,9 +121,10 @@ class InterpreterContextHolder {
   }
 
  private:
-  static void Initialize(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+  static void Initialize(InterpreterConfig interpreter_config, utils::Settings *settings,
+                         dbms::DbmsHandler *dbms_handler,
                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
-                         memgraph::system::System &system,
+                         system::System &system,
 #ifdef MG_ENTERPRISE
                          std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
                          utils::ResourceMonitoring *resource_monitoring,
@@ -130,18 +132,27 @@ class InterpreterContextHolder {
                          AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
                          ReplicationQueryHandler *replication_handler = nullptr) {
     assert(!instance);
-    instance.emplace(interpreter_config, dbms_handler, rs, system,
+    instance.emplace(interpreter_config,
+                     settings,
+                     dbms_handler,
+                     rs,
+                     system,
 #ifdef MG_ENTERPRISE
-                     coordinator_state, resource_monitoring,
+                     coordinator_state,
+                     resource_monitoring,
 #endif
-                     ah, ac, replication_handler);
+                     ah,
+                     ac,
+                     replication_handler);
   }
+
   InterpreterContextHolder(const InterpreterContextHolder &) = delete;
   InterpreterContextHolder &operator=(const InterpreterContextHolder &) = delete;
   InterpreterContextHolder(InterpreterContextHolder &&) = delete;
   InterpreterContextHolder &operator=(InterpreterContextHolder &&) = delete;
 
   static void destroy() { instance.reset(); }
+
   static std::optional<InterpreterContext> instance;
 
   friend struct InterpreterContextLifetimeControl;
@@ -149,20 +160,28 @@ class InterpreterContextHolder {
 
 struct InterpreterContextLifetimeControl {
   InterpreterContextLifetimeControl(
-      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-      utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
+      InterpreterConfig interpreter_config, utils::Settings *settings, dbms::DbmsHandler *dbms_handler,
+      utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
 #ifdef MG_ENTERPRISE
       std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
       utils::ResourceMonitoring *resource_monitoring,
 #endif
       AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
       ReplicationQueryHandler *replication_handler = nullptr) {
-    InterpreterContextHolder::Initialize(interpreter_config, dbms_handler, rs, system,
+    InterpreterContextHolder::Initialize(interpreter_config,
+                                         settings,
+                                         dbms_handler,
+                                         rs,
+                                         system,
 #ifdef MG_ENTERPRISE
-                                         coordinator_state, resource_monitoring,
+                                         coordinator_state,
+                                         resource_monitoring,
 #endif
-                                         ah, ac, replication_handler);
+                                         ah,
+                                         ac,
+                                         replication_handler);
   }
+
   ~InterpreterContextLifetimeControl() { InterpreterContextHolder::destroy(); }
 };
 }  // namespace memgraph::query

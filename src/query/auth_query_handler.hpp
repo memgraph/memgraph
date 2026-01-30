@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,6 +69,7 @@ class AuthQueryHandler {
   /// Returns database access rights for the user
   /// @throw QueryRuntimeException if an error ocurred.
   virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles) = 0;
+
   DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role) {
     return GetDatabasePrivileges(user_or_role, {user_or_role});
   }
@@ -133,7 +134,7 @@ class AuthQueryHandler {
       ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
-
+      const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &edge_type_privileges
 #endif
@@ -152,7 +153,7 @@ class AuthQueryHandler {
       ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
-
+      const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &edge_type_privileges
 #endif

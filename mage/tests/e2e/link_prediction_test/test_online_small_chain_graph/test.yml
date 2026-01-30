@@ -1,0 +1,7 @@
+# Just check that it will work on small chain graph.
+- query: >-
+        CALL link_prediction.train()
+        YIELD *
+        RETURN 0 as check;
+  output:
+        - check: 0

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,11 +10,14 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+
+#include "flags/experimental.hpp"
 #include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
 #include "frontend/semantic/rw_checker.hpp"
 #include "frontend/semantic/symbol_generator.hpp"
 #include "plan/read_write_type_checker.hpp"
+#include "plan_v2/egraph_converter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
@@ -22,6 +25,8 @@
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
+
+#include "query/plan_v2/ast_converter.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -32,11 +37,12 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query,
-                            UserParameters const &user_parameters) -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
+    -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
   // Check that all user-specified parameters are provided.
+  // TODO: parameters should be pre populated with user_parameters, hence positions
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
     auto it = user_parameters.find(param_key);
 
@@ -115,8 +121,10 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     };
 
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query()),
-                               read_check()};
+      CachedQuery cached_query{.ast_storage = std::move(ast_storage),
+                               .query = visitor.query(),
+                               .required_privileges = query::GetRequiredPrivileges(visitor.query()),
+                               .is_cypher_read = read_check()};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);
@@ -149,26 +157,49 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
-  auto vertex_counts = plan::VertexCountCache(db_accessor);
+  // TODO: we need to make sure we decouple symbol position from frame position
+  //       symbols are needed for debugging (a semantic name)
+  //       during evaluation frame slots are dumping ground for temporary evaluation results
+  //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
-  auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-  auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+
+  auto [root, cost, used_ast_storage] = std::invoke([&] {
+    // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
+    auto vertex_counts = plan::VertexCountCache(db_accessor);
+
+    if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
+      // WITH 1 AS tmp RETURN tmp AS result;
+      //  SymTbl: tmp result
+      auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table);
+
+      // TODO: rewrite
+      // TODO: new ast_storage + symbol_table
+      auto [plan, cost, new_ast_storage] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
+      return std::tuple{std::move(plan), cost, std::move(new_ast_storage)};
+    }
+    auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
+    auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+    return std::tuple{std::move(plan), cost, std::move(ast_storage)};
+  });
+
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(*root);
-  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage), std::move(symbol_table),
-                                                 rw_type_checker.type);
+  return std::make_unique<SingleNodeLogicalPlan>(
+      std::move(root), cost, std::move(used_ast_storage), std::move(symbol_table), rw_type_checker.type);
 }
 
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers) {
-  if (plan_cache) {
+  // Skip plan cache when using experimental v2 planner - plans may change as v2 evolves
+  const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
+  if (use_plan_cache) {
     auto existing_plan =
         plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
           return cache.get(stripped_query.stripped_query());
         });
-    if (existing_plan.has_value()) {
+    if (existing_plan) {
       // validate the index usage
       auto &ptr = existing_plan.value();
       auto &plan = ptr->plan();
@@ -192,7 +223,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
   auto plan = std::make_shared<PlanWrapper>(
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
 
-  if (plan_cache) {
+  if (use_plan_cache) {
     plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 

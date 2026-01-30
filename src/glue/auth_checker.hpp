@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@ class AuthChecker : public query::AuthChecker {
   std::shared_ptr<query::QueryUserOrRole> GenEmptyUser() const override;
 
 #ifdef MG_ENTERPRISE
-  std::unique_ptr<query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(std::shared_ptr<query::QueryUserOrRole> user,
+  std::unique_ptr<query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(const query::QueryUserOrRole &user,
                                                                            const query::DbAccessor *dba) const override;
 #endif
 
@@ -81,9 +81,18 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool HasGlobalPrivilegeOnEdges(query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
+  bool HasAllGlobalPrivilegesOnVertices() const override;
+
+  bool HasAllGlobalPrivilegesOnEdges() const override;
+
  private:
+  auth::FineGrainedAccessPermissions const &GetCachedLabelPermissions() const;
+  auth::FineGrainedAccessPermissions const &GetCachedEdgePermissions() const;
+
   auth::UserOrRole user_or_role_;
   const query::DbAccessor *dba_;
+  mutable std::optional<auth::FineGrainedAccessPermissions> cached_label_permissions_;
+  mutable std::optional<auth::FineGrainedAccessPermissions> cached_edge_permissions_;
 };
 #endif
 }  // namespace memgraph::glue

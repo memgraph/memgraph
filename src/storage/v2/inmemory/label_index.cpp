@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,31 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
+namespace {
+void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex,
+                        memgraph::storage::VertexAccessor &current_vertex_accessor, auto *storage, auto *transaction,
+                        auto view, auto label) {
+  for (; index_iterator != end; ++index_iterator) {
+    if (index_iterator->vertex == current_vertex) {
+      continue;
+    }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+      continue;
+    }
+
+    auto accessor = memgraph::storage::VertexAccessor{index_iterator->vertex, storage, transaction};
+    auto res = accessor.HasLabel(label, view);
+    if (res.has_value() and res.value()) {
+      current_vertex = accessor.vertex_;
+      current_vertex_accessor = accessor;
+      break;
+    }
+  }
+}
+}  // namespace
+
 namespace memgraph::storage {
 
 bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
@@ -79,7 +104,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
     return;
   }
 
@@ -103,7 +128,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     delta = vertex.delta;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = std::ranges::contains(vertex.labels, label);
   }
   // Create and drop index will always use snapshot isolation
   if (delta) {
@@ -128,7 +153,7 @@ auto InMemoryLabelIndex::PopulateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(label);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -144,19 +169,19 @@ auto InMemoryLabelIndex::PopulateIndex(
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelIndex(vertex, label, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, std::move(cancel_check),
-                            parallel_exec_info);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, try_insert_into_index, std::move(cancel_check), parallel_exec_info);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelPropertiesIndex(vertex, label, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, std::move(cancel_check),
-                            parallel_exec_info);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, try_insert_into_index, std::move(cancel_check), parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
     DropIndex(label);
-    return IndexPopulateError::Cancellation;
+    return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
     DropIndex(label);
     throw;
@@ -176,7 +201,7 @@ bool InMemoryLabelIndex::CreateIndexOnePass(
   auto res = RegisterIndex(label);
   if (!res) return false;
   auto res2 = PopulateIndex(label, std::move(vertices), parallel_exec_info, snapshot_info);
-  if (res2.HasError()) {
+  if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(label, 0);
@@ -208,7 +233,7 @@ bool InMemoryLabelIndex::DropIndex(LabelId label) {
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const {
-  return index_container_->find(label) != index_container_->end();
+  return index_container_->contains(label);
 }
 
 bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {
@@ -297,23 +322,14 @@ InMemoryLabelIndex::Iterable::Iterator &InMemoryLabelIndex::Iterable::Iterator::
 }
 
 void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
-      continue;
-    }
-
-    auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};
-    auto res = accessor.HasLabel(self_->label_, self_->view_);
-    if (!res.HasError() and res.GetValue()) {
-      current_vertex_ = accessor.vertex_;
-      current_vertex_accessor_ = accessor;
-      break;
-    }
-  }
+  AdvanceUntilValid_(index_iterator_,
+                     self_->index_accessor_.end(),
+                     current_vertex_,
+                     current_vertex_accessor_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->label_);
 }
 
 uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label) const {
@@ -349,6 +365,14 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::ActiveIndices::Vertices(
   return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
+InMemoryLabelIndex::ChunkedIterable InMemoryLabelIndex::ActiveIndices::ChunkedVertices(
+    LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+    Storage *storage, Transaction *transaction, size_t num_chunks) {
+  const auto it = index_container_->find(label);
+  MG_ASSERT(it != index_container_->end(), "Index for label {} doesn't exist", label.AsUint());
+  return {it->second->skiplist.access(), std::move(vertices_acc), label, view, storage, transaction, num_chunks};
+}
+
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
   auto locked_stats = stats_.Lock();
   locked_stats->insert_or_assign(label, stats);
@@ -366,8 +390,9 @@ std::vector<LabelId> InMemoryLabelIndex::ClearIndexStats() {
   std::vector<LabelId> deleted_indexes;
   auto locked_stats = stats_.Lock();
   deleted_indexes.reserve(locked_stats->size());
-  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
-                 [](const auto &elem) { return elem.first; });
+  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes), [](const auto &elem) {
+    return elem.first;
+  });
   locked_stats->clear();
   return deleted_indexes;
 }
@@ -410,6 +435,34 @@ void InMemoryLabelIndex::CleanupAllIndices() {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
     }
   });
+}
+
+void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
+  // NOTE: Using the skiplist end here to not store the end iterator in the class
+  // The higher level != end will still be correct
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipList<Entry>::ChunkedIterator{},
+                     current_vertex_,
+                     current_vertex_accessor_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->view_,
+                     self_->label_);
+}
+
+InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                                     utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+                                                     LabelId label, View view, Storage *storage,
+                                                     Transaction *transaction, size_t num_chunks)
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      label_(label),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction),
+      chunks_{index_accessor_.create_chunks(num_chunks)} {
+  // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
+  RechunkIndex<utils::SkipList<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
 }
 
 }  // namespace memgraph::storage

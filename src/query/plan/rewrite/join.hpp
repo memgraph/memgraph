@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
-#include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
 
@@ -57,7 +56,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
 
-    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
@@ -65,7 +64,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       op.all_filters_ = std::move(leftover_filters);
     }
 
-    if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
+    if (!op.expression_ || filter_exprs_for_removal_.contains(op.expression_)) {
       SetOnParent(op.input());
     }
 
@@ -300,6 +299,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(CreateNode &) override {
     prev_ops_.pop_back();
     return true;
@@ -309,6 +309,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(CreateExpand &) override {
     prev_ops_.pop_back();
     return true;
@@ -318,6 +319,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ScanAllByLabel &) override {
     prev_ops_.pop_back();
     return true;
@@ -327,6 +329,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ScanAllByLabelProperties &) override {
     prev_ops_.pop_back();
     return true;
@@ -336,6 +339,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ScanAllById &) override {
     prev_ops_.pop_back();
     return true;
@@ -345,6 +349,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ConstructNamedPath &) override {
     prev_ops_.pop_back();
     return true;
@@ -354,6 +359,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Produce &) override {
     prev_ops_.pop_back();
     return true;
@@ -363,6 +369,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(EmptyResult &) override {
     prev_ops_.pop_back();
     return true;
@@ -372,6 +379,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Delete &) override {
     prev_ops_.pop_back();
     return true;
@@ -381,6 +389,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(SetProperty &) override {
     prev_ops_.pop_back();
     return true;
@@ -390,6 +399,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(SetProperties &) override {
     prev_ops_.pop_back();
     return true;
@@ -399,6 +409,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(SetLabels &) override {
     prev_ops_.pop_back();
     return true;
@@ -408,6 +419,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(RemoveProperty &) override {
     prev_ops_.pop_back();
     return true;
@@ -417,6 +429,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(RemoveLabels &) override {
     prev_ops_.pop_back();
     return true;
@@ -426,6 +439,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(EdgeUniquenessFilter &) override {
     prev_ops_.pop_back();
     return true;
@@ -435,6 +449,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Accumulate &) override {
     prev_ops_.pop_back();
     return true;
@@ -444,6 +459,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Aggregate &) override {
     prev_ops_.pop_back();
     return true;
@@ -453,6 +469,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Skip &) override {
     prev_ops_.pop_back();
     return true;
@@ -462,6 +479,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Limit &) override {
     prev_ops_.pop_back();
     return true;
@@ -471,6 +489,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(OrderBy &) override {
     prev_ops_.pop_back();
     return true;
@@ -480,6 +499,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Unwind &) override {
     prev_ops_.pop_back();
     return true;
@@ -489,6 +509,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Distinct &) override {
     prev_ops_.pop_back();
     return true;
@@ -498,6 +519,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(CallProcedure &) override {
     prev_ops_.pop_back();
     return true;
@@ -543,6 +565,26 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(LoadCsv & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(LoadParquet &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadParquet & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(LoadJsonl &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadJsonl & /*op*/) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -647,7 +689,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }
@@ -670,15 +712,34 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (filter.property_filter->value_->GetTypeInfo() != PropertyLookup::kType) {
         continue;
       }
-      auto *rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
 
       auto *join_condition = static_cast<EqualOperator *>(filter.expression);
+
+      auto is_property_lookup_with_identifier = [](Expression *expr) -> Identifier * {
+        while (expr) {
+          if (expr->GetTypeInfo() == PropertyLookup::kType) {
+            expr = static_cast<PropertyLookup *>(expr)->expression_;
+          } else if (expr->GetTypeInfo() == Identifier::kType) {
+            return static_cast<Identifier *>(expr);
+          } else {
+            return nullptr;
+          }
+        }
+        return nullptr;
+      };
+      auto *lhs_join_identifier = is_property_lookup_with_identifier(join_condition->expression1_);
+      auto *rhs_join_identifier = is_property_lookup_with_identifier(join_condition->expression2_);
+
+      if (!lhs_join_identifier || !rhs_join_identifier) {
+        continue;
+      }
+
       auto lhs_symbol = filter.property_filter->symbol_;
-      auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
+      auto rhs_symbol = symbol_table_->at(*rhs_join_identifier);
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 
-      if (utils::Contains(right_symbols, lhs_symbol) && utils::Contains(left_symbols, rhs_symbol)) {
+      if (std::ranges::contains(right_symbols, lhs_symbol) && std::ranges::contains(left_symbols, rhs_symbol)) {
         // We need to duplicate this because expressions are shared between plans
         join_condition = join_condition->Clone(ast_storage_);
         std::swap(join_condition->expression1_, join_condition->expression2_);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,10 +24,12 @@ class UserPolicy {
   virtual bool DoUpdate() const = 0;
   virtual ~UserPolicy() = default;
 };
+
 extern struct SessionLongPolicy : UserPolicy {
  public:
   bool DoUpdate() const override { return false; }
 } session_long_policy;
+
 extern struct UpToDatePolicy : UserPolicy {
  public:
   bool DoUpdate() const override { return true; }
@@ -36,7 +38,10 @@ extern struct UpToDatePolicy : UserPolicy {
 struct QueryUserOrRole {
   QueryUserOrRole(std::optional<std::string> username, std::vector<std::string> rolenames)
       : username_{std::move(username)}, rolenames_{std::move(rolenames)} {}
+
   virtual ~QueryUserOrRole() = default;
+
+  virtual std::shared_ptr<QueryUserOrRole> clone() const = 0;
 
   virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges,
                             std::optional<std::string_view> db_name, UserPolicy *policy) const = 0;
@@ -50,9 +55,11 @@ struct QueryUserOrRole {
 #endif
 
   const std::optional<std::string> &username() const { return username_; }
+
   const std::vector<std::string> &rolenames() const { return rolenames_; }
 
   bool operator==(const QueryUserOrRole &other) const = default;
+
   operator bool() const { return username_.has_value(); }
 
  protected:

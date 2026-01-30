@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ class AuthChecker {
 
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      std::shared_ptr<QueryUserOrRole> user, const DbAccessor *db_accessor) const = 0;
+      const QueryUserOrRole &user, const DbAccessor *db_accessor) const = 0;
 #endif
 };
 #ifdef MG_ENTERPRISE
@@ -64,6 +64,10 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasGlobalPrivilegeOnEdges(
       AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+
+  [[nodiscard]] virtual bool HasAllGlobalPrivilegesOnVertices() const = 0;
+
+  [[nodiscard]] virtual bool HasAllGlobalPrivilegesOnEdges() const = 0;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
@@ -95,6 +99,10 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasGlobalPrivilegeOnEdges(const AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
+
+  bool HasAllGlobalPrivilegesOnVertices() const override { return true; }
+
+  bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
 };
 #endif
 
@@ -102,17 +110,23 @@ class AllowEverythingAuthChecker final : public AuthChecker {
  public:
   struct User : query::QueryUserOrRole {
     User() : query::QueryUserOrRole{{}, {}} {}
+
     User(std::string name) : query::QueryUserOrRole{std::move(name), {}} {}
+
     bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
                       std::optional<std::string_view> /*db_name*/, UserPolicy * /*policy*/) const override {
       return true;
     }
+
+    std::shared_ptr<QueryUserOrRole> clone() const override { return std::make_shared<User>(*this); }
+
     std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 #ifdef MG_ENTERPRISE
     bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
                         std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
       return true;
     }
+
     std::string GetDefaultDB() const override { return std::string{dbms::kDefaultDB}; }
 #endif
   };
@@ -126,7 +140,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
   std::shared_ptr<QueryUserOrRole> GenEmptyUser() const override { return std::make_shared<User>(); }
 
 #ifdef MG_ENTERPRISE
-  std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(std::shared_ptr<QueryUserOrRole> /*user*/,
+  std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const QueryUserOrRole & /*user*/,
                                                                     const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }

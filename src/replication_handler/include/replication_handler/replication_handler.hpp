@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,6 @@
 #include "replication_handler/system_rpc.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
-#include "utils/result.hpp"
 
 namespace memgraph::metrics {
 extern const Event SystemRecoveryRpc_us;
@@ -32,7 +31,7 @@ extern const Event SystemRecoveryRpc_us;
 namespace memgraph::replication {
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
-    utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> &instance_client);
+    std::expected<ReplicationClient *, RegisterReplicaStatus> &instance_client);
 
 #ifdef MG_ENTERPRISE
 void StartReplicaClient(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
@@ -91,14 +90,22 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     auto stream = std::invoke([&]() {
       // Handle only default database is no license
       if (!is_enterprise) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(
-            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
-            std::vector<auth::User>{}, std::vector<auth::Role>{}, std::vector<auth::UserProfiles::Profile>{});
+        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                            db_info.last_committed_timestamp,
+                                                            std::move(db_info.configs),
+                                                            auth::Auth::Config{},
+                                                            std::vector<auth::User>{},
+                                                            std::vector<auth::Role>{},
+                                                            std::vector<auth::UserProfiles::Profile>{});
       }
       return auth.WithLock([&](auto &locked_auth) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(
-            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
-            locked_auth.AllUsers(), locked_auth.AllRoles(), locked_auth.AllProfiles());
+        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                            db_info.last_committed_timestamp,
+                                                            std::move(db_info.configs),
+                                                            locked_auth.GetConfig(),
+                                                            locked_auth.AllUsers(),
+                                                            locked_auth.AllRoles(),
+                                                            locked_auth.AllProfiles());
       });
     });
     if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
@@ -138,10 +145,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   // as MAIN, define and connect to REPLICAs
   auto TryRegisterReplica(const ReplicationClientConfig &config)
-      -> utils::BasicResult<query::RegisterReplicaError> override;
+      -> std::expected<void, query::RegisterReplicaError> override;
 
   auto RegisterReplica(const ReplicationClientConfig &config)
-      -> utils::BasicResult<query::RegisterReplicaError> override;
+      -> std::expected<void, query::RegisterReplicaError> override;
 
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult override;
@@ -153,9 +160,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool IsMain() const override;
   bool IsReplica() const override;
 
-  auto ShowReplicas() const -> utils::BasicResult<query::ShowReplicaError, query::ReplicasInfos> override;
+  auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
 
   auto GetReplState() const { return repl_state_.ReadLock(); }
+
   auto GetReplState() { return repl_state_.Lock(); }
 
 #ifdef MG_ENTERPRISE
@@ -194,21 +202,21 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   template <bool SendSwapUUID>
   auto RegisterReplica_(auto &locked_repl_state, const ReplicationClientConfig &config)
-      -> utils::BasicResult<query::RegisterReplicaError> {
+      -> std::expected<void, query::RegisterReplicaError> {
     using query::RegisterReplicaError;
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
 
     auto maybe_client = locked_repl_state->RegisterReplica(config);
-    if (maybe_client.HasError()) {
-      switch (maybe_client.GetError()) {
+    if (!maybe_client) {
+      switch (maybe_client.error()) {
         case ClientRegisterReplicaStatus::NOT_MAIN:
-          return RegisterReplicaError::NOT_MAIN;
+          return std::unexpected{RegisterReplicaError::NOT_MAIN};
         case ClientRegisterReplicaStatus::NAME_EXISTS:
-          return RegisterReplicaError::NAME_EXISTS;
+          return std::unexpected{RegisterReplicaError::NAME_EXISTS};
         case ClientRegisterReplicaStatus::ENDPOINT_EXISTS:
-          return RegisterReplicaError::ENDPOINT_EXISTS;
+          return std::unexpected{RegisterReplicaError::ENDPOINT_EXISTS};
         case ClientRegisterReplicaStatus::COULD_NOT_BE_PERSISTED:
-          return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+          return std::unexpected{RegisterReplicaError::COULD_NOT_BE_PERSISTED};
         case ClientRegisterReplicaStatus::SUCCESS:
           break;
         default:
@@ -218,21 +226,21 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
     auto const main_uuid = std::get<RoleMainData>(locked_repl_state->ReplicationData()).uuid_;
     if constexpr (SendSwapUUID) {
-      if (!replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_, main_uuid)) {
-        return RegisterReplicaError::ERROR_ACCEPTING_MAIN;
+      if (!replication_coordination_glue::SendSwapMainUUIDRpc((*maybe_client)->rpc_client_, main_uuid)) {
+        return std::unexpected{RegisterReplicaError::ERROR_ACCEPTING_MAIN};
       }
     }
 
 #ifdef MG_ENTERPRISE
     // Update system before enabling individual storage <-> replica clients
-    SystemRestore(*maybe_client.GetValue(), system_, dbms_handler_, main_uuid, auth_);
+    SystemRestore(*maybe_client.value(), system_, dbms_handler_, main_uuid, auth_);
 #endif
 
     if (const auto dbms_error = HandleRegisterReplicaStatus(maybe_client); dbms_error.has_value()) {
-      return *dbms_error;
+      return std::unexpected{*dbms_error};
     }
 
-    auto &instance_client_ptr = maybe_client.GetValue();
+    auto &instance_client_ptr = maybe_client.value();
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     bool all_clients_good{true};
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
@@ -293,7 +301,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
           spdlog::trace("Replica {} successfully unregistered after failed registration process.", config.name);
           break;
       }
-      return RegisterReplicaError::CONNECTION_FAILED;
+      return std::unexpected{RegisterReplicaError::CONNECTION_FAILED};
     }
 
     // No client error, start instance level client
@@ -309,7 +317,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config,
                                   std::optional<utils::UUID> const &maybe_main_uuid = std::nullopt) {
     if (locked_repl_state->IsReplica()) {
-      if (!AllowIdempotency) {
+      if constexpr (!AllowIdempotency) {
         return false;
       }
       // We don't want to restart the server if we're already a REPLICA with correct config
@@ -319,9 +327,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       }
       locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
 #ifdef MG_ENTERPRISE
-      return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
+      return StartRpcServer(dbms_handler_, repl_state_, replica_data, auth_, system_);
 #else
-      return StartRpcServer(dbms_handler_, replica_data);
+      return StartRpcServer(dbms_handler_, repl_state_, replica_data);
 #endif
     }
 
@@ -332,18 +340,19 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start
-    const auto success = std::visit(utils::Overloaded{[](RoleMainData &) {
-                                                        // ASSERT
-                                                        return false;
-                                                      },
-                                                      [this](RoleReplicaData &data) {
+    const auto success =
+        std::visit(utils::Overloaded{[](RoleMainData &) {
+                                       // ASSERT
+                                       return false;
+                                     },
+                                     [this](RoleReplicaData &data) {
 #ifdef MG_ENTERPRISE
-                                                        return StartRpcServer(dbms_handler_, data, auth_, system_);
+                                       return StartRpcServer(dbms_handler_, repl_state_, data, auth_, system_);
 #else
-                                                        return StartRpcServer(dbms_handler_, data);
+                                       return StartRpcServer(dbms_handler_, repl_state_, data);
 #endif
-                                                      }},
-                                    locked_repl_state->ReplicationData());
+                                     }},
+                   locked_repl_state->ReplicationData());
 
     // Pause TTL
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {

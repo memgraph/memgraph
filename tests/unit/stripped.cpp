@@ -157,6 +157,77 @@ TEST(QueryStripper, Surrogates) {
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
+TEST(QueryStripper, Utf32BasicLatin) {
+  StrippedQuery stripped("RETURN '\\U00000041'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "A");
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, Utf32Emoji) {
+  StrippedQuery stripped("RETURN '\\U0001F600'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(),
+            "\xF0\x9F\x98\x80");  // u8"\U0001F600" 😀
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, Utf32MaxValid) {
+  StrippedQuery stripped("RETURN '\\U0010FFFF'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(),
+            "\xF4\x8F\xBF\xBF");  // Maximum valid Unicode codepoint
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, Utf32WrongLength) {
+  // Too few hex digits - caught by our parsing logic
+  EXPECT_THROW(StrippedQuery("RETURN '\\U123'"), LexingException);
+  EXPECT_THROW(StrippedQuery("RETURN '\\U12345'"), SyntaxException);
+  EXPECT_THROW(StrippedQuery("RETURN '\\U1234567'"), SyntaxException);
+
+  // Exactly 8 hex digits followed by a non-hex character is valid
+  // The parser reads exactly 8 digits, so "\\U00000058X" parses as U+00000058 ('X') followed by 'X'
+  StrippedQuery stripped("RETURN '\\U00000058X'");  // 'X' followed by 'X'
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "XX");
+}
+
+TEST(QueryStripper, UnicodeNull) {
+  StrippedQuery stripped("RETURN '\\u0000'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), std::string("\0", 1));
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, UnicodeBmpMax) {
+  StrippedQuery stripped("RETURN '\\uffff'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(),
+            "\xEF\xBF\xBF");  // U+FFFF (not a character but valid codepoint)
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, UnicodeUppercaseHex) {
+  StrippedQuery stripped("RETURN '\\uABCD'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "\xEA\xAF\x8D");
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, UnicodeLowercaseHex) {
+  StrippedQuery stripped("RETURN '\\uabcd'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "\xEA\xAF\x8D");
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, UnicodeMixedCase) {
+  StrippedQuery stripped("RETURN '\\uAbCd'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueString(), "\xEA\xAF\x8D");
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
+}
+
 TEST(QueryStripper, StringLiteralIllegalEscapedSequence) {
   EXPECT_THROW(StrippedQuery("RETURN 'so\\x'"), LexingException);
   EXPECT_THROW(StrippedQuery("RETURN 'so\\uabc'"), LexingException);

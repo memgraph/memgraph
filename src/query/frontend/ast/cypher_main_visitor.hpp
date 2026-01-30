@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -282,6 +282,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return CoordinatorQuery*
    */
+  antlrcpp::Any visitUpdateConfig(MemgraphCypher::UpdateConfigContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
   antlrcpp::Any visitForceResetClusterStateOnCoordinator(
       MemgraphCypher::ForceResetClusterStateOnCoordinatorContext *ctx) override;
 
@@ -329,6 +334,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return LoadCsvQuery*
    */
   antlrcpp::Any visitLoadCsv(MemgraphCypher::LoadCsvContext *ctx) override;
+
+  /**
+   * @return LoadParquetQuery*
+   */
+  antlrcpp::Any visitLoadParquet(MemgraphCypher::LoadParquetContext *ctx) override;
+
+  /**
+   * @return LoadJsonlQuery*
+   */
+  antlrcpp::Any visitLoadJsonl(MemgraphCypher::LoadJsonlContext *ctx) override;
 
   /**
    * @return FreeMemoryQuery*
@@ -690,11 +705,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitGrantPrivilegesList(MemgraphCypher::GrantPrivilegesListContext *ctx) override;
-
-  /**
-   * @return AuthQuery*
-   */
   antlrcpp::Any visitPrivilegesList(MemgraphCypher::PrivilegesListContext *ctx) override;
 
   /**
@@ -721,7 +731,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return std::vector<std::string>
    */
-  antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;
+  antlrcpp::Any visitLabelEntitiesList(MemgraphCypher::LabelEntitiesListContext *ctx) override;
+
+  /**
+   * @return std::vector<std::string>
+   */
+  antlrcpp::Any visitEdgeTypeEntity(MemgraphCypher::EdgeTypeEntityContext *ctx) override;
 
   /**
    * @return std::string
@@ -734,9 +749,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) override;
 
   /**
-   * @return std::string
+   * @return std::vector<AuthQuery::FineGrainedPrivilege>
    */
-  antlrcpp::Any visitEntityType(MemgraphCypher::EntityTypeContext *ctx) override;
+  antlrcpp::Any visitGranularPrivilegeList(MemgraphCypher::GranularPrivilegeListContext *ctx) override;
 
   /**
    * @return AuthQuery::Privilege
@@ -1320,11 +1335,14 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
  public:
   Query *query() { return query_; }
+
   const static std::string kAnonPrefix;
 
   struct QueryInfo {
     bool is_cacheable{true};
     bool has_load_csv{false};
+    bool has_load_parquet{false};
+    bool has_load_jsonl{false};
   };
 
   const auto &GetQueryInfo() const { return query_info_; }

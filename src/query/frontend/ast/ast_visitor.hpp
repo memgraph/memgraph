@@ -23,6 +23,7 @@ class Identifier;
 class PropertyLookup;
 class AllPropertiesLookup;
 class LabelsTest;
+class EdgeTypesTest;
 class Aggregation;
 class Function;
 class Reduce;
@@ -98,6 +99,8 @@ class ReplicationQuery;
 class ReplicationInfoQuery;
 class LockPathQuery;
 class LoadCsv;
+class LoadParquet;
+class LoadJsonl;
 class FreeMemoryQuery;
 class TriggerQuery;
 class IsolationLevelQuery;
@@ -146,7 +149,7 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
     ListComprehension, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach,
-    Exists, CallSubquery, CypherQuery, PatternComprehension>;
+    Exists, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest, LoadJsonl>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup, EnumValueAccess>;
 
@@ -154,8 +157,8 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisi
  public:
   using TreeCompositeVisitor::PostVisit;
   using TreeCompositeVisitor::PreVisit;
+  using TreeLeafVisitor::ReturnType;
   using TreeLeafVisitor::Visit;
-  using typename TreeLeafVisitor::ReturnType;
 };
 
 template <class TResult>
@@ -168,7 +171,7 @@ class ExpressionVisitor
                             IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
                             AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All,
                             Single, Any, None, ListComprehension, ParameterLookup, Identifier, PrimitiveLiteral,
-                            RegexMatch, Exists, PatternComprehension, EnumValueAccess> {};
+                            RegexMatch, Exists, PatternComprehension, EnumValueAccess, EdgeTypesTest> {};
 
 template <class TResult>
 class QueryVisitor

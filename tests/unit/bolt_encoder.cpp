@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@ using bolt_map_t = memgraph::communication::bolt::map_t;
  */
 namespace {
 
-inline constexpr const int SIZE = 131072;
+inline constexpr const int SIZE = 131'072;
 uint8_t data[SIZE];
 
 uint64_t GetBigEndianInt(std::span<uint8_t const> &v, uint8_t len, uint8_t offset = 1) {
@@ -87,6 +87,7 @@ std::vector<uint8_t> &output = output_stream.output;
 struct BoltEncoder : ::testing::Test {
   // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
   static void SetUpTestCase() { InitializeData(data, SIZE); }
+
   void SetUp() override { output.clear(); }
 };
 
@@ -188,36 +189,36 @@ TEST_F(BoltEncoder, Map) {
 
 void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::Storage> &&db) {
   // create vertex
-  auto dba = db->Access();
+  auto dba = db->Access(memgraph::storage::WRITE);
   auto va1 = dba->CreateVertex();
   auto va2 = dba->CreateVertex();
   auto l1 = dba->NameToLabel("label1");
   auto l2 = dba->NameToLabel("label2");
-  ASSERT_TRUE(va1.AddLabel(l1).HasValue());
-  ASSERT_TRUE(va1.AddLabel(l2).HasValue());
+  ASSERT_TRUE(va1.AddLabel(l1).has_value());
+  ASSERT_TRUE(va1.AddLabel(l2).has_value());
   auto p1 = dba->NameToProperty("prop1");
   auto p2 = dba->NameToProperty("prop2");
   memgraph::storage::PropertyValue pv1(12), pv2(200);
-  ASSERT_TRUE(va1.SetProperty(p1, pv1).HasValue());
-  ASSERT_TRUE(va1.SetProperty(p2, pv2).HasValue());
+  ASSERT_TRUE(va1.SetProperty(p1, pv1).has_value());
+  ASSERT_TRUE(va1.SetProperty(p2, pv2).has_value());
 
   // create edge
   auto et = dba->NameToEdgeType("edgetype");
-  auto ea = dba->CreateEdge(&va1, &va2, et).GetValue();
+  auto ea = dba->CreateEdge(&va1, &va2, et).value();
   auto p3 = dba->NameToProperty("prop3");
   auto p4 = dba->NameToProperty("prop4");
   memgraph::storage::PropertyValue pv3(42), pv4(1234);
-  ASSERT_TRUE(ea.SetProperty(p3, pv3).HasValue());
-  ASSERT_TRUE(ea.SetProperty(p4, pv4).HasValue());
+  ASSERT_TRUE(ea.SetProperty(p3, pv3).has_value());
+  ASSERT_TRUE(ea.SetProperty(p4, pv4).has_value());
 
   // check everything
   std::vector<Value> vals;
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)),
-                                              db.get(), memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)),
-                                              db.get(), memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea)), db.get(),
-                                              memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(
+      memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)), db.get(), memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(
+      memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)), db.get(), memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(
+      memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea)), db.get(), memgraph::storage::View::NEW));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,
@@ -272,7 +273,8 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   bolt_encoder.MessageSuccess(svals);
   to_validate = std::span<uint8_t const>{output};
   CheckOutput(to_validate,
-              (const uint8_t *)"\xB1\x70\xA1\x86\x66\x69\x65\x6C\x64\x73\x92\x84\x6E\x61\x6D\x65\x83\x61\x67\x65", 20);
+              (const uint8_t *)"\xB1\x70\xA1\x86\x66\x69\x65\x6C\x64\x73\x92\x84\x6E\x61\x6D\x65\x83\x61\x67\x65",
+              20);
   output.clear();
 
   // failure message
@@ -338,7 +340,7 @@ TEST_F(BoltEncoder, DateRecent) {
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &date = value.ValueDate();
   const auto days = date.DaysSinceEpoch();
-  ASSERT_EQ(days, 18828);
+  ASSERT_EQ(days, 18'828);
   const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize() in base_encoder.hpp).
@@ -442,7 +444,7 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
   ASSERT_EQ(secs, 3723);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 5000000);
+  ASSERT_EQ(nanos, 5'000'000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
@@ -504,7 +506,7 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.NanosecondsSinceEpoch();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 1'000'000);
   const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
@@ -526,8 +528,8 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
 
 void test_LocalDateTime() {
   std::vector<Value> vals;
-  const auto value =
-      Value(memgraph::utils::LocalDateTime(memgraph::utils::Date(1), memgraph::utils::LocalTime({0, 0, 30, 1, 0})));
+  const auto value = Value(memgraph::utils::LocalDateTime(memgraph::utils::Date(std::chrono::microseconds{1}),
+                                                          memgraph::utils::LocalTime({0, 0, 30, 1, 0})));
   const auto &local_date_time = value.ValueLocalDateTime();
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
@@ -535,7 +537,7 @@ void test_LocalDateTime() {
   ASSERT_EQ(secs, 30);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = local_date_time.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 1'000'000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).

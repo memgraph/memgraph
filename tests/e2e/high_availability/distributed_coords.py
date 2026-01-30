@@ -281,6 +281,47 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
+def test_global_edge_index_drop_replication(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    instance_3_cursor = connect(host="localhost", port=7689).cursor()
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "create global edge index on :(id)")
+    except:
+        pass
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "create (n:Test {id: 1})")
+    except:
+        pass
+
+    # Exception because one SYNC replica is down
+    try:
+        execute_and_fetch_all(instance_3_cursor, "drop global edge index on :(id)")
+    except:
+        pass
+
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
+
+    def get_num_indices(cursor):
+        return len(execute_and_fetch_all(cursor, "show index info"))
+
+    mg_sleep_and_assert(0, partial(get_num_indices, instance_1_cursor))
+
+
 def test_leadership_change(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
@@ -1439,14 +1480,14 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
             "localhost:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 3, "behind": 0, "status": "ready"}},
         ),
         (
             "instance_2",
             "localhost:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 3, "behind": 0, "status": "ready"}},
         ),
     ]
     mg_sleep_and_assert_collection(replicas, partial(show_replicas, instance_3_cursor))
@@ -2895,14 +2936,14 @@ def test_main_reselected_to_become_main(test_name):
             "localhost:10001",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
-            {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 3}},
         ),
         (
             "instance_2",
             "localhost:10002",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
-            {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 3}},
         ),
     ]
     mg_sleep_and_assert_collection(replicas, partial(show_replicas, main_cursor))
@@ -3122,6 +3163,54 @@ def test_coord_settings(test_name):
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
+
+
+def test_update_config(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '127.0.0.1:7690'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR COORDINATOR 2 {'bolt_server': '127.0.0.1:7691'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR COORDINATOR 3 {'bolt_server': '127.0.0.1:7692'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR INSTANCE instance_1 {'bolt_server': '127.0.0.1:7687'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': '127.0.0.1:7688'}")
+    execute_and_fetch_all(coord_cursor_3, "UPDATE CONFIG FOR INSTANCE instance_3 {'bolt_server': '127.0.0.1:7689'}")
+
+    data = [
+        ("coordinator_1", "127.0.0.1:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "127.0.0.1:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "127.0.0.1:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+
+    data_1_cursor = connect(host="localhost", port=7687).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(data_1_cursor, "UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '127.0.0.1:7690'}")
+    assert str(e.value) == "Only coordinator can update config!"
+
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_1")
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_2))
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
 
 
 if __name__ == "__main__":

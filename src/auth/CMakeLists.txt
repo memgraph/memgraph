@@ -19,9 +19,7 @@ target_link_libraries(mg-auth mg-utils mg-kvstore mg-license mg::system mg-repli
 target_link_libraries(mg-auth ${Seccomp_LIBRARIES})
 target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
 
-find_package(OpenSSL REQUIRED)
-target_link_libraries(mg-auth ${OPENSSL_LIBRARIES})
-target_include_directories(mg-auth SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+target_link_libraries(mg-auth openssl::openssl)
 
 # Install reference auth modules and their configuration files.
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/example.py
@@ -30,6 +28,8 @@ install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.py
         DESTINATION lib/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/saml.py
         DESTINATION lib/memgraph/auth_module)
+# TODO: This absolute path is inconsistent with sibling files which use relative paths.
+# Consider changing to: DESTINATION lib/memgraph/auth_module
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.example.yaml
         DESTINATION /etc/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/requirements.txt

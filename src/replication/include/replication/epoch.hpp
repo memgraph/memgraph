@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,9 @@ namespace memgraph::replication {
 
 struct ReplicationEpoch {
   ReplicationEpoch() : id_(memgraph::utils::GenerateUUID()) {}
+
   explicit ReplicationEpoch(std::string explicit_id) : id_(std::move(explicit_id)) {}
+
   ReplicationEpoch(ReplicationEpoch const &) = default;  // TODO: passkey idiom
   ReplicationEpoch(ReplicationEpoch &&) = default;
   ReplicationEpoch &operator=(ReplicationEpoch const &) = default;  // TODO: passkey idiom

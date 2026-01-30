@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <rocksdb/status.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "kvstore/rocksdb_utils.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -32,7 +33,7 @@ namespace memgraph::storage {
 /// Wraps RocksDB objects inside a struct. Vertex_chandle and edge_chandle are column family handles that may be
 /// nullptr. In that case client should take care about them.
 struct RocksDBStorage {
-  explicit RocksDBStorage() = default;
+  explicit RocksDBStorage() { utils::ApplyRocksDBConfigFlags(options_); }
 
   RocksDBStorage(const RocksDBStorage &) = delete;
   RocksDBStorage &operator=(const RocksDBStorage &) = delete;
@@ -66,6 +67,7 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
   const char *Name() const override { return kClassName(); }
 
   void FindShortSuccessor(std::string * /*key*/) const override {}
+
   void FindShortestSeparator(std::string * /*start*/, const rocksdb::Slice & /*limit*/) const override {}
 
   int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override;

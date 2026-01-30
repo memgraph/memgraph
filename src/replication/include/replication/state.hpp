@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,6 @@
 #include "replication_coordination_glue/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
-#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
 #include <atomic>
@@ -36,8 +35,10 @@ enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD
 
 struct RoleMainData {
   RoleMainData() = default;
+
   explicit RoleMainData(bool const writing_enabled, utils::UUID const uuid)
       : uuid_(uuid), writing_enabled_(writing_enabled) {}
+
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
@@ -74,7 +75,7 @@ struct ReplicationState {
   };
 
   using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
-  using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
+  using FetchReplicationResult_t = std::expected<ReplicationData_t, FetchReplicationError>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
   auto GetRole() const -> replication_coordination_glue::ReplicationRole {
@@ -82,7 +83,9 @@ struct ReplicationState {
                ? replication_coordination_glue::ReplicationRole::REPLICA
                : replication_coordination_glue::ReplicationRole::MAIN;
   }
+
   bool IsMain() const { return GetRole() == replication_coordination_glue::ReplicationRole::MAIN; }
+
   bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
 
   auto IsMainWriteable() const -> bool {
@@ -128,8 +131,10 @@ struct ReplicationState {
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
+
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
-  utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
+
+  std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
@@ -137,12 +142,14 @@ struct ReplicationState {
 
   std::optional<nlohmann::json> GetTelemetryJson() const;
 
+  void Shutdown();
+
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
-  std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
+  std::atomic<RolePersisted> role_persisted_ = RolePersisted::UNKNOWN_OR_NO;
   bool part_of_ha_cluster_{false};
 };
 

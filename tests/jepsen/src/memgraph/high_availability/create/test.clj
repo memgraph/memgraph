@@ -19,8 +19,10 @@
   "Tests if data instance is main. Returns bool true/false, catches all exceptions."
   [bolt-conn]
   (try
+    #_{:clj-kondo/ignore [:unresolved-symbol]}
     (utils/with-session bolt-conn session
-      (let [role-map (first (reduce conj [] (mgquery/show-replication-role session)))
+      (let [role-map (first (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                    (mgquery/show-replication-role session)))
             role-vec (vec (apply concat role-map))
             role (last role-vec)]
         (info "Role:" role)
@@ -29,11 +31,17 @@
     (catch Exception _
       false)))
 
-(def registered-replication-instances? (atom false))
-(def added-coordinator-instances? (atom false))
-(def main-set? (atom false))
+(def setup-cluster? (atom false))
 
-(def batch-size 5000)
+
+; By modifying batch-size, we are testing the configuration in a different replication sitauations.
+; Each situation won't last equally because of a different number of deltas.
+(defn batch-size
+  "Number of nodes to import in the batch."
+  []
+  (let [res (rand-nth [100 1000 5000 10000 50000])]
+    (info "Batch size:" res)
+    res))
 
 (def delay-requests-sec 5)
 (defn hamming-sim
@@ -194,6 +202,7 @@
 (defn mg-get-nodes
   "Get all nodes as part of the txn."
   [txn]
+  #_{:clj-kondo/ignore [:unresolved-var]}
   (mgquery/collect-ids txn))
 
 (defrecord Client [nodes-config first-leader first-main license organization]
@@ -211,6 +220,7 @@
 ; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
     (try
+      #_{:clj-kondo/ignore [:unresolved-symbol]}
       (utils/with-session (:bolt-conn this) session
         ((mgquery/set-db-setting "enterprise.license" license) session)
         ((mgquery/set-db-setting "organization.name" organization) session))
@@ -223,6 +233,7 @@
       (case (:f op)
         :get-nodes (if (hautils/data-instance? node)
                      (try
+                       #_{:clj-kondo/ignore [:unresolved-symbol]}
                        (utils/with-session bolt-conn session
                          (let [indices (->> (mg-get-nodes session) (map :id) (reduce conj []))]
                            (assoc op :type :ok :value {:indices indices :node node})))
@@ -234,7 +245,9 @@
 
         :create-unique-constraint (if (and (hautils/data-instance? node) (is-main? bolt-conn))
                                     (try
+                                      #_{:clj-kondo/ignore [:unresolved-symbol]}
                                       (utils/with-session bolt-conn session
+                                        #_{:clj-kondo/ignore [:unresolved-var]}
                                         (mgquery/create-unique-constraint session)
 
                                         (assoc op :type :ok :value {:str "Created unique constraint"}))
@@ -257,15 +270,18 @@
 
         :add-nodes (if (hautils/coord-instance? node)
                      (try
+                       #_{:clj-kondo/ignore [:unresolved-symbol]}
                        (utils/with-session bolt-conn session
-                         (let [instances (reduce conj [] (mgquery/get-all-instances session))
+                         (let [instances (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                                 (mgquery/get-all-instances session))
                                current-leader (hautils/get-current-leader instances)]
                            (if (= current-leader node)
                              (let [bolt-routing-conn (utils/open-bolt-routing node)
                                    max-idx (atom nil)]
                                (try
                                  (utils/with-session bolt-routing-conn session
-                                   (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size})
+                                   (let [local-idx (->> #_{:clj-kondo/ignore [:unresolved-var]}
+                                                    (mgquery/add-nodes session {:batchSize (batch-size)})
                                                         (map :id)
                                                         (reduce conj [])
                                                         first)]
@@ -320,8 +336,10 @@
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (hautils/coord-instance? node)
                                (try
+                                 #_{:clj-kondo/ignore [:unresolved-symbol]}
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
-                                   (let [instances (reduce conj [] (mgquery/get-all-instances session))]
+                                   (let [instances (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                                           (mgquery/get-all-instances session))]
                                      (assoc op
                                             :type :ok
                                             :value {:instances instances :node node :time (utils/current-local-time-formatted)})))
@@ -336,30 +354,25 @@
         ; If leader didn't change but registration was done, we won't even try to register -> all good again.
         ; If leader changes, registration should already be done or not a leader will be printed.
         (if (= first-leader node)
+          (if (compare-and-set! setup-cluster? false true)
 
-          (try
-            (utils/with-session bolt-conn session
-              (when (not @registered-replication-instances?)
+            (try
+              #_{:clj-kondo/ignore [:unresolved-symbol]}
+              (utils/with-session bolt-conn session
                 (register-replication-instances session nodes-config)
-                (reset! registered-replication-instances? true))
-
-              (when (not @added-coordinator-instances?)
                 (add-coordinator-instances session node nodes-config)
-                (reset! added-coordinator-instances? true))
+                (set-instance-to-main session first-main))
 
-              (when (not @main-set?)
-                (set-instance-to-main session first-main)
-                (reset! main-set? true))
+              (assoc op :type :ok) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
 
-              (assoc op :type :ok)) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
-
-            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-              (info "Registering instances failed because node" node "is down.")
-              (utils/process-service-unavailable-exc op node))
-            (catch Exception e
-              (if (string/includes? (str e) "not a leader")
-                (assoc op :type :info :value "Not a leader")
-                (assoc op :type :fail :value (str e)))))
+              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                (info "Registering instances failed because node" node "is down.")
+                (utils/process-service-unavailable-exc op node))
+              (catch Exception e
+                (if (string/includes? (str e) "not a leader")
+                  (assoc op :type :info :value "Not a leader")
+                  (assoc op :type :fail :value (str e)))))
+            (assoc op :type :info :value "CAS failed, cluster already setup."))
 
           (assoc op :type :info :value "Not first leader")))))
 
@@ -610,6 +623,7 @@
     (gen/delay delay-requests-sec
                (gen/mix [show-instances-reads add-nodes])))))
 
+#_{:clojure-lsp/ignore [:clojure-lsp/unused-public-var]}
 (defn workload
   "The basic HA workload."
   [opts]

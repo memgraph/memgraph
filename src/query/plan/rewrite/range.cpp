@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -128,12 +128,12 @@ Expression *CompactFilters(Expression *filter_expr, AstStorage &storage) {
       if (info.Compatible(info_old)) {
         // Combine and switch to range
         auto *range = storage.Create<RangeOperator>();
-        range->expr1_ = filter;
-        range->expr2_ = filter_old;
+        range->expression1_ = filter;
+        range->expression2_ = filter_old;
         // Substitute the current filter
         filter_expr = SubstituteExpression(filter_expr, filter_old, range);
         // Remove the other filter
-        filter_expr = RemoveExpressions(filter_expr, {filter}).trimmed_expression;
+        filter_expr = RemoveExpressions(filter_expr, {filter}, &storage).trimmed_expression;
         // Remove these filters from any further consideration
         info.type = ComparisonFilterInfo::Type::UNKNOWN;
         info_old.type = ComparisonFilterInfo::Type::UNKNOWN;
@@ -149,47 +149,48 @@ FilterInfo RangeOpToFilter(RangeOperator *range, const SymbolTable &symbol_table
   PropertyLookup *prop_lookup{};
   Identifier *ident{};
 
-  auto update_bounds = [&](Expression *comparison, utils::Bound<Expression *> &lower_bound,
-                           utils::Bound<Expression *> &upper_bound) {
-    Expression *rhs{};
+  auto update_bounds =
+      [&](Expression *comparison, utils::Bound<Expression *> &lower_bound, utils::Bound<Expression *> &upper_bound) {
+        Expression *rhs{};
 
-    switch (PropertyComparisonType(comparison, prop_lookup, ident, rhs).id) {
-      // n.prop > val
-      case utils::TypeId::AST_GREATER_OPERATOR:
-        lower_bound = utils::Bound<Expression *>{rhs, utils::BoundType::EXCLUSIVE};
-        break;
-      // n.prop >= val
-      case utils::TypeId::AST_GREATER_EQUAL_OPERATOR:
-        lower_bound = utils::Bound<Expression *>{rhs, utils::BoundType::INCLUSIVE};
-        break;
-      // n.prop < val
-      case utils::TypeId::AST_LESS_OPERATOR:
-        upper_bound = utils::Bound<Expression *>{rhs, utils::BoundType::EXCLUSIVE};
-        break;
-      // n.prop <= val
-      case utils::TypeId::AST_LESS_EQUAL_OPERATOR:
-        upper_bound = utils::Bound<Expression *>{rhs, utils::BoundType::INCLUSIVE};
-        break;
-      default:
-        // Unsupported type
-        throw SemanticException("Unsupported range operator.");
-    }
-  };
+        switch (PropertyComparisonType(comparison, prop_lookup, ident, rhs).id) {
+          // n.prop > val
+          case utils::TypeId::AST_GREATER_OPERATOR:
+            lower_bound = utils::Bound<Expression *>{rhs, utils::BoundType::EXCLUSIVE};
+            break;
+          // n.prop >= val
+          case utils::TypeId::AST_GREATER_EQUAL_OPERATOR:
+            lower_bound = utils::Bound<Expression *>{rhs, utils::BoundType::INCLUSIVE};
+            break;
+          // n.prop < val
+          case utils::TypeId::AST_LESS_OPERATOR:
+            upper_bound = utils::Bound<Expression *>{rhs, utils::BoundType::EXCLUSIVE};
+            break;
+          // n.prop <= val
+          case utils::TypeId::AST_LESS_EQUAL_OPERATOR:
+            upper_bound = utils::Bound<Expression *>{rhs, utils::BoundType::INCLUSIVE};
+            break;
+          default:
+            // Unsupported type
+            throw SemanticException("Unsupported range operator.");
+        }
+      };
 
   utils::Bound<Expression *> lower_bound{nullptr, utils::BoundType::INCLUSIVE};
   utils::Bound<Expression *> upper_bound{nullptr, utils::BoundType::INCLUSIVE};
 
-  update_bounds(range->expr1_, lower_bound, upper_bound);
-  update_bounds(range->expr2_, lower_bound, upper_bound);
+  update_bounds(range->expression1_, lower_bound, upper_bound);
+  update_bounds(range->expression2_, lower_bound, upper_bound);
 
   DMG_ASSERT(lower_bound.value() != nullptr && upper_bound.value() != nullptr,
              "Range requires both a lower and upper bound");
+  MG_ASSERT(ident != nullptr && prop_lookup != nullptr, "Range requires valid property lookup and identifier");
 
   UsedSymbolsCollector collector(symbol_table);
   range->Accept(collector);
   auto filter = FilterInfo{FilterInfo::Type::Property, range, collector.symbols_};
-  filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, lower_bound,
-                                 upper_bound);
+  filter.property_filter.emplace(
+      symbol_table, symbol_table.at(*ident), prop_lookup->property_, lower_bound, upper_bound);
   return filter;
 }
 

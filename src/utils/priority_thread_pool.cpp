@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
+#include "utils/tsc.hpp"
 #include "utils/yielder.hpp"
 
 namespace {
@@ -103,43 +104,46 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
 
   // Under heavy load a task can get stuck, monitor and move to different thread
   monitoring_.SetInterval(std::chrono::milliseconds(100));
-  monitoring_.Run("sched_mon", [this, workers_num = workers_.size(), hp_workers_num = hp_workers_.size(),
-                                last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
-    size_t i = 0;
-    for (auto &worker : workers_) {
-      const auto worker_id = i++;
-      auto &worker_last_task = last_task[worker_id];
-      auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
-      if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
-        // worker stuck on a task; move task to a different queue
-        auto l = std::unique_lock{worker->mtx_, std::defer_lock};
-        if (!l.try_lock()) continue;  // Thread is busy...
-        // Recheck under lock
-        if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
-        // Update flag as soon as possible
-        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-        Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
-        worker->work_.pop();
-        l.unlock();
+  monitoring_.Run("sched_mon",
+                  [this,
+                   workers_num = workers_.size(),
+                   hp_workers_num = hp_workers_.size(),
+                   last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
+                    size_t i = 0;
+                    for (auto &worker : workers_) {
+                      const auto worker_id = i++;
+                      auto &worker_last_task = last_task[worker_id];
+                      auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
+                      if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
+                        // worker stuck on a task; move task to a different queue
+                        auto l = std::unique_lock{worker->mtx_, std::defer_lock};
+                        if (!l.try_lock()) continue;  // Thread is busy...
+                        // Recheck under lock
+                        if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
+                        // Update flag as soon as possible
+                        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+                        Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
+                        worker->work_.pop();
+                        l.unlock();
 
-        auto tid = hot_threads_.GetHotElement();
-        if (!tid) {
-          // No hot LP threads available; schedule HP work to HP thread
-          if (work.id > kMinHighPriorityId) {
-            static size_t last_hp_thread = 0;
-            auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
-            if (!hp_worker->has_pending_work_) {
-              hp_worker->push(std::move(work.work), work.id);
-              continue;
-            }
-          }
-          // No hot thread and low priority work, schedule to the next lp worker
-          tid = (worker_id + 1) % workers_num;
-        }
-        workers_[*tid]->push(std::move(work.work), work.id);
-      }
-    }
-  });
+                        auto tid = hot_threads_.GetHotElement();
+                        if (!tid) {
+                          // No hot LP threads available; schedule HP work to HP thread
+                          if (work.id > kMinHighPriorityId) {
+                            static size_t last_hp_thread = 0;
+                            auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
+                            if (!hp_worker->has_pending_work_) {
+                              hp_worker->push(std::move(work.work), work.id);
+                              continue;
+                            }
+                          }
+                          // No hot thread and low priority work, schedule to the next lp worker
+                          tid = (worker_id + 1) % workers_num;
+                        }
+                        workers_[*tid]->push(std::move(work.work), work.id);
+                      }
+                    }
+                  });
 }
 
 PriorityThreadPool::~PriorityThreadPool() {
@@ -210,17 +214,25 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
-  const auto other_workers = std::invoke([&workers_pool, ptr = this]() mutable {
-    std::vector<Worker *> other_workers;
-    for (const auto &worker : workers_pool) {
-      // Only mixed work threads can have work stolen, workers_pool will not contain hp threads
-      if constexpr (ThreadPriority != Priority::HIGH) {
-        if (worker.get() == ptr) continue;
+  const auto other_workers = std::invoke([&workers_pool, self = this, worker_id]() -> std::vector<Worker *> {
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      // Only mixed work threads can have work stolen, workers_pool does not contain hp threads (skip self)
+      const auto other_workers_size = workers_pool.size() - 1;
+      if (other_workers_size == 0) return {};
+      std::vector<Worker *> other_workers(other_workers_size, nullptr);
+      size_t i = other_workers_size - worker_id;  // Optimization to mix thread stealing between workers
+      for (const auto &worker : workers_pool) {
+        if (worker.get() == self) continue;
+        other_workers[i % other_workers_size] = worker.get();
+        ++i;
       }
-      other_workers.push_back(worker.get());
+      return other_workers;
+    } else {
+      // Hp threads steal from any mixed work thread (workers_pool contains only mixed work threads)
+      (void)self;
+      (void)worker_id;
+      return workers_pool | std::views::transform([](auto &o) { return o.get(); }) | std::ranges::to<std::vector>();
     }
-    (void)ptr;
-    return other_workers;
   });
 
   std::optional<TaskSignature> task;
@@ -294,11 +306,12 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       continue;
     }
 
-    // Phase 3 - spin for a while waiting on work
-    {
-      const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
-      yielder y;  // NOLINT (misc-const-correctness)
-      while (std::chrono::steady_clock::now() < end) {
+    // Phase 3 - spin for a while waiting on work (available only if TSC is available)
+    const auto freq = utils::GetTSCFrequency();
+    if (freq) {
+      const utils::TSCTimer timer{freq};
+      yielder y;                         // NOLINT (misc-const-correctness)
+      while (timer.Elapsed() < 0.001) {  // 1ms
         if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
       }
     }
@@ -320,6 +333,57 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       });
     }
   }
+}
+
+// Prepares task for safe scheduling
+TaskSignature TaskCollection::WrapTask(size_t index) {
+  auto &task = tasks_[index];
+  return [&task = task.task_, state = task.state_](utils::Priority priority) {
+    auto expected = Task::State::IDLE;
+    if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
+      return;  // Task already scheduled
+    }
+
+    try {
+      task(priority);
+      state->store(Task::State::FINISHED, std::memory_order_release);
+      state->notify_one();  // Notify waiting threads
+    } catch (...) {
+      state->store(Task::State::FINISHED, std::memory_order_release);
+      state->notify_one();  // Notify even on exception
+      throw;
+    }
+  };
+}
+
+void TaskCollection::Wait() {
+  for (auto &task : tasks_) {
+    auto expected = task.state_->load(std::memory_order_acquire);
+    while (expected != Task::State::FINISHED) {
+      task.state_->wait(expected, std::memory_order_acquire);
+      expected = task.state_->load(std::memory_order_acquire);
+    }
+  }
+}
+
+void TaskCollection::WaitOrSteal() {
+  // Phase 1 - steal tasks that are not scheduled
+  for (auto &task : tasks_) {
+    auto expected = Task::State::IDLE;
+    if (task.state_->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
+      try {
+        task.task_(Priority::LOW);
+        task.state_->store(Task::State::FINISHED, std::memory_order_release);
+        task.state_->notify_one();  // Notify waiting threads
+      } catch (...) {
+        task.state_->store(Task::State::FINISHED, std::memory_order_release);
+        task.state_->notify_one();  // Notify even on exception
+        throw;
+      }
+    }
+  }
+  // Phase 2 - wait for tasks to finish
+  Wait();
 }
 
 }  // namespace memgraph::utils

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -37,6 +38,7 @@ struct SalientConfig {
   utils::UUID uuid;
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
   utils::CompressionLevel property_store_compression_level{utils::CompressionLevel::MID};
+
   struct Items {
     bool properties_on_edges{true};
     bool enable_edges_metadata{false};
@@ -70,7 +72,8 @@ struct Config {
   struct Durability {
     enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
 
-    std::filesystem::path storage_directory{"storage"};  // PER INSTANCE SYSTEM FLAG-> root folder...ish
+    std::filesystem::path storage_directory{"storage"};    // PER INSTANCE SYSTEM FLAG-> root folder...ish
+    std::filesystem::path root_data_directory{"storage"};  // ROOT DATA DIR for instance not for DB
 
     bool recover_on_startup{false};  // PER INSTANCE SYSTEM FLAG
 
@@ -83,7 +86,7 @@ struct Config {
     uint64_t snapshot_retention_count{3};  // PER DATABASE
 
     uint64_t wal_file_size_kibibytes{20 * 1024};  // PER DATABASE
-    uint64_t wal_file_flush_every_n_tx{100000};   // PER DATABASE
+    uint64_t wal_file_flush_every_n_tx{100'000};  // PER DATABASE
 
     bool snapshot_on_exit{false};                      // PER DATABASE
     bool restore_replication_state_on_startup{false};  // PER INSTANCE
@@ -117,6 +120,8 @@ struct Config {
   SalientConfig salient;
 
   bool force_on_disk{false};  // TODO: cleanup.... remove + make the default storage_mode ON_DISK_TRANSACTIONAL if true
+
+  bool track_label_counts{false};
 
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };

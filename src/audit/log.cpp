@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -70,7 +70,7 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
     }
     case Date: {
       std::stringstream ss;
-      ss << utils::Date(value.ValueDate().MicrosecondsSinceEpoch());
+      ss << utils::Date(std::chrono::microseconds{value.ValueDate().MicrosecondsSinceEpoch()});
       ret = ss.str();
       break;
     }
@@ -178,8 +178,13 @@ void Log::Flush() {
       params_json.push_back(nlohmann::json::object_t::value_type(k, BoltValueToJson(v)));
     }
 
-    log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n", item->timestamp / 1000000, item->timestamp % 1000000,
-                           item->address, item->username, item->db, utils::Escape(item->query),
+    log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n",
+                           item->timestamp / 1'000'000,
+                           item->timestamp % 1'000'000,
+                           item->address,
+                           item->username,
+                           item->db,
+                           utils::Escape(item->query),
                            utils::Escape(params_json.dump())));
   }
   log_.Sync();

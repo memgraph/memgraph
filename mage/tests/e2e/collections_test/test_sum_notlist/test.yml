@@ -1,0 +1,5 @@
+query: >
+    RETURN collections.sum(2) AS sum
+
+exception: >
+    'collections.sum' argument named 'inputList' at position 0 must be of type LIST OF ANY.

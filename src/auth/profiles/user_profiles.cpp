@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -282,6 +282,7 @@ namespace memgraph::slk {
 void to_json(nlohmann::json &data, const memgraph::auth::UserProfiles::limits_t &limits) {
   memgraph::auth::to_json(data, limits);
 }
+
 void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::limits_t &limits) {
   memgraph::auth::from_json(data, limits);
 }
@@ -292,6 +293,7 @@ void Save(const auth::UserProfiles::Profile &self, memgraph::slk::Builder *build
   json[self.name] = self;
   memgraph::slk::Save(json.dump(), builder);
 }
+
 // Deserialize code for auth::UserProfiles::Profile
 void Load(auth::UserProfiles::Profile *self, memgraph::slk::Reader *reader) {
   std::string tmp;

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
-#include "csv/parsing.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
@@ -40,6 +39,8 @@
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
+
+import memgraph.csv.parsing;
 
 namespace {
 
@@ -82,7 +83,7 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -98,6 +99,7 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
                                                           kNoHandler,
                                                           repl_state,
                                                           system_state
@@ -220,8 +222,9 @@ TYPED_TEST(InterpreterTest, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TYPED_TEST(InterpreterTest, Parameters) {
   {
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue(10)},
-                                                         {"a b", memgraph::storage::ExternalPropertyValue(15)}});
+    auto stream = this->Interpret(
+        "RETURN $2 + $`a b`",
+        {{"2", memgraph::storage::ExternalPropertyValue(10)}, {"a b", memgraph::storage::ExternalPropertyValue(15)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -230,9 +233,10 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Not needed parameter.
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue(10)},
-                                                         {"a b", memgraph::storage::ExternalPropertyValue(15)},
-                                                         {"c", memgraph::storage::ExternalPropertyValue(10)}});
+    auto stream = this->Interpret("RETURN $2 + $`a b`",
+                                  {{"2", memgraph::storage::ExternalPropertyValue(10)},
+                                   {"a b", memgraph::storage::ExternalPropertyValue(15)},
+                                   {"c", memgraph::storage::ExternalPropertyValue(10)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -241,8 +245,9 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue("da")},
-                                                         {"a b", memgraph::storage::ExternalPropertyValue("ne")}});
+    auto stream = this->Interpret("RETURN $2 + $`a b`",
+                                  {{"2", memgraph::storage::ExternalPropertyValue("da")},
+                                   {"a b", memgraph::storage::ExternalPropertyValue("ne")}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
@@ -251,9 +256,11 @@ TYPED_TEST(InterpreterTest, Parameters) {
     // Non-primitive literal.
     auto stream = this->Interpret(
         "RETURN $2",
-        {{"2", memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
-                   memgraph::storage::ExternalPropertyValue(5), memgraph::storage::ExternalPropertyValue(2),
-                   memgraph::storage::ExternalPropertyValue(3)})}});
+        {{"2",
+          memgraph::storage::ExternalPropertyValue(
+              std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(5),
+                                                                    memgraph::storage::ExternalPropertyValue(2),
+                                                                    memgraph::storage::ExternalPropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result =
@@ -262,8 +269,9 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, unprovided parameter.
-    ASSERT_THROW(this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue("da")},
-                                                        {"ab", memgraph::storage::ExternalPropertyValue("ne")}}),
+    ASSERT_THROW(this->Interpret("RETURN $2 + $`a b`",
+                                 {{"2", memgraph::storage::ExternalPropertyValue("da")},
+                                  {"ab", memgraph::storage::ExternalPropertyValue("ne")}}),
                  memgraph::query::UnprovidedParameterError);
   }
 }
@@ -348,7 +356,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
   auto kNumNodesPerLevel = 100;
   auto kNumEdgesPerNode = 100;
   auto kNumUnreachableNodes = 1000;
-  auto kNumUnreachableEdges = 100000;
+  auto kNumUnreachableEdges = 100'000;
   auto kResCoeff = 5;
   const auto *const kReachable = "reachable";
   const auto kId = "id";
@@ -358,7 +366,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
     kNumNodesPerLevel = 20;
     kNumEdgesPerNode = 20;
     kNumUnreachableNodes = 200;
-    kNumUnreachableEdges = 20000;
+    kNumUnreachableEdges = 20'000;
     kResCoeff = 4;
   }
 
@@ -367,13 +375,13 @@ TYPED_TEST(InterpreterTest, Bfs) {
 
   // Set up.
   {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).has_value());
       MG_ASSERT(
-          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).has_value());
       levels[level].push_back(node);
       return node;
     };
@@ -381,7 +389,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
     auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
       auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
       MG_ASSERT(
-          edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+          edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).has_value());
     };
 
     // Add source node.
@@ -419,7 +427,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto stream = this->Interpret(
@@ -475,7 +483,9 @@ TYPED_TEST(InterpreterTest, ShortestPath) {
     this->Interpret(
         fmt::format("CREATE (n:A {{x: 1}}), (m:B {{x: 2}}), (l:C {{x: 1}}), (n)-[:r1 {{w: {} "
                     "}}]->(m)-[:r2 {{w: {}}}]->(l), (n)-[:r3 {{w: {}}}]->(l)",
-                    get_weight(1), get_weight(2), get_weight(4)));
+                    get_weight(1),
+                    get_weight(2),
+                    get_weight(4)));
 
     auto stream = this->Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
 
@@ -1008,6 +1018,7 @@ class TmpDirManager final {
       : tmp_dir_{std::filesystem::temp_directory_path() / directory} {
     CreateDir();
   }
+
   ~TmpDirManager() { Clear(); }
 
   const std::filesystem::path &Path() const { return tmp_dir_; }
@@ -1081,8 +1092,8 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
   writer.Close();
 
   {
-    const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.A)",
-                                          csv_path.string(), delimiter);
+    const std::string query = fmt::format(
+        R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.A)", csv_path.string(), delimiter);
     auto [stream, qid] = this->Prepare(query);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "x.A");
@@ -1101,8 +1112,8 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
   }
 
   {
-    const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.C)",
-                                          csv_path.string(), delimiter);
+    const std::string query = fmt::format(
+        R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.C)", csv_path.string(), delimiter);
     auto [stream, qid] = this->Prepare(query);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "x.C");
@@ -1159,7 +1170,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
 
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state2{
         memgraph::storage::ReplicationStateRootPath(config2)};
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2, repl_state2);
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2);
     auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
     auto &db_acc = *db_acc_opt;
@@ -1172,6 +1183,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         std::nullopt};
     memgraph::system::System system_state;
     memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}},
+                                                                nullptr,
                                                                 nullptr,
                                                                 repl_state,
                                                                 system_state
@@ -1215,8 +1227,13 @@ TYPED_TEST(InterpreterTest, ExecutionStatsIsValid) {
     ASSERT_EQ(stream.GetSummary().count("stats"), 0);
   }
   {
-    std::array stats_keys{"nodes-created",  "nodes-deleted", "relationships-created", "relationships-deleted",
-                          "properties-set", "labels-added",  "labels-removed"};
+    std::array stats_keys{"nodes-created",
+                          "nodes-deleted",
+                          "relationships-created",
+                          "relationships-deleted",
+                          "properties-set",
+                          "labels-added",
+                          "labels-removed"};
     auto [stream, qid] = this->Prepare("CREATE ();");
     this->Pull(&stream);
 
@@ -1585,8 +1602,8 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
 
   writer.Close();
 
-  const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x;)",
-                                        csv_path.string(), delimiter);
+  const std::string query = fmt::format(
+      R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x;)", csv_path.string(), delimiter);
   auto [stream, qid] = this->Prepare(query);
   this->Pull(&stream);
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include "auth/replication_handlers.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
@@ -40,7 +41,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   // validate
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
     return;
   }
@@ -76,7 +77,7 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
   memgraph::slk::Load(&req, req_reader);
 
   // validate MAIN
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
     return;
   }
@@ -87,7 +88,8 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::error("Received system delta with expected ts: {} != last commited ts: {}", req.expected_group_timestamp,
+    spdlog::error("Received system delta with expected ts: {} != last commited ts: {}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     return;
   }
@@ -107,15 +109,19 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&data, system_state_access, &dbms_handler, &auth](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
-        SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, request_version, req_reader,
-                              res_builder);
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        SystemRecoveryHandler(
+            system_state_access, data.uuid_, dbms_handler, auth, request_version, req_reader, res_builder);
       });
 
   // Generic finalize message
   data.server->rpc_server_.Register<replication::FinalizeSystemTxRpc>(
       [&data, system_state_access](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                                   uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+                                   uint64_t const request_version,
+                                   auto *req_reader,
+                                   auto *res_builder) mutable {
         FinalizeSystemTxHandler(system_state_access, data.uuid_, request_version, req_reader, res_builder);
       });
 
@@ -128,13 +134,18 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
 #endif
 
 #ifdef MG_ENTERPRISE
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data, auth::SynchedAuth &auth,
-                    system::System &system) {
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system) {
 #else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data) {
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data) {
 #endif
   // Register storage handlers
-  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
+  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
 #ifdef MG_ENTERPRISE
   // Register system handlers
   Register(data, system, dbms_handler, auth);

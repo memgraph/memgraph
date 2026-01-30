@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,9 @@ namespace memgraph::replication {
 namespace {
 
 auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config) -> communication::ServerContext {
-  return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
+  return (config.ssl) ? communication::ServerContext{config.ssl->key_file,
+                                                     config.ssl->cert_file,
+                                                     config.ssl->ca_file,
                                                      config.ssl->verify_peer}
                       : communication::ServerContext{};
 }
@@ -39,7 +41,9 @@ ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationSer
       rpc_server_{config.repl_server, &rpc_server_context_, kReplicationServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>(
       [](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
         replication_coordination_glue::FrequentHeartbeatHandler(request_version, req_reader, res_builder);
       });
 }

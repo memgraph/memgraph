@@ -11,10 +11,6 @@ on:
         type: string
         description: "Target os. Default value is ubuntu-24.04."
         default: 'ubuntu-24.04'
-      toolchain:
-        type: string
-        description: "Toolchain version (v4, v5, v6). Default value is v6."
-        default: 'v6'
       run_core:
         type: string
         description: "Should the core release build tests be run? Default is true."
@@ -51,8 +47,11 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  TOOLCHAIN: v7
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
 jobs:
   core:
@@ -88,7 +87,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -180,12 +182,12 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
+    runs-on: [self-hosted, Linux, "${{ github.event_name == 'merge_group' && 'laufey' || 'benchmark' }}"]
     timeout-minutes: 60
     steps:
       - name: Set up repository
@@ -215,7 +217,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -297,7 +302,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
@@ -332,7 +337,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -342,15 +350,20 @@ jobs:
           --arch $ARCH \
           init-tests
 
+      - name: Ensure localstack is up
+        run: |
+          cd tests/e2e/localstack
+          docker compose --profile bridge up -d
+
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose up -d
+          docker compose up -d
           cd ../pulsar
-          docker-compose up -d
+          docker compose up -d
 
       - name: Run e2e tests
         run: |
@@ -362,14 +375,19 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph e2e
 
+      - name: Ensure localstack is down
+        run: |
+          cd tests/e2e/localstack
+          docker compose down
+
       # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
         if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose down
+          docker compose down
           cd ../pulsar
-          docker-compose down
+          docker compose down
 
       - name: Copy build logs
         if: failure()
@@ -401,7 +419,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
@@ -436,7 +454,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -523,7 +544,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh
 
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
@@ -558,7 +579,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph
+          build-memgraph \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
 
       - name: Initialize tests
         run: |
@@ -567,6 +591,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           init-tests
+
+      - name: Run query modules unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            test-memgraph query_modules_unit
 
       - name: Run query modules e2e tests
         run: |
@@ -608,4 +640,4 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

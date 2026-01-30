@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,25 +54,23 @@ class CreateSnapshotTest : public testing::Test {
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Create some data to ensure snapshot has content
   {
-    auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
+    (void)acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test CreateSnapshot returns path on success
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
+  auto result = mem_storage->CreateSnapshot();
 
-  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
+  ASSERT_TRUE(result.has_value()) << "CreateSnapshot should succeed with some data";
 
-  auto snapshot_path = result.GetValue();
+  auto snapshot_path = result.value();
   ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
   ASSERT_TRUE(std::filesystem::is_regular_file(snapshot_path)) << "Snapshot should be a regular file";
 
@@ -87,69 +85,59 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorForReplica) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
-  // Test CreateSnapshot returns error for replica role
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::REPLICA);
-
-  ASSERT_TRUE(result.HasError()) << "CreateSnapshot should fail for replica role";
-  ASSERT_EQ(result.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica)
-      << "Should return DisabledForReplica error";
+  auto result = mem_storage->CreateSnapshot();
+  ASSERT_TRUE(result.has_value());
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Create some data and take a snapshot
   {
-    auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
+    (void)acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  auto result1 = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
-  ASSERT_FALSE(result1.HasError()) << "First CreateSnapshot should succeed";
+  auto result1 = mem_storage->CreateSnapshot();
+  ASSERT_TRUE(result1.has_value()) << "First CreateSnapshot should succeed";
 
   // Try to create another snapshot immediately - should fail with NothingNewToWrite
-  auto result2 = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
-  ASSERT_TRUE(result2.HasError()) << "Second CreateSnapshot should fail";
-  ASSERT_EQ(result2.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite)
+  auto result2 = mem_storage->CreateSnapshot();
+  ASSERT_FALSE(result2.has_value()) << "Second CreateSnapshot should fail";
+  ASSERT_EQ(result2.error(), memgraph::storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite)
       << "Should return NothingNewToWrite error";
 
   // Force another snapshot immediately - should succeed
-  auto result3 = mem_storage->CreateSnapshot(ReplicationRole::MAIN, true);
-  ASSERT_FALSE(result3.HasError()) << "Third CreateSnapshot should succeed";
+  auto result3 = mem_storage->CreateSnapshot(true);
+  ASSERT_TRUE(result3.has_value()) << "Third CreateSnapshot should succeed";
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Create some data
   {
-    auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
+    (void)acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Create snapshot and verify path format
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
-  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed";
+  auto result = mem_storage->CreateSnapshot();
+  ASSERT_TRUE(result.has_value()) << "CreateSnapshot should succeed";
 
-  auto snapshot_path = result.GetValue();
+  auto snapshot_path = result.value();
   auto filename = snapshot_path.filename().string();
 
   // Verify the filename follows the expected format: YYYYmmddHHMMSSffffff_timestamp_<timestamp>
@@ -169,47 +157,36 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
 
 TEST_F(CreateSnapshotTest, BackwardCompatibilityWithErrorHandling) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Test that existing error handling code still works
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::REPLICA);
-
-  // This should work exactly as before - checking for errors
-  if (result.HasError()) {
-    auto error = result.GetError();
-    ASSERT_EQ(error, memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica);
-  } else {
-    FAIL() << "Should have returned an error for replica role";
-  }
+  auto result = mem_storage->CreateSnapshot();
+  ASSERT_TRUE(result.has_value());
 }
 
 TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
+  memgraph::dbms::Database db{config};
 
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
 
   // Create some data
   {
-    auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    auto acc = mem_storage->Access(memgraph::storage::WRITE);
+    (void)acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Test the new functionality - getting the path on success
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
+  auto result = mem_storage->CreateSnapshot();
 
-  if (result.HasError()) {
+  if (!result) {
     FAIL() << "CreateSnapshot should succeed with data present";
   } else {
     // New functionality: get the path
-    auto snapshot_path = result.GetValue();
+    auto snapshot_path = result.value();
     ASSERT_TRUE(std::filesystem::exists(snapshot_path));
 
     // Verify the path is reasonable

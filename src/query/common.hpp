@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,6 @@
 #include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
 
@@ -138,6 +137,7 @@ struct OrderedTypedValueCompare {
 class TypedValueVectorCompare final {
  public:
   TypedValueVectorCompare() = default;
+
   explicit TypedValueVectorCompare(std::vector<OrderedTypedValueCompare> orderings)
       : orderings_{std::move(orderings)} {}
 
@@ -183,10 +183,10 @@ inline void ProcessError(const storage::Error error) {
 }
 
 template <typename T>
-concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
-                                           const storage::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
-};
+concept AccessorWithSetProperty =
+    requires(T accessor, const storage::PropertyId key, const storage::PropertyValue new_value) {
+      { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
+    };
 
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
@@ -196,8 +196,8 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
                                        storage::NameIdMapper *name_id_mapper) {
   try {
     auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
-    if (maybe_old_value.HasError()) {
-      ProcessError(maybe_old_value.GetError());
+    if (!maybe_old_value) {
+      ProcessError(maybe_old_value.error());
     }
     return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
@@ -206,10 +206,10 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 }
 
 template <typename T>
-concept AccessorWithInitProperties = requires(T accessor,
-                                              const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
-};
+concept AccessorWithInitProperties =
+    requires(T accessor, const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+      { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
+    };
 
 /// Set property `values` mapped with given `key` on a `record`.
 ///
@@ -218,8 +218,8 @@ template <AccessorWithInitProperties T>
 bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   try {
     auto maybe_values = record->InitProperties(properties);
-    if (maybe_values.HasError()) {
-      ProcessError(maybe_values.GetError());
+    if (!maybe_values) {
+      ProcessError(maybe_values.error());
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {
@@ -232,8 +232,8 @@ concept AccessorWithUpdateProperties = requires(T accessor,
                                                 std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   {
     accessor.UpdateProperties(properties)
-    } -> std::same_as<
-        storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
+  } -> std::same_as<
+      storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
 };
 
 /// Set property `values` mapped with given `key` on a `record`.
@@ -241,11 +241,11 @@ concept AccessorWithUpdateProperties = requires(T accessor,
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithUpdateProperties T>
 auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties)
-    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).GetValue())> {
+    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).value())> {
   try {
     auto maybe_values = record->UpdateProperties(properties);
-    if (maybe_values.HasError()) {
-      ProcessError(maybe_values.GetError());
+    if (!maybe_values) {
+      ProcessError(maybe_values.error());
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {

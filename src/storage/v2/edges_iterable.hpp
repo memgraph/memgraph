@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,9 @@
 
 #pragma once
 
-#include "storage/v2/all_vertices_iterable.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
-#include "storage/v2/inmemory/edge_property_index.hpp"
 
 namespace memgraph::storage {
 
@@ -24,6 +23,7 @@ class EdgesIterable final {
   enum class Type { BY_EDGE_TYPE_IN_MEMORY, BY_EDGE_TYPE_PROPERTY_IN_MEMORY, BY_EDGE_PROPERTY_IN_MEMORY };
 
   Type type_;
+
   union {
     InMemoryEdgeTypeIndex::Iterable in_memory_edges_by_edge_type_;
     InMemoryEdgeTypePropertyIndex::Iterable in_memory_edges_by_edge_type_property_;
@@ -47,6 +47,7 @@ class EdgesIterable final {
 
   class Iterator final {
     Type type_;
+
     union {
       InMemoryEdgeTypeIndex::Iterable::Iterator in_memory_edges_by_edge_type_;
       InMemoryEdgeTypePropertyIndex::Iterable::Iterator in_memory_edges_by_edge_type_property_;
@@ -73,6 +74,7 @@ class EdgesIterable final {
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const;
+
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,14 +24,16 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 // large compared to GC interval to make the output relevant.
 
 DEFINE_int32(num_poperties, 10'000, "number of set property per transaction");
-DEFINE_int32(num_iterations, 5'000, "number of iterations");
+DEFINE_int32(num_iterations, 5000, "number of iterations");
 
 std::pair<std::string, memgraph::storage::Config> TestConfigurations[] = {
     //{"NoGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::NONE}}},
-    {"100msPeriodicGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
-                                                         .interval = std::chrono::milliseconds(100)}}},
-    {"1000msPeriodicGc", memgraph::storage::Config{.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
-                                                          .interval = std::chrono::milliseconds(1000)}}}};
+    {"100msPeriodicGc",
+     memgraph::storage::Config{
+         .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}},
+    {"1000msPeriodicGc",
+     memgraph::storage::Config{
+         .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(1000)}}}};
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -44,19 +46,19 @@ int main(int argc, char *argv[]) {
       std::array<memgraph::storage::Gid, 1> vertices;
       memgraph::storage::PropertyId pid;
       {
-        auto acc = storage->Access();
+        auto acc = storage->Access(memgraph::storage::WRITE);
         vertices[0] = acc->CreateVertex().Gid();
         pid = acc->NameToProperty("NEW_PROP");
-        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
 
       for (int iter = 0; iter != FLAGS_num_iterations; ++iter) {
-        auto acc = storage->Access();
+        auto acc = storage->Access(memgraph::storage::WRITE);
         auto vertex1 = acc->FindVertex(vertices[0], memgraph::storage::View::OLD);
         for (auto i = 0; i != FLAGS_num_poperties; ++i) {
-          MG_ASSERT(!vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).HasError());
+          MG_ASSERT(vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).has_value());
         }
-        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
       }
 
       end_bench = timer.Elapsed();

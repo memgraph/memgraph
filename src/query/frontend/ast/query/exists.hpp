@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,12 +20,14 @@ namespace memgraph::query {
 class Exists : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
+
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   Exists() = default;
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue const *>);
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
@@ -52,13 +54,16 @@ class Exists : public memgraph::query::Expression {
   }
 
   bool HasPattern() const { return std::holds_alternative<Pattern *>(content_); }
+
   bool HasSubquery() const { return std::holds_alternative<CypherQuery *>(content_); }
 
   Pattern *GetPattern() const { return HasPattern() ? std::get<Pattern *>(content_) : nullptr; }
+
   CypherQuery *GetSubquery() const { return HasSubquery() ? std::get<CypherQuery *>(content_) : nullptr; }
 
  protected:
   explicit Exists(Pattern *pattern) : content_(pattern) {}
+
   explicit Exists(CypherQuery *subquery) : content_(subquery) {}
 
  private:

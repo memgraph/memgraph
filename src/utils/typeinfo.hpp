@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -82,6 +82,8 @@ enum class TypeId : uint64_t {
   PERIODIC_SUBQUERY,
   SET_NESTED_PROPERTY,
   REMOVE_NESTED_PROPERTY,
+  LOAD_PARQUET,
+  LOAD_JSONL,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
@@ -194,6 +196,7 @@ enum class TypeId : uint64_t {
   AST_PROPERTY_LOOKUP,
   AST_ALL_PROPERTIES_LOOKUP,
   AST_LABELS_TEST,
+  AST_EDGETYPES_TEST,
   AST_FUNCTION,
   AST_REDUCE,
   AST_COALESCE,
@@ -290,6 +293,8 @@ enum class TypeId : uint64_t {
   AST_SHOW_SNAPSHOTS_QUERY,
   AST_SHOW_NEXT_SNAPSHOT_QUERY,
   AST_USER_PROFILE_QUERY,
+  AST_LOAD_PARQUET,
+  AST_LOAD_JSONL,
 
   // Symbol
   SYMBOL = 4000,
@@ -312,10 +317,15 @@ struct TypeInfo {
 };
 
 inline bool operator==(const TypeInfo &a, const TypeInfo &b) { return a.id == b.id; }
+
 inline bool operator!=(const TypeInfo &a, const TypeInfo &b) { return a.id != b.id; }
+
 inline bool operator<(const TypeInfo &a, const TypeInfo &b) { return a.id < b.id; }
+
 inline bool operator<=(const TypeInfo &a, const TypeInfo &b) { return a.id <= b.id; }
+
 inline bool operator>(const TypeInfo &a, const TypeInfo &b) { return a.id > b.id; }
+
 inline bool operator>=(const TypeInfo &a, const TypeInfo &b) { return a.id >= b.id; }
 
 /// Return true if `a` is subtype or the same type as `b`.

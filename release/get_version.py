@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import re
+import socket
 import subprocess
 import sys
+import threading
 import time
+import urllib.request
 from functools import wraps
 
 # This script is used to determine the current version of Memgraph. The script
@@ -13,6 +17,10 @@ from functools import wraps
 # used instead of the version determined by `git`. All versions (automatically
 # detected and manually specified) can have a custom version suffix added to
 # them.
+#
+# NOTE: If the script is unable to connect to GitHub, it will attempt to use the
+# latest version found locally in tags. If there are no tags, the script will
+# use the fallback version 0.0.0.
 #
 # The current version can be one of either:
 #   - release version
@@ -94,6 +102,49 @@ from functools import wraps
 #   https://fedoraproject.org/wiki/Package_Versioning_Examples
 
 
+def check_connection(host, timeout=3.0):
+    try:
+        socket.create_connection(host, timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def check_dns_availability(timeout=0.05):
+    dns_addresses = [
+        "1.1.1.1",
+        "1.0.0.1",
+        "8.8.8.8",
+        "8.8.4.4",
+    ]
+
+    for address in dns_addresses:
+        result = check_connection((address, 53), timeout)
+        if result:
+            return True
+    return False
+
+
+def can_connect_to_github(host=("github.com", 443), timeout=3):
+    """
+    Check if we can connect to GitHub.
+
+    We first check if we can resolve the DNS addresses (otherwise the DNS lookup
+    for GitHub will take much longer than the timeout), and then we check if we
+    can connect to the GitHub server.
+    """
+
+    if not check_dns_availability():
+        print("Warning: Could not connect to GitHub - DNS resolution failed", flush=True, file=sys.stderr)
+        return False
+
+    if not check_connection(host, timeout):
+        print("Warning: Could not connect to GitHub - connection failed", flush=True, file=sys.stderr)
+        return False
+
+    return True
+
+
 def retry(retry_limit, timeout=100):
     def inner_func(func):
         @wraps(func)
@@ -118,6 +169,60 @@ def get_output(*cmd, multiple=False):
     if multiple:
         return list(map(lambda x: x.strip(), ret.stdout.decode("utf-8").strip().split("\n")))
     return ret.stdout.decode("utf-8").strip()
+
+
+def request_repo_tags(token=None):
+    api_url = "https://api.github.com/repos/memgraph/memgraph/tags"
+    req = urllib.request.Request(api_url)
+    req.add_header("User-Agent", "Memgraph-Version-Script/1.0")
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode())
+    except Exception as e:
+        print(f"Warning: Could not fetch tags from original repository: {e}", file=sys.stderr)
+        return None
+
+
+def fetch_memgraph_repo_version():
+    """Fetch version information from the original Memgraph repository via GitHub API."""
+    try:
+        # Check for GitHub token in environment variables
+        github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_TOKEN")
+
+        # try authenticated request first, to avoid rate limiting
+        tags_data = None
+        if github_token:
+            tags_data = request_repo_tags(github_token)
+
+        # if authenticated request fails, try unauthenticated request
+        if tags_data is None:
+            tags_data = request_repo_tags()
+
+        if tags_data is None:
+            return None, None
+
+        # Look for version tags in format vx.y.z, excluding rc tags
+        version_tags = []
+        for tag in tags_data:
+            tag_name = tag["name"]
+            # Match vx.y.z format but exclude rc tags
+            if re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag_name) and "rc" not in tag_name:
+                version = tuple(map(int, tag_name[1:].split(".")))  # Remove 'v' prefix
+                version_tags.append((version, tag_name))
+
+        if version_tags:
+            # Sort by version and get the latest
+            version_tags.sort(reverse=True)
+            latest_version, latest_tag = version_tags[0]
+            return latest_version, latest_tag
+
+        return None, None
+
+    except Exception as e:
+        print(f"Warning: Could not fetch version from original repository: {e}", file=sys.stderr)
+        return None, None
 
 
 def format_version(variant, version, offering, distance=None, shorthash=None, suffix=None):
@@ -195,6 +300,9 @@ if args.version:
     print(format_version(args.variant, args.version, offering, suffix=args.suffix), end="")
     sys.exit(0)
 
+# check if we can connect to GitHub
+can_connect = can_connect_to_github()
+
 # Within CI, after the regular checkout, master is sometimes (e.g. in the case
 # of an epic or task branch) NOT created as a local branch. cpack depends on
 # variables generated by calling this script during the cmake phase. This
@@ -210,15 +318,25 @@ try:
             # because this script will still be able to compare against the
             # master branch.
             try:
-                get_output("git", "fetch", "origin", "master")
+                if can_connect:
+                    get_output("git", "fetch", "origin", "master")
+                else:
+                    print(
+                        "WARNING: Could not connect to GitHub. Unable to fetch master branch, continuing with local branch.",
+                        file=sys.stderr,
+                    )
             except Exception:
                 pass
         else:
             # If master is not present locally, the fetch command has to
             # succeed because something else will fail otherwise.
-            get_output("git", "fetch", "origin", "master")
+            if can_connect:
+                get_output("git", "fetch", "origin", "master")
+            else:
+                print("FATAL ERROR: Could not connect to GitHub. Unable to fetch master branch.", file=sys.stderr)
+                sys.exit(1)
 except Exception:
-    print("Fatal error while ensuring local master branch.")
+    print("FATAL ERROR: Could not ensure local master branch.", file=sys.stderr)
     sys.exit(1)
 
 # Get current commit hashes.
@@ -260,7 +378,69 @@ for version in versions:
 
 # Determine current version.
 if current_version is None:
-    raise Exception("You are attempting to determine the version for a very " "old version of Memgraph!")
+    # Fallback: try to get version information from the original Memgraph repository
+    print("No local release branches found. Fetching version from original repository...", file=sys.stderr)
+
+    if can_connect:
+        original_version, original_branch = fetch_memgraph_repo_version()
+    else:
+        print(
+            "WARNING: Could not connect to GitHub. Unable to fetch version from original repository.", file=sys.stderr
+        )
+        original_version = None
+        original_branch = None
+
+    if original_version is not None:
+        # Use the version from the original repository
+        version_str = ".".join(map(str, original_version)) + ".0"
+
+        # Calculate distance from master branch as a development version
+        try:
+            distance = int(get_output("git", "rev-list", "--count", "--first-parent", "origin/master.." + current_hash))
+        except Exception:
+            distance = 0
+
+        if distance == 0:
+            print(format_version(args.variant, version_str, offering, suffix=args.suffix), end="")
+        else:
+            print(
+                format_version(
+                    args.variant,
+                    version_str,
+                    offering,
+                    distance=distance,
+                    shorthash=current_hash_short,
+                    suffix=args.suffix,
+                ),
+                end="",
+            )
+        sys.exit(0)
+    else:
+        print(
+            "Unable to determine version. No local release branches found and could not fetch from "
+            "original repository. This repository may need to be updated or may not be a standard "
+            "Memgraph repository."
+        )
+
+        # just use latest version found locally in tags
+        tags = get_output("git", "tag").strip().split("\n")
+        non_rc_tags = [t for t in tags if "rc" not in t and t]
+        tag = non_rc_tags[-1] if non_rc_tags else ""
+        if tag:
+            # regex match for x.y.z format
+            match = re.match(r"^v[\d]+\.[\d]+\.[\d]+$", tag)
+            if match:
+                version_str = match.group(0)[1:]
+            else:
+                # fallback
+                print("WARNING: Unable to determine version from tag. Using fallback version 0.0.0.", file=sys.stderr)
+                version_str = "0.0.0"
+        else:
+            print("WARNING: Unable to determine version from tag. Using fallback version 0.0.0.", file=sys.stderr)
+            version_str = "0.0.0"
+        print(format_version(args.variant, version_str, offering, suffix=args.suffix), end="")
+        sys.exit(0)
+
 version, branch, master_branch_merge = current_version
 distance = int(get_output("git", "rev-list", "--count", "--first-parent", master_branch_merge + ".." + current_hash))
 version_str = ".".join(map(str, version)) + ".0"

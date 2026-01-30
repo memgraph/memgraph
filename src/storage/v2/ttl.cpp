@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -120,8 +120,9 @@ std::chrono::system_clock::time_point TtlInfo::ParseStartTime(std::string_view s
     // Midnight might be a problem...
     const auto now =
         std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
-    const utils::DateParameters date{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
-                                     static_cast<unsigned>(now.day())};
+    const utils::DateParameters date{.year = static_cast<int>(now.year()),
+                                     .month = static_cast<unsigned>(now.month()),
+                                     .day = static_cast<unsigned>(now.day())};
     auto [time, _] = utils::ParseLocalTimeParameters(sv);
     // LocalDateTime uses the user-defined timezone
     return std::chrono::system_clock::time_point{
@@ -195,7 +196,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
     while (!finished_vertex || !finished_edge) {
       try {
-        constexpr size_t batch_size = 10000;
+        constexpr size_t batch_size = 10'000;
         size_t n_deleted = 0;
         size_t n_edges_deleted = 0;
 
@@ -269,9 +270,9 @@ void TTL::Configure(bool should_run_edge_ttl) {
               vertices_to_delete_pointers.push_back(&vertex);
             }
             auto result = batch_accessor->DetachDelete(vertices_to_delete_pointers, {}, true);
-            if (result.HasValue() && result.GetValue().has_value()) {
-              n_deleted += result.GetValue()->first.size();
-              n_edges_deleted += result.GetValue()->second.size();
+            if (result.has_value() && result->has_value()) {
+              n_deleted += (*result)->first.size();
+              n_edges_deleted += (*result)->second.size();
             }
           }
 
@@ -280,8 +281,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
           // Process edges with TTL property using range-based filtering
           // Use edge property index with range to efficiently find edges where ttl < now
           // This is much more efficient than using property index + checking each edge for the value
-          auto edges = batch_accessor->Edges(ttl_property, std::nullopt,
-                                             utils::MakeBoundExclusive(PropertyValue(now_us.count())), View::NEW);
+          auto edges = batch_accessor->Edges(
+              ttl_property, std::nullopt, utils::MakeBoundExclusive(PropertyValue(now_us.count())), View::NEW);
           std::vector<EdgeAccessor> edges_to_delete;
           edges_to_delete.reserve(batch_size);
 
@@ -298,8 +299,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
               edges_to_delete_pointers.push_back(&edge);
             }
             auto result = batch_accessor->DetachDelete({}, edges_to_delete_pointers, false);
-            if (result.HasValue() && result.GetValue().has_value()) {
-              n_edges_deleted += result.GetValue()->second.size();
+            if (result.has_value() && result->has_value()) {
+              n_edges_deleted += (*result)->second.size();
             }
           }
 
@@ -318,7 +319,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
         // Commit the transaction for this batch using the database protector
         auto commit_result = batch_accessor->PrepareForCommitPhase(CommitArgs::make_main(std::move(protector)));
-        if (commit_result.HasError()) {
+        if (!commit_result) {
           // Transaction failed, will retry in next iteration
           // TODO: on sync replication error it should not continue since it commits
           continue;

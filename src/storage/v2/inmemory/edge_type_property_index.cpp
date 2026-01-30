@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@
 
 namespace r = ranges;
 namespace rv = r::views;
+
 namespace memgraph::storage {
 
 namespace {
@@ -113,11 +114,46 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
   }
 }
 
+// Free function which advances the given iterator until the next valid entry is found.
+void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
+                        PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                        Transaction *transaction, EdgeTypeId edge_type) {
+  for (; index_iterator != end; ++index_iterator) {
+    if (index_iterator->edge == current_edge.ptr) {
+      continue;
+    }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+      continue;
+    }
+
+    if (!IsValueIncludedByLowerBound(index_iterator->value, lower_bound)) continue;
+    if (!IsValueIncludedByUpperBound(index_iterator->value, upper_bound)) {
+      index_iterator = end;
+      break;
+    }
+
+    if (!CurrentEdgeVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
+      continue;
+    }
+
+    auto *from_vertex = index_iterator->from_vertex;
+    auto *to_vertex = index_iterator->to_vertex;
+    auto edge_ref = EdgeRef(index_iterator->edge);
+
+    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, storage, transaction};
+    // TODO: Do we even need this since we performed CurrentVersionHasProperty?
+    if (!accessor.IsVisible(view)) {
+      continue;
+    }
+
+    current_edge = edge_ref;
+    current_accessor = accessor;
+    break;
+  }
+}
 }  // namespace
-
-bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
-
-bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
 bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, PropertyId property) {
   return index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
@@ -166,7 +202,7 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, Pro
   auto res = RegisterIndex(edge_type, property);
   if (!res) return false;
   auto res2 = PopulateIndex(edge_type, property, std::move(vertices), snapshot_info);
-  if (res2.HasError()) {
+  if (!res2) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
   return PublishIndex(edge_type, property, 0);
@@ -198,7 +234,7 @@ auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, Property
                                                   utils::SkipList<Vertex>::Accessor vertices,
                                                   std::optional<SnapshotObserverInfo> const &snapshot_info,
                                                   Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    -> std::expected<void, IndexPopulateError> {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -211,19 +247,19 @@ auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, Property
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
         TryInsertEdgeTypePropertyIndex(from_vertex, edge_type, property, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
-                            {} /*TODO: parallel*/);
+      PopulateIndexDispatch(
+          vertices, accessor_factory, insert_function, std::move(cancel_check), {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
     DropIndex(edge_type, property);
-    return IndexPopulateError::Cancellation;
+    return std::unexpected{IndexPopulateError::Cancellation};
   } catch (const utils::OutOfMemoryException &) {
     DropIndex(edge_type, property);
     throw;
@@ -270,8 +306,6 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
         continue;
       }
 
-      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
-      const bool edge_deleted = it->edge->deleted;
       const bool has_next = next_it != edges_acc.end();
 
       // When we update specific entries in the index, we don't delete the previous entry.
@@ -281,7 +315,7 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
       const bool redundant_duplicate = has_next && it->value == next_it->value &&
                                        it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
                                        it->edge == next_it->edge;
-      if (redundant_duplicate || vertices_deleted || edge_deleted ||
+      if (redundant_duplicate ||
           !AnyVersionHasProperty(*it->edge, property, it->value, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
@@ -333,7 +367,9 @@ uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(Edge
 uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                                                             const PropertyValue &value) const {
   auto it = index_container_->find({edge_type, property});
-  MG_ASSERT(it != index_container_->end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
             property.AsUint());
   auto acc = it->second->skiplist.access();
   if (!value.IsNull()) {
@@ -354,7 +390,9 @@ uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(
     EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
   auto it = index_container_->find({edge_type, property});
-  MG_ASSERT(it != index_container_->end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
             property.AsUint());
   auto acc = it->second->skiplist.access();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -382,42 +420,10 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Access
       property_(property),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
+      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
       view_(view),
       storage_(storage),
-      transaction_(transaction) {
-  // We have to fix the bounds that the user provided to us. If the user
-  // provided only one bound we should make sure that only values of that type
-  // are returned by the iterator. We ensure this by supplying either an
-  // inclusive lower bound of the same type, or an exclusive upper bound of the
-  // following type. If neither bound is set we yield all items in the index.
-
-  // Remove any bounds that are set to `Null` because that isn't a valid value.
-  if (lower_bound_ && lower_bound_->value().IsNull()) {
-    lower_bound_ = std::nullopt;
-  }
-  if (upper_bound_ && upper_bound_->value().IsNull()) {
-    upper_bound_ = std::nullopt;
-  }
-
-  // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
-    bounds_valid_ = false;
-    return;
-  }
-
-  // Set missing bounds.
-  if (lower_bound_ && !upper_bound_) {
-    // Here we need to supply an upper bound. The upper bound is set to an
-    // exclusive lower bound of the following type.
-    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
-  }
-
-  if (upper_bound_ && !lower_bound_) {
-    // Here we need to supply a lower bound. The lower bound is set to an
-    // inclusive lower bound of the current type.
-    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
-  }
-}
+      transaction_(transaction) {}
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
                                                             utils::SkipList<Entry>::Iterator index_iterator)
@@ -435,41 +441,17 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterator &InMemoryEdgeTypePropertyIndex
 }
 
 void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->edge == current_edge_.ptr) {
-      continue;
-    }
-
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
-      continue;
-    }
-
-    if (!IsValueIncludedByLowerBound(index_iterator_->value, self_->lower_bound_)) continue;
-    if (!IsValueIncludedByUpperBound(index_iterator_->value, self_->upper_bound_)) {
-      index_iterator_ = self_->index_accessor_.end();
-      break;
-    }
-
-    if (!CurrentEdgeVersionHasProperty(*index_iterator_->edge, self_->property_, index_iterator_->value,
-                                       self_->transaction_, self_->view_)) {
-      continue;
-    }
-
-    auto *from_vertex = index_iterator_->from_vertex;
-    auto *to_vertex = index_iterator_->to_vertex;
-    auto edge_ref = EdgeRef(index_iterator_->edge);
-
-    auto accessor =
-        EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
-    // TODO: Do we even need this since we performed CurrentVersionHasProperty?
-    if (!accessor.IsVisible(self_->view_)) {
-      continue;
-    }
-
-    current_edge_ = edge_ref;
-    current_accessor_ = accessor;
-    break;
-  }
+  AdvanceUntilValid_(index_iterator_,
+                     self_->index_accessor_.end(),
+                     current_edge_,
+                     current_accessor_,
+                     self_->property_,
+                     self_->lower_bound_,
+                     self_->upper_bound_,
+                     self_->view_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->edge_type_);
 }
 
 void InMemoryEdgeTypePropertyIndex::RunGC() {
@@ -488,7 +470,9 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->find({edge_type, property});
-  MG_ASSERT(it != index_container_->end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
             property.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
@@ -502,6 +486,29 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
           view,
           storage,
           transaction};
+}
+
+InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::ActiveIndices::ChunkedEdges(
+    EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
+  auto it = index_container_->find({edge_type, property});
+  MG_ASSERT(it != index_container_->end(),
+            "Index for edge type {} and property {} doesn't exist",
+            edge_type.AsUint(),
+            property.AsUint());
+  return {it->second->skiplist.access(),
+          std::move(vertex_accessor),
+          std::move(edge_accessor),
+          edge_type,
+          property,
+          lower_bound,
+          upper_bound,
+          view,
+          storage,
+          transaction,
+          num_chunks};
 }
 
 EdgeTypePropertyIndex::AbortProcessor InMemoryEdgeTypePropertyIndex::ActiveIndices::GetAbortProcessor() const {
@@ -542,6 +549,51 @@ void InMemoryEdgeTypePropertyIndex::CleanupAllIndices() {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
     }
   });
+}
+
+InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
+    utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+    utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks)
+    : pin_accessor_edge_(std::move(edge_accessor)),
+      pin_accessor_vertex_(std::move(vertex_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      edge_type_(edge_type),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound),
+      bounds_valid_(ValidateBounds(lower_bound_, upper_bound_)),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction) {
+  if (!bounds_valid_) return;
+
+  // Chunk with bounds
+  const auto lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;
+  const auto upper_bound_pv = upper_bound_ ? std::optional<PropertyValue>{upper_bound_->value()} : std::nullopt;
+  chunks_ = index_accessor_.create_chunks(num_chunks, lower_bound_pv, upper_bound_pv);
+
+  // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
+  RechunkIndex<utils::SkipList<Entry>>(
+      chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge && a.value == b.value; });
+}
+
+void InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
+  // NOTE: Using the skiplist end here to not store the end iterator in the class
+  // The higher level != end will still be correct
+  AdvanceUntilValid_(index_iterator_,
+                     utils::SkipList<Entry>::ChunkedIterator{},
+                     current_edge_,
+                     current_edge_accessor_,
+                     self_->property_,
+                     self_->lower_bound_,
+                     self_->upper_bound_,
+                     self_->view_,
+                     self_->storage_,
+                     self_->transaction_,
+                     self_->edge_type_);
 }
 
 }  // namespace memgraph::storage

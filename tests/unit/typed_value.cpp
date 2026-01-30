@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,7 +43,7 @@ class AllTypesFixture : public testing::Test {
   std::vector<TypedValue> values_;
   memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config_)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
   void SetUp() override {
@@ -52,8 +52,8 @@ class AllTypesFixture : public testing::Test {
     values_.emplace_back(42);
     values_.emplace_back(3.14);
     values_.emplace_back("something");
-    values_.emplace_back(std::vector<TypedValue>{TypedValue(true), TypedValue("something"), TypedValue(42),
-                                                 TypedValue(0.5), TypedValue()});
+    values_.emplace_back(std::vector<TypedValue>{
+        TypedValue(true), TypedValue("something"), TypedValue(42), TypedValue(0.5), TypedValue()});
     values_.emplace_back(std::map<std::string, TypedValue>{{"a", TypedValue(true)},
                                                            {"b", TypedValue("something")},
                                                            {"c", TypedValue(42)},
@@ -147,7 +147,7 @@ TEST(TypedValue, Equals) {
 
   // compare two ints close to 2 ^ 62
   // this will fail if they are converted to float at any point
-  EXPECT_PROP_NE(TypedValue(4611686018427387905), TypedValue(4611686018427387900));
+  EXPECT_PROP_NE(TypedValue(4'611'686'018'427'387'905), TypedValue(4'611'686'018'427'387'900));
 
   EXPECT_PROP_NE(TypedValue(0.5), TypedValue(0.12));
   EXPECT_PROP_EQ(TypedValue(0.123), TypedValue(0.123));
@@ -247,13 +247,13 @@ TEST(TypedValue, Comparison) {
   run_comparison_cases(local_date_time_1, local_date_time_2);
 
   auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
-  EXPECT_THROW(enum_val < enum_val, memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(enum_val < enum_val), memgraph::query::TypedValueException);
 
   auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
   auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
 
-  EXPECT_THROW(point_1 < point_1, memgraph::query::TypedValueException);
-  EXPECT_THROW(point_2 < point_2, memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(point_1 < point_1), memgraph::query::TypedValueException);
+  EXPECT_THROW((void)(point_2 < point_2), memgraph::query::TypedValueException);
 }
 
 TEST(TypedValue, BoolEquals) {
@@ -302,6 +302,28 @@ TEST(TypedValue, Hash) {
   EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 0.0}}));
+}
+
+TEST(TypedValue, ListToPropertyValueList) {
+  memgraph::storage::NameIdMapper name_id_mapper;
+  auto typed_value_int_list = TypedValue(std::vector<int>{33, 0, -33});
+  auto typed_value_double_list = TypedValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto typed_value_numeric_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue(0.0), TypedValue(-33.33)});
+  auto typed_value_mixed_types_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue("string"), TypedValue(-33.33)});
+
+  auto property_value_int_list = PropertyValue(std::vector<int>{33, 0, -33});
+  auto property_value_double_list = PropertyValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto property_value_numeric_list = PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33});
+  auto property_value_mixed_types_list =
+      PropertyValue(PropertyValue::list_t{PropertyValue(33), PropertyValue("string"), PropertyValue(-33.33)});
+
+  ASSERT_EQ(typed_value_int_list.ToPropertyValue(&name_id_mapper).type(), property_value_int_list.type());
+  ASSERT_EQ(typed_value_double_list.ToPropertyValue(&name_id_mapper).type(), property_value_double_list.type());
+  ASSERT_EQ(typed_value_numeric_list.ToPropertyValue(&name_id_mapper).type(), property_value_numeric_list.type());
+  ASSERT_EQ(typed_value_mixed_types_list.ToPropertyValue(&name_id_mapper).type(),
+            property_value_mixed_types_list.type());
 }
 
 TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
@@ -493,8 +515,14 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   std::vector<TypedValue> in{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
   std::vector<TypedValue> out1{TypedValue(2), TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
   std::vector<TypedValue> out2{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"), TypedValue(2)};
-  std::vector<TypedValue> out3{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"),
-                               TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
+  std::vector<TypedValue> out3{TypedValue(1),
+                               TypedValue(2),
+                               TypedValue(true),
+                               TypedValue("a"),
+                               TypedValue(1),
+                               TypedValue(2),
+                               TypedValue(true),
+                               TypedValue("a")};
   EXPECT_PROP_EQ(TypedValue(2) + TypedValue(in), TypedValue(out1));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
@@ -503,9 +531,13 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) +
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                   TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+               TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) + TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalTime(1)));
@@ -551,9 +583,13 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(
+      TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+      TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::LocalTime(1)));

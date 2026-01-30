@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,10 +19,13 @@
 
 namespace memgraph::utils {
 
-thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::counter_ = 0;
-thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_ = 0;
+constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::counter_
+    [[gnu::tls_model("initial-exec")]] = 0;
+constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_
+    [[gnu::tls_model("initial-exec")]] = 0;
 
-MemoryTracker total_memory_tracker;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+constinit MemoryTracker total_memory_tracker{};
 
 // TODO (antonio2368): Define how should the peak memory be logged.
 // Logging every time the peak changes is too much so some kind of distribution
@@ -126,15 +129,20 @@ void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memo
 // DEVNOTE: important that this is allocated at thread construction time
 //          otherwise subtle bug where jemalloc will try to lock an non-recursive mutex
 //          that it already owns
+namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-thread_local MemoryTrackerStatus status;
+constinit thread_local MemoryTrackerStatus status [[gnu::tls_model("initial-exec")]]{};
+static_assert(std::is_trivially_destructible_v<MemoryTrackerStatus>,
+              "TLS variable in malloc hook must be trivially destructible to avoid atexit allocations");
+}  // namespace
+
 auto MemoryErrorStatus() -> MemoryTrackerStatus & { return status; }
 
 auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
-  if (!data_) return std::nullopt;
+  if (!has_data_) return std::nullopt;
 
-  const auto [size, will_be, hard_limit, type] = *data_;
-  data_.reset();
+  const auto [size, will_be, hard_limit, type] = data_;
+  has_data_ = false;
 
   switch (type) {
     case kQuery:
@@ -142,14 +150,16 @@ auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
       return fmt::format(
           "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
           "use to {}, while the maximum allowed size for allocation is set to {}.",
-          // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-          GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+          GetReadableSize(static_cast<double>(size)),
+          GetReadableSize(static_cast<double>(will_be)),
+          GetReadableSize(static_cast<double>(hard_limit)));
     case kUser:
       return fmt::format(
           "User memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
           "use to {}, while the maximum allowed size for allocation is set to {}.",
-          // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-          GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+          GetReadableSize(static_cast<double>(size)),
+          GetReadableSize(static_cast<double>(will_be)),
+          GetReadableSize(static_cast<double>(hard_limit)));
   }
 }
 

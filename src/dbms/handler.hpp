@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include <filesystem>
-#include <memory>
+#include <spdlog/spdlog.h>
+#include <expected>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
@@ -20,7 +20,6 @@
 #include "global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/result.hpp"
 #include "utils/thread_pool.hpp"
 
 namespace memgraph::dbms {
@@ -33,7 +32,25 @@ namespace memgraph::dbms {
 template <typename T>
 class Handler {
  public:
-  using NewResult = utils::BasicResult<NewError, typename utils::Gatekeeper<T>::Accessor>;
+  struct string_hash {
+    using is_transparent = void;
+
+    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+
+    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+
+    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
+  };
+
+  using container_type = std::unordered_map<std::string, utils::Gatekeeper<T>, string_hash, std::equal_to<>>;
+  using value_type = typename container_type::value_type;
+  using reference = typename container_type::reference;
+  using const_reference = typename container_type::const_reference;
+  using iterator = typename container_type::iterator;
+  using const_iterator = typename container_type::const_iterator;
+  using difference_type = typename container_type::difference_type;
+  using size_type = typename container_type::size_type;
+  using NewResult = std::expected<typename utils::Gatekeeper<T>::Accessor, NewError>;
 
   /**
    * @brief Empty Handler constructor.
@@ -55,14 +72,14 @@ class Handler {
   NewResult New(std::piecewise_construct_t /* marker */, std::string_view name, Args &&...args) {
     // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
     if (!Has(name)) {
-      auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),
-                                     std::forward_as_tuple(std::forward<Args>(args)...));
+      auto [itr, _] = items_.emplace(
+          std::piecewise_construct, std::forward_as_tuple(name), std::forward_as_tuple(std::forward<Args>(args)...));
       auto db_acc = itr->second.access();
       if (db_acc) return std::move(*db_acc);
-      return NewError::DEFUNCT;
+      return std::unexpected{NewError::DEFUNCT};
     }
     spdlog::info("Item with name \"{}\" already exists.", name);
-    return NewError::EXISTS;
+    return std::unexpected{NewError::EXISTS};
   }
 
   /**
@@ -125,7 +142,7 @@ class Handler {
         gk.~Gatekeeper<T>();
         post_delete_func();
       };
-      defer_pool_.AddTask(utils::CopyMovableFunctionWrapper{std::move(task)});
+      defer_pool_.AddTask(std::move(task));
     }
     // In any case remove from handled map
     items_.erase(itr);
@@ -137,7 +154,7 @@ class Handler {
    * @param name Name to check
    * @return true if a T is already associated with the name
    */
-  bool Has(std::string_view name) const { return items_.find(name) != items_.end(); }
+  bool Has(std::string_view name) const { return items_.contains(name); }
 
   /**
    * @brief Rename the context associated with the name.
@@ -146,19 +163,15 @@ class Handler {
    * @param new_name New name for the context
    * @return true on success, false if new_name already exists or context is in use
    */
-  utils::BasicResult<RenameError> Rename(std::string_view old_name, std::string_view new_name) {
-    if (old_name == new_name) {
-      return {};  // No-op
-    }
-
+  std::expected<void, RenameError> Rename(std::string_view old_name, std::string_view new_name) {
     auto old_itr = items_.find(old_name);
     if (old_itr == items_.end()) {
-      return RenameError::NON_EXISTENT;
+      return std::unexpected{RenameError::NON_EXISTENT};
     }
 
     auto new_itr = items_.find(new_name);
     if (new_itr != items_.end()) {
-      return RenameError::ALREADY_EXISTS;
+      return std::unexpected{RenameError::ALREADY_EXISTS};
     }
 
     // Move the gatekeeper to the new name
@@ -168,25 +181,24 @@ class Handler {
     return {};
   }
 
-  auto begin() { return items_.begin(); }
-  auto end() { return items_.end(); }
-  auto begin() const { return items_.begin(); }
-  auto end() const { return items_.end(); }
-  auto cbegin() const { return items_.cbegin(); }
-  auto cend() const { return items_.cend(); }
+  iterator begin() noexcept { return items_.begin(); }
 
-  auto size() const { return items_.size(); }
+  iterator end() noexcept { return items_.end(); }
 
-  struct string_hash {
-    using is_transparent = void;
-    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
-    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
-    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
-  };
+  const_iterator begin() const noexcept { return items_.begin(); }
+
+  const_iterator end() const noexcept { return items_.end(); }
+
+  const_iterator cbegin() const noexcept { return items_.cbegin(); }
+
+  const_iterator cend() const noexcept { return items_.cend(); }
+
+  [[nodiscard]] size_type size() const noexcept { return items_.size(); }
+
+  [[nodiscard]] bool empty() const noexcept { return items_.empty(); }
 
  private:
-  std::unordered_map<std::string, utils::Gatekeeper<T>, string_hash, std::equal_to<>>
-      items_;  //!< map to all active items
+  container_type items_;  //!< map to all active items
   utils::ThreadPool defer_pool_{1};
 };
 

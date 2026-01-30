@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,8 +39,11 @@ struct PointIndex {
   }
 
   auto GetWgs2dIndex() const -> std::shared_ptr<index_t<IndexPointWGS2d>> { return wgs_2d_index_; }
+
   auto GetWgs3dIndex() const -> std::shared_ptr<index_t<IndexPointWGS3d>> { return wgs_3d_index_; }
+
   auto GetCartesian2dIndex() const -> std::shared_ptr<index_t<IndexPointCartesian2d>> { return cartesian_2d_index_; }
+
   auto GetCartesian3dIndex() const -> std::shared_ptr<index_t<IndexPointCartesian3d>> { return cartesian_3d_index_; }
 
  private:
@@ -109,7 +112,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
 
   for (auto const &v : vertices) {
     if (v.deleted) continue;
-    if (!utils::Contains(v.labels, label)) continue;
+    if (!std::ranges::contains(v.labels, label)) continue;
 
     static constexpr auto point_types = std::array{PropertyStoreType::POINT};
     auto maybe_value = v.properties.GetPropertyOfTypes(property, point_types);
@@ -179,13 +182,13 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
     indexes_ = context.current_indexes_;
   };
 }
+
 void PointIndexStorage::Clear() { indexes_->clear(); }
 
 std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
   auto indexes = indexes_;  // local copy of shared_ptr, for safety
-  auto keys = *indexes | std::views::keys | std::views::transform([](LabelPropKey key) {
-    return std::pair{key.label(), key.property()};
-  });
+  auto keys = *indexes | std::views::keys |
+              std::views::transform([](LabelPropKey key) { return std::pair{key.label(), key.property()}; });
   return {keys.begin(), keys.end()};
 }
 
@@ -216,7 +219,7 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
     auto guard = std::shared_lock{v->lock};
     auto isDeleted = [](Vertex const *v) { return v->deleted; };
     auto isWithoutLabel = [label = labelPropKey.label()](Vertex const *v) {
-      return !utils::Contains(v->labels, label);
+      return !std::ranges::contains(v->labels, label);
     };
     if (isDeleted(v) || isWithoutLabel(v)) {
       continue;
@@ -261,7 +264,8 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
     return new_index;
   };
 
-  return PointIndex{helper(wgs_2d_index_, changed_wgs_2d), helper(wgs_3d_index_, changed_wgs_3d),
+  return PointIndex{helper(wgs_2d_index_, changed_wgs_2d),
+                    helper(wgs_3d_index_, changed_wgs_3d),
                     helper(cartesian_2d_index_, changed_cartesian_2d),
                     helper(cartesian_3d_index_, changed_cartesian_3d)};
 }
@@ -507,16 +511,16 @@ PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIn
                              storage::CoordinateReferenceSystem crs, PropertyValue const &point_value,
                              PropertyValue const &boundary_value, PointDistanceCondition condition)
     : pimpl{make_pimpl(index, crs, [&](auto specific_index) {
-        return std::make_unique<impl>(storage, transaction, std::move(specific_index), point_value, boundary_value,
-                                      condition);
+        return std::make_unique<impl>(
+            storage, transaction, std::move(specific_index), point_value, boundary_value, condition);
       })} {}
 
 PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
                              storage::CoordinateReferenceSystem crs, PropertyValue const &bottom_left,
                              PropertyValue const &top_right, WithinBBoxCondition condition)
     : pimpl{make_pimpl(index, crs, [&](auto specific_index) {
-        return std::make_unique<impl>(storage, transaction, std::move(specific_index), bottom_left, top_right,
-                                      condition);
+        return std::make_unique<impl>(
+            storage, transaction, std::move(specific_index), bottom_left, top_right, condition);
       })} {}
 
 namespace {
@@ -526,19 +530,18 @@ double toRadians(double degrees) { return degrees * M_PI / 180.0; }
 double toDegrees(double radians) { return radians * 180.0 / M_PI; }
 
 template <typename point_type>
-requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
+  requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   return [&]<auto... I>(std::index_sequence<I...>) {
     auto const min_corner = point_type{(bg::get<I>(center_point) - boundary)...};
     auto const max_corner = point_type{(bg::get<I>(center_point) + boundary)...};
     return bg::model::box{min_corner, max_corner};
-  }
-  (std::make_index_sequence<n_dimensions>{});
+  }(std::make_index_sequence<n_dimensions>{});
 }
 
 template <typename point_type>
-requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
+  requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   // Our approximation for earth radius
   constexpr double MEAN_EARTH_RADIUS = 6'371'009;
@@ -752,7 +755,9 @@ auto PointIterable::begin() const -> PointIterator {
   if (pimpl->using_distance_) {
     auto make_distance_iter = [&](auto const &index) {
       return PointIterator{
-          pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+          pimpl->storage_,
+          pimpl->transaction_,
+          pimpl->crs_,
           get_index_iterator_distance(index, pimpl->point_value_, pimpl->boundary_value_, pimpl->distance_condition_)};
     };
     return apply_index(pimpl->crs_, make_distance_iter);
@@ -760,11 +765,14 @@ auto PointIterable::begin() const -> PointIterator {
 
   auto make_withinbbox_iter = [&](auto const &index) {
     return PointIterator{
-        pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+        pimpl->storage_,
+        pimpl->transaction_,
+        pimpl->crs_,
         get_index_iterator_withinbbox(index, pimpl->bottom_left_, pimpl->top_right_, pimpl->withinbbox_condition_)};
   };
   return apply_index(pimpl->crs_, make_withinbbox_iter);
 }
+
 auto PointIterable::end() const -> PointIterator {
   switch (pimpl->crs_) {
     case CoordinateReferenceSystem::WGS84_2d:

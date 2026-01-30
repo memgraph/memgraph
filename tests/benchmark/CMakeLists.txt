@@ -1,6 +1,11 @@
 set(test_prefix ${test_bench_prefix})
 
 find_package(gflags REQUIRED)
+find_package(antlr4-runtime REQUIRED)
+find_package(range-v3 REQUIRED)
+
+include_directories(${antlr4-runtime_INCLUDE_DIR})
+
 
 
 function(add_benchmark test_cpp)
@@ -12,9 +17,10 @@ function(add_benchmark test_cpp)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} benchmark gflags mg-memory)
-  # register test
-  add_test(${target_name} ${exec_name})
+  target_link_libraries(${target_name} benchmark::benchmark gflags mg-memory)
+  # register test - use modern add_test with COMMAND to get absolute path
+  add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
+  set_tests_properties(${target_name} PROPERTIES LABELS "benchmark")
   add_dependencies(memgraph__benchmark ${target_name})
 endfunction(add_benchmark)
 
@@ -67,3 +73,9 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg::storage)
 
 add_benchmark(storage_v2_enum_store_bench.cpp)
 target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
+
+add_benchmark(thread_safe_memory.cpp)
+target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
+
+add_benchmark(stack_erase_if.cpp)
+target_link_libraries(${test_prefix}stack_erase_if mg-utils)

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,7 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/websocket.hpp>
 
+#include <nlohmann/json.hpp>
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 
@@ -218,7 +219,8 @@ TEST_F(MonitoringServerTest, Logging) {
   for (const auto &[message_level, message_content] : messages) {
     EXPECT_TRUE(
         received_messages.contains(fmt::format("{{\"event\": \"log\", \"level\": \"{}\", \"message\": \"{}\"}}\n",
-                                               spdlog::level::to_string_view(message_level), message_content)));
+                                               spdlog::level::to_string_view(message_level),
+                                               message_content)));
   }
 }
 

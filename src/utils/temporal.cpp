@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@
 
 #include "flags/run_time_configurable.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 
 #include <fmt/core.h>
 
@@ -68,11 +68,18 @@ auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameter
 
 }  // namespace
 
-Date::Date(const int64_t microseconds) {
+Date::Date(std::chrono::microseconds const microseconds) {
   namespace chrono = std::chrono;
-  const auto chrono_micros = chrono::microseconds(microseconds);
-  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(chrono_micros));
+  const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(microseconds));
   const auto date = chrono::year_month_day(s_days);
+  year = static_cast<int>(date.year());
+  month = static_cast<unsigned>(date.month());
+  day = static_cast<unsigned>(date.day());
+}
+
+Date::Date(std::chrono::days const days_since_epoch) {
+  auto const days = std::chrono::sys_days(days_since_epoch);
+  auto const date = std::chrono::year_month_day{days};
   year = static_cast<int>(date.year());
   month = static_cast<unsigned>(date.month());
   day = static_cast<unsigned>(date.day());
@@ -149,8 +156,9 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   };
 
   if (!std::any_of(
-          valid_sizes.begin(), valid_sizes.end(),
-          [date_string_size = date_string.size()](const auto valid_size) { return valid_size == date_string_size; })) {
+          valid_sizes.begin(), valid_sizes.end(), [date_string_size = date_string.size()](const auto valid_size) {
+            return valid_size == date_string_size;
+          })) {
     throw temporal::InvalidArgumentException("Invalid string for date. {}", kSupportedDateFormatsHelpMessage);
   }
 
@@ -260,7 +268,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   std::optional<bool> using_colon;
   const auto process_optional_colon = [&] {
     const bool has_colon = local_time_string.front() == ':';
-    if (!using_colon.has_value()) {
+    if (!using_colon) {
       using_colon.emplace(has_colon);
     }
 
@@ -416,8 +424,11 @@ std::string LocalTime::ToString() const {
   using micro = std::chrono::microseconds;
   const auto subseconds = milli(millisecond) + micro(microsecond);
 
-  return fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(hour), static_cast<int>(minute),
-                     static_cast<int>(second), subseconds.count());
+  return fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}",
+                     static_cast<int>(hour),
+                     static_cast<int>(minute),
+                     static_cast<int>(second),
+                     subseconds.count());
 }
 
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
@@ -553,11 +564,12 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
 
 // NOTE: Should be removed, but too many tests relly on it
 std::string LocalDateTime::ToString() const { return std::format("{:%Y-%m-%dT%H:%M:%S}", zoned_time()); }
+
 std::string LocalDateTime::ToStringWTZ() const { return std::format("{:%Y-%m-%dT%H:%M:%S%z}", zoned_time()); }
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset
-  return Date{MicrosecondsSinceEpoch()};
+  return Date{std::chrono::microseconds(MicrosecondsSinceEpoch())};
 }
 
 LocalTime LocalDateTime::local_time() const {
@@ -1099,7 +1111,7 @@ constexpr To CastChronoDouble(const double value) {
 };
 }  // namespace
 
-Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
+Duration::Duration(int64_t const microseconds) : microseconds(microseconds) {}
 
 Duration::Duration(const DurationParameters &parameters) {
   microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
@@ -1112,7 +1124,7 @@ Duration::Duration(const DurationParameters &parameters) {
 }
 
 int64_t Duration::Days() const {
-  std::chrono::microseconds ms(microseconds);
+  std::chrono::microseconds const ms(microseconds);
   return std::chrono::duration_cast<std::chrono::days>(ms).count();
 }
 

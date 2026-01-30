@@ -40,10 +40,10 @@ function(add_unit_test exec_name)
         if(TARGET memgraph_unit_main)
             target_link_libraries(${target_name} PRIVATE memgraph_unit_main)
         else()
-            target_link_libraries(${target_name} PRIVATE gtest_main gtest gmock Threads::Threads dl)
+            target_link_libraries(${target_name} PRIVATE gtest_main GTest::gtest GTest::gmock Threads::Threads dl)
         endif()
     else()
-        target_link_libraries(${target_name} PRIVATE gtest gmock Threads::Threads dl)
+        target_link_libraries(${target_name} PRIVATE GTest::gtest GTest::gmock Threads::Threads dl)
     endif()
 
     # Add include directories if specified
@@ -68,11 +68,12 @@ function(add_unit_test exec_name)
         if(test_properties)
             gtest_discover_tests(${target_name}
                 TEST_PREFIX "${target_name}."
-                PROPERTIES ${test_properties}
+                PROPERTIES ${test_properties} LABELS "unit"
             )
         else()
             gtest_discover_tests(${target_name}
                 TEST_PREFIX "${target_name}."
+                PROPERTIES LABELS "unit"
             )
         endif()
     else()
@@ -83,7 +84,9 @@ function(add_unit_test exec_name)
 
         add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
         if(test_properties)
-            set_tests_properties(${target_name} PROPERTIES ${test_properties})
+            set_tests_properties(${target_name} PROPERTIES ${test_properties} LABELS "unit")
+        else()
+            set_tests_properties(${target_name} PROPERTIES LABELS "unit")
         endif()
     endif()
 

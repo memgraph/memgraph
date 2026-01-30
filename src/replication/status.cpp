@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,8 @@
 #include "utils/variant_helpers.hpp"
 
 #include "fmt/format.h"
+
+#include <nlohmann/json.hpp>
 
 namespace memgraph::replication::durability {
 
@@ -103,6 +105,7 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
   }
   j = std::move(common);
 }
+
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   using io::network::Endpoint;
 

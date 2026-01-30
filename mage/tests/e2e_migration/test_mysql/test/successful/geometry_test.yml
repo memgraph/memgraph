@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT geometry_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.geometry_col) AS geometry_col_type, row.geometry_col AS geometry_col
+
+output:
+  - geometry_col_type: 'STRING'
+    geometry_col: 'AAAAAAEBAAAAAAAAAAAA8D8AAAAAAADwPw=='

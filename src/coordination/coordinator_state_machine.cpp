@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
+#include <nlohmann/json.hpp>
 #include <regex>
 
 using nuraft::cluster_config;
@@ -110,7 +111,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
     }
     if (stored_version == LogStoreVersion::kV2) {
       const auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
-      if (!maybe_last_commited_idx.has_value()) {
+      if (!maybe_last_commited_idx) {
         logger_.Log(
             nuraft_log_level::ERROR,
             fmt::format(
@@ -120,9 +121,10 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
       }
       const auto last_durable_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
       if (last_durable_committed_idx_value < last_snapshot_commit_idx) {
-        logger_.Log(nuraft_log_level::ERROR, fmt::format("Last committed index stored in durability is smaller then "
-                                                         "one found from snapshots, using one found in snapshots {}.",
-                                                         last_snapshot_commit_idx));
+        logger_.Log(nuraft_log_level::ERROR,
+                    fmt::format("Last committed index stored in durability is smaller then "
+                                "one found from snapshots, using one found in snapshots {}.",
+                                last_snapshot_commit_idx));
         return durability_->Put(kLastCommitedIdx, std::to_string(last_snapshot_commit_idx));
       }
       last_committed_idx_.store(last_durable_committed_idx_value, std::memory_order_release);
@@ -158,7 +160,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   nlohmann::json delta_state_json;
 
   auto const add_if_set = [&delta_state_json](std::string_view const key, auto const &opt_value) {
-    if (opt_value.has_value()) {
+    if (opt_value) {
       delta_state_json.emplace(key, *opt_value);
     }
   };
@@ -284,8 +286,10 @@ auto CoordinatorStateMachine::read_logical_snp_obj(snapshot &snapshot, void *& /
 auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &obj_id, buffer &data, bool is_first_obj,
                                                    bool is_last_obj) -> void {
   logger_.Log(nuraft_log_level::TRACE,
-              fmt::format("Save logical snapshot object, obj_id={}, is_first_obj={}, is_last_obj={}", obj_id,
-                          is_first_obj, is_last_obj));
+              fmt::format("Save logical snapshot object, obj_id={}, is_first_obj={}, is_last_obj={}",
+                          obj_id,
+                          is_first_obj,
+                          is_last_obj));
 
   ptr<buffer> const snp_buf = snapshot.serialize();
   auto ss = snapshot::deserialize(*snp_buf);

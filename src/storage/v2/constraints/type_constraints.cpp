@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,129 +11,128 @@
 
 #include "storage/v2/constraints/type_constraints.hpp"
 
+#include <optional>
+#include <set>
 #include <storage/v2/snapshot_observer_info.hpp>
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/algorithm.hpp"
-
-#include <optional>
-#include <set>
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
 
 namespace {
 
-TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
-  switch (property.type()) {
-    case PropertyValueType::String:
-      return TypeConstraintKind::STRING;
-    case PropertyValueType::Bool:
-      return TypeConstraintKind::BOOLEAN;
-    case PropertyValueType::Int:
-      return TypeConstraintKind::INTEGER;
-    case PropertyValueType::Double:
-      return TypeConstraintKind::FLOAT;
-    case PropertyValueType::List:
-      return TypeConstraintKind::LIST;
-    case PropertyValueType::Map:
-      return TypeConstraintKind::MAP;
-    case PropertyValueType::TemporalData: {
-      auto const temporal = property.ValueTemporalData();
-      switch (temporal.type) {
-        case TemporalType::Date:
-          return TypeConstraintKind::DATE;
-        case TemporalType::LocalTime:
-          return TypeConstraintKind::LOCALTIME;
-        case TemporalType::LocalDateTime:
-          return TypeConstraintKind::LOCALDATETIME;
-        case TemporalType::Duration:
-          return TypeConstraintKind::DURATION;
-      }
-    }
-    case PropertyValueType::ZonedTemporalData:
-      return TypeConstraintKind::ZONEDDATETIME;
-    case PropertyValueType::Enum:
-      return TypeConstraintKind::ENUM;
-    case PropertyValueType::Point2d:
-    case PropertyValueType::Point3d:
-      return TypeConstraintKind::POINT;
-    case PropertyValueType::Null:
-      MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
+/// Validate all type constraints for a vertex against a container snapshot.
+/// Used internally by ActiveConstraints::Validate and TypeConstraints::ValidateAllVertices.
+[[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertex(const Vertex &vertex,
+                                                                      TypeConstraints::ContainerPtr const &container) {
+  if (container->constraints_.empty()) return {};
+
+  auto validator = TypeConstraintsValidator{};
+  for (auto label : vertex.labels) {
+    auto it = container->l2p_constraints_.find(label);
+    if (it == container->l2p_constraints_.cend()) continue;
+    validator.add(label, it->second);
   }
+
+  if (validator.empty()) return {};
+
+  auto violation = vertex.properties.PropertiesMatchTypes(validator);
+  if (!violation) return {};
+
+  auto const &[prop_id, label, kind] = *violation;
+  return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}}};
 }
 
 }  // namespace
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) const {
-  if (constraints_.empty()) return std::nullopt;
+// --- IndividualConstraint implementation ---
 
-  auto validator = TypeConstraintsValidator{};
-  for (auto label : vertex.labels) {
-    auto it = l2p_constraints_.find(label);
-    if (it == l2p_constraints_.cend()) continue;
-    validator.add(label, it->second);
+TypeConstraints::IndividualConstraint::~IndividualConstraint() {
+  if (status.IsReady()) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTypeConstraints);
   }
-
-  if (validator.empty()) return std::nullopt;
-
-  auto violation = vertex.properties.PropertiesMatchTypes(validator);
-  if (!violation) return std::nullopt;
-
-  auto const &[prop_id, label, kind] = *violation;
-  return ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}};
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, PropertyId property_id,
-                                                                           const PropertyValue &property_value) const {
-  for (auto const label : vertex.labels) {
-    auto constraint_type_it = constraints_.find({label, property_id});
-    if (constraint_type_it == constraints_.end()) continue;
+// --- ActiveConstraints implementation ---
 
-    auto constraint_type = constraint_type_it->second;
+bool TypeConstraints::ActiveConstraints::ConstraintRegistered(LabelId label, PropertyId property) const {
+  return container_->constraints_.contains({label, property});
+}
 
-    if (property_value.type() == PropertyValueType::TemporalData) {
-      // fine grain (subtype exact check)
-      if (TemporalMatch(property_value.ValueTemporalData().type, constraint_type)) continue;
-    } else {
-      // coarse grain (broad type class)
-      if (PropertyValueToTypeConstraintKind(property_value) == constraint_type) continue;
+std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints::ActiveConstraints::ListConstraints(
+    uint64_t start_timestamp) const {
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> constraints;
+  constraints.reserve(container_->constraints_.size());
+  for (const auto &[label_props, constraint] : container_->constraints_) {
+    if (!constraint->status.IsVisible(start_timestamp)) [[unlikely]] {
+      continue;
     }
-
-    return ConstraintViolation{
-        ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}};
+    constraints.emplace_back(label_props.first, label_props.second, constraint->type);
   }
-
-  return std::nullopt;
+  std::ranges::sort(constraints);
+  return constraints;
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, LabelId label) const {
+bool TypeConstraints::ActiveConstraints::empty() const { return container_->constraints_.empty(); }
+
+auto TypeConstraints::ActiveConstraints::Validate(const Vertex &vertex, LabelId label) const
+    -> std::expected<void, ConstraintViolation> {
   auto validator = TypeConstraintsValidator{};
-  auto it = l2p_constraints_.find(label);
-  if (it == l2p_constraints_.end()) return std::nullopt;
+  auto it = container_->l2p_constraints_.find(label);
+  if (it == container_->l2p_constraints_.end()) return {};
   validator.add(label, it->second);
 
   auto violation = vertex.properties.PropertiesMatchTypes(validator);
-  if (!violation) return std::nullopt;
-
+  if (!violation) return {};
   auto const &[prop_id, _, kind] = *violation;
-  return ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}};
+  return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}}};
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
-    utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
+auto TypeConstraints::ActiveConstraints::Validate(const Vertex &vertex, PropertyId property_id,
+                                                  const PropertyValue &property_value) const
+    -> std::expected<void, ConstraintViolation> {
+  if (property_value.IsNull()) return {};  // Type constraints don't enforce existence
+
+  for (auto const label : vertex.labels) {
+    auto constraint_type_it = container_->constraints_.find({label, property_id});
+    if (constraint_type_it == container_->constraints_.end()) continue;
+
+    auto constraint_type = constraint_type_it->second->type;
+    if (PropertyValueMatchesTypeConstraint(property_value, constraint_type)) continue;
+
+    return std::unexpected{ConstraintViolation{
+        ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}}};
+  }
+  return {};
+}
+
+auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveConstraints> {
+  return std::make_unique<ActiveConstraints>(container_.WithReadLock(std::identity{}));
+}
+
+// --- TypeConstraints methods ---
+
+[[nodiscard]] auto TypeConstraints::ValidateAllVertices(utils::SkipList<Vertex>::Accessor vertices,
+                                                        std::optional<SnapshotObserverInfo> const &snapshot_info) const
+    -> std::expected<void, ConstraintViolation> {
+  auto container = container_.WithReadLock(std::identity{});
+  if (container->constraints_.empty()) {
+    return {};
+  }
   for (auto const &vertex : vertices) {
-    if (auto violation = Validate(vertex); violation.has_value()) {
-      return violation;
+    if (auto validation_result = ValidateVertex(vertex, container); !validation_result.has_value()) {
+      return std::unexpected{validation_result.error()};
     }
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::VERTICES);
     }
   }
-  return std::nullopt;
+  return {};
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
+[[nodiscard]] std::expected<void, ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
     utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type) {
   auto validator = TypeConstraintsValidator{};
   auto constraint = absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}};
@@ -141,83 +140,107 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
   for (auto const &vertex : vertices) {
     if (vertex.deleted) continue;
-    if (!utils::Contains(vertex.labels, label)) continue;
+    if (!std::ranges::contains(vertex.labels, label)) continue;
 
     auto violation = vertex.properties.PropertiesMatchTypes(validator);
     if (!violation) continue;
 
-    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set{property}};
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set{property}}};
   }
-  return std::nullopt;
+  return {};
 }
 
-bool TypeConstraints::empty() const { return constraints_.empty(); }
-
-bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return constraints_.contains({label, property});
-}
-
-bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
-  if (ConstraintExists(label, property)) {
-    return false;
-  }
-  constraints_.emplace(std::make_pair(label, property), type);
-
-  // maintain l2p_constraints_
-  {
-    auto it = l2p_constraints_.find(label);
-    if (it != l2p_constraints_.end()) {
-      it->second.emplace(property, type);
-    } else {
-      l2p_constraints_.emplace(label, absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
+auto TypeConstraints::GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr {
+  return container_.WithReadLock([&](ContainerPtr const &container) -> IndividualConstraintPtr {
+    auto it = container->constraints_.find({label, property});
+    if (it == container->constraints_.end()) [[unlikely]] {
+      return {};
     }
+    return it->second;
+  });
+}
+
+bool TypeConstraints::RegisterConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
+  return container_.WithLock([&](ContainerPtr &container) -> bool {
+    auto new_container = std::make_shared<Container>(*container);
+    auto [_, inserted] = new_container->constraints_.try_emplace(
+        {label, property},
+        std::make_shared<IndividualConstraint>(type));  // Starts in populating state
+    if (!inserted) return false;
+    container = std::move(new_container);
+    return true;
+  });
+}
+
+void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, TypeConstraintKind type,
+                                        uint64_t commit_timestamp) {
+  // Get the individual constraint for in-place status modification
+  auto constraint = GetIndividualConstraint(label, property);
+  if (!constraint) [[unlikely]] {
+    DMG_ASSERT(false, "Type constraint not found during publish");
+    return;
   }
-  return true;
+
+  // Update l2p_constraints_ (still needs copy-on-write for the secondary index)
+  container_.WithLock([&](ContainerPtr &container) {
+    auto new_container = std::make_shared<Container>(*container);
+
+    // maintain l2p_constraints_ (used for fast lookup during validation)
+    auto l2p_it = new_container->l2p_constraints_.find(label);
+    if (l2p_it != new_container->l2p_constraints_.end()) {
+      l2p_it->second.emplace(property, type);
+    } else {
+      new_container->l2p_constraints_.emplace(label,
+                                              absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
+    }
+
+    container = std::move(new_container);
+  });
+
+  // Commit status in-place (shared_ptr allows modification without copy-on-write)
+  constraint->status.Commit(commit_timestamp);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTypeConstraints);
 }
 
 bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
-  // process constraints_
-  {
-    auto it = constraints_.find({label, property});
-    if (it == constraints_.end()) {
+  return container_.WithLock([&](ContainerPtr &container) -> bool {
+    auto it = container->constraints_.find({label, property});
+    if (it == container->constraints_.end()) {
       return false;
     }
-    if (it->second != type) {
+    if (it->second->type != type) {
       return false;
     }
-    constraints_.erase(it);
-  }
 
-  // maintain l2p_constraints_
-  {
-    auto it = l2p_constraints_.find(label);
-    if (it == l2p_constraints_.end()) {
-      DMG_ASSERT("logic bug, l2p_constraints_ not matching constraints_");
+    // Copy-on-write: create new container without this constraint
+    auto new_container = std::make_shared<Container>(*container);
+    new_container->constraints_.erase({label, property});
+
+    // Remove from l2p_constraints_
+    auto l2p_it = new_container->l2p_constraints_.find(label);
+    if (l2p_it != new_container->l2p_constraints_.end()) {
+      l2p_it->second.erase(property);
+      if (l2p_it->second.empty()) {
+        new_container->l2p_constraints_.erase(l2p_it);
+      }
     }
 
-    it->second.erase(property);
-    if (it->second.empty()) {
-      l2p_constraints_.erase(it);
-    }
-  }
-
-  return true;
-}
-
-std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints::ListConstraints() const {
-  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> constraints;
-  constraints.reserve(constraints_.size());
-  for (const auto &[label_props, type] : constraints_) {
-    constraints.emplace_back(label_props.first, label_props.second, type);
-  }
-  // NOTE: sort is needed here to ensure DUMP DATABASE; and snapshot has a stable ordering
-  std::ranges::sort(constraints);
-  return constraints;
+    container = std::move(new_container);
+    return true;
+  });
 }
 
 void TypeConstraints::DropGraphClearConstraints() {
-  constraints_.clear();
-  l2p_constraints_.clear();
+  container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
+}
+
+absl::flat_hash_map<PropertyId, TypeConstraintKind> TypeConstraints::GetTypeConstraintsForLabel(LabelId label) const {
+  auto container = container_.WithReadLock(std::identity{});
+  auto it = container->l2p_constraints_.find(label);
+  if (it == container->l2p_constraints_.end()) {
+    return {};
+  }
+  return it->second;
 }
 
 }  // namespace memgraph::storage

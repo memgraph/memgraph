@@ -39,9 +39,29 @@ PROFILE="${PROFILE:-minikube}"  # can be overridden via env
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
+# --- save images as tarballs ---
+# save each image as tarball in the current directory because
+# `minikube load image` is very flaky with loading images directly from Docker.
+LAST_TARBALL="memgraph-${LAST_TAG}.tar"
+NEXT_TARBALL="memgraph-${NEXT_TAG}.tar"
+echo -e "${GREEN}Saving ${LAST_TAG} as ${LAST_TARBALL}"
+docker save memgraph/memgraph:${LAST_TAG} -o ${LAST_TARBALL}
+echo -e "${GREEN}Saving ${NEXT_TAG} as ${NEXT_TARBALL}"
+docker save memgraph/memgraph:${NEXT_TAG} -o ${NEXT_TARBALL}
+echo -e "${GREEN}Saved ${LAST_TAG} as ${LAST_TARBALL} and ${NEXT_TAG} as ${NEXT_TARBALL}"
+
 # Defaults for flags/env overrides
 TEST_ROUTING=${TEST_ROUTING:-false}
 DEBUG=${DEBUG:-false}
+
+# clear the minikube image cache
+if [[ "$(arch)" == "aarch64" ]]; then
+  ARCH="arm64"
+else
+  ARCH="amd64"
+fi
+echo "Clearing minikube image cache for ${ARCH} in ${HOME}/.minikube/cache/images/${ARCH}/memgraph"
+rm -rfv "${HOME}/.minikube/cache/images/${ARCH}/memgraph"
 
 # --- Parse flags ---
 while [ "$#" -gt 0 ]; do
@@ -55,6 +75,88 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+# -- Handle breaking change with multi-label access control ---
+CUTOFF_COMMIT="87ea38a14d3b4dc13edb1c4a0efdacbedc406dd5"
+CUTOFF_VERSION="3.7.1"
+
+# echo the commit-ish if present in the tag; empty otherwise
+extract_commit_from_tag() {
+  local tag="$1"
+  # Heuristic: last underscore-separated field looks like a hex SHA (>=7 chars)
+  local last_field="${tag##*_}"
+  if [[ "$last_field" =~ ^[0-9a-fA-F]{7,}$ ]]; then
+    echo "${last_field,,}"   # normalize to lowercase
+  else
+    echo ""
+  fi
+}
+
+# echo the leading X.Y[.Z] from the tag (e.g., 3.6.0 from 3.6.0-relwithdebinfo)
+extract_version_from_tag() {
+  local tag="$1"
+  # Grab leading digits and dots; stops at first non [0-9 or .]
+  local v
+  v="$(sed -E 's/^([0-9]+(\.[0-9]+){1,2}).*/\1/' <<<"$tag")"
+  # Basic sanity (must contain at least one dot)
+  if [[ "$v" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    echo "$v"
+  else
+    echo ""
+  fi
+}
+
+# return 0 if $1 < $2 (semantic-ish via sort -V), 1 otherwise
+version_lt() {
+  local a="$1" b="$2"
+  # Normalize to three components (X.Y.Z) so 3.7 == 3.7.0
+  norm() {
+    IFS='.' read -r x y z <<<"$1"
+    : "${y:=0}" ; : "${z:=0}"
+    echo "$x.$y.$z"
+  }
+  a="$(norm "$a")"
+  b="$(norm "$b")"
+  local first
+  first="$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)"
+  [[ "$first" == "$a" && "$a" != "$b" ]]
+}
+
+# Main entry: echoes "new" or "old"; returns 0 for "new", 1 for "old"
+behavior_for_tag() {
+  local tag="${1:?docker tag required}"
+
+  local tag_commit
+  tag_commit="$(extract_commit_from_tag "$tag")"
+
+  if [[ -n "$tag_commit" ]]; then
+    # Use git ancestry: is CUTOFF_COMMIT an ancestor of tag_commit?
+    if git merge-base --is-ancestor "$CUTOFF_COMMIT" "$tag_commit"; then
+      echo "auth_pre_upgrade.cypherl"   # tag is at/after the bad commit
+      return
+    else
+      echo "auth_pre_upgrade_pre_3.7.1.cypherl"   # tag is before the bad commit (or on another branch)
+      return
+    fi
+  fi
+
+  # No commit in tag—fall back to version compare
+  local v
+  v="$(extract_version_from_tag "$tag")"
+  if [[ -z "$v" ]]; then
+    echo "auth_pre_upgrade.cypherl"   # default if we can't parse a version
+    return
+  fi
+
+  if version_lt "$v" "$CUTOFF_VERSION"; then
+    echo "auth_pre_upgrade_pre_3.7.1.cypherl"   # version is before 3.7.1
+  else
+    echo "auth_pre_upgrade.cypherl"   # 3.7.0 or later
+  fi
+}
+
+auth_pre_upgrade_file=$(behavior_for_tag "$LAST_TAG")
+echo -e "${GREEN}Using auth_pre_upgrade_file: ${auth_pre_upgrade_file}${NC}"
 
 # --- Banner ---
 echo -e "${GREEN}Starting ISSU test:${NC}"
@@ -116,6 +218,9 @@ cleanup() {
   else
     echo -e "${YELLOW}--debug=false → leaving StorageClass & Minikube cluster running${NC}"
   fi
+
+  # remove the tar.gz files
+  rm -vf ${LAST_TARBALL} ${NEXT_TARBALL} || true
 
   echo -e "${GREEN}Cleanup finished.${NC}"
 }
@@ -189,8 +294,23 @@ minikube_has_image() {
   fi
 }
 
+minikube_image_load_safe() {
+  local image="$1"
+  local tar_file="$2"
+  local attempts=${3:-3}
+  for attempt in $(seq 1 $attempts); do
+    if minikube -p "$PROFILE" image load "$tar_file"; then
+      return 0
+    fi
+    echo "minikube image load failed (attempt $attempt) — purging cache and retrying..."
+    rm -rf "${HOME}/.minikube/cache/images/${ARCH}/$(cut -d/ -f1 <<<"$image")"
+  done
+  return 1
+}
+
 load_into_minikube_if_missing() {
   local image="$1"
+  local tar_file="$2"
 
   if minikube_has_image "${image}"; then
     echo -e "${GREEN}Minikube already has ${image}${NC}"
@@ -200,7 +320,7 @@ load_into_minikube_if_missing() {
   # Not in Minikube; try to load from local Docker
   if docker image inspect "${image}" >/dev/null 2>&1; then
     echo -e "${GREEN}Loading ${image} into Minikube...${NC}"
-    minikube image load "${image}"
+    minikube_image_load_safe "${image}" "${tar_file}"
     if minikube_has_image "${image}"; then
       echo "✅ Loaded ${image} into Minikube."
     else
@@ -212,8 +332,8 @@ load_into_minikube_if_missing() {
 }
 
 echo -e "${GREEN}Ensuring images exist in Minikube...${NC}"
-load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}"
-load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}"
+load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}" "${LAST_TARBALL}"
+load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}" "${NEXT_TARBALL}"
 
 kubectl apply -f sc.yaml
 echo "Created $SC_NAME storage class"
@@ -280,7 +400,7 @@ kubectl cp setup.cypherl memgraph-coordinator-1-0:/var/lib/memgraph/setup.cypher
 kubectl exec memgraph-coordinator-1-0 -- bash -c "mgconsole < /var/lib/memgraph/setup.cypherl"
 echo "Initialized cluster"
 
-kubectl cp auth_pre_upgrade.cypherl memgraph-data-0-0:/var/lib/memgraph/auth_pre_upgrade.cypherl
+kubectl cp $auth_pre_upgrade_file memgraph-data-0-0:/var/lib/memgraph/auth_pre_upgrade.cypherl
 kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/auth_pre_upgrade.cypherl"
 
 kubectl cp pre_upgrade_global.cypherl memgraph-data-0-0:/var/lib/memgraph/pre_upgrade_global.cypherl

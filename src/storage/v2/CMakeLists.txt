@@ -5,14 +5,15 @@ target_sources(mg-storage-v2
         PRIVATE
         all_vertices_iterable.cpp
         async_indexer.cpp
-        commit_log.cpp
         commit_args.cpp
+        commit_log.cpp
         config.cpp
         constraint_verification_info.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp
         constraints/type_constraints_validator.cpp
+        constraints/unique_constraints.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_property_index.cpp
@@ -78,6 +79,9 @@ target_sources(mg-storage-v2
         config.cpp
         id_types.cpp
         ttl.cpp
+        all_vertices_chunked_iterable.cpp
+        vertices_chunked_iterable.cpp
+        edges_chunked_iterable.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -99,12 +103,13 @@ target_sources(mg-storage-v2
         enum_store.hpp
         id_types.hpp
         indices/active_indices.hpp
+        indices/indices_utils.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
         indices/point_index_expensive_header.hpp
         indices/point_iterator.hpp
-        indices/text_index.hpp
         indices/text_edge_index.hpp
+        indices/text_index.hpp
         indices/text_index_utils.hpp
         indices/vector_edge_index.hpp
         indices/vector_index.hpp
@@ -127,10 +132,18 @@ target_sources(mg-storage-v2
         ttl.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
+        delta_action.hpp
+        all_vertices_chunked_iterable.hpp
+        vertices_chunked_iterable.hpp
+        vertices_iterable.hpp
+        edges_chunked_iterable.hpp
 )
 
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
+find_package(strong_type REQUIRED)
+find_package(absl REQUIRED)
+find_package(range-v3 REQUIRED)
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
@@ -140,17 +153,16 @@ target_link_libraries(mg-storage-v2
     mg-utils
     mg-flags
     gflags
-    absl::flat_hash_map
+    abseil::abseil
     mg-rpc
     mg-slk
     mg-events
-    mg-memory-utils
-    lib::rangev3
+    mg-memory
+    range-v3::range-v3
     mgcxx_text_search
     tantivy_text_search
     usearch
-    strong_type::strong_type
-    rangev3
+    rollbear::strong_type
     atomic
 )
 

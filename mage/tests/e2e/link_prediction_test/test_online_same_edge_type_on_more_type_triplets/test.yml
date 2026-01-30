@@ -1,0 +1,7 @@
+# Should fail because there are more combinations of source-dest nodes for one edge type.
+- query: >
+    CALL link_prediction.train()
+    YIELD training_results, validation_results
+    RETURN training_results, validation_results;
+
+  exception: "Ambiguous edge types."

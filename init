@@ -13,6 +13,8 @@ function print_help () {
     echo -e "  -h\tdisplay this help and exit"
     echo -e "  --without-libs-setup\tskip the step for setting up libs"
     echo -e "  --ci\tscript is being run inside ci"
+    echo -e "  --offline\tscript is being run offline"
+    echo -e "  \t\t(NOTE: this will still try to install dependencies from the internet if the dependency cache is not present)"
 }
 
 
@@ -37,6 +39,11 @@ else
             shift
             check_system_packages=false
           ;;
+          --offline)
+            ci=true
+            check_system_packages=false
+            shift
+          ;;
           *)
               # unknown option
               echo "Invalid argument provided: $1"
@@ -47,17 +54,17 @@ else
     done
 fi
 
-if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
-  OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
-else
-  OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
-fi
-echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
 if [[ "$check_system_packages" == "true" ]]; then
+  if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
+    OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
+  else
+    OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
+  fi
+  echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
   $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
   echo "All packages are in-place..."
 else
-  echo "Skipping package check as requested..."
+  echo "Skipping package checks, good luck!"
 fi
 
 # create a default build directory

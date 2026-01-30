@@ -14,6 +14,7 @@
 #include <string>
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/settings.hpp"
 
 namespace memgraph::flags::run_time {
 
@@ -21,7 +22,7 @@ namespace memgraph::flags::run_time {
  * @brief Initialize the run-time flags (must be done before run-time flags are used).
  *
  */
-void Initialize();
+void Initialize(utils::Settings &settings);
 
 /**
  * @brief Get the bolt server name value
@@ -59,6 +60,13 @@ bool GetCartesianProductEnabled();
 bool GetDebugQueryPlans();
 
 /**
+ * @brief Get the storage GC aggressive value
+ *
+ * @return bool
+ */
+bool GetStorageGcAggressive();
+
+/**
  * @brief Get the current timezone object
  *
  * @return const std::chrono::time_zone*
@@ -71,6 +79,36 @@ const std::chrono::time_zone *GetTimezone();
  * @return std::string
  */
 std::string GetQueryLogDirectory();
+
+/**
+ * @brief Get the AWS region setting
+ * @return std::string
+ */
+auto GetAwsRegion() -> std::string;
+
+/**
+ * @brief Get the AWS access key setting
+ * @return std::string
+ */
+auto GetAwsAccessKey() -> std::string;
+
+/**
+ * @brief Get the AWS secret key setting
+ * @return std::string
+ */
+auto GetAwsSecretKey() -> std::string;
+
+/**
+ * @brief Get the AWS endpoint URL setting
+ * @return std::string
+ */
+auto GetAwsEndpointUrl() -> std::string;
+
+/**
+ * @brief Get the file_download_timeout run-time config value
+ * @return uint64_t
+ */
+auto GetFileDownloadConnTimeoutSec() -> uint64_t;
 
 /**
  * @brief Attach observer to the global snapshor period variable

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,11 +31,13 @@ class DummyTypedValue {
     MG_ASSERT(value);
     return *value;
   }
+
   double ValueDouble() const noexcept {
     auto *value = std::get_if<double>(&data_);
     MG_ASSERT(value);
     return *value;
   }
+
   TString ValueString() const noexcept {
     auto *value = std::get_if<TString>(&data_);
     MG_ASSERT(value);
@@ -47,6 +49,7 @@ class DummyTypedValue {
 };
 
 auto GetVector() { return memgraph::utils::pmr::vector<DummyTypedValue>(memgraph::utils::NewDeleteResource()); }
+
 auto GetString() { return TString(memgraph::utils::NewDeleteResource()); }
 
 memgraph::utils::JStringFormatter<TString, DummyTypedValue> gFormatter;
@@ -187,7 +190,7 @@ TEST(JavaStringFormatter, ThrowOnNonExistentFormatSpecifier) {
   args.emplace_back(1);
   str = "\%x";
 
-  ASSERT_THROW(gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
+  ASSERT_THROW((void)gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
 }
 
 TEST(JavaStringFormatter, ThrowOnLessFormatSpecifiersThanSlots) {
@@ -199,7 +202,7 @@ TEST(JavaStringFormatter, ThrowOnLessFormatSpecifiersThanSlots) {
   args.emplace_back(replacement_str);
   str = "There is \%d \%s in this sentence but only \%d specified in the argument list";
 
-  ASSERT_THROW(gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
+  ASSERT_THROW((void)gFormatter.FormatString(str, args), memgraph::utils::JStringFormatException);
 }
 
 TEST(JavaStringFormatter, DoNotThrowOnMoreFormatSpecifiersThanSlots) {

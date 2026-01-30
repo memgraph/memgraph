@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,7 +51,7 @@ storage::Result<std::optional<EdgeAccessor>> SubgraphDbAccessor::RemoveEdge(Edge
     throw std::logic_error{"Projected graph must contain edge!"};
   }
   auto result = db_accessor_.RemoveEdge(edge);
-  if (result.HasError() || !*result) {
+  if (!result || !*result) {
     return result;
   }
   return this->graph_->RemoveEdge(*edge);
@@ -65,7 +65,7 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
     throw std::logic_error{"Projected graph must contain both vertices to insert edge!"};
   }
   auto result = db_accessor_.InsertEdge(from_impl, to_impl, edge_type);
-  if (result.HasError()) {
+  if (!result) {
     return result;
   }
   this->graph_->InsertEdge(*result);
@@ -86,7 +86,7 @@ storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     throw std::logic_error{"Projected graph must contain vertex!"};
   }
   auto result = db_accessor_.RemoveVertex(vertex_accessor);
-  if (result.HasError() || !*result) {
+  if (!result || !*result) {
     return result;
   }
   return this->graph_->RemoveVertex(*vertex_accessor);
@@ -129,7 +129,7 @@ VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_;
 
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
-  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
   auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 
@@ -143,15 +143,15 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(stora
 
   std::vector<EdgeAccessor> resulting_edges;
   resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  std::ranges::transform(
+      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
 
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.InEdges(view, {});
-  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  if (!maybe_edges) return std::unexpected{maybe_edges.error()};
   auto edges = std::move(maybe_edges->edges);
   const auto &graph_edges = graph_->edges();
 
@@ -165,8 +165,8 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storag
 
   std::vector<EdgeAccessor> resulting_edges;
   resulting_edges.reserve(filteredOutEdges.size());
-  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
-                         [](auto const &edge) { return EdgeAccessor(edge); });
+  std::ranges::transform(
+      filteredOutEdges, std::back_inserter(resulting_edges), [](auto const &edge) { return EdgeAccessor(edge); });
 
   return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
@@ -175,16 +175,22 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
                                TypedValue const &boundary_value, plan::PointDistanceCondition condition)
     -> PointIterable {
-  return PointIterable(
-      accessor_->PointVertices(label, property, crs, point_value.ToPropertyValue(accessor_->GetNameIdMapper()),
-                               boundary_value.ToPropertyValue(accessor_->GetNameIdMapper()), condition));
+  return PointIterable(accessor_->PointVertices(label,
+                                                property,
+                                                crs,
+                                                point_value.ToPropertyValue(accessor_->GetNameIdMapper()),
+                                                boundary_value.ToPropertyValue(accessor_->GetNameIdMapper()),
+                                                condition));
 }
 
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
                                storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
                                TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
-  return PointIterable(accessor_->PointVertices(label, property, crs,
+  return PointIterable(accessor_->PointVertices(label,
+                                                property,
+                                                crs,
                                                 bottom_left.ToPropertyValue(accessor_->GetNameIdMapper()),
-                                                top_right.ToPropertyValue(accessor_->GetNameIdMapper()), condition));
+                                                top_right.ToPropertyValue(accessor_->GetNameIdMapper()),
+                                                condition));
 }
 }  // namespace memgraph::query

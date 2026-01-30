@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 
 namespace memgraph::query::plan {
@@ -138,7 +137,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
     auto index_stats = db_accessor_->GetIndexStats(scan_all_by_label.label_);
-    if (index_stats.has_value()) {
+    if (index_stats) {
       SaveStatsFor(scan_all_by_label.output_symbol_, index_stats.value());
     }
 
@@ -153,7 +152,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByLabelProperties &logical_op) override {
     auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
-    if (index_stats.has_value()) {
+    if (index_stats) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
 
@@ -240,7 +239,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
       factor =
-          db_accessor_->EdgesCount(edge_type, op.property_,
+          db_accessor_->EdgesCount(edge_type,
+                                   op.property_,
                                    storage::ToPropertyValue(*intermediate_property_value,
                                                             db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
     } else {
@@ -294,9 +294,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double factor = 1.0;
     if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor = db_accessor_->EdgesCount(
-          op.property_, storage::ToPropertyValue(*intermediate_property_value,
-                                                 db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+      factor =
+          db_accessor_->EdgesCount(op.property_,
+                                   storage::ToPropertyValue(*intermediate_property_value,
+                                                            db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
     } else {
       // estimate the influence as ScanAllByEdge(label, property) * filtering
       factor = db_accessor_->EdgesCount(op.property_) * CardParam::kFilter;
@@ -339,8 +340,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     auto card_param = CardParam::kExpand;
     auto stats = GetStatsFor(expand.input_symbol_);
 
-    if (stats.has_value()) {
-      card_param = stats.value().degree;
+    if (stats) {
+      card_param = stats->degree;
     }
 
     cardinality_ *= card_param;
@@ -426,9 +427,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // translate all the stats to the scope outside the return
     for (const auto &symbol : op.ModifiedSymbols(table_)) {
       auto stats = GetStatsFor(symbol);
-      if (stats.has_value()) {
-        scope.symbol_stats[symbol.name()] =
-            SymbolStatistics{.count = stats.value().count, .degree = stats.value().degree};
+      if (stats) {
+        scope.symbol_stats[symbol.name()] = SymbolStatistics{.count = stats->count, .degree = stats->degree};
       }
     }
 
@@ -518,7 +518,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool Visit(Once &) override { return true; }
 
   auto cost() const { return cost_; }
+
   auto cardinality() const { return cardinality_; }
+
   auto use_index_hints() const { return use_index_hints_; }
 
  private:
@@ -579,7 +581,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return std::nullopt;
   }
 
-  bool HasStatsFor(const Symbol &symbol) const { return utils::Contains(scopes_.back().symbol_stats, symbol.name()); }
+  bool HasStatsFor(const Symbol &symbol) const { return scopes_.back().symbol_stats.contains(symbol.name()); }
 
   std::optional<SymbolStatistics> GetStatsFor(const Symbol &symbol) {
     if (!HasStatsFor(symbol)) {

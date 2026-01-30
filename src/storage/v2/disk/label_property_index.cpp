@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@ namespace memgraph::storage {
 namespace {
 
 bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, PropertyId property) {
-  return utils::Contains(vertex.labels, label) && vertex.properties.HasProperty(property);
+  return std::ranges::contains(vertex.labels, label) && vertex.properties.HasProperty(property);
 }
 
 [[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
@@ -171,11 +171,11 @@ bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> 
 }
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
-  return utils::Contains(index_, LabelProperty{label, properties[0][0]});
+  return index_.contains(LabelProperty{label, properties[0][0]});
 }
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<PropertyPath const> properties) const {
-  return utils::Contains(index_, LabelProperty{label, properties[0][0]});
+  return index_.contains(LabelProperty{label, properties[0][0]});
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const
@@ -240,6 +240,7 @@ auto DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
 }
 
 void DiskLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {}
+
 LabelPropertyIndex::AbortProcessor DiskLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const {
   return AbortProcessor();
 }

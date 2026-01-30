@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,9 @@
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
 #include "query/string_helpers.hpp"
+#include "query/trigger.hpp"
 #include "query/trigger_context.hpp"
+#include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -83,7 +85,7 @@ void DumpPreciseDouble(std::ostream *os, double value) {
 
 namespace {
 void DumpDate(std::ostream &os, const storage::TemporalData &value) {
-  utils::Date date(value.microseconds);
+  utils::Date const date(std::chrono::microseconds{value.microseconds});
   os << "DATE(\"" << date << "\")";
 }
 
@@ -104,7 +106,7 @@ void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
 
 void DumpEnum(std::ostream &os, const storage::Enum &value, query::DbAccessor *dba) {
   auto const opt_str = dba->EnumToName(value);
-  if (opt_str.HasError()) throw query::QueryRuntimeException("Unexpected error when getting enum.");
+  if (!opt_str) throw query::QueryRuntimeException("Unexpected error when getting enum.");
   os << *opt_str;
 }
 
@@ -173,6 +175,33 @@ void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &v
       *os << "]";
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      *os << "[";
+      const auto &list = value.ValueNumericList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) {
+        if (std::holds_alternative<int>(item)) {
+          os << std::get<int>(item);
+        } else {
+          DumpPreciseDouble(&os, std::get<double>(item));
+        }
+      });
+      *os << "]";
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      *os << "[";
+      const auto &list = value.ValueIntList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { os << item; });
+      *os << "]";
+      return;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      *os << "[";
+      const auto &list = value.ValueDoubleList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { DumpPreciseDouble(&os, item); });
+      *os << "]";
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       *os << "{";
       const auto &map = value.ValueMap();
@@ -219,8 +248,8 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
 
     // Convert PropertyValue to ExternalPropertyValue to map keys from PropertyId to strings, preserving property order
     // compatibility with previous database dumps.
-    DumpPropertyValue(&os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()),
-                      dba);
+    DumpPropertyValue(
+        &os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()), dba);
   });
   *os << "}";
 }
@@ -229,8 +258,8 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
+  if (!maybe_labels) {
+    switch (maybe_labels.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -246,8 +275,8 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   }
   *os << " ";
   auto maybe_props = vertex.Properties(storage::View::OLD);
-  if (maybe_props.HasError()) {
-    switch (maybe_props.GetError()) {
+  if (!maybe_props) {
+    switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -273,8 +302,8 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   *os << "CREATE (u)-[";
   *os << ":" << EscapeName(dba->EdgeTypeToName(edge.EdgeType()));
   auto maybe_props = edge.Properties(storage::View::OLD);
-  if (maybe_props.HasError()) {
-    switch (maybe_props.GetError()) {
+  if (!maybe_props) {
+    switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -500,14 +529,14 @@ PullPlanDump::PullChunk PullPlanDump::CreateEnumsPullChunk() {
   auto enums = dba_->ShowEnums();
   auto to_create = [](auto &&p) {
     // rv::c_str is required! https://github.com/ericniebler/range-v3/issues/1699
-    return fmt::format("CREATE ENUM {} VALUES {{ {} }};", p.first,
-                       p.second | rv::join(rv::c_str(", ")) | r::to<std::string>);
+    return fmt::format(
+        "CREATE ENUM {} VALUES {{ {} }};", p.first, p.second | rv::join(rv::c_str(", ")) | r::to<std::string>);
   };
   auto results = enums | rv::transform(to_create) | r::to_vector;
 
   // Dump all enums
-  return [global_index = 0U, results = std::move(results)](AnyStream *stream,
-                                                           std::optional<int> n) mutable -> std::optional<size_t> {
+  return [global_index = 0U, results = std::move(results)](
+             AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     size_t local_counter = 0;
     while (global_index < results.size() && (!n || local_counter < *n)) {
       stream->Result({TypedValue(results[global_index])});
@@ -949,7 +978,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
-  return [this, maybe_current_vertex_iter = std::optional<VertexAccessorIterableIterator>{},
+  return [this,
+          maybe_current_vertex_iter = std::optional<VertexAccessorIterableIterator>{},
           // we need to save the iterable which contains list of accessor so
           // our saved iterator is valid in the next run
           maybe_edge_iterable = std::shared_ptr<EdgeAccessorIterable>{nullptr},
@@ -973,7 +1003,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
         maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;
-      MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_edges.has_value(), "Invalid database state!");
       auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->edges.begin();
       for (; current_edge_iter != maybe_edges->edges.end() && (!n || local_counter < *n); ++current_edge_iter) {
         std::ostringstream os;
@@ -1030,8 +1060,13 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
     for (const auto &trigger : triggers) {
       std::ostringstream os;
       auto trigger_statement_copy = trigger.statement;
-      std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
+      std::ranges::replace(trigger_statement_copy, '\n', ' ');
       os << "CREATE TRIGGER " << trigger.name;
+      if (trigger.privilege_context == TriggerPrivilegeContext::INVOKER) {
+        os << " SECURITY INVOKER";
+      } else {
+        os << " SECURITY DEFINER";
+      }
       if (trigger.event_type != TriggerEventType::ANY) {
         os << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type);
       }

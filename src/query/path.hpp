@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,8 +52,8 @@ class Path {
    * Allocations are done using the default utils::NewDeleteResource().
    */
   template <typename... TOthers>
-  requires(!std::is_convertible_v<std::remove_cvref_t<TOthers>, allocator_type> &&
-           ...) explicit Path(const VertexAccessor &vertex, TOthers &&...others)
+    requires(!std::is_convertible_v<std::remove_cvref_t<TOthers>, allocator_type> && ...)
+  explicit Path(const VertexAccessor &vertex, TOthers &&...others)
       : vertices_(utils::NewDeleteResource()), edges_(utils::NewDeleteResource()) {
     Expand(vertex);
     Expand(std::forward<TOthers>(others)...);
@@ -144,8 +144,11 @@ class Path {
   auto size() const { return edges_.size(); }
 
   auto &vertices() { return vertices_; }
+
   auto &edges() { return edges_; }
+
   const auto &vertices() const { return vertices_; }
+
   const auto &edges() const { return edges_; }
 
   auto get_allocator() const -> allocator_type { return vertices_.get_allocator(); }

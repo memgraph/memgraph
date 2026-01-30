@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@ struct HopsLimit {
   bool IsUsed() const { return limit.has_value(); }
 
   int64_t GetLimit() const { return *limit; }
+
   int64_t GetHopsCounter() const { return hops_counter; }
 
   bool IsLimitReached() const { return limit_reached; }
@@ -31,7 +32,7 @@ struct HopsLimit {
   int64_t LeftHops() const { return *limit - hops_counter; }
 
   void IncrementHopsCount(int64_t increment) {
-    if (limit.has_value()) {
+    if (limit) {
       hops_counter += increment;
       limit_reached = hops_counter > *limit;
     }

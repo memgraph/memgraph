@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "utils/spin_lock.hpp"
 
 const int kThreadsNum = 8;
-const uint64_t kMaxNum = 10000000;
+const uint64_t kMaxNum = 10'000'000;
 
 ///////////////////////////////////////////////////////////////////////////////
 // memgraph::utils::SkipList set Insert
@@ -101,7 +101,7 @@ class StdSetWithPoolAllocatorInsertFixture : public benchmark::Fixture {
   }
 
  protected:
-  memgraph::utils::PoolResource memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
+  memgraph::utils::PoolResource<> memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
   std::set<uint64_t, std::less<>, memgraph::utils::Allocator<uint64_t>> container{&memory_};
   memgraph::utils::SpinLock lock;
 };
@@ -207,7 +207,7 @@ class StdSetWithPoolAllocatorFindFixture : public benchmark::Fixture {
   }
 
  protected:
-  memgraph::utils::PoolResource memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
+  memgraph::utils::PoolResource<> memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
   std::set<uint64_t, std::less<>, memgraph::utils::Allocator<uint64_t>> container{&memory_};
   memgraph::utils::SpinLock lock;
 };
@@ -241,8 +241,11 @@ struct MapObject {
 };
 
 bool operator==(const MapObject &a, const MapObject &b) { return a.key == b.key; }
+
 bool operator<(const MapObject &a, const MapObject &b) { return a.key < b.key; }
+
 bool operator==(const MapObject &a, uint64_t b) { return a.key == b; }
+
 bool operator<(const MapObject &a, uint64_t b) { return a.key < b; }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -323,7 +326,7 @@ class StdMapWithPoolAllocatorInsertFixture : public benchmark::Fixture {
   }
 
  protected:
-  memgraph::utils::PoolResource memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
+  memgraph::utils::PoolResource<> memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
   std::map<uint64_t, uint64_t, std::less<>, memgraph::utils::Allocator<std::pair<const uint64_t, uint64_t>>> container{
       &memory_};
   memgraph::utils::SpinLock lock;
@@ -430,7 +433,7 @@ class StdMapWithPoolAllocatorFindFixture : public benchmark::Fixture {
   }
 
  protected:
-  memgraph::utils::PoolResource memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
+  memgraph::utils::PoolResource<> memory_{128U /* max_blocks_per_chunk */, memgraph::utils::NewDeleteResource()};
   std::map<uint64_t, uint64_t, std::less<>, memgraph::utils::Allocator<std::pair<const uint64_t, uint64_t>>> container{
       &memory_};
   memgraph::utils::SpinLock lock;

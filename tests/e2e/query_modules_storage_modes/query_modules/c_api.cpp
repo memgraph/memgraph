@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -130,7 +130,7 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   try {
-    { auto *proc = mgp::module_add_write_procedure(query_module, kProcedureReset.data(), Reset); }
+    { [[maybe_unused]] auto *proc = mgp::module_add_write_procedure(query_module, kProcedureReset.data(), Reset); }
     {
       auto *proc = mgp::module_add_write_procedure(query_module, kProcedureDeleteVertex.data(), DeleteVertex);
       mgp::proc_add_arg(proc, kArgument.data(), mgp::type_node());

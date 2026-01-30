@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,6 +47,7 @@ class AllVerticesIterable final {
       : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
+
   Iterator end() { return {this, vertices_accessor_.end()}; }
 };
 

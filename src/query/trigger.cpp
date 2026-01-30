@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "query/trigger.hpp"
+
+#include <algorithm>
+#include <cstdint>
 
 #include "dbms/database.hpp"
 #include "query/config.hpp"
@@ -24,6 +27,9 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
+#ifdef MG_ENTERPRISE
+#include "license/license.hpp"
+#endif
 
 namespace memgraph::metrics {
 extern const Event TriggersExecuted;
@@ -103,17 +109,25 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 
   switch (event_type) {
     case EventType::ANY:
-      return TagsToIdentifiers(
-          IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::CREATED_OBJECTS,
-          IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES, IdentifierTag::DELETED_OBJECTS,
-          IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
-          IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS, IdentifierTag::UPDATED_VERTICES,
-          IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES,
-          IdentifierTag::UPDATED_OBJECTS);
+      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES,
+                               IdentifierTag::CREATED_EDGES,
+                               IdentifierTag::CREATED_OBJECTS,
+                               IdentifierTag::DELETED_VERTICES,
+                               IdentifierTag::DELETED_EDGES,
+                               IdentifierTag::DELETED_OBJECTS,
+                               IdentifierTag::SET_VERTEX_PROPERTIES,
+                               IdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS,
+                               IdentifierTag::REMOVED_VERTEX_LABELS,
+                               IdentifierTag::UPDATED_VERTICES,
+                               IdentifierTag::SET_EDGE_PROPERTIES,
+                               IdentifierTag::REMOVED_EDGE_PROPERTIES,
+                               IdentifierTag::UPDATED_EDGES,
+                               IdentifierTag::UPDATED_OBJECTS);
 
     case EventType::CREATE:
-      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES,
-                               IdentifierTag::CREATED_OBJECTS);
+      return TagsToIdentifiers(
+          IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::CREATED_OBJECTS);
 
     case EventType::VERTEX_CREATE:
       return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES);
@@ -122,8 +136,8 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(IdentifierTag::CREATED_EDGES);
 
     case EventType::DELETE:
-      return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES,
-                               IdentifierTag::DELETED_OBJECTS);
+      return TagsToIdentifiers(
+          IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES, IdentifierTag::DELETED_OBJECTS);
 
     case EventType::VERTEX_DELETE:
       return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES);
@@ -132,40 +146,50 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(IdentifierTag::DELETED_EDGES);
 
     case EventType::UPDATE:
-      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
-                               IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS,
-                               IdentifierTag::UPDATED_VERTICES, IdentifierTag::SET_EDGE_PROPERTIES,
-                               IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES,
+      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES,
+                               IdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS,
+                               IdentifierTag::REMOVED_VERTEX_LABELS,
+                               IdentifierTag::UPDATED_VERTICES,
+                               IdentifierTag::SET_EDGE_PROPERTIES,
+                               IdentifierTag::REMOVED_EDGE_PROPERTIES,
+                               IdentifierTag::UPDATED_EDGES,
                                IdentifierTag::UPDATED_OBJECTS);
 
     case EventType::VERTEX_UPDATE:
-      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
-                               IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS,
+      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES,
+                               IdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS,
+                               IdentifierTag::REMOVED_VERTEX_LABELS,
                                IdentifierTag::UPDATED_VERTICES);
 
     case EventType::EDGE_UPDATE:
-      return TagsToIdentifiers(IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
-                               IdentifierTag::UPDATED_EDGES);
+      return TagsToIdentifiers(
+          IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES);
   }
 }
 }  // namespace
 
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                 const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::shared_ptr<QueryUserOrRole> owner, std::string_view db_name)
+                 TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                 const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
+                 std::string_view db_name, TriggerPrivilegeContext privilege_context)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
-      owner_{std::move(owner)} {
+      creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
+      privilege_context_{privilege_context} {
   // We check immediately if the query is valid by trying to create a plan.
-  GetPlan(db_accessor, db_name);
+  if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
+    GetPlan(db_accessor, db_name, creator_);
+  }
 }
 
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name) const {
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name,
+                                                       std::shared_ptr<QueryUserOrRole> triggering_user) const {
   std::lock_guard plan_guard{plan_lock_};
   if (!parsed_statements_.is_cacheable || !trigger_plan_) {
     auto identifiers = GetPredefinedIdentifiers(event_type_);
@@ -177,30 +201,48 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
 
     std::vector<Identifier *> predefined_identifiers;
     predefined_identifiers.reserve(identifiers.size());
-    std::transform(identifiers.begin(), identifiers.end(), std::back_inserter(predefined_identifiers),
-                   [](auto &identifier) { return &identifier.first; });
+    std::ranges::transform(
+        identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
 
-    auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
-                                        parsed_statements_.parameters, db_accessor, predefined_identifiers);
+    auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
+                                        utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                        parsed_statements_.parameters,
+                                        db_accessor,
+                                        predefined_identifiers);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (owner_ && !owner_->IsAuthorized(parsed_statements_.required_privileges, db_name, &up_to_date_policy)) {
-    throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
+
+  // GenQueryUser always returns a non-null shared_ptr and
+  // both creator_ and triggering_user come from GenQueryUser
+  if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
+    DMG_ASSERT(creator_, "Creator is null");
+    if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
+      throw utils::BasicException(
+          fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
+    }
+  } else {
+    // no users
+    DMG_ASSERT(triggering_user, "Triggering user is null");
+    if (!triggering_user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
+      throw utils::BasicException(
+          fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
+    }
   }
   return trigger_plan_;
 }
 
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context,
-                      bool is_main) const {
+                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context, bool is_main,
+                      std::shared_ptr<QueryUserOrRole> triggering_user,
+                      [[maybe_unused]] const AuthChecker *auth_checker) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba, db_acc->name());
+  auto trigger_plan = GetPlan(dba, db_acc->name(), triggering_user);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
@@ -211,6 +253,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
+  ctx.evaluation_context.edgetypes = NamesToEdgeTypes(plan.ast_storage().edge_types_, dba);
   ctx.stopping_context = {
       .transaction_status = transaction_status,
       .is_shutting_down = is_shutting_down,
@@ -220,15 +263,31 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
+  ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
+
+#ifdef MG_ENTERPRISE
+  if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && ctx.user_or_role &&
+      *ctx.user_or_role && dba) {
+    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
+    DMG_ASSERT(fine_grained_checker, "Auth checker should not be null");
+    // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
+    // otherwise, we do assign the auth checker to check for label access control
+    if (!fine_grained_checker->HasAllGlobalPrivilegesOnVertices() ||
+        !fine_grained_checker->HasAllGlobalPrivilegesOnEdges()) {
+      ctx.auth_checker = std::move(fine_grained_checker);
+    }
+  }
+#endif
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
+  auto frame_writer = frame.GetFrameWriter(ctx.frame_change_collector, execution_memory);
   for (const auto &[identifier, tag] : identifiers) {
     if (identifier.symbol_pos_ == -1) {
       continue;
     }
 
-    frame[plan.symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
+    frame_writer.Write(plan.symbol_table().at(identifier), context.GetTypedValue(tag, dba));
   }
 
   while (cursor->Pull(frame, ctx));
@@ -239,7 +298,41 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
 namespace {
 // When the format of the persisted trigger is changed, increase this version
-inline constexpr uint64_t kVersion{2};
+// also update tests/integration/triggers
+inline constexpr uint64_t kDefinerOnlyVersion{2};
+inline constexpr uint64_t kVersion{3};
+
+std::string_view TriggerPrivilegeContextToString(TriggerPrivilegeContext context) {
+  switch (context) {
+    case TriggerPrivilegeContext::INVOKER:
+      return "INVOKER";
+    case TriggerPrivilegeContext::DEFINER:
+      return "DEFINER";
+  }
+  MG_ASSERT(false, "Invalid trigger privilege context");
+}
+
+std::optional<TriggerPrivilegeContext> TriggerPrivilegeContextFromString(const std::string &str) {
+  if (str == "INVOKER") {
+    return TriggerPrivilegeContext::INVOKER;
+  }
+  if (str == "DEFINER") {
+    return TriggerPrivilegeContext::DEFINER;
+  }
+  return std::nullopt;
+}
+
+bool MigrateTriggerData(nlohmann::json &json_data, uint64_t version) {
+  bool needs_update = false;
+
+  if (version == kDefinerOnlyVersion) {
+    json_data["privilege_context"] = TriggerPrivilegeContextToString(TriggerPrivilegeContext::DEFINER);
+    json_data["version"] = kVersion;
+    needs_update = true;
+  }
+
+  return needs_update;
+}
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
@@ -261,9 +354,17 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     spdlog::warn(invalid_state_message);
     return;
   }
-  if (json_trigger_data["version"] != kVersion) {
-    spdlog::warn(get_failed_message("Invalid version of the trigger data."));
+  const auto version = json_trigger_data["version"].get<uint64_t>();
+  if (version != kVersion && version != kDefinerOnlyVersion) {
+    spdlog::warn(get_failed_message(fmt::format(
+        "Invalid version of the trigger data. Expected {} or {}, got {}.", kVersion, kDefinerOnlyVersion, version)));
     return;
+  }
+
+  const bool migration_occurred = MigrateTriggerData(json_trigger_data, version);
+  if (migration_occurred) {
+    // update stored data with migrated version
+    storage_.Put(trigger_name, json_trigger_data.dump());
   }
 
   if (!json_trigger_data["statement"].is_string()) {
@@ -291,7 +392,6 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   const auto user_parameters = serialization::DeserializeExternalPropertyValueMap(json_trigger_data["user_parameters"],
                                                                                   db_accessor->GetStorageAccessor());
 
-  // TODO: Migration
   const auto owner_json = json_trigger_data["owner"];
   std::optional<std::string> owner{};
   if (owner_json.is_string()) {
@@ -319,10 +419,30 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
+  const auto privilege_context_json = json_trigger_data["privilege_context"];
+  if (!privilege_context_json.is_string()) {
+    spdlog::warn(invalid_state_message);
+    return;
+  }
+  const auto privilege_context_opt = TriggerPrivilegeContextFromString(privilege_context_json.get<std::string>());
+  if (!privilege_context_opt) {
+    spdlog::warn(invalid_state_message);
+    return;
+  }
+  const auto privilege_context = *privilege_context_opt;
+
   std::optional<Trigger> trigger;
   try {
-    trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), std::string{db_name});
+    trigger.emplace(std::string{trigger_name},
+                    statement,
+                    user_parameters,
+                    event_type,
+                    query_cache,
+                    db_accessor,
+                    query_config,
+                    user,
+                    std::string{db_name},
+                    privilege_context);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -350,8 +470,8 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
 void TriggerStore::AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner,
-                              std::string_view db_name) {
+                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
+                              std::string_view db_name, TriggerPrivilegeContext privilege_context) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -359,19 +479,30 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
 
   std::optional<Trigger> trigger;
   try {
-    trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, query_config,
-                    std::move(owner), db_name);
+    trigger.emplace(std::move(name),
+                    query,
+                    user_parameters,
+                    event_type,
+                    query_cache,
+                    db_accessor,
+                    query_config,
+                    creator,
+                    db_name,
+                    privilege_context);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
-    utils::PrintIterable(identifier_names_stream, identifiers, ", ",
-                         [](auto &stream, const auto &identifier) { stream << identifier.first.name_; });
+    utils::PrintIterable(identifier_names_stream, identifiers, ", ", [](auto &stream, const auto &identifier) {
+      stream << identifier.first.name_;
+    });
 
     throw utils::BasicException(
         "Failed creating the trigger.\nError message: '{}'\nThe error was mostly likely generated because of the wrong "
         "statement that this trigger executes.\nMake sure all predefined variables used are present for the specified "
         "event.\nAllowed variables for event '{}' are: {}",
-        e.what(), TriggerEventTypeToString(event_type), identifier_names_stream.str());
+        e.what(),
+        TriggerEventTypeToString(event_type),
+        identifier_names_stream.str());
   }
 
   // When the format of the persisted trigger is changed, update the kVersion
@@ -381,21 +512,20 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
       serialization::SerializeExternalPropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
   data["event_type"] = event_type;
   data["phase"] = phase;
+  data["privilege_context"] = TriggerPrivilegeContextToString(privilege_context);
   data["version"] = kVersion;
 
-  if (const auto &owner_from_trigger = trigger->Owner(); owner_from_trigger && *owner_from_trigger) {
+  const auto &owner_from_trigger = trigger->Creator();
+  if (privilege_context == TriggerPrivilegeContext::DEFINER && owner_from_trigger && *owner_from_trigger) {
     const auto &maybe_username = owner_from_trigger->username();
     if (maybe_username) {
       data["owner"] = *maybe_username;
       // Roles need to be associated with a username
       const auto &maybe_rolename = owner_from_trigger->rolenames();
-      if (!maybe_rolename.empty()) {
-        data["owner_roles"] = maybe_rolename;
-      } else {
-        data["owner_roles"] = nullptr;
-      }
+      data["owner_roles"] = maybe_rolename.empty() ? nullptr : nlohmann::json(maybe_rolename);
     } else {
       data["owner"] = nullptr;
+      data["owner_roles"] = nullptr;
     }
   } else {
     data["owner"] = nullptr;
@@ -452,8 +582,13 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
   const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const TriggerPhase phase) {
     for (const auto &trigger : trigger_list.access()) {
       std::optional<std::string> owner_str{};
-      if (const auto &owner = trigger.Owner(); owner && *owner) owner_str = owner->username();
-      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, std::move(owner_str)});
+      if (const auto &owner = trigger.Creator(); owner && *owner) owner_str = owner->username();
+      info.push_back({trigger.Name(),
+                      trigger.OriginalStatement(),
+                      trigger.EventType(),
+                      phase,
+                      std::move(owner_str),
+                      trigger.PrivilegeContext()});
     }
   };
 

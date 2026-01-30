@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include <limits>
 
 #include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -144,8 +144,10 @@ constexpr std::chrono::days DaysSinceEpoch(uint16_t year, uint8_t month, uint8_t
 // No timezone conversion supported
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
+
   // we assume we accepted date in microseconds which was normalized using the epoch time point
-  explicit Date(int64_t microseconds);
+  explicit Date(std::chrono::microseconds microseconds);
+  explicit Date(std::chrono::days days_since_epoch);
   explicit Date(const DateParameters &date_parameters);
 
   friend std::ostream &operator<<(std::ostream &os, const Date &date) { return os << date.ToString(); }
@@ -200,6 +202,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view s
 // No timezone conversion supported
 struct LocalTime {
   explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
+
   explicit LocalTime(int64_t microseconds);
   explicit LocalTime(const LocalTimeParameters &local_time_parameters);
 
@@ -379,6 +382,7 @@ struct LocalDateTime {
   std::chrono::sys_time<std::chrono::microseconds>
       us_since_epoch_;  //!< system time representing the local date time (no timezone applied)
 };
+
 static_assert(sizeof(LocalDateTime) == 8);
 
 struct LocalDateTimeHash {
@@ -393,7 +397,9 @@ class Timezone {
 
  public:
   explicit Timezone(const std::chrono::minutes offset);
+
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
+
   explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
 
   const Timezone *operator->() const { return this; }
@@ -561,9 +567,10 @@ struct ZonedDateTime {
   friend std::ostream &operator<<(std::ostream &os, const ZonedDateTime &zdt) { return os << zdt.ToString(); }
 
   friend ZonedDateTime operator+(const ZonedDateTime &zdt, const Duration &dur) {
-    return ZonedDateTime(std::chrono::zoned_time(
-        zdt.zoned_time.get_time_zone(), zdt.zoned_time.get_local_time() + std::chrono::microseconds(dur.microseconds),
-        std::chrono::choose::earliest));
+    return ZonedDateTime(
+        std::chrono::zoned_time(zdt.zoned_time.get_time_zone(),
+                                zdt.zoned_time.get_local_time() + std::chrono::microseconds(dur.microseconds),
+                                std::chrono::choose::earliest));
   }
 
   friend ZonedDateTime operator+(const Duration &dur, const ZonedDateTime &zdt) { return zdt + dur; }
@@ -575,14 +582,21 @@ struct ZonedDateTime {
   }
 
   int64_t LocalYear() const { return static_cast<int>(LocalYMD().year()); }
+
   uint64_t LocalMonth() const { return static_cast<unsigned>(LocalYMD().month()); }
+
   uint64_t LocalDay() const { return static_cast<unsigned>(LocalYMD().day()); }
+
   int64_t LocalHour() const { return LocalHMS().hours().count(); }
+
   int64_t LocalMinute() const { return LocalHMS().minutes().count(); }
+
   int64_t LocalSecond() const { return LocalHMS().seconds().count(); }
+
   int64_t LocalMillisecond() const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(LocalHMS().subseconds()).count();
   }
+
   int64_t LocalMicrosecond() const {
     const auto subseconds = LocalHMS().subseconds();
     return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();

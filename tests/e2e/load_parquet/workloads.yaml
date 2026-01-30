@@ -1,0 +1,24 @@
+args: &args
+  - "--bolt-port=7687"
+  - "--log-level=TRACE"
+  - "--file-download-conn-timeout-sec=15"
+
+load_parquet_in_memory_cluster: &load_parquet_in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "load_parquet.txt"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "LOAD PARQUET"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_parquet/load_parquet.py"]
+    <<: *load_parquet_in_memory_cluster
+
+  - name: "LOAD S3 PARQUET"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_parquet/load_s3_parquet.py"]
+    <<: *load_parquet_in_memory_cluster

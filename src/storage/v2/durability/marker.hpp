@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace memgraph::storage::durability {
@@ -96,7 +97,7 @@ enum class Marker : uint8_t {
 
 /// List of all available markers.
 /// IMPORTANT: Don't forget to update this list when you add a new Marker.
-static constexpr Marker kMarkersAll[] = {
+static constexpr std::array kMarkersAll = {
     Marker::TYPE_NULL,
     Marker::TYPE_BOOL,
     Marker::TYPE_INT,

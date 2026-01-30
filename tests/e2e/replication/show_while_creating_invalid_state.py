@@ -30,6 +30,8 @@ file = "show_while_creating_invalid_state"
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Clean up before test in case previous run left stale data
+    interactive_mg_runner.kill_all(keep_directories=False)
     # Run the test
     yield
     # Stop + delete directories after running the test
@@ -1672,7 +1674,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
 
     # 5/
     expected_data = [
-        ("async_replica1", "async", -4, "invalid"),
+        ("async_replica1", "async", -3, "invalid"),
         ("async_replica2", "async", 0, "ready"),
     ]
 
@@ -1808,14 +1810,14 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection,
             "127.0.0.1:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "invalid"},
-            {"memgraph": {"ts": 2, "behind": -4, "status": "invalid"}},
+            {"memgraph": {"ts": 2, "behind": -3, "status": "invalid"}},
         ),
         (
             "sync_replica2",
             "127.0.0.1:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 5, "behind": 0, "status": "ready"}},
         ),
     ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -2290,8 +2292,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
 
     # 3/
     QUERY_TO_CHECK = "MATCH (node) return node;"
-    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
-    assert len(res_from_main) == 3, f"Incorect result: {res_from_main}"
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
 
     execute_and_fetch_all(sync_replica1_cursor, QUERY_TO_CHECK)
     execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
@@ -2321,10 +2322,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
         execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 7/
-    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
-    assert len(res_from_main) == 3
-
-    assert res_from_main == execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
 
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
@@ -2468,36 +2466,6 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection, 
     assert len(res_from_main) == 3
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
-
-
-def test_replication_not_messed_up_by_CreateSnapshot(connection, test_name):
-    # Goal of this test is to check the replica can not run CreateSnapshot
-    # 1/ CREATE SNAPSHOT should raise a DatabaseError
-
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-
-    replica1_cursor = connection(7688, "replica1").cursor()
-    execute_and_fetch_all(replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
-
-    replica2_cursor = connection(7689, "replica2").cursor()
-    execute_and_fetch_all(replica2_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
-
-    replica3_cursor = connection(7690, "replica3").cursor()
-    execute_and_fetch_all(replica3_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10003;")
-
-    replica4_cursor = connection(7691, "replica4").cursor()
-    execute_and_fetch_all(replica4_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10004;")
-
-    cursor = connection(7687, "main").cursor()
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
-
-    # 1/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(replica1_cursor, "CREATE SNAPSHOT;")
 
 
 def test_replication_not_messed_up_by_ShowIndexInfo(connection):

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,63 +30,57 @@
 #include <span>
 
 #ifdef MG_ENTERPRISE
+
+// Not ideal defining aliases inside an ifdef, but clang-tidy complains about
+// these being unused when MG_ENTERPRISE is not defined if outside.
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace {
-bool IsAuthorizedLabels(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
-                        std::span<memgraph::storage::LabelId const> labels,
+
+bool IsAuthorizedLabels(memgraph::auth::FineGrainedAccessPermissions const &permissions,
+                        const memgraph::query::DbAccessor *dba, std::span<memgraph::storage::LabelId const> labels,
                         const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::ranges::all_of(labels, [dba, &user_or_role, fine_grained_privilege](const auto &label) {
-    return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                        return user_or_role.GetFineGrainedAccessLabelPermissions().Has(
-                                   dba->LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
-                                                                fine_grained_privilege)) ==
-                               memgraph::auth::PermissionLevel::GRANT;
-                      }},
-                      user_or_role);
-  });
+
+  auto const label_names = labels |
+                           rv::transform([dba](memgraph::storage::LabelId label) { return dba->LabelToName(label); }) |
+                           r::to_vector;
+
+  return permissions.Has(std::span<const std::string>(label_names),
+                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+         memgraph::auth::PermissionLevel::GRANT;
 }
 
-bool IsAuthorizedGloballyLabels(const memgraph::auth::UserOrRole &user_or_role,
+bool IsAuthorizedGloballyLabels(memgraph::auth::FineGrainedAccessPermissions const &permissions,
                                 const memgraph::auth::FineGrainedPermission fine_grained_permission) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                      return user_or_role.GetFineGrainedAccessLabelPermissions().Has(memgraph::query::kAsterisk,
-                                                                                     fine_grained_permission) ==
-                             memgraph::auth::PermissionLevel::GRANT;
-                    }},
-                    user_or_role);
+  return permissions.HasGlobal(fine_grained_permission) == memgraph::auth::PermissionLevel::GRANT;
 }
 
-bool IsAuthorizedGloballyEdges(const memgraph::auth::UserOrRole &user_or_role,
+bool IsAuthorizedGloballyEdges(memgraph::auth::FineGrainedAccessPermissions const &permissions,
                                const memgraph::auth::FineGrainedPermission fine_grained_permission) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                      return user_or_role.GetFineGrainedAccessEdgeTypePermissions().Has(memgraph::query::kAsterisk,
-                                                                                        fine_grained_permission) ==
-                             memgraph::auth::PermissionLevel::GRANT;
-                    }},
-                    user_or_role);
+  return permissions.HasGlobal(fine_grained_permission) == memgraph::auth::PermissionLevel::GRANT;
 }
 
-bool IsAuthorizedEdgeType(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
-                          const memgraph::storage::EdgeTypeId &edgeType,
+bool IsAuthorizedEdgeType(memgraph::auth::FineGrainedAccessPermissions const &permissions,
+                          const memgraph::query::DbAccessor *dba, const memgraph::storage::EdgeTypeId &edgeType,
                           const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                      return user_or_role.GetFineGrainedAccessEdgeTypePermissions().Has(
-                                 dba->EdgeTypeToName(edgeType),
-                                 memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
-                             memgraph::auth::PermissionLevel::GRANT;
-                    }},
-                    user_or_role);
+
+  auto const &edge_type_name = dba->EdgeTypeToName(edgeType);
+  return permissions.Has(std::span{&edge_type_name, 1},
+                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+         memgraph::auth::PermissionLevel::GRANT;
 }
 }  // namespace
 #endif
@@ -121,26 +115,28 @@ std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenEmptyUser() const {
 
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
-    std::shared_ptr<query::QueryUserOrRole> user_or_role, const memgraph::query::DbAccessor *dba) const {
+    const query::QueryUserOrRole &user_or_role, const memgraph::query::DbAccessor *dba) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-  if (!user_or_role || !*user_or_role) {
+  if (!user_or_role) {
     throw query::QueryRuntimeException("No user specified for fine grained authorization!");
   }
 
   // Convert from query user to auth user or role
+  // NOTE: Make a copy of the user/role. At preparation time, the interpreter check if the user/role is authorized, and
+  // update (if needed), so no need to update after that.
   try {
-    auto glue_user = dynamic_cast<glue::QueryUserOrRole &>(*user_or_role);
+    auto glue_user = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
     if (glue_user.user_) {
-      return std::make_unique<glue::FineGrainedAuthChecker>(std::move(*glue_user.user_), dba);
+      return std::make_unique<glue::FineGrainedAuthChecker>(glue_user.user_.value(), dba);
     }
     if (glue_user.roles_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(
-          auth::RoleWUsername{*glue_user.username(), std::move(*glue_user.roles_)}, dba);
+          auth::RoleWUsername{glue_user.username().value(), glue_user.roles_.value()}, dba);
     }
     DMG_ASSERT(false, "Glue user has neither user not role");
-  } catch (std::bad_cast &e) {
+  } catch (std::bad_cast &) {
     DMG_ASSERT(false, "Using a non-glue user in glue...");
   }
 
@@ -194,10 +190,12 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgrap
                                  std::optional<std::string_view> db_name) {
   return user.CanImpersonate(target, db_name);
 }
+
 bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target,
                                  std::optional<std::string_view> db_name) {
   return role.CanImpersonate(target, db_name);
 }
+
 bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgraph::auth::User &target,
                                  std::optional<std::string_view> db_name) {
   return roles.CanImpersonate(target, db_name);
@@ -206,13 +204,33 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 
 #ifdef MG_ENTERPRISE
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
-    : user_or_role_{std::move(user_or_role)}, dba_(dba){};
+    : user_or_role_{std::move(user_or_role)}, dba_(dba) {};
+
+auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
+  if (!cached_label_permissions_) {
+    cached_label_permissions_ = std::visit(memgraph::utils::Overloaded{[](auto const &user_or_role) {
+                                             return user_or_role.GetFineGrainedAccessLabelPermissions();
+                                           }},
+                                           user_or_role_);
+  }
+  return *cached_label_permissions_;
+}
+
+auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedEdgePermissions() const {
+  if (!cached_edge_permissions_) {
+    cached_edge_permissions_ = std::visit(memgraph::utils::Overloaded{[](auto const &user_or_role) {
+                                            return user_or_role.GetFineGrainedAccessEdgeTypePermissions();
+                                          }},
+                                          user_or_role_);
+  }
+  return *cached_edge_permissions_;
+}
 
 bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
   auto maybe_labels = vertex.Labels(view);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
+  if (!maybe_labels) {
+    switch (maybe_labels.error()) {
       case memgraph::storage::Error::DELETED_OBJECT:
         throw memgraph::query::QueryRuntimeException("Trying to get labels from a deleted node.");
       case memgraph::storage::Error::NONEXISTENT_OBJECT:
@@ -224,22 +242,22 @@ bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, 
     }
   }
 
-  return IsAuthorizedLabels(user_or_role_, dba_, *maybe_labels, fine_grained_privilege);
+  return IsAuthorizedLabels(GetCachedLabelPermissions(), dba_, *maybe_labels, fine_grained_privilege);
 }
 
 bool FineGrainedAuthChecker::Has(const memgraph::query::EdgeAccessor &edge,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  return IsAuthorizedEdgeType(user_or_role_, dba_, edge.EdgeType(), fine_grained_privilege);
+  return IsAuthorizedEdgeType(GetCachedEdgePermissions(), dba_, edge.EdgeType(), fine_grained_privilege);
 }
 
 bool FineGrainedAuthChecker::Has(const std::vector<memgraph::storage::LabelId> &labels,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  return IsAuthorizedLabels(user_or_role_, dba_, labels, fine_grained_privilege);
+  return IsAuthorizedLabels(GetCachedLabelPermissions(), dba_, labels, fine_grained_privilege);
 }
 
 bool FineGrainedAuthChecker::Has(const memgraph::storage::EdgeTypeId &edge_type,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  return IsAuthorizedEdgeType(user_or_role_, dba_, edge_type, fine_grained_privilege);
+  return IsAuthorizedEdgeType(GetCachedEdgePermissions(), dba_, edge_type, fine_grained_privilege);
 }
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
@@ -247,7 +265,8 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyLabels(user_or_role_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyLabels(GetCachedLabelPermissions(),
+                                    FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
 }
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
@@ -255,7 +274,28 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyEdges(user_or_role_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyEdges(GetCachedEdgePermissions(),
+                                   FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+}
+
+bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  auto const &permissions = GetCachedLabelPermissions();
+  auto const &global_permission = permissions.GetGlobalPermission();
+  return global_permission.has_value() && static_cast<memgraph::auth::FineGrainedPermission>(
+                                              global_permission.value()) == memgraph::auth::kAllPermissions;
+}
+
+bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  auto const &permissions = GetCachedEdgePermissions();
+  auto const &global_permission = permissions.GetGlobalPermission();
+  return global_permission.has_value() && static_cast<memgraph::auth::FineGrainedPermission>(
+                                              global_permission.value()) == memgraph::auth::kAllPermissions;
 };
 #endif
 }  // namespace memgraph::glue

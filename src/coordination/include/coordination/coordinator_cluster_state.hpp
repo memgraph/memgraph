@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -114,10 +114,19 @@ class CoordinatorClusterState {
     }
     std::scoped_lock const lock(lhs.app_lock_, rhs.app_lock_);
 
-    return std::tie(lhs.data_instances_, lhs.coordinator_instances_, lhs.current_main_uuid_, lhs.enabled_reads_on_main_,
-                    lhs.sync_failover_only_, lhs.max_failover_replica_lag_, lhs.max_replica_read_lag_) ==
-           std::tie(rhs.data_instances_, rhs.coordinator_instances_, rhs.current_main_uuid_, rhs.enabled_reads_on_main_,
-                    rhs.sync_failover_only_, rhs.max_failover_replica_lag_, rhs.max_replica_read_lag_);
+    return std::tie(lhs.data_instances_,
+                    lhs.coordinator_instances_,
+                    lhs.current_main_uuid_,
+                    lhs.enabled_reads_on_main_,
+                    lhs.sync_failover_only_,
+                    lhs.max_failover_replica_lag_,
+                    lhs.max_replica_read_lag_) == std::tie(rhs.data_instances_,
+                                                           rhs.coordinator_instances_,
+                                                           rhs.current_main_uuid_,
+                                                           rhs.enabled_reads_on_main_,
+                                                           rhs.sync_failover_only_,
+                                                           rhs.max_failover_replica_lag_,
+                                                           rhs.max_replica_read_lag_);
   }
 
  private:

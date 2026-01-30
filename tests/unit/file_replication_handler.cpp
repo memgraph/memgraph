@@ -64,12 +64,6 @@ TEST_F(FileReplicationHandlerTest, EmptyActiveFiles) {
   ASSERT_EQ(file_replication_handler.GetActiveFileNames(), std::vector<std::filesystem::path>());
 }
 
-TEST_F(FileReplicationHandlerTest, GetRandomDir) {
-  constexpr auto prefix = "/tmp/memgraph";
-  auto const str_path = FileReplicationHandler::GetRandomDir().string();
-  ASSERT_EQ(str_path.rfind(prefix), 0);
-}
-
 TEST_F(FileReplicationHandlerTest, WritingToClosedFile) {
   FileReplicationHandler file_replication_handler;
   ASSERT_NO_THROW(file_replication_handler.WriteToFile(nullptr, 0));
@@ -122,7 +116,7 @@ TEST_F(FileReplicationHandlerTest, OpenFileWithParentPath) {
   builder.FlushInternal(total_size, false);
 
   // We don't send first 4B because they are reserved for size which we don't test here§
-  ASSERT_FALSE(
+  ASSERT_TRUE(
       file_replication_handler.OpenFile(buffer.data() + sizeof(SegmentSize), buffer.size() - sizeof(SegmentSize))
           .has_value());
 }

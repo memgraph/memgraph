@@ -1,0 +1,5 @@
+query: >
+    CALL util_module.md5("string") YIELD result RETURN result;
+
+output:
+  - result: b45cffe084dd3d20d928bee85e7b0f21

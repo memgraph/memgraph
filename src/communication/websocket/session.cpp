@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -109,12 +109,14 @@ bool Session::IsConnected() const { return connected_.load(std::memory_order_rel
 void Session::DoWrite() {
   ExecuteForWebsocket([this](auto &&ws) {
     auto next_message = messages_.front();
-    ws.async_write(boost::asio::buffer(*next_message),
-                   boost::asio::bind_executor(
-                       strand_, [message_string = std::move(next_message), shared_this = shared_from_this()](
-                                    boost::beast::error_code ec, const size_t bytes_transferred) {
-                         shared_this->OnWrite(ec, bytes_transferred);
-                       }));
+    auto buffer = boost::asio::buffer(*next_message);
+    ws.async_write(
+        buffer,
+        boost::asio::bind_executor(strand_,
+                                   [message_string = std::move(next_message), shared_this = shared_from_this()](
+                                       boost::beast::error_code ec, const size_t bytes_transferred) {
+                                     shared_this->OnWrite(ec, bytes_transferred);
+                                   }));
   });
 }
 
@@ -157,13 +159,13 @@ void Session::OnClose(boost::beast::error_code ec) {
   }
 }
 
-utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) {
+std::expected<void, std::string> Session::Authorize(const nlohmann::json &creds) {
   if (!auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
-    return {"Authentication failed!"};
+    return std::unexpected{"Authentication failed!"};
   }
 #ifdef MG_ENTERPRISE
   if (!auth_.HasPermission(auth::Permission::WEBSOCKET)) {
-    return {"Authorization failed!"};
+    return std::unexpected{"Authorization failed!"};
   }
 #endif
   return {};
@@ -194,8 +196,8 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
       buffer_.consume(buffer_.size());
 
-      if (const auto result = Authorize(creds); result.HasError()) {
-        std::invoke(auth_failed, result.GetError());
+      if (const auto result = Authorize(creds); !result.has_value()) {
+        std::invoke(auth_failed, result.error());
         return;
       }
       response["success"] = true;

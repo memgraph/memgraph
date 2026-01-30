@@ -85,3 +85,51 @@ Feature: Map projection
     Then the result should be:
       | actor["name"] | actor["awards"]["oscars"] |
       | 'Morgan'      | 1                         |
+
+  Scenario: Accessing a property of a deleted node should throw an exception
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:TestNode {val: 1})
+      """
+    When executing query:
+      """
+      MATCH (n) DETACH DELETE n RETURN n.val
+      """
+    Then an error should be raised
+
+  Scenario: Accessing all properties of a deleted node should throw an exception
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:TestNode {val: 1})
+      """
+    When executing query:
+      """
+      MATCH (n) DETACH DELETE n RETURN n {.*}
+      """
+    Then an error should be raised
+
+  Scenario: Accessing a property of a deleted edge should throw an exception
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:A)-[:REL {val: 1}]->(:B)
+      """
+    When executing query:
+      """
+      MATCH ()-[r]-() DELETE r RETURN r.val
+      """
+    Then an error should be raised
+
+  Scenario: Accessing all properties of a deleted edge should throw an exception
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:A)-[:REL {val: 1}]->(:B)
+      """
+    When executing query:
+      """
+      MATCH ()-[r]-() DELETE r RETURN r {.*}
+      """
+    Then an error should be raised

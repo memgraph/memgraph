@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,9 +26,9 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
  private:
   void Visit(EnumValueAccess &enum_value_access) override {
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
-    if (maybe_enum.HasError()) [[unlikely]] {
-      throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
-                                  enum_value_access.enum_name_);
+    if (!maybe_enum) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_, enum_value_access.enum_name_);
     }
     prev_expressions_.back() = storage_->Create<PrimitiveLiteral>(*maybe_enum);
   }
@@ -46,8 +46,11 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
 
   // Unary operators
   void Visit(NotOperator &op) override { AcceptExpression(op.expression_); }
+
   void Visit(IsNullOperator &op) override { AcceptExpression(op.expression_); };
+
   void Visit(UnaryPlusOperator &op) override { AcceptExpression(op.expression_); }
+
   void Visit(UnaryMinusOperator &op) override { AcceptExpression(op.expression_); }
 
   // Binary operators
@@ -132,8 +135,8 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   }
 
   void Visit(RangeOperator &op) override {
-    AcceptExpression(op.expr1_);
-    AcceptExpression(op.expr2_);
+    AcceptExpression(op.expression1_);
+    AcceptExpression(op.expression2_);
   }
 
   void Visit(SubscriptOperator &op) override {
@@ -148,11 +151,18 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
 
   // Other
   void Visit(ListSlicingOperator &op) override {}
+
   void Visit(IfOperator &op) override {}
+
   void Visit(ListLiteral &op) override {}
+
   void Visit(MapLiteral &op) override {}
+
   void Visit(MapProjectionLiteral &op) override {}
+
   void Visit(LabelsTest &op) override {}
+
+  void Visit(EdgeTypesTest &op) override {}
 
   void Visit(Function &op) override {
     for (auto *argument : op.arguments_) {
@@ -161,21 +171,37 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   }
 
   void Visit(Reduce &op) override { AcceptExpression(op.expression_); }
+
   void Visit(Coalesce &op) override {}
+
   void Visit(Extract &op) override { AcceptExpression(op.expression_); }
+
   void Visit(Exists &op) override {}
+
   void Visit(All &op) override {}
+
   void Visit(Single &op) override {}
+
   void Visit(Any &op) override {}
+
   void Visit(None &op) override {}
+
   void Visit(ListComprehension &op) override {}
+
   void Visit(Identifier &op) override {}
+
   void Visit(PrimitiveLiteral &op) override {}
+
   void Visit(PropertyLookup &op) override { AcceptExpression(op.expression_); }
+
   void Visit(AllPropertiesLookup &op) override { AcceptExpression(op.expression_); }
+
   void Visit(ParameterLookup &op) override {}
+
   void Visit(RegexMatch &op) override {}
+
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
+
   void Visit(PatternComprehension &op) override { AcceptExpression(op.resultExpr_); }
 
  private:

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,8 @@ static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph
         storage.Create<memgraph::query::NodeAtom>(storage.Create<memgraph::query::Identifier>(node1_name)));
     pattern->atoms_.emplace_back(storage.Create<memgraph::query::EdgeAtom>(
         storage.Create<memgraph::query::Identifier>("edge" + std::to_string(i)),
-        memgraph::query::EdgeAtom::Type::SINGLE, memgraph::query::EdgeAtom::Direction::BOTH));
+        memgraph::query::EdgeAtom::Type::SINGLE,
+        memgraph::query::EdgeAtom::Direction::BOTH));
     pattern->atoms_.emplace_back(storage.Create<memgraph::query::NodeAtom>(
         storage.Create<memgraph::query::Identifier>("node" + std::to_string(i))));
     single_query->clauses_.emplace_back(match);
@@ -49,7 +50,7 @@ static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph
 
 static void BM_PlanChainedMatches(benchmark::State &state) {
   std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   while (state.KeepRunning()) {
     state.PauseTiming();
@@ -103,15 +104,15 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
     auto unique_acc = db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
   }
-  auto dba = db->Access();
+  auto dba = db->Access(memgraph::storage::WRITE);
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
       auto vertex = dba->CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label).HasValue());
-      MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).HasValue());
+      MG_ASSERT(vertex.AddLabel(label).has_value());
+      MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).has_value());
     }
   }
-  MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   return std::make_pair("label", "prop");
 }
 
@@ -122,7 +123,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
   int index_count = state.range(0);
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::Parameters parameters;
   while (state.KeepRunning()) {
@@ -139,8 +140,8 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&dba, symbol_table, parameters, *plan,
-                                              memgraph::query::plan::IndexHints());
+      memgraph::query::plan::EstimatePlanCost(
+          &dba, symbol_table, parameters, *plan, memgraph::query::plan::IndexHints());
     }
   }
 }
@@ -152,7 +153,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
   int index_count = state.range(0);
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex_counts = memgraph::query::plan::VertexCountCache(&dba);
   memgraph::query::Parameters parameters;
@@ -170,8 +171,8 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&vertex_counts, symbol_table, parameters, *plan,
-                                              memgraph::query::plan::IndexHints());
+      memgraph::query::plan::EstimatePlanCost(
+          &vertex_counts, symbol_table, parameters, *plan, memgraph::query::plan::IndexHints());
     }
   }
 }

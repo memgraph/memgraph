@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -90,6 +90,7 @@ struct static_vector {
     auto operator-=(difference_type n) -> iterator & { return this->operator+=(-n); }
 
     auto operator+(const difference_type n) const -> iterator { return iterator(ptr + n); }
+
     friend auto operator+(const difference_type n, iterator other) -> iterator { return iterator(other.ptr + n); }
 
     auto operator*() const -> reference { return *ptr; }
@@ -99,12 +100,17 @@ struct static_vector {
     auto operator[](difference_type n) const -> reference { return ptr[n]; }
 
     friend auto operator==(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
+
     friend auto operator<(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
+
     friend auto operator>(iterator const &lhs, iterator const &rhs) -> bool { return rhs < lhs; }
+
     friend auto operator>=(iterator const &lhs, iterator const &rhs) -> bool { return !(lhs < rhs); }
+
     friend auto operator<=(iterator const &lhs, iterator const &rhs) -> bool { return !(rhs < lhs); }
 
     auto operator-(const iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
+
     auto operator-(const difference_type n) const -> iterator { return iterator(ptr - n); }
 
    private:
@@ -121,6 +127,7 @@ struct static_vector {
     const_iterator() = default;
 
     explicit(false) const_iterator(iterator p) : ptr{p.ptr} {}
+
     explicit const_iterator(pointer p) : ptr{p} {}
 
     auto operator++() -> const_iterator & {
@@ -153,6 +160,7 @@ struct static_vector {
     auto operator-=(difference_type n) -> const_iterator & { return this->operator+=(-n); }
 
     auto operator+(const difference_type n) const -> const_iterator { return const_iterator(ptr + n); }
+
     friend auto operator+(const difference_type n, const_iterator other) -> const_iterator {
       return const_iterator(other.ptr + n);
     }
@@ -164,9 +172,13 @@ struct static_vector {
     auto operator[](difference_type n) const -> reference { return ptr[n]; }
 
     friend auto operator==(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
+
     friend auto operator<(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
+
     friend auto operator>(const_iterator const &lhs, const_iterator const &rhs) -> bool { return rhs < lhs; }
+
     friend auto operator>=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(lhs < rhs); }
+
     friend auto operator<=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(rhs < lhs); }
 
     friend auto operator==(iterator const &lhs, const_iterator const &rhs) -> bool {
@@ -174,6 +186,7 @@ struct static_vector {
     }
 
     auto operator-(const const_iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
+
     auto operator-(const difference_type n) const -> const_iterator { return const_iterator(ptr - n); }
 
    private:
@@ -248,14 +261,21 @@ struct static_vector {
     return *this;
   }
 
-  ~static_vector() requires(!std::is_trivially_destructible_v<value_type>) { std::destroy(begin(), end()); }
+  ~static_vector()
+    requires(!std::is_trivially_destructible_v<value_type>)
+  {
+    std::destroy(begin(), end());
+  }
 
-  ~static_vector() requires(std::is_trivially_destructible_v<value_type>) = default;
+  ~static_vector()
+    requires(std::is_trivially_destructible_v<value_type>)
+  = default;
 
   explicit static_vector(std::initializer_list<T> other) : static_vector(other.begin(), other.end()) {}
 
   // TODO: change to range + add test
   explicit static_vector(std::span<T const> other) : static_vector(other.begin(), other.end()) {}
+
   // TODO: generalise to not just vector
   explicit static_vector(std::vector<T> &&other) : size_(other.size()) {
     std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
@@ -402,7 +422,9 @@ struct static_vector {
   }
 
   friend bool operator==(static_vector const &lhs, static_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
+
   friend bool operator==(std::span<T const> lhs, static_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
+
   friend bool operator==(static_vector const &lhs, std::span<T const> rhs) { return std::ranges::equal(lhs, rhs); }
 
  private:

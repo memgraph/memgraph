@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,8 +47,7 @@ void Graph::Expand(std::span<TypedValue const> const nodes, std::span<TypedValue
                       rv::transform([](auto const &each) { return each.ValueEdge(); });
 
   if (r::any_of(actual_edges, [&](auto const &edge) {
-        return r::find(actual_nodes, edge.From()) == actual_nodes.end() ||
-               r::find(actual_nodes, edge.To()) == actual_nodes.end();
+        return !r::contains(actual_nodes, edge.From()) || !r::contains(actual_nodes, edge.To());
       })) {
     throw memgraph::query::QueryRuntimeException(
         "Cannot project graph with any projected relationships whose start or end nodes are not also projected.");
@@ -86,8 +85,11 @@ std::optional<EdgeAccessor> Graph::RemoveEdge(const EdgeAccessor &edge) {
 }
 
 utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() { return vertices_; }
+
 utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() { return edges_; }
+
 const utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() const { return vertices_; }
+
 const utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() const { return edges_; }
 
 auto Graph::get_allocator() const -> allocator_type { return vertices_.get_allocator(); }

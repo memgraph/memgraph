@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,20 +18,22 @@
 
 #include "system/include/system/system.hpp"
 #include "utils/resource_monitoring.hpp"
+
 namespace memgraph::query {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
 InterpreterContext::InterpreterContext(
-    InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+    InterpreterConfig interpreter_config, utils::Settings *settings, dbms::DbmsHandler *dbms_handler,
     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
     std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
     utils::ResourceMonitoring *resource_monitoring,
 #endif
     AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler)
-    : dbms_handler(dbms_handler),
+    : settings(settings),
+      dbms_handler(dbms_handler),
       config(std::move(interpreter_config)),
       repl_state(rs),
 #ifdef MG_ENTERPRISE
@@ -68,7 +70,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
       }
     });
     std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
-    if (!intr_trans.has_value()) continue;
+    if (!intr_trans) continue;
 
     auto transaction_id = intr_trans.value();
 
@@ -128,7 +130,7 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    if (transaction_id.has_value()) {
+    if (transaction_id) {
       results.push_back(transaction_id.value());
     }
   }

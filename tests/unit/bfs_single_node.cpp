@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,9 @@ class SingleNodeDb : public Database {
     }
   }
 
-  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
+  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override {
+    return db_->Access(memgraph::storage::WRITE);
+  }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                    EdgeAtom::Direction direction,
@@ -39,9 +41,21 @@ class SingleNodeDb : public Database {
                                                    const std::shared_ptr<LogicalOperator> &input, bool existing_node,
                                                    Expression *lower_bound, Expression *upper_bound,
                                                    const ExpansionLambda &filter_lambda) override {
-    return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::BREADTH_FIRST,
-                                            direction, edge_types, false, lower_bound, upper_bound, existing_node,
-                                            filter_lambda, std::nullopt, std::nullopt, nullptr);
+    return std::make_unique<ExpandVariable>(input,
+                                            source_sym,
+                                            sink_sym,
+                                            edge_sym,
+                                            EdgeAtom::Type::BREADTH_FIRST,
+                                            direction,
+                                            edge_types,
+                                            false,
+                                            lower_bound,
+                                            upper_bound,
+                                            existing_node,
+                                            filter_lambda,
+                                            std::nullopt,
+                                            std::nullopt,
+                                            nullptr);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(
@@ -54,7 +68,7 @@ class SingleNodeDb : public Database {
       auto vertex = dba->InsertVertex();
       MG_ASSERT(
           vertex.SetProperty(dba->NameToProperty("id"), memgraph::storage::PropertyValue(static_cast<int64_t>(id)))
-              .HasValue());
+              .has_value());
       vertex_addr.push_back(vertex);
     }
 
@@ -65,8 +79,8 @@ class SingleNodeDb : public Database {
       auto &from = vertex_addr[u];
       auto &to = vertex_addr[v];
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).HasValue());
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).has_value());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).has_value());
       edge_addr.push_back(*edge);
     }
 
@@ -83,7 +97,9 @@ class SingleNodeBfsTestInMemory
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FilterLambdaType>> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
+
   static void SetUpTestCase() { db_ = std::make_unique<SingleNodeDb<StorageType>>(); }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
@@ -132,7 +148,9 @@ class SingleNodeBfsTestOnDisk
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FilterLambdaType>> {
  public:
   using StorageType = memgraph::storage::DiskStorage;
+
   static void SetUpTestCase() { db_ = std::make_unique<SingleNodeDb<StorageType>>(); }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:

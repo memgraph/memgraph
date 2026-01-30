@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,9 +71,6 @@ DECLARE_uint64(storage_wal_file_flush_every_n_tx);
 DECLARE_bool(storage_snapshot_on_exit);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_items_per_batch);
-// storage_parallel_index_recovery deprecated; use storage_parallel_schema_recovery instead
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(storage_parallel_index_recovery);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_parallel_snapshot_creation);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -92,6 +89,14 @@ DECLARE_bool(storage_automatic_edge_type_index_creation_enabled);
 DECLARE_bool(storage_enable_edges_metadata);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_delta_on_identical_property_update);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_backup_dir_enabled);
+
+// RocksDB flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(storage_rocksdb_info_log_level);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_rocksdb_enable_thread_tracking);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(schema_info_enabled);
@@ -119,6 +124,7 @@ DECLARE_string(pulsar_service_url);
 DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_callable_mappings_path);
+
 namespace memgraph::flags {
 auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 }  // namespace memgraph::flags
@@ -127,3 +133,13 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
+
+// AWS settings
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(aws_region);
+DECLARE_string(aws_access_key);
+DECLARE_string(aws_secret_key);
+DECLARE_string(aws_endpoint_url);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(file_download_conn_timeout_sec);

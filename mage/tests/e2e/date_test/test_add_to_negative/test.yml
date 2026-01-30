@@ -1,0 +1,5 @@
+query: >
+    RETURN date.add(50, "m", -1, "h") AS sum;
+
+output:
+    - sum: -10

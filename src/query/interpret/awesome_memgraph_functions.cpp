@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -94,27 +94,49 @@ namespace {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Null {};
+
 struct Bool {};
+
 struct Integer {};
+
 struct PositiveInteger {};
+
 struct NonZeroInteger {};
+
 struct NonNegativeInteger {};
+
 struct Double {};
+
 struct Number {};
+
 struct List {};
+
 struct String {};
+
 struct Map {};
+
 struct Edge {};
+
 struct Vertex {};
+
 struct Path {};
+
 struct Date {};
+
 struct LocalTime {};
+
 struct LocalDateTime {};
+
 struct Duration {};
+
 struct ZonedDateTime {};
+
 struct Graph {};
+
 struct Enum {};
+
 struct Point2d {};
+
 struct Point3d {};
 
 template <class ArgType>
@@ -277,13 +299,13 @@ struct Optional<ArgType> {
     const TypedValue &arg = args[0];
     if constexpr (IsOrType<ArgType>::value) {
       if (!ArgType::Check(arg)) {
-        throw QueryRuntimeException("Optional '{}' argument at position {} must be either {}.", name, pos,
-                                    ArgType::TypeNames());
+        throw QueryRuntimeException(
+            "Optional '{}' argument at position {} must be either {}.", name, pos, ArgType::TypeNames());
       }
     } else {
       if (!ArgIsType<ArgType>(arg))
-        throw QueryRuntimeException("Optional '{}' argument at position {} must be '{}'.", name, pos,
-                                    ArgTypeName<ArgType>());
+        throw QueryRuntimeException(
+            "Optional '{}' argument at position {} must be '{}'.", name, pos, ArgTypeName<ArgType>());
     }
   }
 };
@@ -350,8 +372,8 @@ void FType(const char *name, const TypedValue *args, int64_t nargs, int64_t pos 
     }
   } else {
     if (nargs != required_args) {
-      throw QueryRuntimeException("'{}' requires exactly {} {}.", name, required_args,
-                                  required_args == 1 ? "argument" : "arguments");
+      throw QueryRuntimeException(
+          "'{}' requires exactly {} {}.", name, required_args, required_args == 1 ? "argument" : "arguments");
     }
   }
   const TypedValue &arg = args[0];
@@ -423,8 +445,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto get_properties = [&](const auto &record_accessor) {
     TypedValue::TMap properties(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
+    if (!maybe_props) {
+      switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -489,9 +511,9 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
   uint64_t property_size = 0;
   const auto &graph_entity = args[0];
   if (graph_entity.IsVertex()) {
-    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
+    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).value();
   } else if (graph_entity.IsEdge()) {
-    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
+    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).value();
   }
 
   return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
@@ -506,8 +528,8 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContex
 namespace {
 
 size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
-  if (maybe_degree.HasError()) {
-    switch (maybe_degree.GetError()) {
+  if (!maybe_degree) {
+    switch (maybe_degree.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -671,8 +693,25 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime,
-           ZonedDateTime, Duration, Graph, Enum, Point2d, Point3d>>("type", args, nargs);
+  FType<Or<Null,
+           Bool,
+           Integer,
+           Double,
+           String,
+           List,
+           Map,
+           Vertex,
+           Edge,
+           Path,
+           Date,
+           LocalTime,
+           LocalDateTime,
+           ZonedDateTime,
+           Duration,
+           Graph,
+           Enum,
+           Point2d,
+           Point3d>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -725,8 +764,8 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
+    if (!maybe_props) {
+      switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -767,8 +806,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto get_values = [&](const auto &record_accessor) {
     TypedValue::TVector values(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
+    if (!maybe_props) {
+      switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -812,8 +851,8 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
+  if (!maybe_labels) {
+    switch (maybe_labels.error()) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -893,10 +932,10 @@ TypedValue ToSet(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
   const auto &elements = value.ValueList();
   using unique_collection = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
-  auto unique_elements = unique_collection(elements.cbegin(), elements.cend(), elements.size() * 2, TypedValue::Hash{},
-                                           TypedValue::BoolEqual{}, ctx.memory);
-  return TypedValue{TypedValue::TVector(std::make_move_iterator(unique_elements.begin()),
-                                        std::make_move_iterator(unique_elements.end()), ctx.memory)};
+  auto unique_elements = unique_collection(
+      elements.cbegin(), elements.cend(), elements.size() * 2, TypedValue::Hash{}, TypedValue::BoolEqual{}, ctx.memory);
+  return TypedValue{TypedValue::TVector(
+      std::make_move_iterator(unique_elements.begin()), std::make_move_iterator(unique_elements.end()), ctx.memory)};
 }
 
 TypedValue UniformSample(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1016,31 +1055,37 @@ TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const Func
 // Check if s1 starts with s2.
 struct StartsWithPredicate {
   static constexpr const char *name = "startsWith";
+
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.begin(), s2.end(), s1.begin());
   }
 };
+
 auto StartsWith = StringMatchOperator<StartsWithPredicate>;
 
 // Check if s1 ends with s2.
 struct EndsWithPredicate {
   static constexpr const char *name = "endsWith";
+
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
   }
 };
+
 auto EndsWith = StringMatchOperator<EndsWithPredicate>;
 
 // Check if s1 contains s2.
 struct ContainsPredicate {
   static constexpr const char *name = "contains";
+
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return s1.find(s2) != std::string::npos;
   }
 };
+
 auto Contains = StringMatchOperator<ContainsPredicate>;
 
 TypedValue Assert(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1084,8 +1129,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>("toString", args,
-                                                                                                       nargs);
+  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>(
+      "toString", args, nargs);
   const auto &arg = args[0];
   using enum TypedValue::Type;
   switch (arg.type()) {
@@ -1129,7 +1174,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1194,7 +1239,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1267,23 +1312,26 @@ TypedValue CallStringFunction(const TypedValue *args, int64_t nargs, utils::Memo
 }
 
 TypedValue LTrim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "lTrim",
-                            [&](const auto &str) { return TypedValue::TString(utils::LTrim(str), ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "lTrim", [&](const auto &str) {
+    return TypedValue::TString(utils::LTrim(str), ctx.memory);
+  });
 }
 
 TypedValue RTrim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "rTrim",
-                            [&](const auto &str) { return TypedValue::TString(utils::RTrim(str), ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "rTrim", [&](const auto &str) {
+    return TypedValue::TString(utils::RTrim(str), ctx.memory);
+  });
 }
 
 TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "trim",
-                            [&](const auto &str) { return TypedValue::TString(utils::Trim(str), ctx.memory); });
+  return CallStringFunction(args, nargs, ctx.memory, "trim", [&](const auto &str) {
+    return TypedValue::TString(utils::Trim(str), ctx.memory);
+  });
 }
 
 TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  return CallStringFunction(args, nargs, ctx.memory, "reverse",
-                            [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
+  return CallStringFunction(
+      args, nargs, ctx.memory, "reverse", [&](const auto &str) { return utils::Reversed(str, ctx.memory); });
 }
 
 TypedValue ToLower(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1355,7 +1403,7 @@ TypedValue ToByteString(const TypedValue *args, int64_t nargs, const FunctionCon
     unsigned char byte = read_hex(hex_str[i]) * 16U + read_hex(hex_str[i + 1]);
     // MemcpyCast in case we are converting to a signed value, so as to avoid
     // undefined behaviour.
-    bytes.append(1, utils::MemcpyCast<decltype(bytes)::value_type>(byte));
+    bytes.append(1, std::bit_cast<decltype(bytes)::value_type>(byte));
   }
   return TypedValue(std::move(bytes));
 }
@@ -1377,7 +1425,7 @@ TypedValue FromByteString(const TypedValue *args, int64_t nargs, const FunctionC
   // complicated than it should be.
   auto to_hex = [](const unsigned char val) -> char {
     unsigned char ch = val < 10U ? static_cast<unsigned char>('0') + val : static_cast<unsigned char>('a') + val - 10U;
-    return utils::MemcpyCast<char>(ch);
+    return std::bit_cast<char>(ch);
   };
   for (unsigned char byte : bytes) {
     str.append(1, to_hex(byte / 16U));
@@ -1390,9 +1438,11 @@ template <typename T>
 concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
 
 template <IsNumberOrInteger ArgType>
-void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
+bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
+  bool has_mapped_any_field{false};
   for (const auto &[key, value] : input_parameters) {
     if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
+      has_mapped_any_field = true;
       if (value.IsInt()) {
         *it->second = value.ValueInt();
       } else if (std::is_same_v<ArgType, Number> && value.IsDouble()) {
@@ -1405,12 +1455,18 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
       throw QueryRuntimeException("Unknown key '{}'.", key);
     }
   }
+
+  return has_mapped_any_field;
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
+  FType<Optional<Or<Null, String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).date(), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsDate()) {
@@ -1445,10 +1501,14 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, struct LocalTime, LocalDateTime, ZonedDateTime>>>("localtime", args, nargs);
+  FType<Optional<Or<Null, String, Map, struct LocalTime, LocalDateTime, ZonedDateTime>>>("localtime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time(), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsLocalTime()) {
@@ -1461,8 +1521,11 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 
   if (args[0].IsZonedDateTime()) {
     auto const &zdt{args[0].ValueZonedDateTime()};
-    return TypedValue(utils::LocalTime{{zdt.LocalHour(), zdt.LocalMinute(), zdt.LocalSecond(), zdt.LocalMillisecond(),
-                                        zdt.LocalMicrosecond()}},
+    return TypedValue(utils::LocalTime{{.hour = zdt.LocalHour(),
+                                        .minute = zdt.LocalMinute(),
+                                        .second = zdt.LocalSecond(),
+                                        .millisecond = zdt.LocalMillisecond(),
+                                        .microsecond = zdt.LocalMicrosecond()}},
                       ctx.memory);
   }
 
@@ -1487,10 +1550,14 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, struct LocalDateTime, ZonedDateTime>>>("localdatetime", args, nargs);
+  FType<Optional<Or<Null, String, Map, struct LocalDateTime, ZonedDateTime>>>("localdatetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsLocalDateTime()) {
@@ -1530,7 +1597,11 @@ TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionCo
 }
 
 TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<String, Map>>("duration", args, nargs);
+  FType<Or<Null, String, Map>>("duration", args, nargs);
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
+  }
 
   if (args[0].IsString()) {
     return TypedValue(utils::Duration(utils::ParseDurationParameters(args[0].ValueString())), ctx.memory);
@@ -1565,10 +1636,14 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
 
 // Refers to ZonedDateTime; called DateTime for compatibility with Cypher
 TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, ZonedDateTime>>>("datetime", args, nargs);
+  FType<Optional<Or<Null, String, Map, ZonedDateTime>>>("datetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), utils::DefaultTimezone()), ctx.memory);
+  }
+
+  if (args[0].IsNull()) {
+    return TypedValue(ctx.memory);
   }
 
   if (args[0].IsZonedDateTime()) {
@@ -1599,7 +1674,10 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   const utils::pmr::string timezone_key("timezone", ctx.memory);
   fields.erase(timezone_key);
 
-  MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  bool const has_mapped_numeric_fields = MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  if (!has_mapped_numeric_fields) {
+    return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), timezone), ctx.memory);
+  }
   auto zoned_date_time_parameters = utils::ZonedDateTimeParameters{date_parameters, time_parameters, timezone};
   return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
 }
@@ -1610,12 +1688,12 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto const &s1 = args[0].ValueString();
   if (nargs == 1) {
     auto enum_val = ctx.db_accessor->GetEnumValue(s1);
-    if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}'", s1);
+    if (!enum_val) throw QueryRuntimeException("Invalid enum '{}'", s1);
     return TypedValue(*enum_val, ctx.memory);
   }
   auto const &s2 = args[1].ValueString();
   auto enum_val = ctx.db_accessor->GetEnumValue(s1, s2);
-  if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
+  if (!enum_val) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
   return TypedValue(*enum_val, ctx.memory);
 }
 
@@ -1702,14 +1780,14 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   std::optional<storage::CoordinateReferenceSystem> mg_crs;
-  if (crs.has_value()) {
+  if (crs) {
     mg_crs = storage::StringToCrs(*crs);
-    if (!mg_crs.has_value()) {
+    if (!mg_crs) {
       throw QueryRuntimeException("Invalid CRS.");
     }
-  } else if (srid.has_value()) {
+  } else if (srid) {
     mg_crs = storage::SridToCrs(static_cast<storage::Srid>(*srid));
-    if (!mg_crs.has_value()) {
+    if (!mg_crs) {
       throw QueryRuntimeException("Invalid SRID.");
     }
   }
@@ -1720,8 +1798,8 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   using enum storage::CoordinateReferenceSystem;
-  if (!mg_crs.has_value()) {
-    if (!z_opt.has_value()) {
+  if (!mg_crs) {
+    if (!z_opt) {
       mg_crs = inferred_as_wgs ? WGS84_2d : Cartesian_2d;
     } else {
       mg_crs = inferred_as_wgs ? WGS84_3d : Cartesian_3d;
@@ -1737,7 +1815,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
         "Longitude/x [-180, 180] and latitude/y [-90, 90] must be in the given range for WGS point types.");
   }
 
-  if (!z_opt.has_value()) {
+  if (!z_opt) {
     if (!storage::valid2d(*mg_crs)) {
       throw QueryRuntimeException("Concluded point type is 2D but CRS/SRID says it is 3D.");
     }
@@ -1809,109 +1887,146 @@ TypedValue GetHopsCounter(const TypedValue * /*args*/, int64_t /*nargs*/, const 
   return TypedValue(ctx.hops_counter, ctx.memory);
 }
 
-auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
+TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  FType<void>("username", /*args*/ nullptr, /*nargs*/ 0);
+  if (!ctx.user_or_role) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &username = ctx.user_or_role->username();
+  if (!username) {
+    return TypedValue(ctx.memory);
+  }
+  return TypedValue(*username, ctx.memory);
+}
+
+TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Optional<String>>("db_name", args, nargs);
+  if (!ctx.user_or_role) {
+    return TypedValue(TypedValue::TVector(ctx.memory));
+  }
+
+  std::optional<std::string> db_name;
+  if (nargs > 0) {
+    db_name.emplace(args[0].ValueString());
+  }
+
+  // nullopt = show all roles
+  auto const rolenames = ctx.user_or_role->GetRolenames(db_name);
+  TypedValue::TVector roles_list(ctx.memory);
+  roles_list.reserve(rolenames.size());
+  for (auto const &rolename : rolenames) {
+    roles_list.emplace_back(TypedValue::TString(rolename, ctx.memory));  // string to pmr string
+  }
+  return TypedValue(std::move(roles_list));
+}
+
+auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     // Predicate functions
-    {"ISEMPTY", IsEmpty},
+    {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
 
     // Scalar functions
-    {"DEGREE", Degree},
-    {"INDEGREE", InDegree},
-    {"OUTDEGREE", OutDegree},
-    {"ENDNODE", EndNode},
-    {"HEAD", Head},
-    {kId, Id},
-    {"LAST", Last},
-    {"PROPERTIES", Properties},
-    {"RANDOMUUID", RandomUuid},
-    {"SIZE", Size},
-    {"LENGTH", Size},
-    {"PROPERTYSIZE", PropertySize},
-    {"STARTNODE", StartNode},
-    {"TIMESTAMP", Timestamp},
-    {"TOBOOLEAN", ToBoolean},
-    {"TOFLOAT", ToFloat},
-    {"TOINTEGER", ToInteger},
-    {"TOBOOLEANLIST", ToBooleanList},
-    {"TOFLOATLIST", ToFloatList},
-    {"TOINTEGERLIST", ToIntegerList},
-    {"TYPE", Type},
-    {"VALUETYPE", ValueType},
+    {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},
+    {"INDEGREE", func_info{.func_ = InDegree, .is_pure_ = true}},
+    {"OUTDEGREE", func_info{.func_ = OutDegree, .is_pure_ = true}},
+    {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
+    {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
+    {kId, func_info{.func_ = Id, .is_pure_ = true}},
+    {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
+    {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
+    {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
+    {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},
+    {"LENGTH", func_info{.func_ = Size, .is_pure_ = true}},
+    {"PROPERTYSIZE", func_info{.func_ = PropertySize, .is_pure_ = true}},
+    {"STARTNODE", func_info{.func_ = StartNode, .is_pure_ = true}},
+    {"TIMESTAMP", func_info{.func_ = Timestamp, .is_pure_ = false}},
+    {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
+    {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
+    {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
+    {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
+    {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
+    {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
+    {"TYPE", func_info{.func_ = Type, .is_pure_ = true}},
+    {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 
     // List, map functions
-    {"KEYS", Keys},
-    {"LABELS", Labels},
-    {"NODES", Nodes},
-    {"RANGE", Range},
-    {"RELATIONSHIPS", Relationships},
-    {"TAIL", Tail},
-    {"TOSET", ToSet},
-    {"UNIFORMSAMPLE", UniformSample},
-    {"VALUES", Values},
+    {"KEYS", func_info{.func_ = Keys, .is_pure_ = true}},
+    {"LABELS", func_info{.func_ = Labels, .is_pure_ = true}},
+    {"NODES", func_info{.func_ = Nodes, .is_pure_ = true}},
+    {"RANGE", func_info{.func_ = Range, .is_pure_ = true}},
+    {"RELATIONSHIPS", func_info{.func_ = Relationships, .is_pure_ = true}},
+    {"TAIL", func_info{.func_ = Tail, .is_pure_ = true}},
+    {"TOSET", func_info{.func_ = ToSet, .is_pure_ = true}},
+    {"UNIFORMSAMPLE", func_info{.func_ = UniformSample, .is_pure_ = false}},
+    {"VALUES", func_info{.func_ = Values, .is_pure_ = true}},
 
     // Mathematical functions - numeric
-    {"ABS", Abs},
-    {"CEIL", Ceil},
-    {"FLOOR", Floor},
-    {"RAND", Rand},
-    {"ROUND", Round},
-    {"SIGN", Sign},
+    {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},
+    {"CEIL", func_info{.func_ = Ceil, .is_pure_ = true}},
+    {"FLOOR", func_info{.func_ = Floor, .is_pure_ = true}},
+    {"RAND", func_info{.func_ = Rand, .is_pure_ = false}},
+    {"ROUND", func_info{.func_ = Round, .is_pure_ = true}},
+    {"SIGN", func_info{.func_ = Sign, .is_pure_ = true}},
 
     // Mathematical functions - logarithmic
-    {"E", E},
-    {"EXP", Exp},
-    {"LOG", Log},
-    {"LOG10", Log10},
-    {"SQRT", Sqrt},
+    {"E", func_info{.func_ = E, .is_pure_ = true}},
+    {"EXP", func_info{.func_ = Exp, .is_pure_ = true}},
+    {"LOG", func_info{.func_ = Log, .is_pure_ = true}},
+    {"LOG10", func_info{.func_ = Log10, .is_pure_ = true}},
+    {"SQRT", func_info{.func_ = Sqrt, .is_pure_ = true}},
 
     // Mathematical functions - trigonometric
-    {"ACOS", Acos},
-    {"ASIN", Asin},
-    {"ATAN", Atan},
-    {"ATAN2", Atan2},
-    {"COS", Cos},
-    {"PI", Pi},
-    {"SIN", Sin},
-    {"TAN", Tan},
+    {"ACOS", func_info{.func_ = Acos, .is_pure_ = true}},
+    {"ASIN", func_info{.func_ = Asin, .is_pure_ = true}},
+    {"ATAN", func_info{.func_ = Atan, .is_pure_ = true}},
+    {"ATAN2", func_info{.func_ = Atan2, .is_pure_ = true}},
+    {"COS", func_info{.func_ = Cos, .is_pure_ = true}},
+    {"PI", func_info{.func_ = Pi, .is_pure_ = true}},
+    {"SIN", func_info{.func_ = Sin, .is_pure_ = true}},
+    {"TAN", func_info{.func_ = Tan, .is_pure_ = true}},
 
     // String functions
-    {kContains, Contains},
-    {kEndsWith, EndsWith},
-    {"LEFT", Left},
-    {"LTRIM", LTrim},
-    {"REPLACE", Replace},
-    {"REVERSE", Reverse},
-    {"RIGHT", Right},
-    {"RTRIM", RTrim},
-    {"SPLIT", Split},
-    {kStartsWith, StartsWith},
-    {"SUBSTRING", Substring},
-    {"TOLOWER", ToLower},
-    {"TOSTRING", ToString},
-    {"TOSTRINGORNULL", ToStringOrNull},
-    {"TOUPPER", ToUpper},
-    {"TRIM", Trim},
+    {kContains, func_info{.func_ = Contains, .is_pure_ = true}},
+    {kEndsWith, func_info{.func_ = EndsWith, .is_pure_ = true}},
+    {"LEFT", func_info{.func_ = Left, .is_pure_ = true}},
+    {"LTRIM", func_info{.func_ = LTrim, .is_pure_ = true}},
+    {"REPLACE", func_info{.func_ = Replace, .is_pure_ = true}},
+    {"REVERSE", func_info{.func_ = Reverse, .is_pure_ = true}},
+    {"RIGHT", func_info{.func_ = Right, .is_pure_ = true}},
+    {"RTRIM", func_info{.func_ = RTrim, .is_pure_ = true}},
+    {"SPLIT", func_info{.func_ = Split, .is_pure_ = true}},
+    {kStartsWith, func_info{.func_ = StartsWith, .is_pure_ = true}},
+    {"SUBSTRING", func_info{.func_ = Substring, .is_pure_ = true}},
+    {"TOLOWER", func_info{.func_ = ToLower, .is_pure_ = true}},
+    {"TOSTRING", func_info{.func_ = ToString, .is_pure_ = true}},
+    {"TOSTRINGORNULL", func_info{.func_ = ToStringOrNull, .is_pure_ = true}},
+    {"TOUPPER", func_info{.func_ = ToUpper, .is_pure_ = true}},
+    {"TRIM", func_info{.func_ = Trim, .is_pure_ = true}},
 
     // Memgraph specific functions
-    {"ASSERT", Assert},
-    {"COUNTER", Counter},
-    {"TOBYTESTRING", ToByteString},
-    {"FROMBYTESTRING", FromByteString},
-    {"DATE", Date},
-    {"LOCALTIME", LocalTime},
-    {"LOCALDATETIME", LocalDateTime},
-    {"DATETIME", DateTime},
-    {"DURATION", Duration},
+    {"ASSERT", func_info{.func_ = Assert, .is_pure_ = false}},
+    {"COUNTER", func_info{.func_ = Counter, .is_pure_ = false}},
+    {"TOBYTESTRING", func_info{.func_ = ToByteString, .is_pure_ = true}},
+    {"FROMBYTESTRING", func_info{.func_ = FromByteString, .is_pure_ = true}},
+    {"DATE", func_info{.func_ = Date, .is_pure_ = false}},
+    {"LOCALTIME", func_info{.func_ = LocalTime, .is_pure_ = false}},
+    {"LOCALDATETIME", func_info{.func_ = LocalDateTime, .is_pure_ = false}},
+    {"DATETIME", func_info{.func_ = DateTime, .is_pure_ = false}},
+    {"DURATION", func_info{.func_ = Duration, .is_pure_ = true}},
 
     // Functions for enum types
-    {"TOENUM", ToEnum},
+    {"TOENUM", func_info{.func_ = ToEnum, .is_pure_ = true}},
 
     // Functions for point types
-    {"POINT", Point},
-    {"POINT.DISTANCE", Distance},
-    {"POINT.WITHINBBOX", WithinBBox},
+    {"POINT", func_info{.func_ = Point, .is_pure_ = true}},
+    {"POINT.DISTANCE", func_info{.func_ = Distance, .is_pure_ = true}},
+    {"POINT.WITHINBBOX", func_info{.func_ = WithinBBox, .is_pure_ = true}},
 
     // Functions for internal objects
-    {"GETHOPSCOUNTER", GetHopsCounter},
+    {"GETHOPSCOUNTER", func_info{.func_ = GetHopsCounter, .is_pure_ = false}},
+
+    // User and role functions
+    {"USERNAME", func_info{.func_ = Username, .is_pure_ = false}},
+    {"ROLES", func_info{.func_ = Roles, .is_pure_ = false}},
 };
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
@@ -1956,7 +2071,7 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
   auto upper_case = utils::ToUpperCase(function_name);
   auto buildin_it = std::as_const(builtin_functions).find(upper_case);
   if (buildin_it != builtin_functions.cend()) {
-    return buildin_it->second;
+    return buildin_it->second.func_;
   }
 
   // Next lookip for user-defined function from a module
@@ -1969,6 +2084,23 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
 
   // Does not exist
   return std::monostate{};
+}
+
+bool IsFunctionPure(std::string_view function_name) {
+  // Lookup in builtin functions
+  auto upper_case = utils::ToUpperCase(function_name);
+  auto buildin_it = std::as_const(builtin_functions).find(upper_case);
+
+  if (buildin_it != builtin_functions.cend()) {
+    // Found a builtin function, return its purity status
+    return buildin_it->second.is_pure_;
+  }
+
+  // Not a builtin function (could be user-defined or non-existent)
+  // Currently, all non-builtin functions are considered not pure.
+  // This may change in the future when we have a mechanism to mark
+  // user-provided functions as pure.
+  return false;
 }
 
 }  // namespace memgraph::query

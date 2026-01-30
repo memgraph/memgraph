@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,8 +45,8 @@ TEST_P(StorageModeTest, Mode) {
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
   static_cast<memgraph::storage::InMemoryStorage *>(storage.get())->SetStorageMode(storage_mode);
-  auto creator = storage->Access();
-  auto other_analytics_mode_reader = storage->Access();
+  auto creator = storage->Access(memgraph::storage::WRITE);
+  auto other_analytics_mode_reader = storage->Access(memgraph::storage::WRITE);
 
   ASSERT_EQ(CountVertices(*creator, memgraph::storage::View::OLD), 0);
   ASSERT_EQ(CountVertices(*other_analytics_mode_reader, memgraph::storage::View::OLD), 0);
@@ -62,7 +62,7 @@ TEST_P(StorageModeTest, Mode) {
     }
   }
 
-  ASSERT_FALSE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  ASSERT_TRUE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 INSTANTIATE_TEST_SUITE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
@@ -80,10 +80,10 @@ class StorageModeMultiTxTest : public ::testing::Test {
 
   memgraph::storage::Config config{.durability.storage_directory = data_directory,
                                    .disk.main_storage_directory = data_directory / "disk"};
-
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -94,6 +94,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
   };
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
                                                           nullptr,
                                                           repl_state,
                                                           system_state
@@ -107,16 +108,16 @@ class StorageModeMultiTxTest : public ::testing::Test {
 };
 
 TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
-  bool started = false;
+  std::atomic<bool> started{false};
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
         running_interpreter.Interpret("CREATE ();");
-        started = true;
+        started.store(true, std::memory_order_release);
       },
       0);
 
   {
-    while (!started) {
+    while (!started.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
@@ -135,19 +136,19 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
   ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   main_interpreter.Interpret("BEGIN");
 
-  bool started = false;
-  bool finished = false;
+  std::atomic<bool> started{false};
+  std::atomic<bool> finished{false};
   std::jthread running_thread = std::jthread(
       [this, &started, &finished](std::stop_token st, int thread_index) {
-        started = true;
+        started.store(true, std::memory_order_release);
         // running interpreter try to change
         running_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
-        finished = true;
+        finished.store(true, std::memory_order_release);
       },
       0);
 
   {
-    while (!started) {
+    while (!started.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should not change still
@@ -155,7 +156,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
 
     main_interpreter.Interpret("COMMIT");
 
-    while (!finished) {
+    while (!finished.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should change state

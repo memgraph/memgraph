@@ -1,0 +1,8 @@
+memgraph_query: >
+  MATCH (c1:City1 {lat: -1, lon: -1}), (c5:City5)
+  CALL algo.astar(c1,c5, {distance_prop:"distance", relationships_filter: ["RIVER>"]}) YIELD path RETURN path AS result ;
+
+
+neo4j_query: >
+  MATCH (c1:City1 {lat: -1, lon: -1}), (c5:City5 {lat: 0, lon: 0})
+  CALL apoc.algo.aStar(c1, c5, "RIVER>","distance","lat","lon") YIELD path RETURN path;

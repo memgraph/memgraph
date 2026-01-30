@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,8 +55,9 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties)
     : sorted_properties_(properties.begin(), properties.end()) {
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
-  r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
-          [](auto const &value) -> decltype(auto) { return std::get<1>(value); });
+  r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{}, [](auto const &value) -> decltype(auto) {
+    return std::get<1>(value);
+  });
   position_lookup_ = std::move(inverse_permutation);
   cycles_ = build_permutation_cycles(position_lookup_);
   for (auto const &[pos, path] : ranges::views::enumerate(sorted_properties_)) {
@@ -133,7 +134,7 @@ void LabelPropertyIndex::AbortProcessor::CollectOnPropertyChange(PropertyId prop
   if (it == p2l.end()) return;
 
   for (auto const &[label, index_info] : it->second) {
-    if (!utils::Contains(vertex->labels, label)) continue;
+    if (!std::ranges::contains(vertex->labels, label)) continue;
     for (auto const &[properties, helper] : index_info) {
       auto current_values = helper->Extract(vertex->properties);
       // Only if current_values has at least one non-null value do we need to cleanup its index entry

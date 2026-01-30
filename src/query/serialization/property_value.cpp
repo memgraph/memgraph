@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,14 +52,43 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       return property_value.ValueString();
     case Type::List:
       return SerializeExternalPropertyValueVector(property_value.ValueList(), storage_acc);
+    case Type::NumericList: {
+      nlohmann::json ret = nlohmann::json::array();
+      const auto &list = property_value.ValueNumericList();
+      for (const auto &item : list) {
+        if (std::holds_alternative<int>(item)) {
+          ret.push_back(std::get<int>(item));
+        } else {
+          ret.push_back(std::get<double>(item));
+        }
+      }
+      return ret;
+    }
+    case Type::IntList: {
+      nlohmann::json ret = nlohmann::json::array();
+      const auto &list = property_value.ValueIntList();
+      for (const auto &item : list) {
+        ret.push_back(item);
+      }
+      return ret;
+    }
+    case Type::DoubleList: {
+      nlohmann::json ret = nlohmann::json::array();
+      const auto &list = property_value.ValueDoubleList();
+      for (const auto &item : list) {
+        ret.push_back(item);
+      }
+      return ret;
+    }
     case Type::Map:
       return SerializeExternalPropertyValueMap(property_value.ValueMap(), storage_acc);
     case Type::TemporalData: {
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::TEMPORAL_DATA));
-      data.emplace("value", nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
-                                                    {"microseconds", temporal_data.microseconds}}));
+      data.emplace("value",
+                   nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
+                                           {"microseconds", temporal_data.microseconds}}));
       return data;
     }
     case Type::ZonedTemporalData: {
@@ -82,7 +111,7 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       data.emplace("type", static_cast<uint64_t>(ObjectType::ENUM));
       auto enum_val = property_value.ValueEnum();
       auto enum_str = storage_acc->GetEnumStoreShared().ToString(enum_val);
-      MG_ASSERT(enum_str.HasValue(), "Unknown enum");
+      MG_ASSERT(enum_str.has_value(), "Unknown enum");
       data.emplace("value", *std::move(enum_str));
       return data;
     }
@@ -176,7 +205,7 @@ storage::ExternalPropertyValue DeserializeExternalPropertyValue(const nlohmann::
                                      utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
     case ObjectType::ENUM: {
       auto enum_val = storage_acc->GetEnumValue(data["value"].get<std::string>());
-      MG_ASSERT(enum_val.HasValue(), "Unknown enum found in the trigger storage");
+      MG_ASSERT(enum_val.has_value(), "Unknown enum found in the trigger storage");
       return storage::ExternalPropertyValue(*enum_val);
     }
     case ObjectType::POINT_2D: {

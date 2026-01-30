@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,7 @@ class ExpressionPrettyPrinterTest : public ::testing::Test {
   const std::string testSuite = "query_pretty_print";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
 
@@ -100,9 +100,10 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
   std::vector<memgraph::storage::ExternalPropertyValue> ztt_vec{
       memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
           memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration, memgraph::utils::Timezone("Etc/UTC"))),
-      memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
-          memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration_plus_1h,
-          memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+      memgraph::storage::ExternalPropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               sample_duration_plus_1h,
+                                               memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
   EXPECT_EQ(ToString(LITERAL(memgraph::storage::ExternalPropertyValue(ztt_vec))),
             "[DATETIME(\"1970-01-01T00:00:00.000003+00:00[Etc/UTC]\"), "
@@ -131,7 +132,8 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Identifiers) {
 TYPED_TEST(ExpressionPrettyPrinterTest, Reducing) {
   // all(x in list where x.prop = 42)
   auto prop = this->dba.NameToProperty("prop");
-  EXPECT_EQ(ToString(ALL("x", LITERAL(std::vector<memgraph::storage::ExternalPropertyValue>{}),
+  EXPECT_EQ(ToString(ALL("x",
+                         LITERAL(std::vector<memgraph::storage::ExternalPropertyValue>{}),
                          WHERE(EQ(PROPERTY_LOOKUP(this->dba, "x", prop), LITERAL(42))))),
             "(All (Identifier \"x\") [] (== (PropertyLookup "
             "(Identifier \"x\") [prop]) 42))");
@@ -164,8 +166,8 @@ TYPED_TEST(ExpressionPrettyPrinterTest, BinaryOperators) {
   // or(5, {hello: "there"}["hello"])
   EXPECT_EQ(ToString(OR(
                 LITERAL(5),
-                PROPERTY_LOOKUP(this->dba, MAP(std::make_pair(this->storage.GetPropertyIx("hello"), LITERAL("there"))),
-                                "hello"))),
+                PROPERTY_LOOKUP(
+                    this->dba, MAP(std::make_pair(this->storage.GetPropertyIx("hello"), LITERAL("there"))), "hello"))),
             "(Or 5 (PropertyLookup {\"hello\": \"there\"} [hello]))");
 
   // and(coalesce(null, 1), {hello: "there"})

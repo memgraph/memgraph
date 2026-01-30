@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -111,22 +111,24 @@ TEST(CoordinationUtils, MTFailover1) {
                                             InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
                                             InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30}},
                     .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 57},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 33},
-                                      },
-                                  .last_committed_system_timestamp = 1
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 57},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 33},
+                        },
+                    .last_committed_system_timestamp = 1
 
-                     }},
-      {"instance_3", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 12},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 56},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 31},
-                                      },
-                                  .last_committed_system_timestamp = 1}},
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 12},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 56},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 31},
+                        },
+                    .last_committed_system_timestamp = 1}},
 
   };
 
@@ -149,22 +151,24 @@ TEST(CoordinationUtils, MTFailover2) {
                                             InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
                                             InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30}},
                     .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 57},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 33},
-                                      },
-                                  .last_committed_system_timestamp = 1
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 57},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 33},
+                        },
+                    .last_committed_system_timestamp = 1
 
-                     }},
-      {"instance_3", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 0},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 58},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 36},
-                                      },
-                                  .last_committed_system_timestamp = 1}},
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 0},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 58},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 36},
+                        },
+                    .last_committed_system_timestamp = 1}},
 
   };
 
@@ -189,22 +193,24 @@ TEST(CoordinationUtils, MTFailover3) {
                                             InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
                                             InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30}},
                     .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 57},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 33},
-                                      },
-                                  .last_committed_system_timestamp = 1
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 57},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 33},
+                        },
+                    .last_committed_system_timestamp = 1
 
-                     }},
-      {"instance_3", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 0},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 55},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 34},
-                                      },
-                                  .last_committed_system_timestamp = 1}},
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 0},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 55},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 34},
+                        },
+                    .last_committed_system_timestamp = 1}},
 
   };
 
@@ -228,22 +234,24 @@ TEST(CoordinationUtils, MTFailover4) {
                                             InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
                                             InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30}},
                     .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 29},
-                                      },
-                                  .last_committed_system_timestamp = 1
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 29},
+                        },
+                    .last_committed_system_timestamp = 1
 
-                     }},
-      {"instance_3", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 28},
-                                      },
-                                  .last_committed_system_timestamp = 1}},
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 15},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 51},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 28},
+                        },
+                    .last_committed_system_timestamp = 1}},
 
   };
 
@@ -270,22 +278,24 @@ TEST(CoordinationUtils, MTFailover5) {
                                             InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 19},
                                             InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30}},
                     .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 10},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 25},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30},
-                                      },
-                                  .last_committed_system_timestamp = 1
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 10},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 25},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30},
+                        },
+                    .last_committed_system_timestamp = 1
 
-                     }},
-      {"instance_3", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 8},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 8},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30},
-                                      },
-                                  .last_committed_system_timestamp = 1}},
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 8},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 8},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 30},
+                        },
+                    .last_committed_system_timestamp = 1}},
 
   };
 
@@ -310,12 +320,13 @@ TEST(CoordinationUtils, MTFailover6) {
        InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
                                             InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 19}},
                     .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 10},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 24},
-                                      },
-                                  .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 10},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 24},
+                        },
+                    .last_committed_system_timestamp = 1}},
   };
 
   auto const maybe_instance_name =
@@ -337,12 +348,13 @@ TEST(CoordinationUtils, MTFailover7) {
        InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
                                             InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 10}},
                     .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 10},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 16},
-                                      },
-                                  .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 10},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 16},
+                        },
+                    .last_committed_system_timestamp = 1}},
   };
 
   auto const maybe_instance_name =
@@ -361,19 +373,21 @@ TEST(CoordinationUtils, MTFailover8) {
   auto const db_b = std::string{memgraph::utils::UUID()};
 
   std::map<std::string, InstanceInfo> instances_info{
-      {"instance_1", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 20},
+      {"instance_1",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 20},
 
-                                      },
-                                  .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
-                                          InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 20},
-                                      },
-                                  .last_committed_system_timestamp = 2}},
+                        },
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
+                            InstanceDBInfo{.db_uuid = db_b, .num_committed_txns = 20},
+                        },
+                    .last_committed_system_timestamp = 2}},
   };
 
   auto const maybe_instance_name =
@@ -390,18 +404,20 @@ TEST(CoordinationUtils, MTFailover9) {
   auto const db_a = std::string{memgraph::utils::UUID()};
 
   std::map<std::string, InstanceInfo> instances_info{
-      {"instance_1", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
-                                          InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 20},
+      {"instance_1",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 16},
+                            InstanceDBInfo{.db_uuid = db_a, .num_committed_txns = 20},
 
-                                      },
-                                  .last_committed_system_timestamp = 1}},
-      {"instance_2", InstanceInfo{.dbs_info =
-                                      std::vector{
-                                          InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 17},
-                                      },
-                                  .last_committed_system_timestamp = 2}},
+                        },
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info =
+                        std::vector{
+                            InstanceDBInfo{.db_uuid = default_db_uuid, .num_committed_txns = 17},
+                        },
+                    .last_committed_system_timestamp = 2}},
   };
 
   auto const maybe_instance_name =

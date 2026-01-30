@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,29 +22,32 @@ namespace memgraph::storage {
 struct Vertex;
 
 struct Edge {
-  Edge(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
+  Edge(Gid gid, Delta *delta) : gid(gid), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Edge must be created with an initial DELETE_OBJECT delta!");
   }
 
-  Gid gid;
+  Gid gid{};
 
-  PropertyStore properties;
+  PropertyStore properties{};
 
   mutable utils::RWSpinLock lock;
-  bool deleted;
+  bool deleted{false};
   // uint8_t PAD;
   // uint16_t PAD;
 
-  Delta *delta;
+  Delta *delta{};
 };
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
 
 inline bool operator==(const Edge &first, const Edge &second) { return first.gid == second.gid; }
+
 inline bool operator<(const Edge &first, const Edge &second) { return first.gid < second.gid; }
+
 inline bool operator==(const Edge &first, const Gid &second) { return first.gid == second; }
+
 inline bool operator<(const Edge &first, const Gid &second) { return first.gid < second; }
 
 struct EdgeMetadata {
@@ -57,8 +60,11 @@ struct EdgeMetadata {
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
 
 inline bool operator==(const EdgeMetadata &first, const EdgeMetadata &second) { return first.gid == second.gid; }
+
 inline bool operator<(const EdgeMetadata &first, const EdgeMetadata &second) { return first.gid < second.gid; }
+
 inline bool operator==(const EdgeMetadata &first, const Gid &second) { return first.gid == second; }
+
 inline bool operator<(const EdgeMetadata &first, const Gid &second) { return first.gid < second; }
 
 }  // namespace memgraph::storage

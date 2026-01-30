@@ -162,3 +162,43 @@ Feature: ListComprehension
         Then the result should be:
             | id |
             | 1  |
+
+    Scenario: List comprehension aggregation correctness test with only a list and an identifier
+        Given an empty graph
+        When executing query:
+            """
+            RETURN collect({a: 2, label: [x in [0]]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
+
+    Scenario: List comprehension aggregation correctness test with a where clause
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 as y RETURN collect({a: 2, label: [x in [0] where x = 0 and y = 1]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
+
+    Scenario: List comprehension aggregation correctness test with an expression
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 as y RETURN collect({a: 2, label: [x in [0] | x*x]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
+
+    Scenario: List comprehension aggregation correctness test with a where clause and an expression
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 as y RETURN collect({a: 2, label: [x in [0] where x = 0 and y = 1 | x*x]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |

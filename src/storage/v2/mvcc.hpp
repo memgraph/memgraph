@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,10 +15,9 @@
 #include <cstdint>
 #include <optional>
 
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::storage {
@@ -100,7 +99,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
-  transaction->must_abort = true;
+  transaction->has_serialization_error = true;
   return false;
 }
 
@@ -115,8 +114,8 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   }
   transaction->EnsureCommitTimestampExists();
 
-  return &transaction->deltas.emplace(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                      transaction->command_id);
+  return &transaction->deltas.emplace(
+      Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
@@ -162,8 +161,8 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   }
 
   transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.emplace(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
-                                            transaction->command_id);
+  auto delta = &transaction->deltas.emplace(
+      std::forward<Args>(args)..., transaction->commit_timestamp.get(), transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

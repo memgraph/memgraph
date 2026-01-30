@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,12 +22,13 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "glue/auth_global.hpp"
 #include "license/license.hpp"
-#include "utils/cast.hpp"
 #include "utils/file.hpp"
 
 #include <boost/dll/runtime_symbol_info.hpp>
+#include <nlohmann/json.hpp>
 
 using namespace memgraph::auth;
+using namespace std::literals;
 namespace fs = std::filesystem;
 
 DECLARE_string(password_encryption_algorithm);
@@ -58,6 +59,21 @@ class V1Auth : public ::testing::Test {
   void TearDown() override {}
 
   fs::path test_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v1"};
+  Auth::Config auth_config{};
+  std::optional<Auth> auth{};
+};
+
+class V2Auth : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    memgraph::utils::EnsureDir(test_folder);
+    memgraph::license::global_license_checker.EnableTesting();
+    auth.emplace(test_folder, auth_config);
+  }
+
+  void TearDown() override {}
+
+  fs::path test_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v2"};
   Auth::Config auth_config{};
   std::optional<Auth> auth{};
 };
@@ -165,7 +181,8 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
 
   // Assign permissions to role and role to user.
   role->permissions().Grant(Permission::DELETE);
-  user->SetRole(*role);
+  user->ClearAllRoles();
+  user->AddRole(*role);
 
   // Check permissions.
   {
@@ -178,7 +195,8 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
 
   // Add explicit deny to role.
   role->permissions().Deny(Permission::MATCH);
-  user->SetRole(*role);
+  user->ClearAllRoles();
+  user->AddRole(*role);
 
   // Check permissions.
   {
@@ -207,27 +225,66 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
             user->GetFineGrainedAccessEdgeTypePermissions());
 
   // Grant one label to user .
-  user->fine_grained_access_handler().label_permissions().Grant("labelTest", FineGrainedPermission::CREATE_DELETE);
+  user->fine_grained_access_handler().label_permissions().Grant({"labelTest"s}, FineGrainedPermission::CREATE);
+  user->fine_grained_access_handler().label_permissions().Grant({"labelTest"s}, FineGrainedPermission::UPDATE);
   // Grant one edge type to user .
-  user->fine_grained_access_handler().edge_type_permissions().Grant("edgeTypeTest",
-                                                                    FineGrainedPermission::CREATE_DELETE);
+  user->fine_grained_access_handler().edge_type_permissions().Grant({"edgeTypeTest"s}, FineGrainedPermission::READ);
+  user->fine_grained_access_handler().edge_type_permissions().Grant({"edgeTypeTest"s}, FineGrainedPermission::DELETE);
 
   // Check permissions.
-  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest", FineGrainedPermission::READ),
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest"s},
+                                                                        FineGrainedPermission::CREATE),
             PermissionLevel::GRANT);
-  ASSERT_EQ(
-      user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest", FineGrainedPermission::READ),
-      PermissionLevel::GRANT);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest"s},
+                                                                        FineGrainedPermission::READ),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest"s},
+                                                                        FineGrainedPermission::UPDATE),
+            PermissionLevel::GRANT);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest"s},
+                                                                        FineGrainedPermission::DELETE),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest"s},
+                                                                            FineGrainedPermission::CREATE),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest"s},
+                                                                            FineGrainedPermission::READ),
+            PermissionLevel::GRANT);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest"s},
+                                                                            FineGrainedPermission::UPDATE),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest"s},
+                                                                            FineGrainedPermission::DELETE),
+            PermissionLevel::GRANT);
   ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
   ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
             user->GetFineGrainedAccessEdgeTypePermissions());
 
-  // Check permissions.
-  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest1", FineGrainedPermission::READ),
+  // Check permissions on labels and edge types to which the user has no privileges
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest1"s},
+                                                                        FineGrainedPermission::CREATE),
             PermissionLevel::DENY);
-  ASSERT_EQ(
-      user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest1", FineGrainedPermission::READ),
-      PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest1"s},
+                                                                        FineGrainedPermission::READ),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest1"s},
+                                                                        FineGrainedPermission::UPDATE),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has(std::array{"labelTest1"s},
+                                                                        FineGrainedPermission::DELETE),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest1"s},
+                                                                            FineGrainedPermission::CREATE),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest1"s},
+                                                                            FineGrainedPermission::READ),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest1"s},
+                                                                            FineGrainedPermission::UPDATE),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has(std::array{"edgeTypeTest1"s},
+                                                                            FineGrainedPermission::DELETE),
+            PermissionLevel::DENY);
   ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
   ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
             user->GetFineGrainedAccessEdgeTypePermissions());
@@ -237,27 +294,71 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
   auto role = auth->GetRole("admin");
   ASSERT_NE(role, std::nullopt);
 
-  // Grant label and edge type to role and role to user.
-  role->fine_grained_access_handler().label_permissions().Grant("roleLabelTest", FineGrainedPermission::CREATE_DELETE);
-  role->fine_grained_access_handler().edge_type_permissions().Grant("roleEdgeTypeTest",
-                                                                    FineGrainedPermission::CREATE_DELETE);
-  user->SetRole(*role);
+  // Grant label and edge type to role, and role to user.
+  role->fine_grained_access_handler().label_permissions().Grant({"roleLabelTest"s}, FineGrainedPermission::CREATE);
+  role->fine_grained_access_handler().label_permissions().Grant({"roleLabelTest"s}, FineGrainedPermission::READ);
+  role->fine_grained_access_handler().edge_type_permissions().Grant({"roleEdgeTypeTest"s},
+                                                                    FineGrainedPermission::UPDATE);
+  role->fine_grained_access_handler().edge_type_permissions().Grant({"roleEdgeTypeTest"s},
+                                                                    FineGrainedPermission::DELETE);
+  user->AddRole(*role);
 
   // Check permissions.
   {
-    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest", FineGrainedPermission::READ),
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest"s}, FineGrainedPermission::CREATE),
+        PermissionLevel::GRANT);
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest"s}, FineGrainedPermission::READ),
+        PermissionLevel::GRANT);
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest"s}, FineGrainedPermission::UPDATE),
+        PermissionLevel::DENY);
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest"s}, FineGrainedPermission::DELETE),
+        PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest"s},
+                                                                  FineGrainedPermission::CREATE),
+              PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest"s},
+                                                                  FineGrainedPermission::READ),
+              PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest"s},
+                                                                  FineGrainedPermission::UPDATE),
               PermissionLevel::GRANT);
-    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest", FineGrainedPermission::READ),
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest"s},
+                                                                  FineGrainedPermission::DELETE),
               PermissionLevel::GRANT);
   }
 
-  user->SetRole(*role);
+  user->ClearAllRoles();
+  user->AddRole(*role);
 
-  // Check permissions.
+  // Check silent deny permissions against labels to which the role has no privileges.
   {
-    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest1", FineGrainedPermission::READ),
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest1"s}, FineGrainedPermission::CREATE),
+        PermissionLevel::DENY);
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest1"s}, FineGrainedPermission::READ),
+        PermissionLevel::DENY);
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest1"s}, FineGrainedPermission::UPDATE),
+        PermissionLevel::DENY);
+    ASSERT_EQ(
+        user->GetFineGrainedAccessLabelPermissions().Has(std::array{"roleLabelTest1"s}, FineGrainedPermission::DELETE),
+        PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest1"s},
+                                                                  FineGrainedPermission::CREATE),
               PermissionLevel::DENY);
-    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1", FineGrainedPermission::READ),
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest1"s},
+                                                                  FineGrainedPermission::READ),
+              PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest1"s},
+                                                                  FineGrainedPermission::UPDATE),
+              PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has(std::array{"roleEdgeTypeTest1"s},
+                                                                  FineGrainedPermission::DELETE),
               PermissionLevel::DENY);
   }
 }
@@ -274,14 +375,22 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
   ASSERT_TRUE(role3);
 
   // Grant different fine-grained permissions to each role
-  role1->fine_grained_access_handler().label_permissions().Grant("label1", FineGrainedPermission::CREATE_DELETE);
-  role1->fine_grained_access_handler().edge_type_permissions().Grant("edge1", FineGrainedPermission::READ);
+  role1->fine_grained_access_handler().label_permissions().Grant({"label1"s}, FineGrainedPermission::CREATE);
+  role1->fine_grained_access_handler().label_permissions().Grant({"label1"s}, FineGrainedPermission::READ);
+  role1->fine_grained_access_handler().label_permissions().Grant({"label1"s}, FineGrainedPermission::UPDATE);
+  role1->fine_grained_access_handler().label_permissions().Grant({"label1"s}, FineGrainedPermission::DELETE);
+  role1->fine_grained_access_handler().edge_type_permissions().Grant({"edge1"s}, FineGrainedPermission::READ);
 
-  role2->fine_grained_access_handler().label_permissions().Grant("label2", FineGrainedPermission::UPDATE);
-  role2->fine_grained_access_handler().edge_type_permissions().Grant("edge2", FineGrainedPermission::CREATE_DELETE);
+  role2->fine_grained_access_handler().label_permissions().Grant({"label2"s}, FineGrainedPermission::READ);
+  role2->fine_grained_access_handler().label_permissions().Grant({"label2"s}, FineGrainedPermission::UPDATE);
+  role2->fine_grained_access_handler().edge_type_permissions().Grant({"edge2"s}, FineGrainedPermission::CREATE);
+  role2->fine_grained_access_handler().edge_type_permissions().Grant({"edge2"s}, FineGrainedPermission::READ);
+  role2->fine_grained_access_handler().edge_type_permissions().Grant({"edge2"s}, FineGrainedPermission::UPDATE);
+  role2->fine_grained_access_handler().edge_type_permissions().Grant({"edge2"s}, FineGrainedPermission::DELETE);
 
-  role3->fine_grained_access_handler().label_permissions().Grant("label3", FineGrainedPermission::READ);
-  role3->fine_grained_access_handler().edge_type_permissions().Grant("edge3", FineGrainedPermission::UPDATE);
+  role3->fine_grained_access_handler().label_permissions().Grant({"label3"s}, FineGrainedPermission::READ);
+  role3->fine_grained_access_handler().edge_type_permissions().Grant({"edge3"s}, FineGrainedPermission::READ);
+  role3->fine_grained_access_handler().edge_type_permissions().Grant({"edge3"s}, FineGrainedPermission::UPDATE);
 
   // Grant database access to roles
   role1->db_access().Grant("db1");
@@ -356,13 +465,13 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     auto all_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions();
 
     // Should have permissions from all roles
-    ASSERT_EQ(all_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(all_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(all_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_label_perms.Has(std::array{"label1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_label_perms.Has(std::array{"label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_label_perms.Has(std::array{"label3"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
 
-    ASSERT_EQ(all_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(all_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(all_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_edge_perms.Has(std::array{"edge1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_edge_perms.Has(std::array{"edge2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_edge_perms.Has(std::array{"edge3"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   // Test 2: Filter by db1 - should only include role1
@@ -371,13 +480,13 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     auto db1_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db1");
 
     // Should have permissions from role1 only
-    ASSERT_EQ(db1_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(db1_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db1_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_label_perms.Has(std::array{"label1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_label_perms.Has(std::array{"label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_label_perms.Has(std::array{"label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
 
-    ASSERT_EQ(db1_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(db1_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db1_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_edge_perms.Has(std::array{"edge1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_edge_perms.Has(std::array{"edge2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_edge_perms.Has(std::array{"edge3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   // Test 3: Filter by db2 - should only include role2
@@ -386,13 +495,13 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     auto db2_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db2");
 
     // Should have permissions from role2 only
-    ASSERT_EQ(db2_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db2_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(db2_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db2_label_perms.Has(std::array{"label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db2_label_perms.Has(std::array{"label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db2_label_perms.Has(std::array{"label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
 
-    ASSERT_EQ(db2_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db2_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(db2_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db2_edge_perms.Has(std::array{"edge1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db2_edge_perms.Has(std::array{"edge2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db2_edge_perms.Has(std::array{"edge3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   // Test 4: Filter by db3 - should only include role3
@@ -401,13 +510,13 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     auto db3_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db3");
 
     // Should have permissions from role3 only
-    ASSERT_EQ(db3_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db3_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db3_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db3_label_perms.Has(std::array{"label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_label_perms.Has(std::array{"label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_label_perms.Has(std::array{"label3"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
 
-    ASSERT_EQ(db3_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db3_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db3_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db3_edge_perms.Has(std::array{"edge1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_edge_perms.Has(std::array{"edge2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_edge_perms.Has(std::array{"edge3"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   // Test 5: Filter by non-existent database - should have no permissions
@@ -416,34 +525,40 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     auto none_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("nonexistent");
 
     // Should have no permissions since no roles grant access to this database
-    ASSERT_EQ(none_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(none_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(none_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_label_perms.Has(std::array{"label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_label_perms.Has(std::array{"label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_label_perms.Has(std::array{"label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
 
-    ASSERT_EQ(none_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(none_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(none_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_edge_perms.Has(std::array{"edge1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_edge_perms.Has(std::array{"edge2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_edge_perms.Has(std::array{"edge3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   // Test 6: Test with user's own fine-grained permissions
   {
     // Grant user's own permissions
-    user->fine_grained_access_handler().label_permissions().Grant("user_label", FineGrainedPermission::CREATE_DELETE);
-    user->fine_grained_access_handler().edge_type_permissions().Grant("user_edge", FineGrainedPermission::UPDATE);
+    user->fine_grained_access_handler().label_permissions().Grant({"user_label"s}, FineGrainedPermission::READ);
+    user->fine_grained_access_handler().edge_type_permissions().Grant({"user_edge"s}, FineGrainedPermission::UPDATE);
 
     // Test that user's own permissions are always included regardless of database filter
     auto db1_perms = user->GetFineGrainedAccessLabelPermissions("db1");
     auto db1_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db1");
 
-    ASSERT_EQ(db1_perms.Has("user_label", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(db1_edge_perms.Has("user_edge", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_perms.Has(std::array{"user_label"s}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(db1_perms.Has(std::array{"user_label"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_perms.Has(std::array{"user_label"s}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(db1_perms.Has(std::array{"user_label"s}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(db1_edge_perms.Has(std::array{"user_edge"s}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(db1_edge_perms.Has(std::array{"user_edge"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_edge_perms.Has(std::array{"user_edge"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_edge_perms.Has(std::array{"user_edge"s}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
 
     // Test with non-existent database - user permissions should still be included
     auto none_perms = user->GetFineGrainedAccessLabelPermissions("nonexistent");
     auto none_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("nonexistent");
 
-    ASSERT_EQ(none_perms.Has("user_label", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(none_edge_perms.Has("user_edge", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(none_perms.Has(std::array{"user_label"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_edge_perms.Has(std::array{"user_edge"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   // Test 7: Test role-specific methods with database filtering
@@ -452,13 +567,13 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     auto db1_role_edge_perms = user->GetRoleFineGrainedAccessEdgeTypePermissions("db1");
 
     // Should only include role1 permissions
-    ASSERT_EQ(db1_role_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(db1_role_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db1_role_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_role_label_perms.Has(std::array{"label1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_role_label_perms.Has(std::array{"label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_role_label_perms.Has(std::array{"label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
 
-    ASSERT_EQ(db1_role_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(db1_role_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(db1_role_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_role_edge_perms.Has(std::array{"edge1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_role_edge_perms.Has(std::array{"edge2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_role_edge_perms.Has(std::array{"edge3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   // Test 8: Test GetPermissions with database filtering
@@ -685,7 +800,8 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     ASSERT_FALSE(user->CanImpersonate(*target_user, "db1"));
   }
 }
-#endif
+
+#endif  // MG_ENTERPRISE
 
 TEST_F(AuthWithStorage, RoleManipulations) {
   {
@@ -693,14 +809,16 @@ TEST_F(AuthWithStorage, RoleManipulations) {
     ASSERT_TRUE(user1);
     auto role1 = auth->AddRole("role1");
     ASSERT_TRUE(role1);
-    user1->SetRole(*role1);
+    user1->ClearAllRoles();
+    user1->AddRole(*role1);
     auth->SaveUser(*user1);
 
     auto user2 = auth->AddUser("user2");
     ASSERT_TRUE(user2);
     auto role2 = auth->AddRole("role2");
     ASSERT_TRUE(role2);
-    user2->SetRole(*role2);
+    user2->ClearAllRoles();
+    user2->AddRole(*role2);
     auth->SaveUser(*user2);
   }
 
@@ -782,7 +900,8 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
     ASSERT_TRUE(user);
     auto role = auth->AddRole("role");
     ASSERT_TRUE(role);
-    user->SetRole(*role);
+    user->ClearAllRoles();
+    user->AddRole(*role);
     auth->SaveUser(*user);
   }
 
@@ -910,7 +1029,7 @@ TEST(AuthWithoutStorage, Permissions) {
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.denies(), 0);
 
   permissions.Revoke(Permission::MATCH);
@@ -920,37 +1039,36 @@ TEST(AuthWithoutStorage, Permissions) {
 
   permissions.Deny(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.grants(), 0);
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.denies(), 0);
 
   permissions.Deny(Permission::CREATE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Grant(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(),
-            memgraph::utils::UnderlyingCast(Permission::MATCH) | memgraph::utils::UnderlyingCast(Permission::DELETE));
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH) | std::to_underlying(Permission::DELETE));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Revoke(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
-  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
 }
 
 TEST(AuthWithoutStorage, PermissionsMaskTest) {
@@ -988,14 +1106,15 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Grant({any_label}, FineGrainedPermission::DELETE);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
     ASSERT_FALSE(fga_permissions.GetPermissions().empty());
@@ -1003,25 +1122,32 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::CREATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
 
-    ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), static_cast<uint64_t>(kAllPermissions));
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
-    fga_permissions.Revoke(any_label);
+    fga_permissions.GrantGlobal(FineGrainedPermission::CREATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
+    // Test that revoking a label-specific permission doesn't affect global permissions
+    fga_permissions.Revoke({any_label}, FineGrainedPermission::CREATE, MatchingMode::ANY);
 
-    ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), static_cast<uint64_t>(kAllPermissions));
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
-    fga_permissions.Revoke(any_label);
+    fga_permissions.Grant({any_label}, FineGrainedPermission::DELETE);
+    fga_permissions.Revoke({any_label}, FineGrainedPermission::DELETE, MatchingMode::ANY);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
@@ -1029,8 +1155,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
-    fga_permissions.Revoke(asterisk);
+    fga_permissions.Grant({any_label}, FineGrainedPermission::CREATE);
+    fga_permissions.RevokeAll();
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
@@ -1038,112 +1164,338 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::CREATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, FineGrainedPermission::UPDATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::CREATE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions.Grant({check_label}, FineGrainedPermission::READ);
+    fga_permissions.Grant({check_label}, FineGrainedPermission::UPDATE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{non_check_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{non_check_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{non_check_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{non_check_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, FineGrainedPermission::READ);
-    fga_permissions.Grant(check_label, FineGrainedPermission::UPDATE);
+    fga_permissions.Grant({check_label}, FineGrainedPermission::READ);
+    fga_permissions.Grant({check_label}, FineGrainedPermission::UPDATE);
+    fga_permissions.Grant({check_label}, FineGrainedPermission::DELETE);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    fga_permissions.Revoke({check_label}, FineGrainedPermission::UPDATE);
+
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::CREATE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
+
+    fga_permissions.RevokeGlobal(FineGrainedPermission::DELETE);
+
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant({check_label}, FineGrainedPermission::READ);
+
+    fga_permissions.Revoke({check_label}, FineGrainedPermission::READ);
+
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant({check_label}, FineGrainedPermission::READ);
+
+    fga_permissions.Revoke({check_label}, FineGrainedPermission::UPDATE);
+
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant({check_label}, FineGrainedPermission::READ);
+    fga_permissions.Grant({check_label}, FineGrainedPermission::UPDATE);
+    fga_permissions.Grant({check_label}, FineGrainedPermission::DELETE);
+
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(std::array{check_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
   }
 }
 
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
-  const auto *any_label = "AnyString";
-  const auto *check_label = "Label";
-  const auto *asterisk = "*";
+  const std::string any_label = "AnyString";
+  const std::string check_label = "Label";
+  const std::string asterisk = "*";
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions1.GrantGlobal(FineGrainedPermission::READ);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions2.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions2.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions2.GrantGlobal(FineGrainedPermission::CREATE);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
-    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
+    fga_permissions1.GrantGlobal(FineGrainedPermission::CREATE);
+    fga_permissions2.GrantGlobal(FineGrainedPermission::UPDATE);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
-    fga_permissions1.Grant(check_label, FineGrainedPermission::UPDATE);
-    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
+    fga_permissions1.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions1.Grant({check_label}, FineGrainedPermission::UPDATE);
+    fga_permissions2.GrantGlobal(FineGrainedPermission::DELETE);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
-    fga_permissions1.Grant(check_label, FineGrainedPermission::CREATE_DELETE);
-    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
-    fga_permissions2.Grant(check_label, FineGrainedPermission::READ);
+    fga_permissions1.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions1.Grant({check_label}, FineGrainedPermission::CREATE);
+    fga_permissions2.GrantGlobal(FineGrainedPermission::UPDATE);
+    fga_permissions2.Grant({check_label}, FineGrainedPermission::READ);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.Grant({check_label}, FineGrainedPermission::READ);
+    fga_permissions2.Grant({check_label}, FineGrainedPermission::NOTHING);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{check_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.GrantGlobal(FineGrainedPermission::READ);
+    fga_permissions2.GrantGlobal(FineGrainedPermission::NOTHING);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
 }
-#endif
+
+TEST(AuthWithFineGrainedTest, NoPermissionsNeededForUnlabelledNodes) {
+  FineGrainedAccessPermissions label_perms, edge_perms;
+
+  label_perms.Grant({"Person"}, FineGrainedPermission::CREATE);
+
+  ASSERT_EQ(label_perms.Has(std::span<const std::string>{}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithFineGrainedTest, MultipleMatchingModesOnSameLabel) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Person"}, FineGrainedPermission::READ, MatchingMode::EXACTLY);
+  perms.Grant({"Person", "Employee"}, FineGrainedPermission::UPDATE, MatchingMode::ANY);
+
+  ASSERT_EQ(perms.Has(std::array{"Person"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Person"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Employee"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Employee"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+
+  ASSERT_EQ(perms.Has(std::array{"Employee"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  ASSERT_EQ(perms.Has(std::array{"Employee"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithFineGrainedTest, MultipleExactlyRulesForSamePermission) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Person", "Actor"}, FineGrainedPermission::READ, MatchingMode::EXACTLY);
+  perms.Grant({"Person", "Director"}, FineGrainedPermission::READ, MatchingMode::EXACTLY);
+
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Actor"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Director"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Person"s, "Actor"s, "Director"s}, FineGrainedPermission::READ),
+            PermissionLevel::DENY);
+}
+
+TEST(AuthWithFineGrainedTest, UniversalRevokeRemovesNothingRules) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Label1"}, FineGrainedPermission::READ);
+  perms.Grant({"Label2"}, FineGrainedPermission::NOTHING);
+
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.RevokeAll();
+
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.Grant({"Label2"}, FineGrainedPermission::READ);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithFineGrainedTest, RevokeNothingBehavior) {
+  FineGrainedAccessPermissions perms;
+
+  perms.Grant({"Label1"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  perms.Revoke({"Label1"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.Grant({"Label2"}, FineGrainedPermission::READ);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  perms.Revoke({"Label2"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+  perms.Grant({"Label3"}, FineGrainedPermission::NOTHING);
+  ASSERT_EQ(perms.Has(std::array{"Label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+  perms.Revoke({"Label3"}, FineGrainedPermission::READ);
+  ASSERT_EQ(perms.Has(std::array{"Label3"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
+
+  perms.GrantGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(perms.GetGlobalPermission().value(), 0);
+  perms.RevokeGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_FALSE(perms.GetGlobalPermission().has_value());
+
+  perms.GrantGlobal(FineGrainedPermission::READ);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  perms.RevokeGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+
+  perms.GrantGlobal(FineGrainedPermission::NOTHING);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(perms.GetGlobalPermission().value(), 0);
+  perms.RevokeGlobal(FineGrainedPermission::READ);
+  ASSERT_TRUE(perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(perms.GetGlobalPermission().value(), 0);
+}
+
+TEST(AuthWithFineGrainedTest, FineGrainedAccessPermissionsSerializeDeserialize) {
+  FineGrainedAccessPermissions label_perms;
+  FineGrainedAccessPermissions edge_perms;
+
+  label_perms.Grant({"Person"}, FineGrainedPermission::READ, MatchingMode::ANY);
+  label_perms.Grant({"Employee", "Manager"}, FineGrainedPermission::UPDATE, MatchingMode::ANY);
+  label_perms.Grant({"Admin"}, FineGrainedPermission::CREATE, MatchingMode::EXACTLY);
+  label_perms.Grant({"User", "Active"}, FineGrainedPermission::DELETE, MatchingMode::EXACTLY);
+
+  edge_perms.Grant({"KNOWS"}, FineGrainedPermission::READ);
+  edge_perms.Grant({"MANAGES", "SUPERVISES"}, FineGrainedPermission::UPDATE);
+
+  auto label_data = label_perms.Serialize();
+  auto edge_data = edge_perms.Serialize();
+
+  auto label_output = FineGrainedAccessPermissions::Deserialize(label_data);
+  auto edge_output = FineGrainedAccessPermissions::Deserialize(edge_data);
+
+  ASSERT_EQ(label_perms, label_output);
+  ASSERT_EQ(edge_perms, edge_output);
+
+  ASSERT_EQ(label_output.Has(std::array{"Person"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Person"s, "Employee"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+  ASSERT_EQ(label_output.Has(std::array{"Employee"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Manager"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Employee"s, "Manager"s}, FineGrainedPermission::UPDATE),
+            PermissionLevel::GRANT);
+
+  ASSERT_EQ(label_output.Has(std::array{"Admin"s}, FineGrainedPermission::CREATE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"Admin"s, "SuperAdmin"s}, FineGrainedPermission::CREATE),
+            PermissionLevel::DENY);
+
+  ASSERT_EQ(label_output.Has(std::array{"User"s, "Active"s}, FineGrainedPermission::DELETE), PermissionLevel::GRANT);
+  ASSERT_EQ(label_output.Has(std::array{"User"s}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  ASSERT_EQ(label_output.Has(std::array{"User"s, "Active"s, "Premium"s}, FineGrainedPermission::DELETE),
+            PermissionLevel::DENY);
+
+  ASSERT_EQ(edge_output.Has(std::array{"KNOWS"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+  ASSERT_EQ(edge_output.Has(std::array{"MANAGES"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+  ASSERT_EQ(edge_output.Has(std::array{"SUPERVISES"s}, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+}
+#endif  // MG_ENTERPRISE
 
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
   auto user = User("test");
@@ -1191,7 +1543,8 @@ TEST_F(AuthWithStorage, UserWithRoleSerializeDeserialize) {
   user->permissions().Grant(Permission::MATCH);
   user->permissions().Deny(Permission::MERGE);
   user->UpdatePassword("world");
-  user->SetRole(*role);
+  user->ClearAllRoles();
+  user->AddRole(*role);
   auth->SaveUser(*user);
 
   auto new_user = auth->GetUser("user");
@@ -1439,7 +1792,8 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto role = auth->GetRole("moderAtor");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
-    user->SetRole(*role);
+    user->ClearAllRoles();
+    user->AddRole(*role);
     auth->SaveUser(*user);
   }
   {
@@ -1462,9 +1816,11 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto admin = auth->GetRole("aDMin");
     ASSERT_TRUE(admin);
     ASSERT_EQ(admin->rolename(), "admin");
-    carol->SetRole(*admin);
+    carol->ClearAllRoles();
+    carol->AddRole(*admin);
     auth->SaveUser(*carol);
-    dave->SetRole(*admin);
+    dave->ClearAllRoles();
+    dave->AddRole(*admin);
     auth->SaveUser(*dave);
   }
   {
@@ -1647,7 +2003,8 @@ TEST_F(AuthWithStorage, UserImpersonationWRole) {
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
   // user should have the same provoledges as its role
-  user->SetRole(*admin);
+  user->ClearAllRoles();
+  user->AddRole(*admin);
   ASSERT_FALSE(user->CanImpersonate(*user));
   ASSERT_TRUE(user->CanImpersonate(*another_user));
 
@@ -1678,7 +2035,8 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
   auto admin = auth->GetUser("admin");
   ASSERT_TRUE(admin);
   admin->permissions().Grant(Permission::IMPERSONATE_USER);
-  admin->SetRole(*admin_role);
+  admin->ClearAllRoles();
+  admin->AddRole(*admin_role);
   ASSERT_FALSE(admin->CanImpersonate(*user));
   ASSERT_FALSE(admin->CanImpersonate(*another_user));
 
@@ -1689,7 +2047,8 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
 
   // allow role to impersonate "user"
   admin_role->GrantUserImp({*user});
-  admin->SetRole(*admin_role);  // update role
+  admin->ClearAllRoles();
+  admin->AddRole(*admin_role);  // update role
   ASSERT_TRUE(admin->CanImpersonate(*user));
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
@@ -1700,13 +2059,15 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
 
   // deny role to impersonate "user"
   admin_role->DenyUserImp({*user});
-  admin->SetRole(*admin_role);  // update role
+  admin->ClearAllRoles();
+  admin->AddRole(*admin_role);  // update role
   ASSERT_FALSE(admin->CanImpersonate(*user));
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
   // allow role to impersonate anyone
   admin_role->GrantUserImp();
-  admin->SetRole(*admin_role);  // update role
+  admin->ClearAllRoles();
+  admin->AddRole(*admin_role);  // update role
   ASSERT_TRUE(admin->CanImpersonate(*user));
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
@@ -1716,7 +2077,7 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
   ASSERT_FALSE(admin->CanImpersonate(*another_user));
 }
 
-TEST_F(V1Auth, MigrationTest) {
+TEST_F(V1Auth, MigrationTestV1ToV2) {
   // Check if migration was successful
   ASSERT_TRUE(auth->HasUsers());
   ASSERT_FALSE(auth->AllRoles().empty());
@@ -1742,9 +2103,45 @@ TEST_F(V1Auth, MigrationTest) {
   ASSERT_EQ(user2->roles().rolenames().front(), "role2");
 }
 
-#endif
+TEST_F(V2Auth, MigrationTestV2ToV3) {
+  ASSERT_TRUE(auth->HasUsers());
+  ASSERT_FALSE(auth->AllRoles().empty());
 
-#ifdef MG_ENTERPRISE
+  auto const user1 = auth->GetUser("user1");
+  ASSERT_TRUE(user1);
+  auto const &user1_label_perms = user1->GetFineGrainedAccessLabelPermissions();
+  ASSERT_FALSE(user1_label_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(user1_label_perms.GetPermissions().empty());
+  auto const &user1_edge_perms = user1->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_FALSE(user1_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_TRUE(user1_edge_perms.GetPermissions().empty());
+
+  auto const user2 = auth->GetUser("user2");
+  ASSERT_TRUE(user2);
+  auto const &user2_label_perms = user2->GetFineGrainedAccessLabelPermissions();
+  ASSERT_TRUE(user2_label_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(user2_label_perms.GetGlobalPermission().value(), static_cast<uint64_t>(FineGrainedPermission::NOTHING));
+  ASSERT_TRUE(user2_label_perms.GetPermissions().empty());
+  auto const &user2_edge_perms = user2->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_TRUE(user2_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(user2_edge_perms.GetGlobalPermission().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
+  ASSERT_TRUE(user2_edge_perms.GetPermissions().empty());
+
+  auto const role1 = auth->GetRole("role1");
+  ASSERT_TRUE(role1);
+  auto const &role1_label_perms = role1->GetFineGrainedAccessLabelPermissions();
+  ASSERT_TRUE(role1_label_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(role1_label_perms.GetGlobalPermission().value(),
+            static_cast<uint64_t>(FineGrainedPermission::UPDATE | FineGrainedPermission::READ));
+  ASSERT_TRUE(role1_label_perms.GetPermissions().empty());
+  auto const &role1_edge_perms = role1->GetFineGrainedAccessEdgeTypePermissions();
+  ASSERT_TRUE(role1_edge_perms.GetGlobalPermission().has_value());
+  ASSERT_EQ(role1_edge_perms.GetGlobalPermission().value(),
+            static_cast<uint64_t>(FineGrainedPermission::CREATE | FineGrainedPermission::DELETE |
+                                  FineGrainedPermission::UPDATE | FineGrainedPermission::READ));
+  ASSERT_TRUE(role1_edge_perms.GetPermissions().empty());
+}
+
 TEST_F(AuthWithStorage, MultiTenantRoleManagement) {
   // Create roles with database access
   ASSERT_TRUE(auth->AddRole("role1"));
@@ -1914,7 +2311,8 @@ TEST_F(AuthWithStorage, MultiTenantRoleWithGlobalRoles) {
   ASSERT_NE(user, std::nullopt);
 
   // Set global role
-  user->SetRole(*global_role);
+  user->ClearAllRoles();
+  user->AddRole(*global_role);
   auth->SaveUser(*user);
 
   // Try to set the same role as multi-tenant role (should fail)
@@ -2180,17 +2578,20 @@ TEST_F(AuthWithStorage, MultiTenantRoleAtDifferentDBs) {
   ASSERT_TRUE(user->HasAccess("db1"));
   ASSERT_TRUE(user->HasAccess("db2"));
 }
+
 TEST_F(AuthWithStorage, AddProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
-  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_FALSE(auth->CreateProfile("profile", {}));
 }
 
 TEST_F(AuthWithStorage, UpdateProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
-  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->UpdateProfile(
       "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->UpdateProfile("other_profile", {}));
@@ -2199,10 +2600,12 @@ TEST_F(AuthWithStorage, UpdateProfile) {
 
 TEST_F(AuthWithStorage, DropProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
-  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->DropProfile("profile"));
   ASSERT_TRUE(auth->DropProfile("other_profile"));
   ASSERT_FALSE(auth->DropProfile("non_profile"));
@@ -2211,8 +2614,9 @@ TEST_F(AuthWithStorage, DropProfile) {
 TEST_F(AuthWithStorage, GetProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   {
     const auto profile = auth->GetProfile("profile");
     ASSERT_TRUE(profile);
@@ -2235,8 +2639,9 @@ TEST_F(AuthWithStorage, GetProfile) {
 TEST_F(AuthWithStorage, AllProfiles) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   {
     const auto profiles = auth->AllProfiles();
     ASSERT_EQ(profiles.size(), 2);
@@ -2269,8 +2674,9 @@ TEST_F(AuthWithStorage, AllProfiles) {
 TEST_F(AuthWithStorage, SetProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
 
@@ -2297,15 +2703,17 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
   // In the new architecture, only users can have profiles, not roles
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{10UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{10UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
   ASSERT_TRUE(auth->AddRole("role"));
 
   // Set role for user
   auto user = auth->GetUser("user");
-  user->SetRole(*auth->GetRole("role"));
+  user->ClearAllRoles();
+  user->AddRole(*auth->GetRole("role"));
   auth->SaveUser(*user);
 
   // Set profile for user
@@ -2346,8 +2754,9 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
 TEST_F(AuthWithStorage, RevokeProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
 
@@ -2371,15 +2780,17 @@ TEST_F(AuthWithStorage, RevokeProfileUserWRole) {
   ASSERT_TRUE(auth->CreateProfile(
       "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{10UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{10UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user"));
   ASSERT_TRUE(auth->AddRole("role"));
 
   // Set role for user
   auto user = auth->GetUser("user");
-  user->SetRole(*auth->GetRole("role"));
+  user->ClearAllRoles();
+  user->AddRole(*auth->GetRole("role"));
   auth->SaveUser(*user);
 
   // Set profile for user
@@ -2409,8 +2820,9 @@ TEST_F(AuthWithStorage, RevokeProfileUserWRole) {
 TEST_F(AuthWithStorage, GetUsersForProfile) {
   ASSERT_TRUE(auth->CreateProfile("profile", {}));
   ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
-  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
-                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
   ASSERT_TRUE(auth->AddUser("user1"));
   ASSERT_TRUE(auth->AddUser("user2"));
@@ -2466,4 +2878,4 @@ TEST_F(AuthWithStorage, GetUsersForProfile) {
 
 // Role-based profile management is no longer supported in the new architecture
 
-#endif
+#endif  // MG_ENTERPRISE

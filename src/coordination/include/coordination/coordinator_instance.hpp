@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,6 @@
 #include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_ops_status.hpp"
-#include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
@@ -95,6 +94,9 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
+  auto UpdateConfig(std::variant<int32_t, std::string> const &instance, io::network::Endpoint const &bolt_endpoint)
+      -> UpdateConfigStatus;
+
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
@@ -127,8 +129,13 @@ class CoordinatorInstance {
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
-  auto FindReplicationInstance(std::string_view replication_instance_name)
-      -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>>;
+  auto AddNewCoordinator(CoordinatorInstanceConfig const &config,
+                         std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+      -> AddCoordinatorInstanceStatus;
+  auto AddSelfCoordinator(CoordinatorInstanceConfig const &config,
+                          std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+      -> AddCoordinatorInstanceStatus;
+
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
@@ -153,17 +160,25 @@ class CoordinatorInstance {
   // Cache which stores information about the number of committed txns of replicas
   std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;
 
+  // Status flags - declared early for visibility
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
   // leader callback or reconcile cluster state haven't yet been executed. This flag tracks if coordinator is set up to
   // accept queries.
   std::atomic<CoordinatorStatus> status{CoordinatorStatus::FOLLOWER};
   std::atomic<bool> is_shutting_down_{false};
 
+  // Config and instance management
   std::chrono::seconds instance_down_timeout_sec_{5};
   std::chrono::seconds instance_health_check_frequency_sec_{1};
+
+  // Resources - order matters for destruction!
   // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
+
+  // Connectors are used by raft state via observer.
+  mutable utils::Synchronized<std::list<std::pair<int32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
+      coordinator_connectors_;
 
   std::unique_ptr<RaftState> raft_state_;
 
@@ -171,9 +186,8 @@ class CoordinatorInstance {
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
 
+  // raft_state_ is used by coordinator management server via CoordInstance to handle RPC requests.
   CoordinatorInstanceManagementServer coordinator_management_server_;
-  mutable utils::Synchronized<std::list<std::pair<int32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
-      coordinator_connectors_;
 };
 
 }  // namespace memgraph::coordination

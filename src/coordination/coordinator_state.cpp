@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string_view>
 #include <variant>
@@ -36,7 +37,8 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
   };
   data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =
                                          std::make_unique<DataInstanceManagementServer>(mgmt_config)};
-  spdlog::trace("Created data instance management server on address {}:{}.", mgmt_config.endpoint.GetAddress(),
+  spdlog::trace("Created data instance management server on address {}:{}.",
+                mgmt_config.endpoint.GetAddress(),
                 mgmt_config.endpoint.GetPort());
 }
 
@@ -145,6 +147,13 @@ auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be unregistered since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
+}
+
+auto CoordinatorState::UpdateConfig(std::variant<int32_t, std::string> const &instance,
+                                    io::network::Endpoint const &bolt_endpoint) -> coordination::UpdateConfigStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot be unregistered since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).UpdateConfig(instance, bolt_endpoint);
 }
 
 auto CoordinatorState::SetCoordinatorSetting(std::string_view const setting_name,

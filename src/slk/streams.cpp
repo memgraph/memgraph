@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -157,7 +157,11 @@ void Reader::GetSegment(bool should_be_final) {
     throw SlkReaderException(
         "Got a non-empty SLK segment when expecting the final segment! Have_: {}, Pos: {}, Size_: {}. Should be final: "
         "{}, Len: {}",
-        have_, pos_, size_, should_be_final, len);
+        have_,
+        pos_,
+        size_,
+        should_be_final,
+        len);
   }
 
   if (!should_be_final && len == 0) {
@@ -169,8 +173,8 @@ void Reader::GetSegment(bool should_be_final) {
   pos_ += sizeof(SegmentSize);
 
   if (pos_ + len > size_) {
-    throw SlkReaderException("There isn't enough data in the SLK stream! Pos_ {}, len: {}, size_: {}", pos_, len,
-                             size_);
+    throw SlkReaderException(
+        "There isn't enough data in the SLK stream! Pos_ {}, len: {}, size_: {}", pos_, len, size_);
   }
   have_ = len;
 }
@@ -185,7 +189,7 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     // This block handles 2 situations. The first one is if the whole buffer should be written into the file. In that
     // case remaining_file_size_val will be >= size, and we return FILE_DATA/ If not whole buffer should be written into
     // the file, then we remember the pos, increment found_segments and data_size and fallthrough
-    if (remaining_file_size.has_value()) {
+    if (remaining_file_size) {
       auto const remaining_file_size_val = *remaining_file_size;
       if (remaining_file_size_val == 0) {
         return {.status = StreamStatus::INVALID, .stream_size = 0, .encoded_data_size = 0, .pos = pos};

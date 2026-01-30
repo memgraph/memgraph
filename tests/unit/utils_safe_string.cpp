@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@ using namespace memgraph::utils;
 class SafeStringTest : public ::testing::Test {
  protected:
   void SetUp() override {}
+
   void TearDown() override {}
 };
 
@@ -78,7 +79,10 @@ TEST_F(SafeStringTest, CopyAssignment) {
 
 TEST_F(SafeStringTest, CopyAssignmentSelf) {
   SafeString str("test");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-assign-overloaded"
   str = str;  // Self-assignment
+#pragma clang diagnostic pop
   EXPECT_EQ(str.str(), "test");
 }
 
@@ -92,7 +96,10 @@ TEST_F(SafeStringTest, MoveAssignment) {
 
 TEST_F(SafeStringTest, MoveAssignmentSelf) {
   SafeString str("test");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-move"
   str = std::move(str);  // Self-move assignment
+#pragma clang diagnostic pop
   EXPECT_EQ(str.str(), "test");
 }
 
@@ -547,7 +554,7 @@ TEST_F(SafeStringTest, ExceptionSafety) {
 
 TEST_F(SafeStringTest, PerformanceStressTest) {
   SafeString str("initial");
-  const int num_operations = 10000;
+  const int num_operations = 10'000;
 
   auto start = std::chrono::high_resolution_clock::now();
 

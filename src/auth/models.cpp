@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -23,7 +23,6 @@
 #include "nlohmann/detail/exceptions.hpp"
 #include "query/constants.hpp"
 #include "spdlog/spdlog.h"
-#include "utils/cast.hpp"
 #include "utils/string.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
@@ -40,8 +39,11 @@ constexpr auto kUUID = "uuid";
 constexpr auto kPasswordHash = "password_hash";
 
 #ifdef MG_ENTERPRISE
+
+namespace r = std::ranges;
+
 constexpr auto kGlobalPermission = "global_permission";
-constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
+constexpr auto kFineGrainedPermissions = "fine_grained_permissions";
 constexpr auto kLabelPermissions = "label_permissions";
 constexpr auto kEdgeTypePermissions = "edge_type_permissions";
 constexpr auto kAllowAll = "allow_all";
@@ -52,6 +54,9 @@ constexpr auto kUserImpGranted = "user_imp_granted";
 constexpr auto kUserImpDenied = "user_imp_denied";
 constexpr auto kUserImpId = "user_imp_id";
 constexpr auto kUserImpName = "user_imp_name";
+constexpr auto kSymbols = "symbols";
+constexpr auto kGranted = "granted";
+constexpr auto kMatching = "matching";
 #endif
 
 // Constant list of all available permissions.
@@ -94,7 +99,7 @@ const FineGrainedAccessPermissions empty_permissions{};
 
 #ifdef MG_ENTERPRISE
 void to_json(nlohmann::json &data, const std::optional<UserImpersonation> &usr_imp) {
-  if (usr_imp.has_value()) {
+  if (usr_imp) {
     data = *usr_imp;
   } else {
     data = nlohmann::json();  // null
@@ -183,51 +188,68 @@ std::string PermissionLevelToString(PermissionLevel level) {
 }
 
 #ifdef MG_ENTERPRISE
-FineGrainedPermission PermissionToFineGrainedPermission(const uint64_t permission) {
-  if (permission & FineGrainedPermission::CREATE_DELETE) {
-    return FineGrainedPermission::CREATE_DELETE;
+std::string FineGrainedPermissionToString(uint64_t const permission) {
+  if (static_cast<FineGrainedPermission>(permission) == FineGrainedPermission::NOTHING) {
+    return "NOTHING";
   }
 
-  if (permission & FineGrainedPermission::UPDATE) {
-    return FineGrainedPermission::UPDATE;
+  std::vector<std::string> permissions;
+  if (permission & FineGrainedPermission::CREATE) {
+    permissions.emplace_back("CREATE");
   }
-
   if (permission & FineGrainedPermission::READ) {
-    return FineGrainedPermission::READ;
+    permissions.emplace_back("READ");
+  }
+  if (permission & FineGrainedPermission::UPDATE) {
+    permissions.emplace_back("UPDATE");
+  }
+  if (permission & FineGrainedPermission::DELETE) {
+    permissions.emplace_back("DELETE");
   }
 
-  return FineGrainedPermission::NOTHING;
-}
-
-std::string FineGrainedPermissionToString(const FineGrainedPermission level) {
-  switch (level) {
-    case FineGrainedPermission::CREATE_DELETE:
-      return "CREATE_DELETE";
-    case FineGrainedPermission::UPDATE:
-      return "UPDATE";
-    case FineGrainedPermission::READ:
-      return "READ";
-    case FineGrainedPermission::NOTHING:
-      return "NOTHING";
-  }
+  return utils::Join(permissions, ", ");
 }
 
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
-  std::unordered_map<std::string, uint64_t> permissions{first.GetPermissions()};
   std::optional<uint64_t> global_permission;
 
-  if (second.GetGlobalPermission().has_value()) {
-    global_permission = *second.GetGlobalPermission();
-  } else if (first.GetGlobalPermission().has_value()) {
-    global_permission = *first.GetGlobalPermission();
+  auto first_global = first.GetGlobalPermission();
+  auto second_global = second.GetGlobalPermission();
+
+  // If either global permissions is set to NOTHING, the merged result
+  // is NOTHING.
+  if (first_global == 0 || second_global == 0) {
+    global_permission = 0;
+    // If both global permissions are set, they are merged using |
+  } else if (first_global.has_value() && second_global.has_value()) {
+    global_permission = first_global.value() | second_global.value();
+    // If only one global permission is set and the other is not, the merged
+    // result is the value of the set global permission.
+  } else if (first_global) {
+    global_permission = first_global;
+  } else if (second_global) {
+    global_permission = second_global;
   }
 
-  for (const auto &[label_name, permission] : second.GetPermissions()) {
-    permissions[label_name] = permission;
+  auto merged_rules = first.GetPermissions();
+  for (auto &&rule2 : second.GetPermissions()) {
+    auto it = r::find_if(merged_rules, [&](auto const &rule1) {
+      return rule1.symbols == rule2.symbols && rule1.matching_mode == rule2.matching_mode;
+    });
+
+    if (it != merged_rules.end()) {
+      if (it->permissions == FineGrainedPermission::NOTHING || rule2.permissions == FineGrainedPermission::NOTHING) {
+        it->permissions = FineGrainedPermission::NOTHING;
+      } else {
+        it->permissions = it->permissions | rule2.permissions;
+      }
+    } else {
+      merged_rules.push_back(rule2);
+    }
   }
 
-  return FineGrainedAccessPermissions(permissions, global_permission);
+  return FineGrainedAccessPermissions(global_permission, std::move(merged_rules));
 }
 #endif
 
@@ -240,10 +262,10 @@ Permissions::Permissions(uint64_t grants, uint64_t denies) {
 
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
-  if (denies_ & utils::UnderlyingCast(permission)) {
+  if (denies_ & std::to_underlying(permission)) {
     return PermissionLevel::DENY;
   }
-  if (grants_ & utils::UnderlyingCast(permission)) {
+  if (grants_ & std::to_underlying(permission)) {
     return PermissionLevel::GRANT;
   }
   return PermissionLevel::NEUTRAL;
@@ -251,23 +273,23 @@ PermissionLevel Permissions::Has(Permission permission) const {
 
 void Permissions::Grant(Permission permission) {
   // Remove the possible deny.
-  denies_ &= ~utils::UnderlyingCast(permission);
+  denies_ &= ~std::to_underlying(permission);
   // Now we grant the permission.
-  grants_ |= utils::UnderlyingCast(permission);
+  grants_ |= std::to_underlying(permission);
 }
 
 void Permissions::Revoke(Permission permission) {
   // Remove the possible grant.
-  grants_ &= ~utils::UnderlyingCast(permission);
+  grants_ &= ~std::to_underlying(permission);
   // Remove the possible deny.
-  denies_ &= ~utils::UnderlyingCast(permission);
+  denies_ &= ~std::to_underlying(permission);
 }
 
 void Permissions::Deny(Permission permission) {
   // First deny the permission.
-  denies_ |= utils::UnderlyingCast(permission);
+  denies_ |= std::to_underlying(permission);
   // Remove the possible grant.
-  grants_ &= ~utils::UnderlyingCast(permission);
+  grants_ &= ~std::to_underlying(permission);
 }
 
 std::vector<Permission> Permissions::GetGrants() const {
@@ -314,6 +336,7 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
 }
 
 uint64_t Permissions::grants() const { return grants_; }
+
 uint64_t Permissions::denies() const { return denies_; }
 
 bool operator==(const Permissions &first, const Permissions &second) {
@@ -323,47 +346,165 @@ bool operator==(const Permissions &first, const Permissions &second) {
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
 #ifdef MG_ENTERPRISE
-FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions,
-                                                           std::optional<uint64_t> global_permission)
-    : permissions_{std::move(permissions)}, global_permission_(global_permission) {}
+FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::optional<uint64_t> global_permission,
+                                                           std::vector<FineGrainedAccessRule> rules)
+    : global_permission_(global_permission), rules_{std::move(rules)} {}
 
-PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
+PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> symbols,
                                                   const FineGrainedPermission fine_grained_permission) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PermissionLevel::GRANT;
   }
-  const auto concrete_permission = std::invoke([&]() -> uint64_t {
-    if (permissions_.contains(permission)) {
-      return permissions_.at(permission);
+
+  if (symbols.empty()) {
+    return PermissionLevel::GRANT;
+  }
+
+  auto const rule_matches = [&](auto &&rule) -> bool {
+    if (rule.matching_mode == MatchingMode::EXACTLY) {
+      return rule.symbols.size() == symbols.size() &&
+             r::all_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
+    }
+    return r::any_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
+  };
+
+  // Check NOTHING rules for explicit DENYs, as these take precedence over any
+  // other explicit CREATE, READ, UPDATE, or DELETE rules.
+  for (auto &&rule : rules_) {
+    if (rule.permissions != FineGrainedPermission::NOTHING) {
+      continue;
     }
 
-    if (global_permission_.has_value()) {
-      return global_permission_.value();
+    if (rule_matches(rule)) {
+      return PermissionLevel::DENY;
+    }
+  }
+
+  // Check for matching rules: if any rule matches and has the permission, GRANT.
+  // If rules match but none have the permission, DENY (specific rules override global).
+  bool any_rule_matched = false;
+  for (auto &&rule : rules_) {
+    if (rule.permissions == FineGrainedPermission::NOTHING) {
+      continue;
     }
 
-    return 0;
-  });
+    if (rule_matches(rule)) {
+      any_rule_matched = true;
+      if ((rule.permissions & fine_grained_permission) != FineGrainedPermission::NOTHING) {
+        return PermissionLevel::GRANT;
+      }
+    }
+  }
 
-  const auto temp_permission = concrete_permission & fine_grained_permission;
+  // If any rule matched but none had the permission, specific rules override global.
+  if (any_rule_matched) {
+    return PermissionLevel::DENY;
+  }
 
-  return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
+  // No specific rule matches so fall through to a check on global permissions.
+  return HasGlobal(fine_grained_permission);
 }
 
-void FineGrainedAccessPermissions::Grant(const std::string &permission,
-                                         const FineGrainedPermission fine_grained_permission) {
-  if (permission == query::kAsterisk) {
-    global_permission_ = CalculateGrant(fine_grained_permission);
+PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermission fine_grained_permission) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PermissionLevel::GRANT;
+  }
+
+  if (global_permission_.has_value() && (global_permission_.value() & fine_grained_permission)) {
+    return PermissionLevel::GRANT;
+  }
+
+  return PermissionLevel::DENY;
+}
+
+void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &symbols,
+                                         FineGrainedPermission const fine_grained_permission,
+                                         MatchingMode const matching_mode) {
+  auto it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
+
+  if (it != rules_.end()) {
+    if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+      it->permissions = fine_grained_permission;
+    } else {
+      it->permissions |= fine_grained_permission;
+    }
   } else {
-    permissions_[permission] = CalculateGrant(fine_grained_permission);
+    rules_.push_back({symbols, fine_grained_permission, matching_mode});
   }
 }
 
-void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
-  if (permission == query::kAsterisk) {
-    permissions_.clear();
-    global_permission_ = std::nullopt;
+void FineGrainedAccessPermissions::GrantGlobal(const FineGrainedPermission fine_grained_permission) {
+  if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+    global_permission_ = static_cast<uint64_t>(fine_grained_permission);
   } else {
-    permissions_.erase(permission);
+    global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
+  }
+}
+
+void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const &symbols,
+                                          FineGrainedPermission const fine_grained_permission,
+                                          MatchingMode const matching_mode) {
+  auto const it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
+
+  if (it != rules_.end()) {
+    if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+      if (it->permissions == FineGrainedPermission::NOTHING) {
+        rules_.erase(it);
+      }
+    } else {
+      auto const old_permissions = static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions);
+      it->permissions = static_cast<FineGrainedPermission>(
+          old_permissions & ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
+
+      if ((old_permissions & static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission)) !=
+              0 &&
+          static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) == 0) {
+        rules_.erase(it);
+      }
+    }
+  }
+}
+
+void FineGrainedAccessPermissions::RevokeGlobal(const FineGrainedPermission fine_grained_permission) {
+  if (global_permission_) {
+    if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+      if (global_permission_.value() == 0) {
+        global_permission_ = std::nullopt;
+      }
+    } else {
+      auto const old_permissions = global_permission_.value();
+      global_permission_ = old_permissions & ~static_cast<uint64_t>(fine_grained_permission);
+
+      if ((old_permissions & static_cast<uint64_t>(fine_grained_permission)) != 0 && global_permission_.value() == 0) {
+        global_permission_ = std::nullopt;
+      }
+    }
+  }
+}
+
+void FineGrainedAccessPermissions::RevokeAll() {
+  global_permission_ = std::nullopt;
+  rules_.clear();
+}
+
+void FineGrainedAccessPermissions::RevokeAll(const FineGrainedPermission fine_grained_permission) {
+  if (global_permission_) {
+    global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
+    if (global_permission_.value() == 0) {
+      global_permission_ = std::nullopt;
+    }
+  }
+  for (auto it = rules_.begin(); it != rules_.end();) {
+    it->permissions = static_cast<FineGrainedPermission>(
+        static_cast<std::underlying_type_t<FineGrainedPermission>>(it->permissions) &
+        ~static_cast<std::underlying_type_t<FineGrainedPermission>>(fine_grained_permission));
+    if (it->permissions == FineGrainedPermission::NOTHING) {
+      it = rules_.erase(it);
+    } else {
+      ++it;
+    }
   }
 }
 
@@ -372,8 +513,22 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  data[kPermissions] = permissions_;
-  data[kGlobalPermission] = global_permission_.has_value() ? global_permission_.value() : -1;
+  if (global_permission_) {
+    data[kGlobalPermission] = global_permission_.value();
+  } else {
+    data[kGlobalPermission] = -1;
+  }
+
+  nlohmann::json rules_json = nlohmann::json::array();
+  for (const auto &rule : rules_) {
+    nlohmann::json rule_json;
+    rule_json[kSymbols] = std::vector<std::string>(rule.symbols.begin(), rule.symbols.end());
+    rule_json[kGranted] = static_cast<uint64_t>(rule.permissions);
+    rule_json[kMatching] = (rule.matching_mode == MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+    rules_json.push_back(rule_json);
+  }
+  data[kPermissions] = rules_json;
+
   return data;
 }
 
@@ -385,41 +540,54 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
     return FineGrainedAccessPermissions{};
   }
 
-  std::unordered_map<std::string, uint64_t> permissions;
-  auto permissions_json = data.find(kPermissions);
-  if (permissions_json != data.end() && permissions_json->is_object()) {
-    permissions = *permissions_json;
-  }
-
   std::optional<uint64_t> global_permission = std::nullopt;
   auto global_permissions = data.find(kGlobalPermission);
   if (global_permissions != data.end() && global_permissions->is_number_integer() && *global_permissions != -1) {
     global_permission = *global_permissions;
   }
 
-  return FineGrainedAccessPermissions(std::move(permissions), global_permission);
-}
+  std::vector<FineGrainedAccessRule> rules;
+  auto rules_json = data.find(kPermissions);
+  if (rules_json != data.end() && rules_json->is_array()) {
+    for (const auto &rule_json : *rules_json) {
+      if (!rule_json.is_object()) continue;
 
-const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetPermissions() const {
-  return permissions_;
-}
-const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
+      std::unordered_set<std::string> symbols;
+      if (rule_json.contains("symbols") && rule_json["symbols"].is_array()) {
+        for (const auto &symbol : rule_json["symbols"]) {
+          if (symbol.is_string()) {
+            symbols.insert(symbol.get<std::string>());
+          }
+        }
+      }
 
-uint64_t FineGrainedAccessPermissions::CalculateGrant(FineGrainedPermission fine_grained_permission) {
-  uint64_t shift{1};
-  uint64_t result{0};
-  auto uint_fine_grained_permission = static_cast<uint64_t>(fine_grained_permission);
-  while (uint_fine_grained_permission > 0) {
-    result |= uint_fine_grained_permission;
-    uint_fine_grained_permission >>= shift;
+      auto permissions = FineGrainedPermission::NOTHING;
+      if (rule_json.contains("granted") && rule_json["granted"].is_number()) {
+        permissions = static_cast<FineGrainedPermission>(rule_json["granted"].get<uint64_t>());
+      }
+
+      auto matching_mode = MatchingMode::ANY;
+      if (rule_json.contains("matching") && rule_json["matching"].is_string()) {
+        std::string const mode_str = rule_json["matching"].get<std::string>();
+        if (mode_str == "EXACTLY") {
+          matching_mode = MatchingMode::EXACTLY;
+        }
+      }
+
+      rules.push_back({symbols, permissions, matching_mode});
+    }
   }
 
-  return result;
+  return FineGrainedAccessPermissions(global_permission, std::move(rules));
 }
 
+const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
+
+const std::vector<FineGrainedAccessRule> &FineGrainedAccessPermissions::GetPermissions() const { return rules_; }
+
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
-  return first.GetPermissions() == second.GetPermissions() &&
-         first.GetGlobalPermission() == second.GetGlobalPermission();
+  return first.GetGlobalPermission() == second.GetGlobalPermission() &&
+         first.GetPermissions() == second.GetPermissions();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
@@ -431,11 +599,13 @@ FineGrainedAccessHandler::FineGrainedAccessHandler(FineGrainedAccessPermissions 
     : label_permissions_(std::move(labelPermissions)), edge_type_permissions_(std::move(edgeTypePermissions)) {}
 
 const FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() const { return label_permissions_; }
+
 FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() { return label_permissions_; }
 
 const FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() const {
   return edge_type_permissions_;
 }
+
 FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() { return edge_type_permissions_; }
 
 nlohmann::json FineGrainedAccessHandler::Serialize() const {
@@ -481,6 +651,7 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 #endif
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
+
 Role::Role(const std::string &rolename, const Permissions &permissions)
     : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
 #ifdef MG_ENTERPRISE
@@ -495,10 +666,13 @@ Role::Role(const std::string &rolename, const Permissions &permissions,
 #endif
 
 const std::string &Role::rolename() const { return rolename_; }
+
 const Permissions &Role::permissions() const { return permissions_; }
+
 Permissions &Role::permissions() { return permissions_; }
 #ifdef MG_ENTERPRISE
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
+
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
 
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
@@ -536,11 +710,11 @@ nlohmann::json Role::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
+    data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
     data[kDatabases] = db_access_.Serialize();
     data[kUserImp] = user_impersonation_;
   } else {
-    data[kFineGrainedAccessHandler] = {};
+    data[kFineGrainedPermissions] = {};
     data[kDatabases] = {};
     data[kUserImp] = {};
   }
@@ -573,7 +747,7 @@ Role Role::Deserialize(const nlohmann::json &data) {
 
     FineGrainedAccessHandler fine_grained_access_handler{};
     // We can have an empty fine_grained if the user was created without a valid license
-    auto fine_grainged_access_it = data.find(kFineGrainedAccessHandler);
+    auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
     if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
     } else {
@@ -587,8 +761,8 @@ Role Role::Deserialize(const nlohmann::json &data) {
     } else {
       spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
     }
-    return {*role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access),
-            std::move(usr_imp)};
+    return {
+        *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
   }
 #endif
   return {*role_name_it, permissions};
@@ -697,6 +871,7 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
 User::User() = default;
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
+
 User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
            utils::UUID uuid)
     : username_(utils::ToLowerCase(username)),
@@ -735,12 +910,6 @@ void User::UpdatePassword(const std::optional<std::string> &password,
 }
 
 void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
-
-void User::SetRole(const Role &role) {
-  // Clear all roles and add the new one
-  ClearAllRoles();
-  roles_.AddRole(role);
-}
 
 void User::ClearAllRoles() {
   // Clear all roles by creating a new empty Roles object
@@ -781,8 +950,8 @@ void User::AddMultiTenantRole(Role role, const std::string &db_name) {
   }
 
   // Check if user already has this role
-  if (auto it = std::find_if(roles().begin(), roles().end(),
-                             [&role](const auto &in) { return role.rolename() == in.rolename(); });
+  if (auto it = std::find_if(
+          roles().begin(), roles().end(), [&role](const auto &in) { return role.rolename() == in.rolename(); });
       it != roles().end()) {
     // Role is already present (the original role has access to the database)
     // Add access if the user's role does't already have access to the database
@@ -835,11 +1004,21 @@ void User::ClearMultiTenantRoles(const std::string &db_name) {
 
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
+  }
+
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions(db_name));
 }
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
+  }
+
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions(db_name));
 }
 
@@ -849,7 +1028,7 @@ FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions(
     return FineGrainedAccessPermissions{};
   }
 
-  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return fine_grained_access_handler_.edge_type_permissions();
 }
 
@@ -859,7 +1038,7 @@ FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions(
     return FineGrainedAccessPermissions{};
   }
 
-  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return fine_grained_access_handler_.label_permissions();
 }
 
@@ -872,7 +1051,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions(
   FineGrainedAccessPermissions combined_permissions{};
   for (const auto &role : roles_) {
     // If db_name is provided, only include roles that grant access to that database
-    if (!db_name || role.HasAccess(*db_name)) {
+    if (!db_name || role.HasAccess(*db_name)) {  // Role level access check
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
     }
   }
@@ -888,7 +1067,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
   FineGrainedAccessPermissions combined_permissions{};
   for (const auto &role : roles_) {
     // If db_name is provided, only include roles that grant access to that database
-    if (!db_name || role.HasAccess(*db_name)) {
+    if (!db_name || role.HasAccess(*db_name)) {  // Role level access check
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
     }
   }
@@ -899,6 +1078,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
 const std::string &User::username() const { return username_; }
 
 const Permissions &User::permissions() const { return permissions_; }
+
 Permissions &User::permissions() { return permissions_; }
 #ifdef MG_ENTERPRISE
 const FineGrainedAccessHandler &User::fine_grained_access_handler() const { return fine_grained_access_handler_; }
@@ -911,7 +1091,7 @@ nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kUsername] = username_;
   data[kUUID] = uuid_;
-  if (password_hash_.has_value()) {
+  if (password_hash_) {
     data[kPasswordHash] = *password_hash_;
   } else {
     data[kPasswordHash] = nullptr;
@@ -919,11 +1099,11 @@ nlohmann::json User::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
+    data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
     data[kDatabases] = database_access_.Serialize();
     data[kUserImp] = user_impersonation_;
   } else {
-    data[kFineGrainedAccessHandler] = {};
+    data[kFineGrainedPermissions] = {};
     data[kDatabases] = {};
     data[kUserImp] = {};
   }
@@ -975,7 +1155,7 @@ User User::Deserialize(const nlohmann::json &data) {
 
     // We can have an empty fine_grained if the user was created without a valid license
     FineGrainedAccessHandler fine_grained_access_handler{};
-    auto fine_grainged_access_it = data.find(kFineGrainedAccessHandler);
+    auto fine_grainged_access_it = data.find(kFineGrainedPermissions);
     if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
     } else {
@@ -990,9 +1170,12 @@ User User::Deserialize(const nlohmann::json &data) {
       spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
     }
 
-    return {*username_it,         std::move(password_hash),
-            permissions,          std::move(fine_grained_access_handler),
-            std::move(db_access), uuid,
+    return {*username_it,
+            std::move(password_hash),
+            permissions,
+            std::move(fine_grained_access_handler),
+            std::move(db_access),
+            uuid,
             std::move(usr_imp)};
   }
 #endif
@@ -1019,6 +1202,7 @@ void UserImpersonation::GrantAll() {
   // Set granted to all
   granted_ = GrantAllUsers{};
 }
+
 // Overrides the previous granted set, but not the denied set
 void UserImpersonation::Grant(const std::vector<User> &users) {
   granted_ = std::set<UserId>{};
@@ -1046,7 +1230,7 @@ bool UserImpersonation::IsDenied(const User &user) const {
   //      no -> remove user from the list and return false
   auto user_denied = find_denied(username);
   if (user_denied) {
-    if (user_denied.value()->uuid == user.uuid()) return true;
+    if ((*user_denied)->uuid == user.uuid()) return true;
     erase_denied(*user_denied);  // Stale user; remove
   }
   return false;
@@ -1063,7 +1247,7 @@ bool UserImpersonation::IsGranted(const User &user) const {
   if (grants_all()) return true;
   auto user_granted = find_granted(username);
   if (user_granted) {
-    if (user_granted.value()->uuid == user.uuid()) return true;
+    if ((*user_granted)->uuid == user.uuid()) return true;
     erase_granted(*user_granted);  // Stale user; remove
   }
   return false;
@@ -1086,7 +1270,7 @@ void UserImpersonation::grant_one(const User &user) {
   if (grants_all()) return;
   auto granted_user = find_granted(user.username());
   if (granted_user) {
-    if (granted_user.value()->uuid == user.uuid()) return;
+    if ((*granted_user)->uuid == user.uuid()) return;
     erase_granted(*granted_user);  // Stale user; remove
   }
   emplace_granted(user.username(), user.uuid());
@@ -1114,7 +1298,7 @@ void UserImpersonation::deny_one(const User &user) {
   //        yes -> return
   auto denied_user = find_denied(user.username());
   if (denied_user) {
-    if (denied_user.value()->uuid == user.uuid()) return;
+    if ((*denied_user)->uuid == user.uuid()) return;
     erase_denied(*denied_user);  // Stale user; remove
   }
   denied_.emplace(user.username(), user.uuid());
@@ -1210,6 +1394,7 @@ const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessLabelPermissions(
   result = combined_permissions;
   return result;
 }
+
 const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
   if (roles_.empty()) return empty_permissions;
@@ -1224,6 +1409,6 @@ const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessEdgeTypePermissio
   result = combined_permissions;
   return result;
 }
-#endif
+#endif  // MG_ENTERPRISE
 
 }  // namespace memgraph::auth

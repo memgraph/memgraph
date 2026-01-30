@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <cstdint>
 
 #ifdef MG_ENTERPRISE
 
@@ -56,13 +58,16 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   SUCCESS = 0,
   ID_ALREADY_EXISTS,
   MGMT_ENDPOINT_ALREADY_EXISTS,
-  COORDINATOR_ENDPOINT_ALREADY_EXISTS
+  COORDINATOR_ENDPOINT_ALREADY_EXISTS,
+  RAFT_LOG_ERROR
 };
 
 enum class RemoveCoordinatorInstanceStatus : uint8_t {
   SUCCESS = 0,
   NO_SUCH_ID,
 };
+
+enum class UpdateConfigStatus : uint8_t { SUCCESS = 0, NO_SUCH_COORD, NO_SUCH_REPL_INSTANCE, RAFT_FAILURE };
 
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME = 0,

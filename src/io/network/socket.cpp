@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -211,7 +211,8 @@ bool Socket::Bind(const Endpoint &endpoint) {
           int const err_sc = errno;
           spdlog::error(
               "Failed to close fd for {}. Closing started because 'setsockopt' failed while binding. Errno: {}",
-              socket_addr, std::strerror(err_sc));
+              socket_addr,
+              std::strerror(err_sc));
         }
         continue;
       }
@@ -246,7 +247,8 @@ bool Socket::Bind(const Endpoint &endpoint) {
     // descriptors being leaked
     if (close(socket_) != 0) {
       int const err_sc = errno;
-      spdlog::error("Failed to close fd for {}. Closing started because 'getsockname' failed. Errno: {}", socket_addr,
+      spdlog::error("Failed to close fd for {}. Closing started because 'getsockname' failed. Errno: {}",
+                    socket_addr,
                     std::strerror(err_sc));
     }
     socket_ = -1;

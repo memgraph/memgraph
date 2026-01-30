@@ -1,0 +1,5 @@
+memgraph_query: >
+  MATCH ()-[rel:Friends]->() MATCH (idora: Person {name:"Idora"}) CALL refactor.to(rel, idora) YIELD relationship RETURN relationship;
+
+neo4j_query: >
+  MATCH ()-[rel:Friends]->() MATCH (idora: Person {name:"Idora"}) CALL apoc.refactor.to(rel, idora) YIELD input RETURN input;

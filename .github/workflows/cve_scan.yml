@@ -1,0 +1,94 @@
+name: Vulnerability Scan
+concurrency:
+  group: cve-scan-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      date:
+        type: string
+        required: true
+        description: "Daily build date (yyyymmdd) to be scanned."
+
+  workflow_dispatch:
+    inputs:
+      date:
+        type: string
+        required: true
+        description: "Daily build date (yyyymmdd) to be scanned."
+
+run-name: CVE Scan for ${{ inputs.date }}
+
+jobs:
+  SetupCVEScan:
+    name: Setup CVE Scan
+    runs-on: ubuntu-latest
+    outputs:
+      mage_amd_url: ${{ steps.image_urls.outputs.MAGE_AMD_URL }}
+      mage_arm_url: ${{ steps.image_urls.outputs.MAGE_ARM_URL }}
+      memgraph_amd_url: ${{ steps.image_urls.outputs.MEMGRAPH_AMD_URL }}
+      memgraph_arm_url: ${{ steps.image_urls.outputs.MEMGRAPH_ARM_URL }}
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Fetch URLS
+        id: image_urls
+        env:
+          CURRENT_BUILD_DATE: ${{ inputs.date }}
+        run: |
+          mage_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'mage')"
+          mage_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'mage')"
+          memgraph_arm_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'arm64' 'memgraph')"
+          memgraph_amd_url="$(python3 tools/ci/cve-scan/get_cve_image_url.py 'amd64' 'memgraph')"
+
+          echo "MAGE arm64 URL: $mage_arm_url"
+          echo "MAGE amd64 URL: $mage_amd_url"
+          echo "Memgraph arm64 URL: $memgraph_arm_url"
+          echo "Memgraph amd64 URL: $memgraph_amd_url"
+
+          echo "MAGE_ARM_URL=$mage_arm_url" >> $GITHUB_OUTPUT
+          echo "MAGE_AMD_URL=$mage_amd_url" >> $GITHUB_OUTPUT
+          echo "MEMGRAPH_ARM_URL=$memgraph_arm_url" >> $GITHUB_OUTPUT
+          echo "MEMGRAPH_AMD_URL=$memgraph_amd_url" >> $GITHUB_OUTPUT
+
+  RunCVEScan:
+    name: Run CVE Scan
+    needs: [SetupCVEScan]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            image_url: ${{ needs.SetupCVEScan.outputs.mage_arm_url }}
+            image_type: mage
+          - arch: amd64
+            image_url: ${{ needs.SetupCVEScan.outputs.mage_amd_url }}
+            image_type: mage
+          - arch: arm64
+            image_url: ${{ needs.SetupCVEScan.outputs.memgraph_arm_url }}
+            image_type: memgraph
+          - arch: amd64
+            image_url: ${{ needs.SetupCVEScan.outputs.memgraph_amd_url }}
+            image_type: memgraph
+    uses: ./.github/workflows/reusable_cve_scan.yml
+    with:
+      arch: ${{ matrix.arch }}
+      image_url: ${{ matrix.image_url }}
+      image_type: ${{ matrix.image_type }}
+      run_trivy: true
+      run_grype: true
+      run_cbt: false  # TODO: enable cve-bin-tool database update job if re-enabled by default
+    secrets: inherit

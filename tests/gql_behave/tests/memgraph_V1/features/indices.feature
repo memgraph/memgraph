@@ -124,3 +124,16 @@ Feature: Indices
             | x.a |
             | 2   |
             | 5   |
+
+    Scenario: Global edge indices show correctly in index info
+        Given an empty graph
+        And with new edge index :(prop1)
+        And with new edge index :(prop2)
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be:
+            | index type      | label | property | count |
+            | 'edge-property' | null  | 'prop1'  | 0     |
+            | 'edge-property' | null  | 'prop2'  | 0     |

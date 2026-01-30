@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,9 +27,11 @@ class NameIdMapper {
     uint64_t id;
 
     bool operator<(const MapNameToId &other) const { return name < other.name; }
+
     bool operator==(const MapNameToId &other) const { return name == other.name; }
 
     bool operator<(const std::string_view other) const { return name < other; }
+
     bool operator==(const std::string_view other) const { return name == other; }
   };
 
@@ -38,9 +40,11 @@ class NameIdMapper {
     std::string name;
 
     bool operator<(const MapIdToName &other) const { return id < other.id; }
+
     bool operator==(const MapIdToName &other) const { return id == other.id; }
 
     bool operator<(uint64_t other) const { return id < other; }
+
     bool operator==(uint64_t other) const { return id == other; }
   };
 
@@ -75,7 +79,7 @@ class NameIdMapper {
     // We have to try to insert the ID to name mapping even if we are not the
     // one who assigned the ID because we have to make sure that after this
     // method returns that both mappings exist.
-    if (id_to_name_acc.find(id) == id_to_name_acc.end()) {
+    if (!id_to_name_acc.contains(id)) {
       // We first try to find the `id` in the map to avoid making an unnecessary
       // temporary memory allocation when the object already exists.
       id_to_name_acc.insert({id, std::string(name)});

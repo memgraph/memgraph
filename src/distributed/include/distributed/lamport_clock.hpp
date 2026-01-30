@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,13 +30,16 @@ struct timestamp {
   friend struct LamportClock<Tag>;
 
   explicit timestamp(uint64_t value) : value_{value} {}
+
   uint64_t value_;
 };
 
 constexpr struct internal_t {
 } internal;
+
 constexpr struct send_t {
 } send;
+
 constexpr struct receive_t {
 } receive;
 
@@ -45,7 +48,9 @@ struct LamportClock {
   using timestamp_t = timestamp<Tag>;
 
   auto get_timestamp(internal_t) -> timestamp_t { return timestamp_t{++internal}; };
+
   auto get_timestamp(send_t) -> timestamp_t { return timestamp_t{++internal}; };
+
   auto get_timestamp(receive_t, timestamp_t received_timestamp) -> timestamp_t {
     while (true) {
       auto local_current = internal.load(std::memory_order_acquire);

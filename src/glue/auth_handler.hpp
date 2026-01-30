@@ -16,6 +16,7 @@
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/auth_query_handler.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {
@@ -90,7 +91,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
-
+      const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &edge_type_privileges
 #endif
@@ -107,6 +108,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
+      const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &edge_type_privileges
 #endif
@@ -144,6 +146,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
+      const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &edge_type_privileges
 #endif

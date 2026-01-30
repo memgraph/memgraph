@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1423,6 +1423,7 @@ static void to_tree(struct mgp_list *args, struct mgp_graph *graph, struct mgp_r
         return;
       }
     }
+    mgp_value_destroy(result_value);
   } else {
     // Single root: yield one record
     struct mgp_result_record *record = NULL;
@@ -1437,6 +1438,7 @@ static void to_tree(struct mgp_list *args, struct mgp_graph *graph, struct mgp_r
       mgp_result_set_error_msg(result, "Failed to insert result value");
       return;
     }
+    mgp_value_destroy(result_value);
   }
 }
 

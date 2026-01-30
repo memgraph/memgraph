@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 #include <rocksdb/options.h>
 
 #include "kvstore/kvstore.hpp"
+#include "kvstore/rocksdb_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 
@@ -29,6 +30,7 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
   pimpl_->options.create_if_missing = true;
+  utils::ApplyRocksDBConfigFlags(pimpl_->options);
   rocksdb::DB *db = nullptr;
   auto s = rocksdb::DB::Open(pimpl_->options, pimpl_->storage.c_str(), &db);
   if (!s.ok())
@@ -39,11 +41,8 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
 
 KVStore::~KVStore() {
   if (pimpl_ == nullptr) return;
-  spdlog::debug("Destroying KVStore at {}", pimpl_->storage.string());
-  const auto sync = pimpl_->db->SyncWAL();
-  if (!sync.ok()) spdlog::error("KVStore sync failed!");
-  const auto close = pimpl_->db->Close();
-  if (!close.ok()) spdlog::error("KVStore close failed!");
+  (void)pimpl_->db->SyncWAL();
+  (void)pimpl_->db->Close();
 }
 
 KVStore::KVStore(KVStore &&other) { pimpl_ = std::move(other.pimpl_); }
@@ -96,6 +95,7 @@ bool KVStore::DeletePrefix(const std::string &prefix) {
   }
   return true;
 }
+
 bool KVStore::SyncWal() {
   if (!pimpl_) {
     return true;

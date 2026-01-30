@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -76,7 +76,7 @@ bool VerifyUnchangedUntil(Condition condition, std::chrono::steady_clock::time_p
 // Helper function to count visible vertices
 template <typename DbAccess>
 size_t CountVisibleVertices(DbAccess &db) {
-  auto acc = db->Access();
+  auto acc = db->Access(memgraph::storage::WRITE);
   size_t count = 0;
   for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
     if (v.IsVisible(memgraph::storage::View::NEW)) ++count;
@@ -86,13 +86,13 @@ size_t CountVisibleVertices(DbAccess &db) {
 // Helper function to count visible edges
 template <typename DbAccess>
 size_t CountVisibleEdges(DbAccess &db) {
-  auto acc = db->Access();
+  auto acc = db->Access(memgraph::storage::WRITE);
   size_t edge_count = 0;
   for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) {
     if (v.IsVisible(memgraph::storage::View::NEW)) {
       auto edges = v.OutEdges(memgraph::storage::View::NEW);
-      if (edges.HasValue()) {
-        for (const auto e : edges.GetValue().edges) {
+      if (edges.has_value()) {
+        for (const auto e : edges.value().edges) {
           edge_count += e.IsVisible(memgraph::storage::View::NEW);
         }
       }
@@ -157,7 +157,7 @@ class TTLFixture : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db_{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -173,6 +173,7 @@ class TTLFixture : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{},
+                                                           nullptr,
                                                            nullptr,
                                                            repl_state,
                                                            system_state,
@@ -209,23 +210,23 @@ class TTLFixture : public ::testing::Test {
       // Always create label+property index (TTL system always needs this)
       if (!unique_acc->LabelPropertyIndexExists(ttl_label, ttl_property_path)) {
         auto result = unique_acc->CreateIndex(ttl_label, ttl_property_path);
-        ASSERT_FALSE(result.HasError()) << "Failed to create label+property index";
+        ASSERT_TRUE(result.has_value()) << "Failed to create label+property index";
       }
 
       // Create edge property index only if needed (matches TTL condition exactly)
       if (should_run_edge_ttl && !unique_acc->EdgePropertyIndexExists(ttl_property)) {
         auto result = unique_acc->CreateGlobalEdgeIndex(ttl_property);
-        ASSERT_FALSE(result.HasError()) << "Failed to create edge property index";
+        ASSERT_TRUE(result.has_value()) << "Failed to create edge property index";
       }
 
       // Commit the index creation using the test helper
       auto commit_result = unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
-      ASSERT_FALSE(commit_result.HasError()) << "Failed to commit index creation";
+      ASSERT_TRUE(commit_result.has_value()) << "Failed to commit index creation";
     }
 
     // Wait for indices to be ready - matches TTL system's readiness check exactly
     for (int i = 0; i < 100; ++i) {  // Increased timeout to 10 seconds
-      auto acc = db_->Access();
+      auto acc = db_->Access(memgraph::storage::WRITE);
       bool label_prop_ready = acc->LabelPropertyIndexReady(ttl_label, ttl_property_path);
       bool edge_prop_ready = !should_run_edge_ttl || acc->EdgePropertyIndexReady(ttl_property);
 
@@ -288,28 +289,28 @@ TYPED_TEST(TTLFixture, Periodic) {
   auto newer = now + std::chrono::seconds(3);
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
-    auto acc = this->db_->Access();
-    auto v1 = acc->CreateVertex();  // No label no property
-    auto v2 = acc->CreateVertex();  // A label a property
-    auto v3 = acc->CreateVertex();  // TTL label no ttl property
-    auto v4 = acc->CreateVertex();  // No TTL label, with ttl property
-    auto v5 = acc->CreateVertex();  // TTL label and ttl property (older)
-    auto v6 = acc->CreateVertex();  // TTL label and ttl property (newer)
-    ASSERT_FALSE(v2.AddLabel(lbl).HasError());
-    ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasError());
-    ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).HasError());
-    ASSERT_FALSE(v5.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-    ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
+    [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
+    auto v2 = acc->CreateVertex();                   // A label a property
+    auto v3 = acc->CreateVertex();                   // TTL label no ttl property
+    auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
+    auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
+    auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
+    ASSERT_TRUE(v2.AddLabel(lbl).has_value());
+    ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(v5.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_TRUE(v6.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     auto all_v = acc->Vertices(memgraph::storage::View::NEW);
     size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
+    for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
@@ -340,28 +341,28 @@ TYPED_TEST(TTLFixture, StartTime) {
   auto newer = now + std::chrono::seconds(4);
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
-    auto acc = this->db_->Access();
-    auto v1 = acc->CreateVertex();  // No label no property
-    auto v2 = acc->CreateVertex();  // A label a property
-    auto v3 = acc->CreateVertex();  // TTL label no ttl property
-    auto v4 = acc->CreateVertex();  // No TTL label, with ttl property
-    auto v5 = acc->CreateVertex();  // TTL label and ttl property (older)
-    auto v6 = acc->CreateVertex();  // TTL label and ttl property (newer)
-    ASSERT_FALSE(v2.AddLabel(lbl).HasError());
-    ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasError());
-    ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).HasError());
-    ASSERT_FALSE(v5.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-    ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
+    [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
+    auto v2 = acc->CreateVertex();                   // A label a property
+    auto v3 = acc->CreateVertex();                   // TTL label no ttl property
+    auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
+    auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
+    auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
+    ASSERT_TRUE(v2.AddLabel(lbl).has_value());
+    ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(v5.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_TRUE(v6.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     auto all_v = acc->Vertices(memgraph::storage::View::NEW);
     size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
+    for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
@@ -398,45 +399,45 @@ TYPED_TEST(TTLFixture, Edge) {
   auto newer = now + std::chrono::seconds(3);
   auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
   {
-    auto acc = this->db_->Access();
-    auto v1 = acc->CreateVertex();  // No label no property
-    auto v2 = acc->CreateVertex();  // A label a property
-    auto v3 = acc->CreateVertex();  // TTL label no ttl property
-    auto v4 = acc->CreateVertex();  // No TTL label, with ttl property
-    auto v5 = acc->CreateVertex();  // TTL label and ttl property (older)
-    auto v6 = acc->CreateVertex();  // TTL label and ttl property (newer)
-    ASSERT_FALSE(v2.AddLabel(lbl).HasError());
-    ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasError());
-    ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).HasError());
-    ASSERT_FALSE(v5.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-    ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
+    [[maybe_unused]] auto v1 = acc->CreateVertex();  // No label no property
+    auto v2 = acc->CreateVertex();                   // A label a property
+    auto v3 = acc->CreateVertex();                   // TTL label no ttl property
+    auto v4 = acc->CreateVertex();                   // No TTL label, with ttl property
+    auto v5 = acc->CreateVertex();                   // TTL label and ttl property (older)
+    auto v6 = acc->CreateVertex();                   // TTL label and ttl property (newer)
+    ASSERT_TRUE(v2.AddLabel(lbl).has_value());
+    ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).has_value());
+    ASSERT_TRUE(v5.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_TRUE(v6.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
 
     auto e1 = acc->CreateEdge(&v1, &v2, et1);  // stable vertices no ttl prop
-    ASSERT_TRUE(e1.HasValue());
+    ASSERT_TRUE(e1.has_value());
     auto e2 = acc->CreateEdge(&v1, &v2, et2);  // stable vertices older ttl ts
-    ASSERT_TRUE(e2.HasValue());
+    ASSERT_TRUE(e2.has_value());
     auto e3 = acc->CreateEdge(&v5, &v2, et1);  // older ttl vertex, no ttl prop
-    ASSERT_TRUE(e3.HasValue());
+    ASSERT_TRUE(e3.has_value());
     auto e4 = acc->CreateEdge(&v6, &v2, et1);  // newer ttl vertex, with older ttl prop
-    ASSERT_TRUE(e4.HasValue());
+    ASSERT_TRUE(e4.has_value());
     auto e5 = acc->CreateEdge(&v2, &v3, et1);  // stable vertices, newer ttl prop
-    ASSERT_TRUE(e5.HasValue());
+    ASSERT_TRUE(e5.has_value());
 
     if (this->HasPropOnEdge()) {  // edge prop enabled
-      ASSERT_FALSE(e2->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-      ASSERT_FALSE(e4->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-      ASSERT_FALSE(e5->SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
+      ASSERT_TRUE(e2->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+      ASSERT_TRUE(e4->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+      ASSERT_TRUE(e5->SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto acc = this->db_->Access();
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
     size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
+    for (const auto _ : acc->Vertices(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
@@ -453,8 +454,8 @@ TYPED_TEST(TTLFixture, Edge) {
 
   // Wait for first TTL deletion (vertex with older timestamp and possibly edges)
   // TTL runs every 700ms, so we expect deletion within ~1.4s max
-  ASSERT_TRUE(WaitForVertexAndEdgeCount(this->db_, expected_vertices_first, expected_edges_first,
-                                        std::chrono::milliseconds(1400)))
+  ASSERT_TRUE(WaitForVertexAndEdgeCount(
+      this->db_, expected_vertices_first, expected_edges_first, std::chrono::milliseconds(1400)))
       << "Failed to observe first TTL deletion (expected " << expected_vertices_first << " vertices and "
       << expected_edges_first << " edges)";
 
@@ -468,36 +469,29 @@ TYPED_TEST(TTLFixture, Edge) {
 
 // Needs user-defined timezone
 TEST(TtlInfo, PersistentTimezone) {
-  memgraph::utils::global_settings.Initialize("/tmp/ttl");
-  memgraph::flags::run_time::Initialize();
-  // Default value
-  EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Etc/UTC");
-  // New value
-  memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
-  EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
-  memgraph::utils::global_settings.Finalize();
-
-  // Recover previous value
-  memgraph::utils::global_settings.Initialize("/tmp/ttl");
-  memgraph::flags::run_time::Initialize();
-  EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
-  memgraph::utils::global_settings.Finalize();
-
-  memgraph::utils::OnScopeExit clean_up([] {
-    memgraph::utils::global_settings.Finalize();
-    std::filesystem::remove_all("/tmp/ttl");
-  });
+  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all("/tmp/ttl"); });
+  {
+    memgraph::utils::Settings settings("/tmp/ttl");
+    memgraph::flags::run_time::Initialize(settings);
+    // Default value
+    EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Etc/UTC");
+    // New value
+    settings.SetValue("timezone", "Europe/Rome");
+    EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
+  }
+  {
+    // Recover previous value
+    memgraph::utils::Settings settings("/tmp/ttl");
+    memgraph::flags::run_time::Initialize(settings);
+    EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
+  }
 }
 
 // Needs user-defined timezone
 TEST(TtlInfo, String) {
-  memgraph::utils::global_settings.Initialize("/tmp/ttl");
-  memgraph::flags::run_time::Initialize();
-
-  memgraph::utils::OnScopeExit clean_up([] {
-    memgraph::utils::global_settings.Finalize();
-    std::filesystem::remove_all("/tmp/ttl");
-  });
+  memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all("/tmp/ttl"); });
+  memgraph::utils::Settings settings("/tmp/ttl");
+  memgraph::flags::run_time::Initialize(settings);
 
   {
     auto period = std::chrono::hours(1) + std::chrono::minutes(23) + std::chrono::seconds(59);
@@ -519,7 +513,7 @@ TEST(TtlInfo, String) {
   }
   {
     // Has to handle time zones (hours can differ)
-    memgraph::utils::global_settings.SetValue("timezone", "UTC");
+    settings.SetValue("timezone", "UTC");
     auto time = memgraph::storage::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
     GetPart<std::chrono::hours>(epoch);  // consume and ignore
@@ -530,7 +524,7 @@ TEST(TtlInfo, String) {
   }
   {
     // Has to handle time zones (hours can differ)
-    memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
+    settings.SetValue("timezone", "Europe/Rome");
     auto time = memgraph::storage::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
     GetPart<std::chrono::hours>(epoch);  // consume and ignore
@@ -541,7 +535,7 @@ TEST(TtlInfo, String) {
   }
   {
     // Has to handle time zones (hours can differ)
-    memgraph::utils::global_settings.SetValue("timezone", "America/Los_Angeles");
+    settings.SetValue("timezone", "America/Los_Angeles");
     auto time = memgraph::storage::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
     GetPart<std::chrono::hours>(epoch);  // consume and ignore
@@ -552,11 +546,11 @@ TEST(TtlInfo, String) {
   }
   {
     const auto time_str = "12:34:56";
-    memgraph::utils::global_settings.SetValue("timezone", "UTC");
+    settings.SetValue("timezone", "UTC");
     auto utc = memgraph::storage::ttl::TtlInfo::ParseStartTime(time_str);
-    memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
+    settings.SetValue("timezone", "Europe/Rome");
     auto rome = memgraph::storage::ttl::TtlInfo::ParseStartTime(time_str);
-    memgraph::utils::global_settings.SetValue("timezone", "America/Los_Angeles");
+    settings.SetValue("timezone", "America/Los_Angeles");
     auto la = memgraph::storage::ttl::TtlInfo::ParseStartTime(time_str);
     // Time is converted to local date time; so might be influenced by day-light savings
     EXPECT_TRUE(utc == rome + std::chrono::hours(2) || utc == rome + std::chrono::hours(1))
@@ -573,9 +567,7 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   config.durability.storage_directory = std::filesystem::temp_directory_path() / "ttl_user_check_test";
   std::filesystem::remove_all(config.durability.storage_directory);
 
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
 
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
@@ -594,19 +586,19 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
 
   // Create vertices: 2 with TTL label and older timestamp (should be deleted), 1 with newer timestamp (should stay)
   {
-    auto acc = db_acc->Access();
+    auto acc = db_acc->Access(memgraph::storage::WRITE);
     auto v1 = acc->CreateVertex();  // TTL label and older timestamp (should be deleted)
     auto v2 = acc->CreateVertex();  // TTL label and older timestamp (should be deleted)
     auto v3 = acc->CreateVertex();  // TTL label and newer timestamp (should stay)
 
-    ASSERT_FALSE(v1.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v1.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-    ASSERT_FALSE(v2.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v2.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-    ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v3.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
+    ASSERT_TRUE(v1.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v1.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_TRUE(v2.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v2.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_TRUE(v3.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v3.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).has_value());
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify initial count (should be 3 vertices)
@@ -634,16 +626,16 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
       << "Failed to observe TTL deletion when user check returns true";
 
   // Set user check to false - TTL should not run
-  bool user_bool = false;
-  ttl->SetUserCheck([&user_bool]() -> bool { return user_bool; });
+  std::atomic<bool> user_bool{false};
+  ttl->SetUserCheck([&user_bool]() -> bool { return user_bool.load(std::memory_order_acquire); });
 
   // Test 3: Test dynamic behavior - create new vertices and toggle the check
   {
-    auto acc = db_acc->Access();
+    auto acc = db_acc->Access(memgraph::storage::WRITE);
     auto v4 = acc->CreateVertex();  // TTL label and older timestamp
-    ASSERT_FALSE(v4.AddLabel(ttl_lbl).HasError());
-    ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(v4.AddLabel(ttl_lbl).has_value());
+    ASSERT_TRUE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // Verify we now have 2 vertices
@@ -656,7 +648,7 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
       << "TTL should not run when user check returns false";
 
   // Set user check back to true - TTL should run and delete the older vertex
-  user_bool = true;
+  user_bool.store(true, std::memory_order_release);
 
   // Wait for TTL to delete the older vertex
   ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::milliseconds(300)))

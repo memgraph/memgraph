@@ -3,8 +3,16 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "centos-9"
-check_architecture "x86_64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "centos-9"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for centos-9"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     wget # used for archive download
@@ -29,6 +37,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     openssl-devel pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -80,7 +89,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -94,7 +104,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv)
+            custom-*|PyYAML|python3-virtualenv|sbcl|libipt|libipt-devel)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -102,6 +112,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -162,13 +178,16 @@ install() {
     # Enable EPEL for additional packages
     dnf install -y epel-release epel-next-release
 
+    # enable rpm fusion
+    dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-9.noarch.rpm
+
     # Separate standard and custom packages
     local standard_packages=()
     local custom_packages=()
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel)
+            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|sbcl)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -201,11 +220,17 @@ install() {
                     dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
                 fi
                 ;;
-            # Since there is no support for libipt-devel for CentOS 9 we install
-            # Fedoras version of same libs, they are the same version but released
-            # for different OS
-            # TODO Update when libipt-devel releases for CentOS 9
-            # SBCL packages are now available via EPEL repository
+            sbcl)
+                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
+                fi
+                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
+                fi
+                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
+                fi
+                ;;
             PyYAML)
                 if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                     pip3 install --user PyYAML
@@ -229,5 +254,4 @@ install() {
     done
 }
 
-deps=$2"[*]"
 "$1" "$2"

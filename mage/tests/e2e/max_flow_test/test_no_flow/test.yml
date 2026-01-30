@@ -1,0 +1,7 @@
+query: >
+  MATCH (source {id: 5}), (sink {id: 0})
+  CALL max_flow.get_flow(source, sink)
+  YIELD max_flow RETURN max_flow;
+
+output:
+    - max_flow: 0

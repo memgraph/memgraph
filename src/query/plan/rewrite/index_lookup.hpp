@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -112,7 +112,7 @@ struct IndexHints {
       auto property_ids = properties_prefix | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
       // Check if paths are the same
       for (const auto &path : property_paths) {
-        if (std::ranges::find(property_ids, path) != property_ids.end()) {
+        if (std::ranges::contains(property_ids, path)) {
           return true;
         }
       }
@@ -170,7 +170,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
-    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
@@ -201,7 +201,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto does_modify = [&]() {
           const auto &symbols = input->ModifiedSymbols(*symbol_table_);
           return std::any_of(symbols.begin(), symbols.end(), [&modified_symbols](const auto &sym_in) {
-            return modified_symbols.find(sym_in) != modified_symbols.end();
+            return modified_symbols.contains(sym_in);
           });
         };
         if (does_modify()) {
@@ -366,17 +366,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return false;
     }
 
-    std::unique_ptr<LogicalOperator> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
     // With expand to existing we only get real gains with BFS, because we use a
     // different algorithm then, so prefer expand to existing.
-    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // TODO: Perhaps take average node degree into consideration, instead of
-      // unconditionally creating an indexed scan.
-      indexed_scan = GenScanByIndex(dst_scan);
-    } else {
-      indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    }
+    // TODO: Perhaps take average node degree into consideration, instead of
+    // unconditionally creating an indexed scan.
+    std::unique_ptr<LogicalOperator> indexed_scan =
+        expand.type_ == EdgeAtom::Type::BREADTH_FIRST
+            ? GenScanByIndex(dst_scan)
+            : GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
     if (indexed_scan) {
       expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
@@ -491,6 +489,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(CreateNode &) override {
     prev_ops_.pop_back();
     return true;
@@ -500,6 +499,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(CreateExpand &) override {
     prev_ops_.pop_back();
     return true;
@@ -509,6 +509,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ScanAllByLabel &) override {
     prev_ops_.pop_back();
     return true;
@@ -518,6 +519,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ScanAllByLabelProperties &) override {
     prev_ops_.pop_back();
     return true;
@@ -527,6 +529,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ScanAllById &) override {
     prev_ops_.pop_back();
     return true;
@@ -536,6 +539,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(ConstructNamedPath &) override {
     prev_ops_.pop_back();
     return true;
@@ -545,6 +549,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Produce &) override {
     prev_ops_.pop_back();
     return true;
@@ -554,6 +559,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(EmptyResult &) override {
     prev_ops_.pop_back();
     return true;
@@ -563,6 +569,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Delete &) override {
     prev_ops_.pop_back();
     return true;
@@ -572,6 +579,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(SetProperty &) override {
     prev_ops_.pop_back();
     return true;
@@ -581,6 +589,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(SetProperties &) override {
     prev_ops_.pop_back();
     return true;
@@ -590,6 +599,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(SetLabels &) override {
     prev_ops_.pop_back();
     return true;
@@ -599,6 +609,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(RemoveProperty &) override {
     prev_ops_.pop_back();
     return true;
@@ -608,6 +619,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(RemoveLabels &) override {
     prev_ops_.pop_back();
     return true;
@@ -617,6 +629,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(EdgeUniquenessFilter &) override {
     prev_ops_.pop_back();
     return true;
@@ -626,6 +639,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Accumulate &) override {
     prev_ops_.pop_back();
     return true;
@@ -635,6 +649,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Aggregate &) override {
     prev_ops_.pop_back();
     return true;
@@ -644,6 +659,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Skip &) override {
     prev_ops_.pop_back();
     return true;
@@ -653,6 +669,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Limit &) override {
     prev_ops_.pop_back();
     return true;
@@ -662,6 +679,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(OrderBy &) override {
     prev_ops_.pop_back();
     return true;
@@ -671,6 +689,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Unwind &) override {
     prev_ops_.pop_back();
     return true;
@@ -680,6 +699,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(Distinct &) override {
     prev_ops_.pop_back();
     return true;
@@ -689,6 +709,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
+
   bool PostVisit(CallProcedure &) override {
     prev_ops_.pop_back();
     return true;
@@ -734,6 +755,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(LoadCsv & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(LoadParquet &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadParquet & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(LoadJsonl &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(LoadJsonl & /*op*/) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -914,7 +955,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       -> CandidatePointIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }
@@ -1002,7 +1043,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       -> CandidateLabelPropertiesIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }
@@ -1039,8 +1080,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
     auto or_labels = filters_.FilteredOrLabels(symbol);
     for (auto const &label_vec : or_labels) {
-      labelIXs.insert(labelIXs.end(), std::make_move_iterator(label_vec.begin()),
-                      std::make_move_iterator(label_vec.end()));
+      labelIXs.insert(
+          labelIXs.end(), std::make_move_iterator(label_vec.begin()), std::make_move_iterator(label_vec.end()));
     }
     auto property_filters1 = filters_.PropertyFilters(symbol);
     auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
@@ -1111,8 +1152,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      * @return -1 if the new index is better, 0 if they are equal and 1 if the existing one is better.
      */
     auto compare_indices = [](std::optional<LabelPropertyIndex> &found,
-                              std::optional<storage::LabelPropertyIndexStats> &new_stats, int vertex_count) {
-      if (!new_stats.has_value()) {
+                              std::optional<storage::LabelPropertyIndexStats> &new_stats,
+                              int vertex_count) {
+      if (!new_stats) {
         return 0;
       }
 
@@ -1180,12 +1222,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto const &storage_label = candidate.info_.label_;
       auto const &storage_properties = candidate.info_.properties_;
 
-      // Conditions, from more to less important:
-      // the index with 10x less vertices is better.
-      // the index with smaller average group size is better.
-      // the index with equal avg group size and distribution closer to the uniform is better.
-      // the index with less vertices is better.
-      // the index with same number of vertices but more optimized filter is better.
+      // Index selection priority (most to least important):
+      // 1. The index with 10x fewer vertices is better (dramatic cardinality difference)
+      // 2. The index that satisfies MORE query filters is better (reduces post-filtering)
+      // 3. If same filter coverage, prefer simpler index structure (less storage overhead)
+      // 4. The index with smaller avg_group_size is better (requires ANALYZE GRAPH)
+      // 5. The index with distribution closer to uniform is better (requires ANALYZE GRAPH)
+      // 6. The index with fewer vertices is better (minor tie-breaker)
+      // 7. The index with more optimized filter type is better (final tie-breaker)
 
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
@@ -1205,8 +1249,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      // If the index is less composite then it is prefered
-      if (candidate.info_.properties_.size() < found->properties.size()) {
+      // Prefer index that satisfies MORE filters (reduces post-filtering overhead)
+      // An index covering more query filters will be more selective
+      if (candidate.filters_.size() > found->filters.size()) {
+        found = make_label_property_index();
+        continue;
+      }
+
+      // If same filter coverage, prefer simpler index structure (less storage overhead)
+      if (candidate.filters_.size() == found->filters.size() &&
+          candidate.info_.properties_.size() < found->properties.size()) {
         found = make_label_property_index();
         continue;
       }
@@ -1331,7 +1383,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
+        if (!bound_symbols.contains(used_symbol)) {
           return false;
         }
       }
@@ -1367,7 +1419,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto make_unwinds = [&](FilterInfo const &filter_info) -> FilterInfo {
       if (filter_info.property_filter->type_ == PropertyFilter::Type::IN) {
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
+        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
         expression->MapTo(symbol);
         input = std::make_unique<Unwind>(input, filter_info.property_filter->value_, symbol);
         FilterInfo cpy = filter_info;
@@ -1415,9 +1467,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           using enum PointFilter::Function;
           case DISTANCE: {
             return std::make_unique<ScanAllByPointDistance>(
-                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                input,
+                node_symbol,
+                GetLabel(found_index->label),
+                GetProperty(point_filter.property_),
                 point_filter.distance_.cmp_value_,  // uses the CRS from here
-                point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
+                point_filter.distance_.boundary_value_,
+                point_filter.distance_.boundary_condition_);
           }
           case WITHINBBOX: {
             auto *expr = std::invoke([&]() -> Expression * {
@@ -1432,9 +1488,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               // else use provided evaluation time expression
               return point_filter.withinbbox_.boundary_value_;
             });
-            return std::make_unique<ScanAllByPointWithinbbox>(
-                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
-                point_filter.withinbbox_.bottom_left_, point_filter.withinbbox_.top_right_, expr);
+            return std::make_unique<ScanAllByPointWithinbbox>(input,
+                                                              node_symbol,
+                                                              GetLabel(found_index->label),
+                                                              GetProperty(point_filter.property_),
+                                                              point_filter.withinbbox_.bottom_left_,
+                                                              point_filter.withinbbox_.top_right_,
+                                                              expr);
           }
         }
       }
@@ -1463,8 +1523,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
       auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
 
-      return std::make_unique<ScanAllByLabelProperties>(input, node_symbol, GetLabel(found_index->label),
-                                                        std::move(found_index->properties), std::move(expr_ranges),
+      return std::make_unique<ScanAllByLabelProperties>(input,
+                                                        node_symbol,
+                                                        GetLabel(found_index->label),
+                                                        std::move(found_index->properties),
+                                                        std::move(expr_ranges),
                                                         view);
     }
     if (!labels.empty()) {
@@ -1498,9 +1561,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             labels_to_erase.push_back(std::get<LabelIx>(index));
             auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
             if (prev) {
-              auto union_op =
-                  std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
-                                          std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
+              auto union_op = std::make_unique<Union>(std::move(prev),
+                                                      std::move(scan),
+                                                      std::vector<Symbol>{node_symbol},
+                                                      std::vector<Symbol>{node_symbol},
+                                                      std::vector<Symbol>{node_symbol});
               prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
             } else {
               prev = std::move(scan);
@@ -1525,13 +1590,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             auto value_expressions =
                 label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
             auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
-            auto label_property_index_scan = std::make_unique<ScanAllByLabelProperties>(
-                input, node_symbol, GetLabel(label_property_index.label), std::move(label_property_index.properties),
-                std::move(expr_ranges), view);
+            auto label_property_index_scan =
+                std::make_unique<ScanAllByLabelProperties>(input,
+                                                           node_symbol,
+                                                           GetLabel(label_property_index.label),
+                                                           std::move(label_property_index.properties),
+                                                           std::move(expr_ranges),
+                                                           view);
             if (prev) {
-              auto union_op = std::make_unique<Union>(
-                  std::move(prev), std::move(label_property_index_scan), std::vector<Symbol>{node_symbol},
-                  std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
+              auto union_op = std::make_unique<Union>(std::move(prev),
+                                                      std::move(label_property_index_scan),
+                                                      std::vector<Symbol>{node_symbol},
+                                                      std::vector<Symbol>{node_symbol},
+                                                      std::vector<Symbol>{node_symbol});
               prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
             } else {
               prev = std::move(label_property_index_scan);

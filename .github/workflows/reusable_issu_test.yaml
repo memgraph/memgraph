@@ -1,4 +1,4 @@
-name: Reusable ISSU Test 
+name: Reusable ISSU Test
 
 on:
   workflow_call:
@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: 'amd'
+      ref:
+        description: 'Branch or tag to test'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -28,6 +33,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -37,11 +45,14 @@ jobs:
 
 
       - name: Determine Input Types
+        env:
+          INPUT_NEXT_IMAGE: ${{ inputs.next_image }}
+          INPUT_LAST_IMAGE: ${{ inputs.last_image }}
         run: |
-          read next_type next_image < <(python3 tools/issu_image_type.py "${{ inputs.next_image }}")
+          read next_type next_image < <(python3 tools/ci/issu_image_type.py "${INPUT_NEXT_IMAGE}")
           echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
           echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
-          read last_type last_image < <(python3 tools/issu_image_type.py "${{ inputs.last_image }}")
+          read last_type last_image < <(python3 tools/ci/issu_image_type.py "${INPUT_LAST_IMAGE}")
           echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
           echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
 
@@ -50,7 +61,7 @@ jobs:
         run: |
           docker pull "$NEXT_IMAGE"
           echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${{ env.NEXT_IMAGE }}" >> $GITHUB_ENV
-  
+
       - name: Load Next Image (URL)
         if: ${{ env.NEXT_TYPE == 'url' }}
         run: |
@@ -76,7 +87,7 @@ jobs:
         run: |
           curl -L ${{ env.LAST_IMAGE }} > last.tar.gz
           load_output=$(docker load -i last.tar.gz)
-          
+
           # grab each repo:tag, drop the ":latest" one, pick the first real tag
           repo_tag=$(echo "$load_output" \
             | awk -F': ' '/Loaded image:/ {print $2}' \
@@ -99,5 +110,7 @@ jobs:
           ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/ci/docker_cleanup.sh

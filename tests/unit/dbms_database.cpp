@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,6 @@
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_database"};
 
-memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> generic_repl_state{
-    std::nullopt};
 memgraph::storage::Config default_conf(std::string name = "") {
   return {.durability = {.storage_directory = storage_directory / name,
                          .snapshot_wal_mode =
@@ -52,7 +50,9 @@ class DBMS_Database : public ::testing::Test {
 #ifdef MG_ENTERPRISE
 TEST_F(DBMS_Database, New) {
   memgraph::dbms::DatabaseHandler db_handler;
-  { ASSERT_FALSE(db_handler.GetConfig("db1")); }
+  {
+    ASSERT_FALSE(db_handler.GetConfig("db1"));
+  }
   {  // With custom config
     memgraph::storage::Config db_config{
         .durability = {.storage_directory = storage_directory / "db2",
@@ -60,20 +60,20 @@ TEST_F(DBMS_Database, New) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .disk = {.main_storage_directory = storage_directory / "disk"},
         .salient.name = "db2"};
-    auto db2 = db_handler.New(db_config, generic_repl_state);
-    ASSERT_TRUE(db2.HasValue() && db2.GetValue());
+    auto db2 = db_handler.New(db_config);
+    ASSERT_TRUE(db2.has_value() && db2.value());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db2"));
   }
   {
     // With default config
-    auto db3 = db_handler.New(default_conf("db3"), generic_repl_state);
-    ASSERT_TRUE(db3.HasValue() && db3.GetValue());
+    auto db3 = db_handler.New(default_conf("db3"));
+    ASSERT_TRUE(db3.has_value() && db3.value());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db3"));
-    auto db4 = db_handler.New(default_conf("four"), generic_repl_state);
-    ASSERT_TRUE(db4.HasValue() && db4.GetValue());
+    auto db4 = db_handler.New(default_conf("four"));
+    ASSERT_TRUE(db4.has_value() && db4.value());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "four"));
-    auto db5 = db_handler.New(default_conf("db3"), generic_repl_state);
-    ASSERT_TRUE(db5.HasError() && db5.GetError() == memgraph::dbms::NewError::EXISTS);
+    auto db5 = db_handler.New(default_conf("db3"));
+    ASSERT_EQ(db5, std::unexpected{memgraph::dbms::NewError::EXISTS});
   }
 
   auto all = db_handler.All();
@@ -87,21 +87,21 @@ TEST_F(DBMS_Database, New) {
 TEST_F(DBMS_Database, Get) {
   memgraph::dbms::DatabaseHandler db_handler;
 
-  auto db1 = db_handler.New(default_conf("db1"), generic_repl_state);
-  auto db2 = db_handler.New(default_conf("db2"), generic_repl_state);
-  auto db3 = db_handler.New(default_conf("db3"), generic_repl_state);
+  auto db1 = db_handler.New(default_conf("db1"));
+  auto db2 = db_handler.New(default_conf("db2"));
+  auto db3 = db_handler.New(default_conf("db3"));
 
-  ASSERT_TRUE(db1.HasValue());
-  ASSERT_TRUE(db2.HasValue());
-  ASSERT_TRUE(db3.HasValue());
+  ASSERT_TRUE(db1.has_value());
+  ASSERT_TRUE(db2.has_value());
+  ASSERT_TRUE(db3.has_value());
 
   auto get_db1 = db_handler.Get("db1");
   auto get_db2 = db_handler.Get("db2");
   auto get_db3 = db_handler.Get("db3");
 
-  ASSERT_TRUE(get_db1 && *get_db1 == db1.GetValue());
-  ASSERT_TRUE(get_db2 && *get_db2 == db2.GetValue());
-  ASSERT_TRUE(get_db3 && *get_db3 == db3.GetValue());
+  ASSERT_TRUE(get_db1 && *get_db1 == db1.value());
+  ASSERT_TRUE(get_db2 && *get_db2 == db2.value());
+  ASSERT_TRUE(get_db3 && *get_db3 == db3.value());
 
   ASSERT_FALSE(db_handler.Get("db123"));
   ASSERT_FALSE(db_handler.Get("db2 "));
@@ -111,17 +111,17 @@ TEST_F(DBMS_Database, Get) {
 TEST_F(DBMS_Database, Delete) {
   memgraph::dbms::DatabaseHandler db_handler;
 
-  auto db1 = db_handler.New(default_conf("db1"), generic_repl_state);
-  auto db2 = db_handler.New(default_conf("db2"), generic_repl_state);
-  auto db3 = db_handler.New(default_conf("db3"), generic_repl_state);
+  auto db1 = db_handler.New(default_conf("db1"));
+  auto db2 = db_handler.New(default_conf("db2"));
+  auto db3 = db_handler.New(default_conf("db3"));
 
-  ASSERT_TRUE(db1.HasValue());
-  ASSERT_TRUE(db2.HasValue());
-  ASSERT_TRUE(db3.HasValue());
+  ASSERT_TRUE(db1.has_value());
+  ASSERT_TRUE(db2.has_value());
+  ASSERT_TRUE(db3.has_value());
 
   {
     // Release accessor to storage
-    db1.GetValue().reset();
+    db1.value().reset();
     // Delete from handler
     ASSERT_TRUE(db_handler.TryDelete("db1"));
     ASSERT_FALSE(db_handler.Get("db1"));
@@ -148,8 +148,8 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
   memgraph::dbms::DatabaseHandler db_handler;
 
   {
-    auto db1 = db_handler.New(default_conf("db1"), generic_repl_state);
-    auto db2 = db_handler.New(default_conf("db2"), generic_repl_state);
+    auto db1 = db_handler.New(default_conf("db1"));
+    auto db2 = db_handler.New(default_conf("db2"));
 
     memgraph::storage::Config conf_w_snap{
         .durability = {.storage_directory = storage_directory / "db3",
@@ -159,32 +159,32 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
         .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
         .salient.name = "db3"};
 
-    auto db3 = db_handler.New(conf_w_snap, generic_repl_state);
+    auto db3 = db_handler.New(conf_w_snap);
 
-    ASSERT_TRUE(db1.HasValue());
-    ASSERT_TRUE(db2.HasValue());
-    ASSERT_TRUE(db3.HasValue());
+    ASSERT_TRUE(db1.has_value());
+    ASSERT_TRUE(db2.has_value());
+    ASSERT_TRUE(db3.has_value());
 
     // Add data to graphs
     {
-      auto storage_dba = db1.GetValue()->Access();
+      auto storage_dba = db1.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       memgraph::query::VertexAccessor v1{dba.InsertVertex()};
       memgraph::query::VertexAccessor v2{dba.InsertVertex()};
-      ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l11")).HasValue());
-      ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l12")).HasValue());
-      ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l11")).has_value());
+      ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l12")).has_value());
+      ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
-      auto storage_dba = db3.GetValue()->Access();
+      auto storage_dba = db3.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       memgraph::query::VertexAccessor v1{dba.InsertVertex()};
       memgraph::query::VertexAccessor v2{dba.InsertVertex()};
       memgraph::query::VertexAccessor v3{dba.InsertVertex()};
-      ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l31")).HasValue());
-      ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l32")).HasValue());
-      ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l33")).HasValue());
-      ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l31")).has_value());
+      ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l32")).has_value());
+      ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l33")).has_value());
+      ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
   }
 
@@ -195,8 +195,8 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
 
   {
     // Recover graphs (only db3)
-    auto db1 = db_handler.New(default_conf("db1"), generic_repl_state);
-    auto db2 = db_handler.New(default_conf("db2"), generic_repl_state);
+    auto db1 = db_handler.New(default_conf("db1"));
+    auto db2 = db_handler.New(default_conf("db2"));
 
     memgraph::storage::Config conf_w_rec{
         .durability = {.storage_directory = storage_directory / "db3",
@@ -206,24 +206,24 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
         .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
         .salient.name = "db3"};
 
-    auto db3 = db_handler.New(conf_w_rec, generic_repl_state);
+    auto db3 = db_handler.New(conf_w_rec);
 
     // Check content
     {
       // Empty
-      auto storage_dba = db1.GetValue()->Access();
+      auto storage_dba = db1.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 0);
     }
     {
       // Empty
-      auto storage_dba = db2.GetValue()->Access();
+      auto storage_dba = db2.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 0);
     }
     {
       // Full
-      auto storage_dba = db3.GetValue()->Access();
+      auto storage_dba = db3.value()->Access(memgraph::storage::WRITE);
       memgraph::query::DbAccessor dba{storage_dba.get()};
       ASSERT_EQ(dba.VerticesCount(), 3);
     }

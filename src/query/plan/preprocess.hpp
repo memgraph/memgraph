@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -142,7 +142,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(PrimitiveLiteral &) override { return true; }
+
   bool Visit(ParameterLookup &) override { return true; }
+
   bool Visit(EnumValueAccess &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
@@ -164,9 +166,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     name() = default;                                                                                         \
                                                                                                               \
     static name FromUint(uint64_t id) { return name(id); }                                                    \
-    static name FromInt(int64_t id) { return name(utils::MemcpyCast<uint64_t>(id)); }                         \
+    static name FromInt(int64_t id) { return name(std::bit_cast<uint64_t>(id)); }                             \
     uint64_t AsUint() const { return id_; }                                                                   \
-    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
+    int64_t AsInt() const { return std::bit_cast<int64_t>(id_); }                                             \
                                                                                                               \
    private:                                                                                                   \
     uint64_t id_;                                                                                             \
@@ -209,216 +211,50 @@ enum class SplitExpressionMode { AND, OR };
 
 struct PatternComprehensionMatching;
 struct FilterMatching;
+using PatternComprehensionMatchings = std::vector<PatternComprehensionMatching>;
 
 enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
 
-/// Collects matchings that include patterns
-class PatternVisitor : public ExpressionVisitor<void> {
+/// Collects pattern comprehensions and EXISTS patterns from any AST node.
+/// Uses HierarchicalTreeVisitor for automatic traversal of all expressions in all clause types.
+class PatternComprehensionCollector : public HierarchicalTreeVisitor {
  public:
-  explicit PatternVisitor(SymbolTable &symbol_table, AstStorage &storage);
-  PatternVisitor(const PatternVisitor &);
-  PatternVisitor &operator=(const PatternVisitor &) = delete;
-  PatternVisitor(PatternVisitor &&) noexcept;
-  PatternVisitor &operator=(PatternVisitor &&) noexcept = delete;
-  ~PatternVisitor() override;
+  explicit PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage);
+  PatternComprehensionCollector(const PatternComprehensionCollector &) = delete;
+  PatternComprehensionCollector &operator=(const PatternComprehensionCollector &) = delete;
+  PatternComprehensionCollector(PatternComprehensionCollector &&) = delete;
+  PatternComprehensionCollector &operator=(PatternComprehensionCollector &&) = delete;
+  ~PatternComprehensionCollector() override;
 
-  using ExpressionVisitor<void>::Visit;
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
 
-  // Unary operators
-  void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
-  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
-  void Visit(UnaryPlusOperator &op) override { op.expression_->Accept(*this); }
-  void Visit(UnaryMinusOperator &op) override { op.expression_->Accept(*this); }
+  // Core: collect PatternComprehension when found
+  // Uses PreVisit to handle manually and prevent automatic traversal into pattern/filter
+  bool PreVisit(PatternComprehension &op) override;
 
-  // Binary operators
-  void Visit(OrOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
+  // Exists pattern filters
+  // Uses PreVisit to handle manually and prevent automatic traversal into pattern/subquery
+  bool PreVisit(Exists &op) override;
 
-  void Visit(XorOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
+  // Leaf nodes - stop traversal (no children to visit)
+  bool Visit(Identifier &) override { return true; }
 
-  void Visit(AndOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
+  bool Visit(PrimitiveLiteral &) override { return true; }
 
-  void Visit(NotEqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
+  bool Visit(ParameterLookup &) override { return true; }
 
-  void Visit(EqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(InListOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(AdditionOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(SubtractionOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(MultiplicationOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(DivisionOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(ModOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(ExponentiationOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(LessOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(GreaterOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(LessEqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(GreaterEqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(RangeOperator &op) override {
-    op.expr1_->Accept(*this);
-    op.expr2_->Accept(*this);
-  }
-
-  void Visit(SubscriptOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  // Other
-  void Visit(ListSlicingOperator &op) override {
-    op.list_->Accept(*this);
-    if (op.lower_bound_) op.lower_bound_->Accept(*this);
-    if (op.upper_bound_) op.upper_bound_->Accept(*this);
-  };
-  void Visit(IfOperator &op) override {
-    op.condition_->Accept(*this);
-    op.then_expression_->Accept(*this);
-    op.else_expression_->Accept(*this);
-  };
-  void Visit(ListLiteral &op) override {
-    for (auto element_expr : op.elements_) element_expr->Accept(*this);
-  }
-  void Visit(MapLiteral &op) override {
-    for (auto pair : op.elements_) {
-      pair.second->Accept(*this);
-    }
-  }
-  void Visit(MapProjectionLiteral &op) override {
-    for (auto pair : op.elements_) {
-      pair.second->Accept(*this);
-    }
-  }
-  void Visit(LabelsTest &op) override { op.expression_->Accept(*this); };
-  void Visit(Aggregation &op) override {
-    if (op.expression1_) op.expression1_->Accept(*this);
-    if (op.expression2_) op.expression2_->Accept(*this);
-  }
-
-  void Visit(Function &op) override {
-    for (auto *argument : op.arguments_) {
-      argument->Accept(*this);
-    }
-  }
-
-  void Visit(Reduce &op) override {
-    if (op.initializer_) op.initializer_->Accept(*this);
-    if (op.expression_) op.expression_->Accept(*this);
-  }
-  void Visit(Coalesce &op) override {
-    for (auto element_expr : op.expressions_) element_expr->Accept(*this);
-  }
-  void Visit(Extract &op) override {
-    op.list_->Accept(*this);
-    op.expression_->Accept(*this);
-  }
-  void Visit(Exists &op) override;
-  void Visit(All &op) override {
-    op.list_expression_->Accept(*this);
-    op.where_->expression_->Accept(*this);
-  }
-  void Visit(Single &op) override {
-    op.list_expression_->Accept(*this);
-    op.where_->expression_->Accept(*this);
-  }
-  void Visit(Any &op) override {
-    op.list_expression_->Accept(*this);
-    op.where_->expression_->Accept(*this);
-  }
-  void Visit(None &op) override {
-    op.list_expression_->Accept(*this);
-    op.where_->expression_->Accept(*this);
-  }
-  void Visit(ListComprehension &op) override {
-    op.list_->Accept(*this);
-    if (op.where_) {
-      op.where_->expression_->Accept(*this);
-    }
-    if (op.expression_) {
-      op.expression_->Accept(*this);
-    }
-  }
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(PropertyLookup &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
-  void Visit(RegexMatch &op) override {
-    op.string_expr_->Accept(*this);
-    op.regex_->Accept(*this);
-  }
-  void Visit(NamedExpression &op) override;
-  void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override{};
+  bool Visit(EnumValueAccess &) override { return true; }
 
   std::vector<FilterMatching> getFilterMatchings();
-  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
-
-  SymbolTable &symbol_table_;
-  AstStorage &storage_;
+  PatternComprehensionMatchings getPatternComprehensionMatchings();
 
  private:
-  /// Collection of matchings in the filter expression being analyzed.
+  SymbolTable &symbol_table_;
+  AstStorage &storage_;
   std::vector<FilterMatching> filter_matchings_;
-
-  /// Collection of matchings in the pattern comprehension being analyzed.
-  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings_;
+  PatternComprehensionMatchings pattern_comprehension_matchings_;
 };
 
 /// Stores the symbols and expression used to filter a property.
@@ -493,12 +329,14 @@ struct PointFilter {
   Symbol symbol_;
   PropertyIx property_;
   Function function_;
+
   union {
     struct {
       Expression *cmp_value_ = nullptr;
       Expression *boundary_value_ = nullptr;
       PointDistanceCondition boundary_condition_;
     } distance_;
+
     struct {
       Expression *bottom_left_ = nullptr;
       Expression *top_right_ = nullptr;
@@ -528,7 +366,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern, Point };
+  enum class Type { Generic, Label, Property, Id, Pattern, Point, EdgeType };
 
   // FilterInfo is tricky because FilterMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
@@ -555,12 +393,14 @@ struct FilterInfo {
   std::vector<std::vector<LabelIx>> or_labels{};
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter{};
+  /// Edgetypes for Type::EdgeType filtering.
+  std::vector<EdgeTypeIx> edgetypes{};
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter{};
   /// Matchings for filters that include patterns
   /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
   std::vector<FilterMatching> matchings;
-  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings;
+  PatternComprehensionMatchings pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
 };
@@ -575,8 +415,11 @@ class Filters final {
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
   auto begin() -> iterator { return all_filters_.begin(); }
+
   auto begin() const -> const_iterator { return all_filters_.begin(); }
+
   auto end() -> iterator { return all_filters_.end(); }
+
   auto end() const -> const_iterator { return all_filters_.end(); }
 
   auto empty() const -> bool { return all_filters_.empty(); }
@@ -688,10 +531,13 @@ struct FilterMatching : Matching {
 };
 
 inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
+
 inline auto Filters::erase(Filters::const_iterator pos) -> iterator { return all_filters_.erase(pos); }
+
 inline auto Filters::erase(Filters::iterator first, Filters::iterator last) -> iterator {
   return all_filters_.erase(first, last);
 }
+
 inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterator last) -> iterator {
   return all_filters_.erase(first, last);
 }
@@ -700,7 +546,7 @@ inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterato
 inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
   std::unordered_set<LabelIx> labels;
   for (const auto &filter : all_filters_) {
-    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+    if (filter.type == FilterInfo::Type::Label && filter.used_symbols.contains(symbol)) {
       MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
       labels.insert(filter.labels.begin(), filter.labels.end());
     }
@@ -711,7 +557,7 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
 inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>> {
   std::vector<std::vector<LabelIx>> or_labels;
   for (const auto &filter : all_filters_) {
-    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+    if (filter.type == FilterInfo::Type::Label && filter.used_symbols.contains(symbol)) {
       or_labels.insert(or_labels.end(), filter.or_labels.begin(), filter.or_labels.end());
     }
   }
@@ -762,6 +608,12 @@ struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
   Symbol result_symbol;
+  /// Nested pattern comprehensions found in the result expression
+  PatternComprehensionMatchings nested_pattern_comprehensions;
+  /// External symbols that this pattern comprehension depends on.
+  /// These must be bound before the comprehension can be planned.
+  /// (Symbols with user_declared=true from expansion_symbols and filters)
+  std::unordered_set<Symbol> external_symbols;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on
@@ -807,12 +659,12 @@ struct SingleQueryPart {
   /// to be processed in the same order by the semantics of the `RuleBasedPlanner`.
   std::vector<Matching> merge_matching{};
 
-  /// @brief @c NamedExpression name to @c PatternComprehensionMatching for each pattern comprehension.
+  /// @brief @c Expression to @c PatternComprehensionMatchings for each pattern comprehension.
   ///
   /// Storing the normalized pattern of a @c PatternComprehension does not preclude storing the
   /// @c PatternComprehension clause itself inside `remaining_clauses`. The reason is that we
   /// need to have access to other parts of the clause, such as pattern, filter clauses.
-  std::unordered_map<std::string, PatternComprehensionMatching> pattern_comprehension_matchings{};
+  PatternComprehensionMatchings pattern_comprehension_matchings;
 
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};

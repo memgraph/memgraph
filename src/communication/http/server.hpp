@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,7 +53,9 @@ class Server final {
       background_thread_->join();
     }
   }
+
   bool IsRunning() const { return !listener_->HasErrorHappened() && background_thread_ && !ioc_.stopped(); }
+
   std::optional<tcp::endpoint> GetEndpoint() const;
 
  private:
@@ -62,6 +64,7 @@ class Server final {
   std::shared_ptr<Listener<TRequestHandler, TSessionContext>> listener_;
   std::optional<std::thread> background_thread_;
 };
+
 template <class TRequestHandler, typename TSessionContext>
 Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint, TSessionContext *session_context,
                                                  ServerContext *context)

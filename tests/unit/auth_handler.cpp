@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,8 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include <nlohmann/json.hpp>
+
 class AuthQueryHandlerFixture : public testing::Test {
  protected:
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_auth_handler"};
@@ -45,7 +47,9 @@ class AuthQueryHandlerFixture : public testing::Test {
   memgraph::auth::FineGrainedAccessHandler handler{};
 #endif
 
-  std::optional<memgraph::auth::SynchedAuth> auth{std::in_place, auth_dir_, memgraph::auth::Auth::Config{/* default */}
+  std::optional<memgraph::auth::SynchedAuth> auth{std::in_place,
+                                                  auth_dir_,
+                                                  memgraph::auth::Auth::Config{/* default */}
 #ifdef MG_ENTERPRISE
                                                   ,
                                                   &resources
@@ -57,6 +61,7 @@ class AuthQueryHandlerFixture : public testing::Test {
   std::string edge_type_repr = "EdgeType1";
   std::string label_repr = "Label1";
   memgraph::auth::Permissions perms{};
+
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
     memgraph::license::global_license_checker.EnableTesting();
@@ -80,7 +85,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturn
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   auth.value()->SaveUser(user);
 
-  { ASSERT_EQ(auth_handler.GetUsernames().size(), 1); }
+  {
+    ASSERT_EQ(auth_handler.GetUsernames().size(), 1);
+  }
 
   {
     auto privileges =
@@ -150,7 +157,9 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
 
-  { ASSERT_EQ(auth_handler.GetRolenames().size(), 1); }
+  {
+    ASSERT_EQ(auth_handler.GetRolenames().size(), 1);
+  }
 
   {
     auto privileges =
@@ -220,7 +229,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThe
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -245,7 +255,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenB
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -278,7 +289,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
       std::nullopt,
       user_perms,
   };
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -307,7 +319,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   memgraph::auth::Permissions user_perms{};
   user_perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, user_perms};
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   auto privileges =
@@ -329,11 +342,11 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
 
 #ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
+  auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
+  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{label_permission},
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
@@ -348,22 +361,24 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
+  ASSERT_EQ(result[0].ValueString(), "READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::UPDATE);
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThenAllAreDisplayed) {
+  auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
+  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::CREATE);
+  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::READ);
+  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::UPDATE);
+  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{label_permission},
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
@@ -378,52 +393,21 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
-
-  ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
-}
-
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-
-  handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
-      memgraph::auth::FineGrainedAccessPermissions{},
-  };
-
-  memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth.value()->SaveUser(user);
-
-  auto privileges =
-      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
-  ASSERT_EQ(privileges.size(), 1);
-
-  auto result = *privileges.begin();
-  ASSERT_EQ(result.size(), 3);
-
-  ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
-
-  ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
+  auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
+  label_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{label_permission},
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
@@ -438,22 +422,22 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
+  ASSERT_EQ(result[0].ValueString(), "READ ON ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLabelThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLabelThenAllAreDisplayed) {
+  auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
+  label_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  label_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{label_permission},
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
@@ -468,23 +452,21 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
+  ASSERT_EQ(result[0].ValueString(), "READ, UPDATE ON ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelThenAllAreDisplayed) {
+  auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
+  label_permission.GrantGlobal(memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{label_permission},
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
@@ -499,10 +481,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
@@ -510,12 +492,12 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
 
 // EDGE_TYPES
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
@@ -529,23 +511,23 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "READ ON EDGES OF TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeTypeThenAllAreDisplayed) {
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::READ);
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
@@ -559,24 +541,22 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "READ, UPDATE ON EDGES OF TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenAllAreDisplayed) {
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
@@ -590,22 +570,22 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenT
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThenIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
@@ -619,23 +599,23 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
+  ASSERT_EQ(result[0].ValueString(), "READ ON ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEdgeTypeThenAllAreDisplayed) {
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  edge_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
 
   };
 
@@ -650,24 +630,22 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
+  ASSERT_EQ(result[0].ValueString(), "READ, UPDATE ON ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTypeThenAllAreDisplayed) {
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.GrantGlobal(memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
@@ -681,22 +659,22 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
+  ASSERT_EQ(result[0].ValueString(), "CREATE, READ, UPDATE, DELETE ON ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermission) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::NOTHING);
+  auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
+  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::READ);
+  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::NOTHING);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{label_permission},
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
@@ -711,23 +689,23 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
+  ASSERT_EQ(result[0].ValueString(), "NOTHING ON NODES CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "NOTHING");
+  ASSERT_EQ(result[1].ValueString(), "DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION DENIED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPermission) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::NOTHING);
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::READ);
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::NOTHING);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
@@ -741,23 +719,23 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "NOTHING ON EDGES OF TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "NOTHING");
+  ASSERT_EQ(result[1].ValueString(), "DENY");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::READ);
+  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+      memgraph::auth::FineGrainedAccessPermissions{edge_permission},
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
@@ -771,10 +749,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
+  ASSERT_EQ(result[0].ValueString(), "READ ON EDGES OF TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
+  ASSERT_EQ(result[1].ValueString(), "GRANT");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -793,14 +771,17 @@ const memgraph::query::UserProfileQuery::LimitValueResult mem_limit{
 TEST_F(AuthQueryHandlerFixture, CreateProfile) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
-      {}, nullptr));
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      {},
+      nullptr));
 
   ASSERT_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr), memgraph::query::QueryRuntimeException);
   ASSERT_THROW(auth_handler.CreateProfile(
                    "another_profile",
                    {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], mem_limit}},
-                   {}, nullptr),
+                   {},
+                   nullptr),
                memgraph::query::QueryRuntimeException);
 
   {
@@ -838,7 +819,9 @@ TEST_F(AuthQueryHandlerFixture, CreateProfileWithPredefinedUsernames) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile_with_users", {}, usernames, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "profile_with_users_and_limits",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}}, {}, nullptr));
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      {},
+      nullptr));
 
   // Test creating profile with single username
   std::unordered_set<std::string> single_user = {"user3"};
@@ -945,17 +928,20 @@ TEST_F(AuthQueryHandlerFixture, CreateProfileWithPredefinedUsernames) {
 TEST_F(AuthQueryHandlerFixture, UpdateProfile) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
-      {}, nullptr));
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      {},
+      nullptr));
 
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
-  ASSERT_THROW(
-      auth_handler.UpdateProfile(
-          "profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], mem_limit}},
-          nullptr),
-      memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(auth_handler.UpdateProfile(
+                   "profile",
+                   {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], mem_limit}},
+                   nullptr),
+               memgraph::query::QueryRuntimeException);
 
   ASSERT_THROW(auth_handler.UpdateProfile("non_profile", {}, nullptr), memgraph::query::QueryRuntimeException);
 
@@ -988,7 +974,8 @@ TEST_F(AuthQueryHandlerFixture, DropProfile) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
   ASSERT_NO_THROW(auth_handler.DropProfile("profile", nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
@@ -1019,7 +1006,8 @@ TEST_F(AuthQueryHandlerFixture, GetProfile) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
   {
@@ -1054,7 +1042,8 @@ TEST_F(AuthQueryHandlerFixture, AllProfiles) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
   {
@@ -1094,7 +1083,8 @@ TEST_F(AuthQueryHandlerFixture, SetProfile) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
   ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
@@ -1131,7 +1121,8 @@ TEST_F(AuthQueryHandlerFixture, RevokeProfile) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
   ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
@@ -1175,7 +1166,8 @@ TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
   ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
@@ -1201,7 +1193,8 @@ TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
   // Update profile limits
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
       "other_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], mem_limit}}, nullptr));
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], mem_limit}},
+      nullptr));
   {
     const auto resource = resources.GetUser("user");
     ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
@@ -1230,7 +1223,8 @@ TEST_F(AuthQueryHandlerFixture, GetProfileForUser) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
   ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
@@ -1271,7 +1265,8 @@ TEST_F(AuthQueryHandlerFixture, GetUsersForProfile) {
   ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, {}, nullptr));
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
-      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
       nullptr));
 
   ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr));
@@ -1508,23 +1503,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
   }
   {
     auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db3"}});
-    EXPECT_EQ(privileges.size(), 2);
-    {
-      auto &result = privileges[0];
-      ASSERT_EQ(result.size(), 3);
-      ASSERT_TRUE(result[0].IsString());
-      ASSERT_EQ(result[0].ValueString(), "DELETE");
-      ASSERT_TRUE(result[2].IsString());
-      ASSERT_EQ(result[2].ValueString(), "DENIED TO ROLE");
-    }
-    {
-      auto &result = privileges[1];
-      ASSERT_EQ(result.size(), 3);
-      ASSERT_TRUE(result[0].IsString());
-      ASSERT_EQ(result[0].ValueString(), "MATCH");
-      ASSERT_TRUE(result[2].IsString());
-      ASSERT_EQ(result[2].ValueString(), "GRANTED TO ROLE");
-    }
+    EXPECT_EQ(privileges.size(), 0);
   }
   {
     auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db4"}});
@@ -1662,10 +1641,10 @@ TEST_F(AuthQueryHandlerFixture,
   role.db_access().Grant("db2");
 
   // Add fine-grained permissions
-  role.fine_grained_access_handler().label_permissions().Grant("Person",
-                                                               memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-  role.fine_grained_access_handler().label_permissions().Grant("Company", memgraph::auth::FineGrainedPermission::READ);
-  role.fine_grained_access_handler().edge_type_permissions().Grant("WORKS_FOR",
+  role.fine_grained_access_handler().label_permissions().Grant({"Person"}, memgraph::auth::kAllPermissions);
+  role.fine_grained_access_handler().label_permissions().Grant({"Company"},
+                                                               memgraph::auth::FineGrainedPermission::READ);
+  role.fine_grained_access_handler().edge_type_permissions().Grant({"WORKS_FOR"},
                                                                    memgraph::auth::FineGrainedPermission::UPDATE);
 
   auth.value()->SaveRole(role);
@@ -1693,17 +1672,17 @@ TEST_F(AuthQueryHandlerFixture,
 
   for (const auto &privilege : privileges_db1) {
     const auto &privilege_name = privilege[0].ValueString();
-    if (privilege_name == "LABEL :Person") {
+    if (privilege_name == "CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS :Person MATCHING ANY") {
       found_label_person = true;
-      ASSERT_EQ(privilege[1].ValueString(), "CREATE_DELETE");
+      ASSERT_EQ(privilege[1].ValueString(), "GRANT");
       ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
-    } else if (privilege_name == "LABEL :Company") {
+    } else if (privilege_name == "READ ON NODES CONTAINING LABELS :Company MATCHING ANY") {
       found_label_company = true;
-      ASSERT_EQ(privilege[1].ValueString(), "READ");
+      ASSERT_EQ(privilege[1].ValueString(), "GRANT");
       ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
-    } else if (privilege_name == "EDGE_TYPE :WORKS_FOR") {
+    } else if (privilege_name == "UPDATE ON EDGES OF TYPE :WORKS_FOR") {
       found_edge_works_for = true;
-      ASSERT_EQ(privilege[1].ValueString(), "UPDATE");
+      ASSERT_EQ(privilege[1].ValueString(), "GRANT");
       ASSERT_EQ(privilege[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO ROLE");
     }
   }
@@ -1844,7 +1823,8 @@ TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_GlobalRoleAlreadySet_Throws) 
 
   // Create a user and set the role globally
   memgraph::auth::User user("test_user");
-  user.SetRole(role);
+  user.ClearAllRoles();
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   // Try to set the same role as multi-tenant role
@@ -1942,17 +1922,21 @@ TEST_F(AuthQueryHandlerFixture, SetRole_WithDatabaseSpecification_Success) {
 
   auto roles_db1 = updated_user->GetMultiTenantRoles("db1");
   ASSERT_EQ(roles_db1.size(), 2);
-  ASSERT_TRUE(std::find_if(roles_db1.begin(), roles_db1.end(),
-                           [](const auto &role) { return role.rolename() == "role1"; }) != roles_db1.end());
-  ASSERT_TRUE(std::find_if(roles_db1.begin(), roles_db1.end(),
-                           [](const auto &role) { return role.rolename() == "role2"; }) != roles_db1.end());
+  ASSERT_TRUE(std::find_if(roles_db1.begin(), roles_db1.end(), [](const auto &role) {
+                return role.rolename() == "role1";
+              }) != roles_db1.end());
+  ASSERT_TRUE(std::find_if(roles_db1.begin(), roles_db1.end(), [](const auto &role) {
+                return role.rolename() == "role2";
+              }) != roles_db1.end());
 
   auto roles_db2 = updated_user->GetMultiTenantRoles("db2");
   ASSERT_EQ(roles_db2.size(), 2);
-  ASSERT_TRUE(std::find_if(roles_db2.begin(), roles_db2.end(),
-                           [](const auto &role) { return role.rolename() == "role1"; }) != roles_db2.end());
-  ASSERT_TRUE(std::find_if(roles_db2.begin(), roles_db2.end(),
-                           [](const auto &role) { return role.rolename() == "role2"; }) != roles_db2.end());
+  ASSERT_TRUE(std::find_if(roles_db2.begin(), roles_db2.end(), [](const auto &role) {
+                return role.rolename() == "role1";
+              }) != roles_db2.end());
+  ASSERT_TRUE(std::find_if(roles_db2.begin(), roles_db2.end(), [](const auto &role) {
+                return role.rolename() == "role2";
+              }) != roles_db2.end());
 }
 
 TEST_F(AuthQueryHandlerFixture, ClearRole_WithDatabaseSpecification_Success) {
@@ -2250,7 +2234,8 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentProfileUpdates) {
 
         auth_handler.UpdateProfile(
             "test_profile",
-            {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}}, nullptr);
+            {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
+            nullptr);
         success_count.fetch_add(1);
       } catch (const memgraph::query::QueryRuntimeException &) {
         failure_count.fetch_add(1);
@@ -2359,8 +2344,10 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceAccess) {
   limit.quantity.value = 5;  // 5 sessions limit
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
-      "limited_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
-      {}, nullptr));
+      "limited_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
+      {},
+      nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("limited_profile", "test_user", nullptr));
 
@@ -2406,7 +2393,9 @@ TEST_F(AuthQueryHandlerFixture, SessionLimitExhaustion) {
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "single_session_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}}, {}, nullptr));
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
+      {},
+      nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("single_session_profile", "test_user", nullptr));
 
@@ -2439,7 +2428,9 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "memory_limited_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}}, {}, nullptr));
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
+      {},
+      nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("memory_limited_profile", "test_user", nullptr));
 
@@ -2477,7 +2468,9 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "moderate_memory_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}}, {}, nullptr));
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
+      {},
+      nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
 
@@ -2503,7 +2496,9 @@ TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThr
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "moderate_memory_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}}, {}, nullptr));
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}},
+      {},
+      nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
 
@@ -2538,7 +2533,8 @@ TEST_F(AuthQueryHandlerFixture, ResourceExhaustionRecovery) {
       "recovery_test_profile",
       {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit},
        memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}},
-      {}, nullptr));
+      {},
+      nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("recovery_test_profile", "test_user", nullptr));
 
@@ -2583,7 +2579,8 @@ TEST_F(AuthQueryHandlerFixture, ProfileUpdateDuringResourceExhaustion) {
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "update_test_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}}, {},
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
+      {},
       nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("update_test_profile", "test_user", nullptr));
@@ -2601,7 +2598,8 @@ TEST_F(AuthQueryHandlerFixture, ProfileUpdateDuringResourceExhaustion) {
 
   ASSERT_NO_THROW(auth_handler.UpdateProfile(
       "update_test_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], new_limit}}, nullptr));
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], new_limit}},
+      nullptr));
 
   // Should now be able to allocate more sessions
   ASSERT_TRUE(resource->IncrementSessions());
@@ -2620,7 +2618,8 @@ TEST_F(AuthQueryHandlerFixture, ProfileDeletionDuringResourceUsage) {
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "delete_test_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}}, {},
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
+      {},
       nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("delete_test_profile", "test_user", nullptr));
@@ -2654,7 +2653,8 @@ TEST_F(AuthQueryHandlerFixture, ConcurrentResourceExhaustion) {
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "concurrent_exhaustion_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}}, {},
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}},
+      {},
       nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("concurrent_exhaustion_profile", "test_user", nullptr));
@@ -2701,7 +2701,8 @@ TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
 
   ASSERT_NO_THROW(auth_handler.CreateProfile(
       "memory_load_profile",
-      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}}, {},
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}},
+      {},
       nullptr));
   ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
   ASSERT_NO_THROW(auth_handler.SetProfile("memory_load_profile", "test_user", nullptr));

@@ -1,0 +1,35 @@
+query: >
+    CALL rust_example.test_procedure() YIELD *;
+
+output:
+    - first_edge_type: "E1"
+      first_label: ""
+      has_L3_label: false
+      labels_count: 0
+      list: [1]
+      name_property: "unknown"
+      properties_string: "age: 29, list: <complex type>"
+
+    - first_edge_type: "unknown_edge_type"
+      first_label: "L1"
+      has_L3_label: false
+      labels_count: 1
+      list: [2]
+      name_property: "unknown"
+      properties_string: "age: 31.3, list: <complex type>"
+
+    - first_edge_type: "unknown_edge_type"
+      first_label: "L2"
+      has_L3_label: true
+      labels_count: 2
+      list: []
+      name_property: "Phil"
+      properties_string: "name: Phil"
+
+    - first_edge_type: "unknown_edge_type"
+      first_label: "L4"
+      has_L3_label: false
+      labels_count: 3
+      list: [4, 5]
+      name_property: "unknown"
+      properties_string: "list: <complex type>"

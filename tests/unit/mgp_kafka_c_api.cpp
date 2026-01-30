@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -116,6 +116,7 @@ class MgpApiTest : public ::testing::Test {
   using KafkaMessage = MockedRdKafkaMessage;
 
   MgpApiTest() { messages_.emplace(CreateMockedBatch()); }
+
   ~MgpApiTest() override { messages_.reset(); }
 
   mgp_messages &Messages() { return *messages_; }
@@ -135,14 +136,17 @@ class MgpApiTest : public ::testing::Test {
  private:
   memgraph::utils::pmr::vector<mgp_message> CreateMockedBatch() {
     std::transform(
-        expected.begin(), expected.end(), std::back_inserter(msgs_storage_),
+        expected.begin(),
+        expected.end(),
+        std::back_inserter(msgs_storage_),
         [i = int64_t(0)](const auto expected) mutable {
           return Message(std::make_unique<KafkaMessage>(std::string(1, expected.key), expected.payload, i++));
         });
     auto v = memgraph::utils::pmr::vector<mgp_message>(memgraph::utils::NewDeleteResource());
     v.reserve(expected.size());
-    std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v),
-                   [](auto &msgs) { return mgp_message{msgs}; });
+    std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v), [](auto &msgs) {
+      return mgp_message{msgs};
+    });
     return v;
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,6 +58,7 @@ struct QueryAllocator {
     return upstream_resource();
 #endif
   }
+
   auto resource_without_pool() -> utils::MemoryResource * {
 #ifndef MG_MEMORY_PROFILE
     return &monotonic;
@@ -65,6 +66,7 @@ struct QueryAllocator {
     return upstream_resource();
 #endif
   }
+
   auto resource_without_pool_or_mono() -> utils::MemoryResource * { return upstream_resource(); }
 
  private:
@@ -86,8 +88,35 @@ struct QueryAllocator {
 
 #ifndef MG_MEMORY_PROFILE
   memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 #endif
+};
+
+struct ThreadSafeQueryAllocator {
+  ThreadSafeQueryAllocator() = default;
+  ~ThreadSafeQueryAllocator() = default;
+
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator const &) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator const &) = delete;
+
+  // No move addresses to pool & monotonic fields must be stable
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator &&) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator &&) = delete;
+
+  auto resource() -> utils::MemoryResource * { return &pool; }
+
+ private:
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
+  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kPoolMaxBlockSize = 1024UL;
+
+  static auto upstream_resource() -> utils::MemoryResource * {
+    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
+    return &upstream;
+  }
+
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
+  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 };
 
 struct InterpreterContext;
@@ -142,6 +171,9 @@ class CoordinatorQueryHandler {
 
   virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
 
+  virtual void UpdateConfig(std::variant<int32_t, std::string> instance,
+                            io::network::Endpoint const &bolt_endpoint) = 0;
+
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
   virtual void ForceResetClusterState() = 0;
@@ -180,7 +212,7 @@ class AnalyzeGraphQueryHandler {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
+  std::move_only_function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
   utils::Priority priority{utils::Priority::HIGH};
@@ -200,6 +232,7 @@ struct CurrentDB {
   CurrentDB() = default;  // TODO: remove, we should always have an implicit default obtainable from somewhere
                           //       ATM: it is provided by the DatabaseAccess
                           //       future: should be a name + ptr to dbms_handler, lazy fetch when needed
+
   explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {}
 
   CurrentDB(CurrentDB const &) = delete;
@@ -208,6 +241,7 @@ struct CurrentDB {
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
+
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
     db_acc_ = std::move(new_db);
@@ -244,6 +278,7 @@ class Interpreter final {
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
   Interpreter &operator=(Interpreter &&) = delete;
+
   ~Interpreter() { Abort(); }
 
   struct PrepareResult {
@@ -267,7 +302,8 @@ class Interpreter final {
     std::string login_timestamp;
   };
 
-  std::shared_ptr<QueryUserOrRole> user_or_role_{};
+  std::shared_ptr<QueryUserOrRole>
+      user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
@@ -281,7 +317,9 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
+
   void ResetDB() { current_db_.ResetDB(); }
+
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #else
   void SetCurrentDB();
@@ -435,15 +473,12 @@ class Interpreter final {
   }
 
   struct QueryExecution {
-    QueryAllocator execution_memory;  // NOTE: before all other fields which uses this memory
+    static constexpr struct ThreadSafe {
+    } thread_safe_;
 
-    std::optional<PreparedQuery> prepared_query;
-    std::map<std::string, TypedValue> summary;
-    std::vector<Notification> notifications;
+    QueryExecution() = default;
 
-    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
-
-    explicit QueryExecution() = default;
+    explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -451,6 +486,23 @@ class Interpreter final {
     QueryExecution &operator=(QueryExecution &&) = delete;
 
     ~QueryExecution() = default;
+
+    std::variant<QueryAllocator, ThreadSafeQueryAllocator>
+        execution_memory;  // NOTE: before all other fields which uses this memory
+
+    std::optional<PreparedQuery> prepared_query;
+    std::map<std::string, TypedValue> summary;
+    std::vector<Notification> notifications;
+
+    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
+
+    static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(thread_safe_);
+    }
+
+    utils::MemoryResource *resource() {
+      return std::visit([](auto &mem) { return mem.resource(); }, execution_memory);
+    }
 
     void CleanRuntimeData() {
       prepared_query.reset();
@@ -490,8 +542,9 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
-    return std::count_if(query_executions_.begin(), query_executions_.end(),
-                         [](const auto &execution) { return execution && execution->prepared_query; });
+    return std::count_if(query_executions_.begin(), query_executions_.end(), [](const auto &execution) {
+      return execution && execution->prepared_query;
+    });
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
@@ -525,7 +578,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream, query_execution->execution_memory.resource()};
+    AnyStream stream{result_stream, query_execution->resource()};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -17,7 +18,6 @@
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/cast.hpp"
 #include "utils/endian.hpp"
 #include "utils/temporal.hpp"
 
@@ -90,7 +90,7 @@ void Encoder<FileType>::WriteUint(uint64_t value) {
 
 template <typename FileType>
 void Encoder<FileType>::WriteDouble(double value) {
-  auto value_uint = utils::MemcpyCast<uint64_t>(value);
+  auto value_uint = std::bit_cast<uint64_t>(value);
   value_uint = utils::HostToLittleEndian(value_uint);
   WriteMarker(Marker::TYPE_DOUBLE);
   Write(reinterpret_cast<const uint8_t *>(&value_uint), sizeof(value_uint));
@@ -142,7 +142,7 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       break;
     }
     case ExternalPropertyValue::Type::Int: {
-      WriteUint(utils::MemcpyCast<uint64_t>(value.ValueInt()));
+      WriteUint(std::bit_cast<uint64_t>(value.ValueInt()));
       break;
     }
     case ExternalPropertyValue::Type::Double: {
@@ -162,6 +162,40 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       }
       break;
     }
+    case ExternalPropertyValue::Type::NumericList: {
+      const auto &list = value.ValueNumericList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        if (std::holds_alternative<int>(item)) {
+          WriteUint(static_cast<uint64_t>(std::get<int>(item)));
+        } else {
+          WriteDouble(std::get<double>(item));
+        }
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::IntList: {
+      const auto &list = value.ValueIntList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteUint(static_cast<uint64_t>(item));
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::DoubleList: {
+      const auto &list = value.ValueDoubleList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteDouble(item);
+      }
+      break;
+    }
     case ExternalPropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       WriteMarker(Marker::TYPE_MAP);
@@ -176,14 +210,14 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       const auto temporal_data = value.ValueTemporalData();
       WriteMarker(Marker::TYPE_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(temporal_data.type));
-      WriteUint(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
+      WriteUint(std::bit_cast<uint64_t>(temporal_data.microseconds));
       break;
     }
     case ExternalPropertyValue::Type::ZonedTemporalData: {
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       WriteMarker(Marker::TYPE_ZONED_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(zoned_temporal_data.type));
-      WriteUint(utils::MemcpyCast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
+      WriteUint(std::bit_cast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
       if (zoned_temporal_data.timezone.InTzDatabase()) {
         WriteString(zoned_temporal_data.timezone.TimezoneName());
       } else {
@@ -228,17 +262,23 @@ void Encoder<FileType>::Finalize() {
 }
 
 template <typename FileType>
-void Encoder<FileType>::DisableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::DisableFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.DisableFlushing();
 }
 
 template <typename FileType>
-void Encoder<FileType>::EnableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::EnableFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.EnableFlushing();
 }
 
 template <typename FileType>
-void Encoder<FileType>::TryFlushing() requires std::same_as<FileType, utils::OutputFile> {
+void Encoder<FileType>::TryFlushing()
+  requires std::same_as<FileType, utils::OutputFile>
+{
   file_.TryFlushing();
 }
 
@@ -337,7 +377,7 @@ std::optional<double> Decoder::ReadDouble() {
   uint64_t value_int;
   if (!Read(reinterpret_cast<uint8_t *>(&value_int), sizeof(value_int))) return std::nullopt;
   value_int = utils::LittleEndianToHost(value_int);
-  return utils::MemcpyCast<double>(value_int);
+  return std::bit_cast<double>(value_int);
 }
 
 std::optional<std::string> Decoder::ReadString() {
@@ -418,7 +458,7 @@ std::optional<TemporalData> ReadTemporalData(Decoder &decoder) {
   const auto microseconds = decoder.ReadUint();
   if (!microseconds) return std::nullopt;
 
-  return TemporalData{static_cast<TemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds)};
+  return TemporalData{static_cast<TemporalType>(*type), std::bit_cast<int64_t>(*microseconds)};
 }
 
 std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
@@ -438,14 +478,14 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
       auto timezone_name = decoder.ReadString();
       if (!timezone_name) return std::nullopt;
       return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
-                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
+                               utils::AsSysTime(std::bit_cast<int64_t>(*microseconds)),
                                utils::Timezone(*timezone_name)};
     }
     case Marker::TYPE_INT: {
       auto offset_minutes = decoder.ReadUint();
       if (!offset_minutes) return std::nullopt;
       return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
-                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
+                               utils::AsSysTime(std::bit_cast<int64_t>(*microseconds)),
                                utils::Timezone(std::chrono::minutes{*offset_minutes})};
     }
     default:
@@ -475,7 +515,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::TYPE_INT: {
       auto value = ReadUint();
       if (!value) return std::nullopt;
-      return ExternalPropertyValue(utils::MemcpyCast<int64_t>(*value));
+      return ExternalPropertyValue(std::bit_cast<int64_t>(*value));
     }
     case Marker::TYPE_DOUBLE: {
       auto value = ReadDouble();
@@ -492,14 +532,30 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       if (!inner_marker || *inner_marker != Marker::TYPE_LIST) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::vector<ExternalPropertyValue> value;
-      value.reserve(*size);
+
+      ExternalPropertyValue::list_t list;
+      bool all_ints = true;
+      bool all_doubles = true;
+      bool all_numeric = true;
+      list.reserve(*size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
-        value.emplace_back(std::move(*item));
+        all_ints &= item->IsInt();
+        all_doubles &= item->IsDouble();
+        all_numeric &= item->IsInt() || item->IsDouble();
+        list.emplace_back(std::move(*item));
       }
-      return ExternalPropertyValue(std::move(value));
+      if (all_ints) {
+        return ExternalPropertyValue(IntListTag{}, std::move(list));
+      }
+      if (all_doubles) {
+        return ExternalPropertyValue(DoubleListTag{}, std::move(list));
+      }
+      if (all_numeric) {
+        return ExternalPropertyValue(NumericListTag{}, std::move(list));
+      }
+      return ExternalPropertyValue(std::move(list));
     }
     case Marker::TYPE_MAP: {
       auto inner_marker = ReadMarker();
@@ -610,12 +666,12 @@ bool Decoder::SkipString() {
   auto maybe_size = ReadSize(this);
   if (!maybe_size) return false;
 
-  const uint64_t kBufferSize = 262144;
-  uint8_t buffer[kBufferSize];
+  static constexpr uint64_t kBufferSize = 262'144;
+  std::array<uint8_t, kBufferSize> buffer;  // intentionally uninitialized for performance
   uint64_t size = *maybe_size;
   while (size > 0) {
     uint64_t to_read = size < kBufferSize ? size : kBufferSize;
-    if (!Read(reinterpret_cast<uint8_t *>(&buffer), to_read)) return false;
+    if (!Read(buffer.data(), to_read)) return false;
     size -= to_read;
   }
 

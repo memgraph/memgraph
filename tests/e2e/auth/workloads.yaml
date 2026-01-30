@@ -11,3 +11,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["auth/auth_queries.py"]
     <<: *auth_cluster
+
+  - name: "Show privileges isolation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["auth/test_show_privileges_isolation.py"]
+    <<: *auth_cluster

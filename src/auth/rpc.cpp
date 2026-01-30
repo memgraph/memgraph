@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,8 +31,10 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   return role;
 }
 }  // namespace
+
 // Deserialize code for auth::Role
 void Load(auth::Role *self, memgraph::slk::Reader *reader) { *self = LoadAuthRole(reader); }
+
 // Special case for optional<Role>
 template <>
 inline void Load<auth::Role>(std::optional<auth::Role> *obj, Reader *reader) {
@@ -102,6 +104,7 @@ void Save(const auth::Auth::Config &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.password_regex_str, builder);
   memgraph::slk::Save(self.password_permit_null, builder);
 }
+
 // Deserialize code for auth::Auth::Config
 void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader) {
   std::string name_regex_str{};
@@ -124,6 +127,7 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.role, builder);
   memgraph::slk::Save(self.profile, builder);
 }
+
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
@@ -137,6 +141,7 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
+
 void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
@@ -146,16 +151,17 @@ void Save(const memgraph::replication::DropAuthDataReq &self, memgraph::slk::Bui
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
-  memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.type), builder);
+  memgraph::slk::Save(self.type, builder);
   memgraph::slk::Save(self.name, builder);
 }
+
 void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   uint8_t type_tmp = 0;
   memgraph::slk::Load(&type_tmp, reader);
-  if (!utils::NumToEnum<3>(type_tmp, self->type)) {
+  if (!utils::NumToEnum(type_tmp, self->type)) {
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->name, reader);
@@ -165,6 +171,7 @@ void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *r
 void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
+
 void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
@@ -176,12 +183,15 @@ namespace memgraph::replication {
 void UpdateAuthDataReq::Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void UpdateAuthDataReq::Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
+
 void UpdateAuthDataRes::Save(const UpdateAuthDataRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void UpdateAuthDataRes::Load(UpdateAuthDataRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
@@ -189,10 +199,13 @@ void UpdateAuthDataRes::Load(UpdateAuthDataRes *self, memgraph::slk::Reader *rea
 void DropAuthDataReq::Save(const DropAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void DropAuthDataReq::Load(DropAuthDataReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void DropAuthDataRes::Save(const DropAuthDataRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void DropAuthDataRes::Load(DropAuthDataRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
 }  // namespace memgraph::replication

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,9 +12,8 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 #include "utils/exceptions.hpp"
@@ -142,31 +141,6 @@ inline TVal First(TIterable &&iterable, TVal &&empty_value) {
   return empty_value;
 }
 
-template <class TElement, class THash, class TEqual, class TAllocator>
-bool Contains(const std::unordered_set<TElement, THash, TEqual, TAllocator> &iterable, const TElement &element) {
-  return iterable.find(element) != iterable.end();
-}
-
-template <class TKey, class TValue, class THash, class TKeyEqual, class TAllocator>
-bool Contains(const std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator> &iterable, const TKey &key) {
-  return iterable.find(key) != iterable.end();
-}
-
-/**
- * Returns `true` if the given iterable contains the given element.
- *
- * @param iterable An iterable collection of values.
- * @param element The sought element.
- * @return `true` if element is contained in iterable.
- * @tparam TIiterable type of iterable.
- * @tparam TElement type of element.
- */
-template <typename TElement>
-inline bool Contains(std::ranges::input_range auto const &iterable, const TElement &element) {
-  // TODO: C++23 change with std::ranges::contains and inline
-  return std::find(iterable.begin(), iterable.end(), element) != iterable.end();
-}
-
 /**
  * Return a reversed copy of the given collection.
  * The copy is allocated using the default allocator.
@@ -195,6 +169,7 @@ class Iterable {
   Iterable(TIterator &&begin, TIterator &&end) : begin_(std::move(begin)), end_(std::move(end)) {}
 
   auto begin() { return begin_; };
+
   auto end() { return end_; };
 
  private:

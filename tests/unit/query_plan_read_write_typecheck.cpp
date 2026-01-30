@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,7 +37,7 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{dba_storage.get()};
 
   void TearDown() override {
@@ -75,7 +75,8 @@ TYPED_TEST(ReadWriteTypeCheckTest, CreateNode) {
 TYPED_TEST(ReadWriteTypeCheckTest, Filter) {
   std::shared_ptr<LogicalOperator> scan_all = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node1"));
   std::shared_ptr<LogicalOperator> filter =
-      std::make_shared<Filter>(scan_all, std::vector<std::shared_ptr<LogicalOperator>>{},
+      std::make_shared<Filter>(scan_all,
+                               std::vector<std::shared_ptr<LogicalOperator>>{},
                                EQ(PROPERTY_LOOKUP(this->dba, "node1", this->dba.NameToProperty("prop")), LITERAL(0)));
 
   this->CheckPlanType(filter.get(), RWType::R);
@@ -83,12 +84,16 @@ TYPED_TEST(ReadWriteTypeCheckTest, Filter) {
 
 TYPED_TEST(ReadWriteTypeCheckTest, ScanAllBy) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      nullptr,
+      this->GetSymbol("node"),
+      this->dba.NameToLabel("Label"),
       std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
       std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
                                          memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
   last_op =
-      std::make_shared<ScanAllByLabelProperties>(last_op, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::make_shared<ScanAllByLabelProperties>(last_op,
+                                                 this->GetSymbol("node"),
+                                                 this->dba.NameToLabel("Label"),
                                                  std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
                                                  std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   this->CheckPlanType(last_op.get(), RWType::R);
@@ -107,7 +112,8 @@ TYPED_TEST(ReadWriteTypeCheckTest, OrderByAndLimit) {
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Once>();
   last_op = std::make_shared<ScanAllByLabel>(last_op, node_sym, label);
-  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+  last_op = std::make_shared<Filter>(last_op,
+                                     std::vector<std::shared_ptr<LogicalOperator>>{},
                                      EQ(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(5)));
   last_op = std::make_shared<Produce>(last_op, std::vector<NamedExpression *>{NEXPR("n", IDENT("n"))});
   last_op = std::make_shared<OrderBy>(last_op,
@@ -122,8 +128,13 @@ TYPED_TEST(ReadWriteTypeCheckTest, Delete) {
   auto node_sym = this->GetSymbol("node1");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
 
-  last_op = std::make_shared<Expand>(last_op, node_sym, this->GetSymbol("node2"), this->GetSymbol("edge"),
-                                     EdgeAtom::Direction::BOTH, std::vector<memgraph::storage::EdgeTypeId>{}, false,
+  last_op = std::make_shared<Expand>(last_op,
+                                     node_sym,
+                                     this->GetSymbol("node2"),
+                                     this->GetSymbol("edge"),
+                                     EdgeAtom::Direction::BOTH,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
                                      memgraph::storage::View::OLD);
   last_op = std::make_shared<plan::Delete>(last_op, std::vector<Expression *>{IDENT("node2")}, true);
 
@@ -136,14 +147,24 @@ TYPED_TEST(ReadWriteTypeCheckTest, ExpandVariable) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
 
   last_op = std::make_shared<ExpandVariable>(
-      last_op, node1_sym, this->GetSymbol("node2"), this->GetSymbol("edge"), EdgeAtom::Type::BREADTH_FIRST,
+      last_op,
+      node1_sym,
+      this->GetSymbol("node2"),
+      this->GetSymbol("edge"),
+      EdgeAtom::Type::BREADTH_FIRST,
       EdgeAtom::Direction::OUT,
       std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
                                                  this->dba.NameToEdgeType("EdgeType2")},
-      false, LITERAL(2), LITERAL(5), false,
-      ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
+      false,
+      LITERAL(2),
+      LITERAL(5),
+      false,
+      ExpansionLambda{this->GetSymbol("inner_node"),
+                      this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt, nullptr);
+      std::nullopt,
+      std::nullopt,
+      nullptr);
 
   this->CheckPlanType(last_op.get(), RWType::R);
 }
@@ -158,11 +179,23 @@ TYPED_TEST(ReadWriteTypeCheckTest, EdgeUniquenessFilter) {
   auto edge2_sym = this->GetSymbol("edge2");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
-  last_op = std::make_shared<Expand>(last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::IN,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node1_sym,
+                                     node2_sym,
+                                     edge1_sym,
+                                     EdgeAtom::Direction::IN,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
   last_op = std::make_shared<ScanAll>(last_op, node3_sym);
-  last_op = std::make_shared<Expand>(last_op, node3_sym, node4_sym, edge2_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node3_sym,
+                                     node4_sym,
+                                     edge2_sym,
+                                     EdgeAtom::Direction::OUT,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
   last_op = std::make_shared<EdgeUniquenessFilter>(last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
   this->CheckPlanType(last_op.get(), RWType::R);
@@ -173,20 +206,25 @@ TYPED_TEST(ReadWriteTypeCheckTest, SetRemovePropertiesLabels) {
   memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node"));
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+  last_op = std::make_shared<plan::SetProperty>(last_op,
+                                                prop,
+                                                PROPERTY_LOOKUP(this->dba, "node", prop),
                                                 ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
   last_op = std::make_shared<plan::RemoveProperty>(
       last_op, this->dba.NameToProperty("prop"), PROPERTY_LOOKUP(this->dba, "node", this->dba.NameToProperty("prop")));
   last_op = std::make_shared<plan::SetProperties>(
-      last_op, node_sym,
+      last_op,
+      node_sym,
       MAP({{this->storage.GetPropertyIx("prop1"), LITERAL(1)},
            {this->storage.GetPropertyIx("prop2"), LITERAL("this is a property")}}),
       plan::SetProperties::Op::REPLACE);
   last_op = std::make_shared<plan::SetLabels>(
-      last_op, node_sym,
+      last_op,
+      node_sym,
       std::vector<StorageLabelType>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
   last_op = std::make_shared<plan::RemoveLabels>(
-      last_op, node_sym,
+      last_op,
+      node_sym,
       std::vector<StorageLabelType>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
 
   this->CheckPlanType(last_op.get(), RWType::RW);
@@ -249,8 +287,8 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallReadProcedureBeforeUpdate) {
   std::vector<std::string> result_fields{"name", "signature"};
   std::vector<Symbol> result_symbols{this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
-  last_op = std::make_shared<plan::CallProcedure>(last_op, procedure_name, arguments, result_fields, result_symbols,
-                                                  nullptr, 0, false, 1);
+  last_op = std::make_shared<plan::CallProcedure>(
+      last_op, procedure_name, arguments, result_fields, result_symbols, nullptr, 0, false, 1);
 
   this->CheckPlanType(last_op.get(), RWType::RW);
 }
@@ -263,10 +301,22 @@ TYPED_TEST(ReadWriteTypeCheckTest, ConstructNamedPath) {
   auto node3_sym = this->GetSymbol("node3");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
-  last_op = std::make_shared<Expand>(last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
-  last_op = std::make_shared<Expand>(last_op, node2_sym, node3_sym, edge2_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node1_sym,
+                                     node2_sym,
+                                     edge1_sym,
+                                     EdgeAtom::Direction::OUT,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
+  last_op = std::make_shared<Expand>(last_op,
+                                     node2_sym,
+                                     node3_sym,
+                                     edge2_sym,
+                                     EdgeAtom::Direction::OUT,
+                                     std::vector<memgraph::storage::EdgeTypeId>{},
+                                     false,
+                                     memgraph::storage::View::OLD);
   last_op = std::make_shared<ConstructNamedPath>(
       last_op, this->GetSymbol("path"), std::vector<Symbol>{node1_sym, edge1_sym, node2_sym, edge2_sym, node3_sym});
 

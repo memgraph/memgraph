@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -97,21 +97,29 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
     this->db.reset(nullptr);
     this->CleanStorageDirs();
     this->db = std::make_unique<TypeParam>(this->config);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto prop = dba.NameToProperty("x");
 
     auto v1 = dba.InsertVertex();
-    ASSERT_TRUE(v1.SetProperty(prop, memgraph::storage::PropertyValue(0)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(prop, memgraph::storage::PropertyValue(0)).has_value());
     auto v2 = dba.InsertVertex();
-    ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(0)).HasValue());
-    ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(0)).has_value());
+    ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).has_value());
     dba.AdvanceCommand();
 
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m", false,
+    auto r_m = MakeExpand(this->storage,
+                          symbol_table,
+                          n.op_,
+                          n.sym_,
+                          "r",
+                          EdgeAtom::Direction::BOTH,
+                          {},
+                          "m",
+                          false,
                           memgraph::storage::View::OLD);
 
     auto one = LITERAL(1);
@@ -150,7 +158,7 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
     this->db.reset();
     this->CleanStorageDirs();
     this->db = std::make_unique<TypeParam>(this->config);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     SymbolTable symbol_table;
     NodeCreationInfo node;
@@ -169,7 +177,7 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
 template <typename StorageType>
 class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   memgraph::storage::PropertyId prop = this->db->NameToProperty("prop");
 
@@ -179,12 +187,12 @@ class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
     // setup is several nodes most of which have an int property set
     // we will take the sum, avg, min, max and count
     // we won't group by anything
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(7)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(7)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).has_value());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).has_value());
 
     // a missing property (null) gets ignored by all aggregations except
     // COUNT(*)
@@ -193,10 +201,14 @@ class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
   }
 
   auto AggregationResults(bool with_group_by, bool distinct,
-                          std::vector<Aggregation::Op> ops = {
-                              Aggregation::Op::COUNT, Aggregation::Op::COUNT, Aggregation::Op::MIN,
-                              Aggregation::Op::MAX, Aggregation::Op::SUM, Aggregation::Op::AVG,
-                              Aggregation::Op::COLLECT_LIST, Aggregation::Op::COLLECT_MAP}) {
+                          std::vector<Aggregation::Op> ops = {Aggregation::Op::COUNT,
+                                                              Aggregation::Op::COUNT,
+                                                              Aggregation::Op::MIN,
+                                                              Aggregation::Op::MAX,
+                                                              Aggregation::Op::SUM,
+                                                              Aggregation::Op::AVG,
+                                                              Aggregation::Op::COLLECT_LIST,
+                                                              Aggregation::Op::COLLECT_MAP}) {
     // match all nodes and perform aggregations
     auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
@@ -310,7 +322,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
@@ -340,7 +352,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   // generate a lot of vertices and set props on them
   auto prop = dba.NameToProperty("prop");
   for (int i = 0; i < 1000; ++i)
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -364,15 +376,15 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
-  EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
-                                  TypedValue::BoolEqual{}));
+  EXPECT_TRUE(std::is_permutation(
+      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
@@ -380,9 +392,9 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
   auto prop3 = dba.NameToProperty("prop3");
   for (int i = 0; i < 2 * 3 * 5; ++i) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).has_value());
+    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).has_value());
+    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).has_value());
   }
   dba.AdvanceCommand();
 
@@ -394,8 +406,8 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
   auto n_p2 = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop2);
   auto n_p3 = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop3);
 
-  auto produce = this->MakeAggregationProduce(n.op_, symbol_table, {n_p1}, {Aggregation::Op::COUNT}, {n_p1, n_p2, n_p3},
-                                              {n.sym_}, false);
+  auto produce = this->MakeAggregationProduce(
+      n.op_, symbol_table, {n_p1}, {Aggregation::Op::COUNT}, {n_p1, n_p2, n_p3}, {n.sym_}, false);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -403,7 +415,7 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
 }
 
 TYPED_TEST(QueryPlanTest, AggregateNoInput) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -426,7 +438,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
@@ -458,7 +470,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
 
   // one vertex, property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -469,7 +481,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
 
   // two vertices, both with property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(2, count());
 }
@@ -478,14 +490,14 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.NameToProperty("string");
-  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).has_value());
   auto prop_int = dba.NameToProperty("int");
-  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -530,15 +542,15 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).has_value());
   auto p2 = dba.NameToProperty("p2");  // combines int and bool
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -583,16 +595,17 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
 }
 
 TYPED_TEST(QueryPlanTest, Unwind) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
   auto input_expr =
       this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::ExternalPropertyValue>{
-          memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
-              memgraph::storage::ExternalPropertyValue(1), memgraph::storage::ExternalPropertyValue(true),
-              memgraph::storage::ExternalPropertyValue("x")}),
+          memgraph::storage::ExternalPropertyValue(
+              std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
+                                                                    memgraph::storage::ExternalPropertyValue(true),
+                                                                    memgraph::storage::ExternalPropertyValue("x")}),
           memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{}),
           memgraph::storage::ExternalPropertyValue(
               std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue("bla")})});
@@ -720,7 +733,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
@@ -750,7 +763,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   // generate a lot of vertices and set props on them
   auto prop = dba.NameToProperty("prop");
   for (int i = 0; i < 1000; ++i)
-    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -777,15 +790,15 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
   for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
-  EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
-                                  TypedValue::BoolEqual{}));
+  EXPECT_TRUE(std::is_permutation(
+      group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(), TypedValue::BoolEqual{}));
 }
 
 TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
@@ -793,9 +806,9 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
   auto prop3 = dba.NameToProperty("prop3");
   for (int i = 0; i < 2 * 3 * 5; ++i) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).has_value());
+    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).has_value());
+    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).has_value());
   }
   dba.AdvanceCommand();
 
@@ -817,7 +830,7 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
 }
 
 TYPED_TEST(QueryPlanTest, AggregateNoInputWithDistinct) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -840,7 +853,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCasesWithDistinct) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
@@ -872,7 +885,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCasesWithDistinct) {
 
   // one vertex, property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -883,7 +896,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCasesWithDistinct) {
 
   // two vertices, both with property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).has_value());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 }
@@ -892,14 +905,14 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypesWithDistinct) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.NameToProperty("string");
-  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).has_value());
   auto prop_int = dba.NameToProperty("int");
-  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -944,15 +957,15 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).has_value());
   auto p2 = dba.NameToProperty("p2");  // combines int and bool
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).has_value());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).has_value());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;

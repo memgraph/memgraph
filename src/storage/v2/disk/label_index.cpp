@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,8 +52,8 @@ DiskLabelIndex::DiskLabelIndex(const Config &config) {
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
-  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
-                                                            config.disk.label_index_directory, &kvstore_->db_));
+  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(
+      kvstore_->options_, rocksdb::TransactionDBOptions(), config.disk.label_index_directory, &kvstore_->db_));
 }
 
 auto DiskLabelIndex::GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> {
@@ -97,7 +97,7 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   }
 
   for (const LabelId index_label : index_) {
-    if (!utils::Contains(vertex.labels, index_label)) {
+    if (!std::ranges::contains(vertex.labels, index_label)) {
       continue;
     }
     if (!disk_transaction
@@ -192,9 +192,9 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
   return CommitWithTimestamp(disk_transaction.get(), 0);
 }
 
-bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.find(label) != index_.end(); }
+bool DiskLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const { return index_.contains(label); }
 
-bool DiskLabelIndex::ActiveIndices::IndexReady(LabelId label) const { return index_.find(label) != index_.end(); }
+bool DiskLabelIndex::ActiveIndices::IndexReady(LabelId label) const { return index_.contains(label); }
 
 std::vector<LabelId> DiskLabelIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
   return {index_.begin(), index_.end()};

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,9 @@ namespace memgraph::auth {
 
 void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
                   std::string_view rpc_req) {
-  spdlog::error(fmt::format("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+  spdlog::error(fmt::format("Received {} with main_id: {} != current_main_uuid: {}",
+                            rpc_req,
+                            std::string(main_req_id),
                             current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : ""));
 }
 
@@ -40,7 +42,7 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
   using replication::UpdateAuthDataRes;
   UpdateAuthDataRes res(false);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::UpdateAuthDataReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -52,7 +54,8 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("UpdateAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("UpdateAuthDataHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -95,7 +98,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   using replication::DropAuthDataRes;
   DropAuthDataRes res(false);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::DropAuthDataRes::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -107,7 +110,8 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("DropAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("DropAuthDataHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -116,15 +120,18 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   try {
     // Remove
     switch (req.type) {
-      case replication::DropAuthDataReq::DataType::USER: {
+      using enum replication::DropAuthDataReq::DataType;
+      case USER: {
         auth->RemoveUser(req.name);
       } break;
-      case replication::DropAuthDataReq::DataType::ROLE: {
+      case ROLE: {
         auth->RemoveRole(req.name);
       } break;
-      case replication::DropAuthDataReq::DataType::PROFILE: {
+      case PROFILE: {
         auth->DropProfile(req.name);
       } break;
+      case N:
+        __builtin_unreachable();
     }
     // Success
     res = DropAuthDataRes(true);
@@ -154,8 +161,8 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
           spdlog::debug("SystemRecoveryHandler: Failed to save profile");
           return false;
         }
-        const auto it = std::find_if(old_profiles.begin(), old_profiles.end(),
-                                     [&](const auto &p) { return p.name == profile.name; });
+        const auto it = std::find_if(
+            old_profiles.begin(), old_profiles.end(), [&](const auto &p) { return p.name == profile.name; });
         if (it != old_profiles.end()) old_profiles.erase(it);
       }
       // Delete all the leftover profiles
@@ -224,13 +231,17 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
       [&data, system_state_access, &auth](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         UpdateAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
       [&data, system_state_access, &auth](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         DropAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
 }

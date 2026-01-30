@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,6 +93,10 @@
   M(ActiveVectorIndices, Index, "Number of active vector indices in the system.")                                      \
   M(ActiveVectorEdgeIndices, Index, "Number of active vector edge indices in the system.")                             \
                                                                                                                        \
+  M(ActiveExistenceConstraints, Constraint, "Number of active existence constraints in the system.")                   \
+  M(ActiveUniqueConstraints, Constraint, "Number of active unique constraints in the system.")                         \
+  M(ActiveTypeConstraints, Constraint, "Number of active type constraints in the system.")                             \
+                                                                                                                       \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                              \
   M(MessagesConsumed, Stream, "Number of consumed streamed messages.")                                                 \
                                                                                                                        \
@@ -144,6 +148,7 @@
   GenerateHARpcCounters(SwapMainUUIDRpc)                                                                               \
   GenerateHARpcCounters(GetDatabaseHistoriesRpc)
 // clang-format on
+
 namespace memgraph::metrics {
 
 // define every Event as an index in the array of counters
@@ -176,7 +181,9 @@ void EventCounters::Decrement(const Event event, Count const amount) {
 }
 
 void IncrementCounter(const Event event, Count const amount) { global_counters.Increment(event, amount); }
+
 void DecrementCounter(const Event event, Count const amount) { global_counters.Decrement(event, amount); }
+
 Count GetCounterValue(const Event event) { return global_counters.GetCount(event); }
 
 const char *GetCounterName(const Event event) {

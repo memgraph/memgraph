@@ -1,0 +1,4 @@
+# from https://github.com/google/earthenterprise/blob/master/earth_enterprise/rpmlintrc
+
+# We are not packaging log dir
+addFilter("E: logrotate-log-dir-not-packaged")

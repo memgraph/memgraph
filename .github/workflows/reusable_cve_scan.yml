@@ -1,0 +1,248 @@
+name: Reusable Vulnerability Scan
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Image architecture (amd|arm)"
+        required: true
+      image_url:
+        type: string
+        description: "URL of docker image to scan"
+        required: true
+      image_type:
+        type: string
+        description: "Image type (memgraph|mage)"
+        required: true
+      run_trivy:
+        type: boolean
+        description: "Scan with Trivy"
+        default: true
+      run_grype:
+        type: boolean
+        description: "Scan with Grype"
+        default: true
+      run_cbt:
+        type: boolean
+        description: "Scan with CVE-bin-tool"
+        default: false
+      send_slack_message:
+        type: boolean
+        description: "Send a Slack message"
+        default: true
+
+
+env:
+  ARCH: ${{ inputs.arch }}
+  IMAGE_URL: ${{ inputs.image_url }}
+  IMAGE_TYPE: ${{ inputs.image_type }}
+
+jobs:
+  scan-image:
+    name: Scan Docker Image for Vulnerabilities (${{ inputs.image_type }}, ${{ inputs.arch }})
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "Linux", "Docker", "ARM64", "Ubuntu24.04"]') || fromJSON('["self-hosted", "Linux", "Docker", "X64", "Ubuntu24.04"]') }}
+    steps:
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Scan Directory
+        run: |
+          CVE_DIR="$(pwd)/cve-scan"
+          mkdir -p "$CVE_DIR"
+          echo "CVE_DIR=$CVE_DIR" >> $GITHUB_ENV
+
+      - name: Create Python Environment
+        run: |
+          python3 -m venv "${{ env.CVE_DIR }}/env"
+          source "${{ env.CVE_DIR }}/env/bin/activate"
+          pip install requests tqdm rich
+
+      - name: Install Trivy
+        if: ${{ inputs.run_trivy }}
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "${{ env.CVE_DIR }}/trivy" latest
+
+      - name: Install Grype
+        if: ${{ inputs.run_grype }}
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "${{ env.CVE_DIR }}/grype"
+          "${{ env.CVE_DIR }}/grype/grype" db update
+
+      - name: Install cve-bin-tool
+        if: ${{ inputs.run_cbt }}
+        run: |
+          source "${{ env.CVE_DIR }}/env/bin/activate"
+          pip install cve-bin-tool==3.4
+
+      - name: Download Docker Image
+        run: |
+          curl -L "$IMAGE_URL" -o "${{ env.CVE_DIR }}/image.tar.gz"
+
+      - name: Load into Docker
+        if: ${{ inputs.run_cbt }}
+        run: |
+          output="$(docker load -i '${{ env.CVE_DIR }}/image.tar.gz')"
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          image_tag=$(echo "$output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "IMAGE_TAG=$image_tag" >> $GITHUB_ENV
+
+      - name: Decompress Image
+        run: |
+          # this is needed because grype annot scan the compressed image, however trivy can
+          gunzip "${{ env.CVE_DIR }}/image.tar.gz"
+
+      - name: Extract Container Root Filesystem
+        if: ${{ inputs.run_cbt }}
+        run: |
+          ./tools/ci/cve-scan/extract-image-filesystem.sh "${{ env.IMAGE_TAG }}" "${{ env.CVE_DIR }}/rootfs"
+
+      - name: Scan with Trivy
+        if: ${{ inputs.run_trivy }}
+        run: |
+          "${{ env.CVE_DIR }}/trivy/trivy" image --scanners vuln --input "${{ env.CVE_DIR }}/image.tar" > "${{ env.CVE_DIR }}/trivy-summary.txt"
+          "${{ env.CVE_DIR }}/trivy/trivy" image --scanners vuln --input "${{ env.CVE_DIR }}/image.tar" -f cyclonedx > "${{ env.CVE_DIR }}/trivy-summary.json"
+
+      - name: Scan with Grype
+        if: ${{ inputs.run_grype }}
+        run: |
+          "${{ env.CVE_DIR }}/grype/grype" "docker-archive:${{ env.CVE_DIR }}/image.tar" > "${{ env.CVE_DIR }}/grype-summary.txt"
+          "${{ env.CVE_DIR }}/grype/grype" "docker-archive:${{ env.CVE_DIR }}/image.tar" -o cyclonedx-json > "${{ env.CVE_DIR }}/grype-summary.json"
+
+      - name: Launch Docker Container
+        if: ${{ inputs.run_cbt }}
+        run: |
+          docker run --rm -d --name memgraph "${{ env.IMAGE_TAG }}" --telemetry-enabled=False
+
+      - name: Download CVE Database
+        if: ${{ inputs.run_cbt }}
+        run: |
+          curl --fail --silent --show-error -L https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/CVE-database/cve-bin-tool-cve.db.tar.gz \
+            -o "${{ env.CVE_DIR }}/cve-bin-tool-cve.db.tar.gz"
+          if [ ! -s "${{ env.CVE_DIR }}/cve-bin-tool-cve.db.tar.gz" ]; then
+            echo "CVE database download failed or empty" >&2
+            exit 1
+          fi
+
+      - name: Extract CVE Database
+        if: ${{ inputs.run_cbt }}
+        run: |
+          tar -xzf "${{ env.CVE_DIR }}/cve-bin-tool-cve.db.tar.gz" -C "${{ env.CVE_DIR }}/"
+          mkdir -pv "$HOME/.cache/cve-bin-tool"
+          mv -v "${{ env.CVE_DIR }}/cve.db" "$HOME/.cache/cve-bin-tool/cve.db"
+
+      - name: Scan /usr/lib/memgraph
+        if: ${{ inputs.run_cbt  }}
+        run: |
+          source "${{ env.CVE_DIR }}/env/bin/activate"
+          python3 tools/ci/cve-scan/scan_memgraph.py "${{ env.CVE_DIR }}/rootfs" "$(nproc)"
+
+      - name: Scan Languages
+        if: ${{ inputs.run_cbt }}
+        run: |
+          source "${{ env.CVE_DIR }}/env/bin/activate"
+          python3 tools/ci/cve-scan/scan_languages.py "${{ env.CVE_DIR }}/rootfs"
+
+      - name: Scan APT Packages
+        if: ${{ inputs.run_cbt }}
+        run: |
+          source "${{ env.CVE_DIR }}/env/bin/activate"
+          python3 tools/ci/cve-scan/scan_apt.py "${{ env.IMAGE_TAG }}"
+
+      - name: Upload cve-bin-tool Binary Scan Artifact
+        if: ${{ inputs.run_cbt }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-memgraph-summary
+          path: "${{ env.CVE_DIR }}/cve-bin-tool-memgraph-summary.json"
+
+      - name: Upload cve-bin-tool Language Scan Artifact
+        if: ${{ inputs.run_cbt  }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-language-summary
+          path: "${{ env.CVE_DIR }}/cve-bin-tool-lang-summary.json"
+
+      - name: Upload cve-bin-tool APT Package Scan Artifact
+        if: ${{ inputs.run_cbt }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-bin-tool-apt-summary
+          path: "${{ env.CVE_DIR }}/cve-bin-tool-apt-summary.json"
+
+      # TODO(matt): cve-bin-tool is pretty broken, so we will not use it at
+      # least until the next minor version release, after which we can handle
+      # the JSON output from cve-bin-tool.
+      - name: Combine Reports
+        if: ${{ inputs.run_trivy || inputs.run_grype }}
+        env:
+          COLUMNS: 200
+        run: |
+          if [[ "$ARCH" == "amd" ]]; then
+              CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-x64"
+          else
+              CYCLONEDXURL="https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.29.1/cyclonedx-linux-arm64"
+          fi
+
+          curl -L -o cyclonedx "$CYCLONEDXURL"
+          chmod +x cyclonedx
+
+          ./cyclonedx merge --input-files \
+            "${{ env.CVE_DIR }}/trivy-summary.json" \
+            "${{ env.CVE_DIR }}/grype-summary.json" \
+            --output-format json \
+            --output-file "${{ env.CVE_DIR }}/combined_report.json"
+
+          rm -v cyclonedx
+          source "${{ env.CVE_DIR }}/env/bin/activate"
+          python3 tools/ci/cve-scan/format_cve_table.py "${{ env.CVE_DIR }}/combined_report.json"
+
+      - name: Upload Combined Report Artifact
+        if: ${{ inputs.run_trivy || inputs.run_grype }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: ${{ inputs.image_type }}-${{ inputs.arch }}64-cve-report
+          path: |
+            ${{ env.CVE_DIR }}/combined_report.json
+            ${{ env.CVE_DIR }}/combined_report.txt
+            ${{ env.CVE_DIR }}/trivy-summary.txt
+            ${{ env.CVE_DIR }}/trivy-summary.json
+            ${{ env.CVE_DIR }}/grype-summary.txt
+            ${{ env.CVE_DIR }}/grype-summary.json
+
+      - name: Send Slack Message
+        if: always()
+        id: slack-message
+        env:
+          INFRA_WEBHOOK_URL: ${{ secrets.INFRA_WEBHOOK_URL }}
+          SEND_MESSAGE: ${{ inputs.send_slack_message }}
+        run: |
+          if [[ -f "${{ env.CVE_DIR }}/combined_report.json" ]]; then
+            source "${{ env.CVE_DIR }}/env/bin/activate"
+            python3 tools/ci/cve-scan/cve_message.py "$ARCH" "$IMAGE_TYPE" "${{ env.SEND_MESSAGE }}"
+          else
+            echo "No combined report found. Skipping Slack message"
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ${{ env.CVE_DIR }}
+          rm -v "$HOME/.cache/cve-bin-tool/cve.db" || true
+          docker stop memgraph || true
+          docker wait memgraph || true
+          docker rmi ${{ env.IMAGE_TAG }} || true
+          ./tools/ci/docker_cleanup.sh

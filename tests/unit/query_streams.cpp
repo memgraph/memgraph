@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@
 using Streams = memgraph::query::stream::Streams;
 using StreamInfo = memgraph::query::stream::KafkaStream::StreamInfo;
 using StreamStatus = memgraph::query::stream::StreamStatus<memgraph::query::stream::KafkaStream>;
+
 namespace {
 const static std::string kTopicName{"TrialTopic"};
 
@@ -41,17 +42,21 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
   FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, {}} {}
 
   bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                    std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy) const {
+                    std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy) const override {
     return true;
   }
+
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override { return {}; }
 #ifdef MG_ENTERPRISE
-  virtual bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
-                              std::optional<std::string_view> db_name = std::nullopt) const {
+  bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
+                      std::optional<std::string_view> db_name = std::nullopt) const override {
     return true;
   }
-  std::string GetDefaultDB() const { return "memgraph"; }
+
+  std::string GetDefaultDB() const override { return "memgraph"; }
 #endif
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override { return std::make_shared<FakeUser>(*this); }
 };
 
 struct StreamCheckData {
@@ -111,7 +116,7 @@ class StreamsTestFixture : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db_{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -127,6 +132,7 @@ class StreamsTestFixture : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{},
+                                                           nullptr,
                                                            nullptr,
                                                            repl_state,
                                                            system_state,
@@ -155,8 +161,9 @@ class StreamsTestFixture : public ::testing::Test {
   void CheckStreamStatus(const StreamCheckData &check_data) {
     SCOPED_TRACE(fmt::format("Checking status of '{}'", check_data.name));
     const auto &stream_statuses = proxyStreams_->streams_->GetStreamInfo();
-    auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(),
-                           [&check_data](const auto &stream_status) { return stream_status.name == check_data.name; });
+    auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(), [&check_data](const auto &stream_status) {
+      return stream_status.name == check_data.name;
+    });
     ASSERT_NE(it, stream_statuses.end());
     const auto &status = *it;
     EXPECT_EQ(check_data.info.common_info.batch_interval, status.info.batch_interval);
@@ -198,7 +205,7 @@ class StreamsTestFixture : public ::testing::Test {
   }
 
   StreamCheckData CreateDefaultStreamCheckData() {
-    return {GetDefaultStreamName(), CreateDefaultStreamInfo(), false, std::make_unique<FakeUser>()};
+    return {GetDefaultStreamName(), CreateDefaultStreamInfo(), false, std::make_shared<FakeUser>()};
   }
 
   void Clear() {
@@ -240,11 +247,11 @@ TYPED_TEST(StreamsTestFixture, CreateAlreadyExisting) {
   auto stream_info = this->CreateDefaultStreamInfo();
   auto stream_name = GetDefaultStreamName();
   this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-      stream_name, stream_info, std::make_unique<FakeUser>(), this->db_, &this->interpreter_context_);
+      stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_);
 
   try {
     this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-        stream_name, stream_info, std::make_unique<FakeUser>(), this->db_, &this->interpreter_context_);
+        stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_);
     FAIL() << "Creating already existing stream should throw\n";
   } catch (memgraph::query::stream::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Stream already exists with name '{}'", stream_name));
@@ -256,7 +263,7 @@ TYPED_TEST(StreamsTestFixture, DropNotExistingStream) {
   const auto stream_name = GetDefaultStreamName();
   const std::string not_existing_stream_name{"ThisDoesn'tExists"};
   this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-      stream_name, stream_info, std::make_unique<FakeUser>(), this->db_, &this->interpreter_context_);
+      stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_);
 
   try {
     this->proxyStreams_->streams_->Drop(not_existing_stream_name);
@@ -287,7 +294,7 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
     if (i > 0) {
       stream_info.common_info.batch_interval = std::chrono::milliseconds((i + 1) * 10);
       stream_info.common_info.batch_size = 1000 + i;
-      stream_check_data.owner = std::make_unique<FakeUser>();
+      stream_check_data.owner = std::make_shared<FakeUser>();
 
       // These are just random numbers to make the CONFIGS and CREDENTIALS map vary between consumers:
       // - 0 means no config, no credential
@@ -305,7 +312,7 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
     this->mock_cluster_.CreateTopic(stream_info.topics[0]);
   }
 
-  stream_check_datas[3].owner = std::make_unique<FakeUser>();
+  stream_check_datas[3].owner = std::make_shared<FakeUser>();
 
   const auto check_restore_logic = [&stream_check_datas, this]() {
     // Reset the Streams object to trigger reloading
@@ -361,7 +368,7 @@ TYPED_TEST(StreamsTestFixture, CheckWithTimeout) {
   const auto stream_info = this->CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
   this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-      stream_name, stream_info, std::make_unique<FakeUser>(), this->db_, &this->interpreter_context_);
+      stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_);
 
   std::chrono::milliseconds timeout{3000};
 
@@ -387,8 +394,9 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidConfig) {
   };
   EXPECT_THROW_WITH_MSG(
       this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-          stream_name, stream_info, std::make_unique<FakeUser>(), this->db_, &this->interpreter_context_),
-      memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
+          stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_),
+      memgraph::integrations::kafka::SettingCustomConfigFailed,
+      checker);
 }
 
 TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
@@ -404,6 +412,7 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
   };
   EXPECT_THROW_WITH_MSG(
       this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-          stream_name, stream_info, std::make_unique<FakeUser>(), this->db_, &this->interpreter_context_),
-      memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
+          stream_name, stream_info, std::make_shared<FakeUser>(), this->db_, &this->interpreter_context_),
+      memgraph::integrations::kafka::SettingCustomConfigFailed,
+      checker);
 }

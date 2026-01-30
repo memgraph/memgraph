@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@
 #include "delta_container.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
-#include "storage/v2/delta.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -36,7 +36,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
@@ -47,7 +46,9 @@ namespace memgraph::storage {
 
 struct CommitCallbacks {
   using func_t = std::function<void(uint64_t)>;
+
   void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+
   void RunAll(uint64_t commit_timestamp) {
     for (auto &callback : callbacks_) {
       callback(commit_timestamp);
@@ -87,6 +88,7 @@ struct AsyncIndexHelper {
     absl::flat_hash_set<LabelId> existing_;
     absl::flat_hash_set<LabelId> requested_;
   };
+
   struct EdgeTypeIndexInfo {
     absl::flat_hash_set<EdgeTypeId> existing_;
     absl::flat_hash_set<EdgeTypeId> requested_;
@@ -98,19 +100,19 @@ struct AsyncIndexHelper {
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx, ActiveIndices active_indices, AsyncIndexHelper async_index_helper = {},
-              std::optional<uint64_t> last_durable_ts = std::nullopt)
+              StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
+              ActiveIndices active_indices, ActiveConstraints active_constraints,
+              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
         md_deltas(utils::NewDeleteResource()),
-        must_abort(false),
+        has_serialization_error(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
-        constraint_verification_info{(has_constraints) ? std::optional<ConstraintVerificationInfo>{std::in_place}
-                                                       : std::nullopt},
+        constraint_verification_info{
+            (!active_constraints.empty()) ? std::optional<ConstraintVerificationInfo>{std::in_place} : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipList<Vertex>>{std::in_place}
                       : std::nullopt},
@@ -121,6 +123,7 @@ struct Transaction {
         point_index_change_collector_{point_index_ctx_},
         last_durable_ts_{last_durable_ts},
         active_indices_{std::move(active_indices)},
+        active_constraints_{std::move(active_constraints)},
         async_index_helper_(std::move(async_index_helper)) {}
 
   Transaction(Transaction &&other) noexcept = default;
@@ -173,7 +176,7 @@ struct Transaction {
 
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
-  bool must_abort{};
+  bool has_serialization_error{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};
@@ -222,6 +225,9 @@ struct Transaction {
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
   ActiveIndices active_indices_;
+  /// Concurrent safe constraints that existed at the beginning of the transaction
+  /// Used for constraint validation during commit
+  ActiveConstraints active_constraints_;
   CommitCallbacks commit_callbacks_;
 
   /// Auto indexing infomation gathering
@@ -231,10 +237,13 @@ struct Transaction {
 inline bool operator==(const Transaction &first, const Transaction &second) {
   return first.transaction_id == second.transaction_id;
 }
+
 inline bool operator<(const Transaction &first, const Transaction &second) {
   return first.transaction_id < second.transaction_id;
 }
+
 inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
+
 inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
 }  // namespace memgraph::storage

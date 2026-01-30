@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   storage::replication::CreateDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CreateDatabaseReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -57,7 +57,8 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -65,7 +66,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
 
   try {
     // Create new
-    if (auto const new_db = dbms_handler.Update(req.config); new_db.HasValue()) {
+    if (auto const new_db = dbms_handler.Update(req.config); new_db.has_value()) {
       // Successfully create db
       res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
       spdlog::debug("CreateDatabaseHandler: SUCCESS");
@@ -95,7 +96,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   memgraph::storage::replication::DropDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::DropDatabaseReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -107,7 +108,8 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -116,8 +118,8 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be deleted/created at the moment.
     auto new_db = dbms_handler.Delete(req.uuid);
-    if (new_db.HasError()) {
-      if (new_db.GetError() == DeleteError::NON_EXISTENT) {
+    if (!new_db) {
+      if (new_db.error() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
         res = DropDatabaseRes(DropDatabaseRes::Result::NO_NEED);
       }
@@ -152,7 +154,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   memgraph::storage::replication::RenameDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::RenameDatabaseReq::kType.name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -164,7 +166,8 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   //       what we have so far.
 
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
-    spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+    spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
@@ -174,8 +177,8 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     // NOTE: Single communication channel can exist at a time, no other database can be renamed/created/deleted at the
     // moment.
     auto rename_result = dbms_handler.Rename(req.old_name, req.new_name);
-    if (rename_result.HasError()) {
-      if (rename_result.GetError() == RenameError::NON_EXISTENT) {
+    if (!rename_result) {
+      if (rename_result.error() == RenameError::NON_EXISTENT) {
         // Nothing to rename
         system_state_access.SetLastCommitedTS(req.new_group_timestamp);
         res = RenameDatabaseRes(RenameDatabaseRes::Result::NO_NEED);
@@ -206,7 +209,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
       // Only handle default DB
       if (config.name != kDefaultDB) continue;
       try {
-        if (dbms_handler.Update(config).HasError()) {
+        if (!dbms_handler.Update(config)) {
           return false;
         }
       } catch (const UnknownDatabaseException &) {
@@ -225,7 +228,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   for (const auto &config : database_configs) {
     // Missing db
     try {
-      if (dbms_handler.Update(config).HasError()) {
+      if (!dbms_handler.Update(config)) {
         spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", *config.name.str_view());
         return false;
       }
@@ -240,9 +243,9 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   // Delete all the leftover old dbs
   for (const auto &remove_db : old) {
     const auto del = dbms_handler.Delete(remove_db);
-    if (del.HasError()) {
+    if (!del) {
       // Some errors are not terminal
-      if (del.GetError() == DeleteError::DEFAULT_DB || del.GetError() == DeleteError::NON_EXISTENT) {
+      if (del.error() == DeleteError::DEFAULT_DB || del.error() == DeleteError::NON_EXISTENT) {
         spdlog::debug("SystemRecoveryHandler: Dropped database \"{}\".", remove_db);
         continue;
       }
@@ -263,19 +266,25 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::RenameDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
         RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }

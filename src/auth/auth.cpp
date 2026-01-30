@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -27,6 +27,8 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 
+#include <nlohmann/json.hpp>
+
 namespace {
 
 #ifdef MG_ENTERPRISE
@@ -51,7 +53,8 @@ void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::au
 }
 
 void ResetUserProfileLimits(const std::string &user_or_role, memgraph::utils::ResourceMonitoring &resource_monitor) {
-  resource_monitor.UpdateUserLimits(user_or_role, memgraph::utils::SessionsResource::kUnlimited,
+  resource_monitor.UpdateUserLimits(user_or_role,
+                                    memgraph::utils::SessionsResource::kUnlimited,
                                     memgraph::utils::TransactionsMemoryResource::kUnlimited);
 }
 
@@ -107,22 +110,6 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_vie
 }
 }  // namespace memgraph
 
-// DEPRECATED FLAGS
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_string(
-    auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
-      spdlog::warn(
-          "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
-          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic:{your module's path}.");
-      if (value.empty()) return true;
-      // Check the file status, following symlinks.
-      auto status = std::filesystem::status(value);
-      if (!std::filesystem::is_regular_file(status)) {
-        std::cerr << "The auth module path doesn't exist or isn't a file!\n";
-        return false;
-      }
-      return true;
-    });
 namespace memgraph::auth {
 
 const Auth::Epoch Auth::kStartEpoch = 1;
@@ -134,11 +121,12 @@ namespace {
  */
 struct UpdateAuthData : memgraph::system::ISystemAction {
   explicit UpdateAuthData(User user) : user_{std::move(user)} {}
+
   explicit UpdateAuthData(Role role) : role_{std::move(role)} {}
+
   explicit UpdateAuthData(UserProfiles::Profile profile) : profile_{std::move(profile)} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -173,8 +161,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -195,6 +182,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
     return client.StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
   }
+
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
@@ -213,8 +201,9 @@ const std::string kMtLinkPrefix = "mtlink:";
 // Profile linking is now handled by UserProfiles class
 const std::string kVersion = "version";
 
-static constexpr auto kVersionV1 = "V1";
-static constexpr auto kVersionV2 = "V2";
+constexpr auto kVersionV1 = "V1";
+constexpr auto kVersionV2 = "V2";
+constexpr auto kVersionV3 = "V3";
 }  // namespace
 
 /**
@@ -314,13 +303,95 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
+
+  if (version_str == kVersionV2) {
+    spdlog::info("Migrating auth storage from V2 to V3");
+    spdlog::warn(
+        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
+
+    auto const convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
+      // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
+      // create_delete, but note that the trailing bits are also set because the
+      // permission formed a hierarchy.
+      constexpr uint64_t kV2Read = 1;
+      constexpr uint64_t kV2Update = 3;
+      constexpr uint64_t kV2CreateDelete = 7;
+
+      // V3 permission bits: NOTHING=0, READ=1, UPDATE=2, CREATE=8, DELETE=16.
+      // Need to duplicate them here as FineGrainedPermission is enterprise only
+      // and duplication is preferable to leaking the enum into community
+      // builds.
+      constexpr uint64_t kV3Nothing = 0;
+      constexpr uint64_t kV3Read = 1;
+      constexpr uint64_t kV3Update = 2;
+      constexpr uint64_t kV3Create = 8;
+      constexpr uint64_t kV3Delete = 16;
+
+      switch (v2_perm) {
+        case 0:
+          return kV3Nothing;
+        case kV2Read:
+          return kV3Read;
+        case kV2Update:
+          return kV3Update | kV3Read;
+        case kV2CreateDelete:
+          return kV3Create | kV3Delete | kV3Update | kV3Read;
+        default:
+          return kV3Nothing;
+      }
+    };
+
+    auto const migrate_entity = [&](auto const &prefix) {
+      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
+        auto const &[key, value] = *it;
+        try {
+          auto data = nlohmann::json::parse(value);
+
+          auto const fg_it = data.find("fine_grained_access_handler");
+          if (fg_it != data.end() && fg_it->is_object()) {
+            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
+              auto const perm_it = fg_it->find(perm_type);
+              if (perm_it != fg_it->end() && perm_it->is_object()) {
+                auto &perm_data = *perm_it;
+
+                auto const global_perm_it = perm_data.find("global_permission");
+                if (global_perm_it != perm_data.end() && global_perm_it->is_number_integer()) {
+                  auto const v2_perm = global_perm_it->template get<int64_t>();
+                  if (v2_perm >= 0) {
+                    *global_perm_it = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
+                  }
+                }
+
+                perm_data["permissions"] = nlohmann::json::array();
+              }
+            }
+
+            data["fine_grained_permissions"] = std::move(*fg_it);
+            data.erase("fine_grained_access_handler");
+            puts.emplace(key, data.dump());
+          }
+        } catch (const nlohmann::json::exception &e) {
+          spdlog::error("Failed to migrate {}: {}", key, e.what());
+        }
+      }
+    };
+
+    migrate_entity(kUserPrefix);
+    migrate_entity(kRolePrefix);
+
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+
+    version_str = kVersionV3;
+    spdlog::info("Auth storage migration to V3 completed successfully");
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
   std::unordered_map<std::string, auth::Module> module_per_scheme;
-  if (!FLAGS_auth_module_executable.empty()) {
-    module_per_scheme.emplace("basic", FLAGS_auth_module_executable);
-  }
 
   if (module_mappings.empty()) {
     return module_per_scheme;
@@ -360,7 +431,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kVersion, kVersionV2);
+    storage_.Put(kVersion, kVersionV3);
   }
 
 #ifdef MG_ENTERPRISE
@@ -382,7 +453,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
 
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
-    if (ret.find("errors") == ret.end()) {
+    if (!ret.contains("errors")) {
       return default_error;
     }
     const auto &ret_errors = ret.at("errors");
@@ -394,9 +465,10 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   };
 
   auto get_string_field = [&ret](const auto &name) -> std::optional<std::string> {
-    if (ret.find(name) == ret.end()) {
+    if (!ret.contains(name)) {
       spdlog::warn(utils::MessageWithLink(
-          "Couldn't authenticate user: the field \"{}\" was not returned by the external auth module.", name,
+          "Couldn't authenticate user: the field \"{}\" was not returned by the external auth module.",
+          name,
           "https://memgr.ph/sso"));
       return std::nullopt;
     }
@@ -406,14 +478,15 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
       spdlog::warn(
           utils::MessageWithLink("Couldn't authenticate user: the field \"{}\" returned by the external auth module "
                                  "needs to have a string value.",
-                                 name, "https://memgr.ph/sso"));
+                                 name,
+                                 "https://memgr.ph/sso"));
       return std::nullopt;
     }
 
     return ret_field.template get<std::string>();
   };
 
-  if (!ret.is_object() || ret.find("authenticated") == ret.end()) {
+  if (!ret.is_object() || !ret.contains("authenticated")) {
     spdlog::warn(
         utils::MessageWithLink("Couldn't authenticate user: the message returned by the external auth module needs to "
                                "be an object with the success status in the \"authenticated\" field.",
@@ -440,7 +513,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   std::vector<std::string> role_names;
 
   // Check for "roles" field first (multiple roles)
-  if (ret.find("roles") != ret.end()) {
+  if (ret.contains("roles")) {
     const auto &roles_field = ret.at("roles");
     if (roles_field.is_array()) {
       for (const auto &role_name : roles_field) {
@@ -477,7 +550,8 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     auto role = GetRole(role_name);
     if (!role) {
       spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
-                                          role_name, "https://memgr.ph/auth"));
+                                          role_name,
+                                          "https://memgr.ph/auth"));
       return std::nullopt;
     }
     roles.AddRole(*role);
@@ -494,12 +568,14 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   auto already_existing_user = GetUser(*username);
   if (already_existing_user) {
     spdlog::warn(utils::MessageWithLink(
-        "Couldn't authenticate external user because a local user {} with the same name already exists.", *username,
+        "Couldn't authenticate external user because a local user {} with the same name already exists.",
+        *username,
         "https://memgr.ph/auth"));
     return std::nullopt;
   }
 
-  spdlog::trace("Authenticated user '{}' with roles: {}.", *username, fmt::join(roles.rolenames(), ", "));
+  spdlog::trace(
+      "Authenticated user '{}' with roles: {}.", *username, memgraph::utils::JoinVector(roles.rolenames(), ", "));
   return UserOrRole(auth::RoleWUsername{*username, roles});
 }
 
@@ -510,13 +586,13 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
      */
     auto user = GetUser(username);
     if (!user) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
-                                          "https://memgr.ph/auth"));
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate user '{}' because the user doesn't exist.", username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
     if (!user->CheckPassword(password)) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
-                                          username, "https://memgr.ph/auth"));
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
     if (user->UpgradeHash(password)) {
@@ -565,14 +641,14 @@ void Auth::LinkUser(User &user) const {
       }
       for (const auto &[db, roles_array] : json_data.items()) {
         if (!roles_array.is_array()) {
-          spdlog::warn("Invalid mtlink entry for user '{}': expected array of rolenames for db '{}'", user.username(),
-                       db);
+          spdlog::warn(
+              "Invalid mtlink entry for user '{}': expected array of rolenames for db '{}'", user.username(), db);
           continue;
         }
         for (const auto &rolename_json : roles_array) {
           if (!rolename_json.is_string()) {
-            spdlog::warn("Invalid mtlink entry for user '{}': expected string rolename for db '{}'", user.username(),
-                         db);
+            spdlog::warn(
+                "Invalid mtlink entry for user '{}': expected string rolename for db '{}'", user.username(), db);
             continue;
           }
           const auto &rolename = rolename_json.get<std::string>();
@@ -584,8 +660,11 @@ void Auth::LinkUser(User &user) const {
           try {
             user.AddMultiTenantRole(*role, db);
           } catch (const AuthException &e) {
-            spdlog::warn("Couldn't add multi-tenant role '{}' to user '{}' on database '{}': {}", rolename,
-                         user.username(), db, e.what());
+            spdlog::warn("Couldn't add multi-tenant role '{}' to user '{}' on database '{}': {}",
+                         rolename,
+                         user.username(),
+                         db,
+                         e.what());
             failed_mt_roles.insert(rolename);
           }
         }
@@ -715,13 +794,13 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
   } else {
     // Check if compliant with our filter
     if (config_.custom_password_regex) {
-      if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-          license_check_result.HasError()) {
+      if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
+          !license_check_result.has_value()) {
         throw AuthException(
             "Custom password regex is a Memgraph Enterprise feature. Please set the config "
             "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
             glue::kDefaultPasswordRegex,
-            license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
+            license::LicenseCheckErrorToString(license_check_result.error(), "password regex"));
       }
     }
     if (!std::regex_match(*password, config_.password_regex)) {
@@ -1355,14 +1434,13 @@ void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction 
 
 bool Auth::NameRegexMatch(const std::string &user_or_role) const {
   if (config_.custom_name_regex) {
-    if (const auto license_check_result =
-            memgraph::license::global_license_checker.IsEnterpriseValid(memgraph::utils::global_settings);
-        license_check_result.HasError()) {
+    if (const auto license_check_result = memgraph::license::global_license_checker.IsEnterpriseValid();
+        !license_check_result.has_value()) {
       throw memgraph::auth::AuthException(
           "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
           "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
           glue::kDefaultUserRoleRegex,
-          memgraph::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
+          memgraph::license::LicenseCheckErrorToString(license_check_result.error(), "user/role regex"));
     }
   }
   return std::regex_match(user_or_role, config_.name_regex);

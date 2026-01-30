@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,6 +77,11 @@ class TypedValue {
     size_t operator()(const TypedValue &value) const;
   };
 
+  template <typename H>
+  friend H AbslHashValue(H h, TypedValue const &value) {
+    return H::combine(std::move(h), Hash{}(value));
+  }
+
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned {
     Null,
@@ -124,6 +129,7 @@ class TypedValue {
 
   /** Construct a Null value with given utils::MemoryResource. */
   explicit TypedValue(utils::MemoryResource *res) : alloc_(res), type_(Type::Null) {}
+
   explicit TypedValue(allocator_type alloc) : alloc_(alloc), type_(Type::Null) {}
 
   /**
@@ -232,7 +238,7 @@ class TypedValue {
       : alloc_{alloc}, list_v{value.begin(), value.end(), alloc_}, type_(Type::List) {}
 
   template <class T>
-  requires TypedValueValidPrimativeType<T>
+    requires TypedValueValidPrimativeType<T>
   explicit TypedValue(const std::vector<T> &value, allocator_type alloc = {})
       : alloc_{alloc}, list_v{value.begin(), value.end(), alloc_}, type_(Type::List) {}
 

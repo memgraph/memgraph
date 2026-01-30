@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT money_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.money_col) AS money_col_type, toString(row.money_col) AS money_col
+
+output:
+  - money_col_type: 'STRING'
+    money_col: '$100.50'

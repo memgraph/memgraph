@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,6 +53,7 @@ class RetryBasicException : public utils::BasicException {
 class LexingException : public QueryException {
  public:
   using QueryException::QueryException;
+
   LexingException() : QueryException("") {}
   SPECIALIZE_GET_EXCEPTION_NAME(LexingException)
 };
@@ -60,6 +61,7 @@ class LexingException : public QueryException {
 class SyntaxException : public QueryException {
  public:
   using QueryException::QueryException;
+
   SyntaxException() : QueryException("") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SyntaxException)
 };
@@ -76,6 +78,7 @@ class SyntaxException : public QueryException {
 class SemanticException : public QueryException {
  public:
   using QueryException::QueryException;
+
   SemanticException() : QueryException("") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SemanticException)
 };
@@ -94,7 +97,7 @@ class RedeclareVariableError : public SemanticException {
 
 class TypeMismatchError : public SemanticException {
  public:
-  TypeMismatchError(const std::string &name, const std::string &datum, const std::string &expected)
+  TypeMismatchError(const std::string &name, std::string_view datum, std::string_view expected)
       : SemanticException(fmt::format("Type mismatch: {} already defined as {}, expected {}.", name, datum, expected)) {
   }
   SPECIALIZE_GET_EXCEPTION_NAME(TypeMismatchError)
@@ -120,7 +123,7 @@ class MulticommandTxException : public QueryException {
       : QueryException(MessageWithDocsLink(
             "{} is not allowed in multicommand transactions. A multicommand transaction, also known as an "
             "explicit transaction, groups multiple commands into a single atomic operation. Instead, please use an "
-            "implicit transaction, also knwon as an auto committing transaction, in order to execute this particular "
+            "implicit transaction, also known as an auto committing transaction, in order to execute this particular"
             "query.",
             query)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(MulticommandTxException)
@@ -228,6 +231,7 @@ class HintedAbortError : public RetryBasicException {
         return "Transaction was asked to abort for an unknown reason."sv;
     }
   }
+
   AbortReason reason_;
 };
 
@@ -274,7 +278,7 @@ class TransactionSerializationException : public RetryBasicException {
 class ReconstructionException : public QueryException {
  public:
   ReconstructionException()
-      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceeding DELETE.") {}
+      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceding DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReconstructionException)
 };
 
@@ -282,7 +286,7 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
  public:
   RemoveAttachedVertexException()
       : QueryRuntimeException(
-            "Failed to remove node because of it's existing connections. Consider using DETACH DELETE.") {}
+            "Failed to remove node because of its existing connections. Consider using DETACH DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
@@ -413,7 +417,7 @@ class RecoverSnapshotInMulticommandTxException final : public MulticommandTxExce
 
 class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recoverying from snapshot") {}
+  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recovering from snapshot") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 
@@ -468,6 +472,7 @@ class AnalyzeGraphInMulticommandTxException : public MulticommandTxException {
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+
   explicit ReplicationException(const std::string &message)
       : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICAS' query.",
                               message) {}

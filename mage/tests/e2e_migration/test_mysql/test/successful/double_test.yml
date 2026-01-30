@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT double_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.double_col) AS double_col_type, row.double_col AS double_col
+
+output:
+  - double_col_type: 'FLOAT'
+    double_col: 2.718281828

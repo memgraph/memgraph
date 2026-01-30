@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
-#include "utils/algorithm.hpp"
 
 namespace memgraph::storage {
 
@@ -35,8 +34,12 @@ InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
     Transaction *transaction) const {
   auto index = in_memory_indices_.label_property_index_->GetActiveIndices();
   return static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(index.get())
-      ->Vertices(label, std::array{PropertyPath{property}},
-                 std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)}, vertices_.access(), view, storage,
+      ->Vertices(label,
+                 std::array{PropertyPath{property}},
+                 std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
+                 vertices_.access(),
+                 view,
+                 storage,
                  transaction);
 }
 
@@ -62,11 +65,11 @@ bool EdgeImportModeCache::CreateIndex(
 }
 
 bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const {
-  return VerticesWithLabelScanned(label) || utils::Contains(scanned_label_properties_, std::make_pair(label, property));
+  return VerticesWithLabelScanned(label) || scanned_label_properties_.contains(std::make_pair(label, property));
 }
 
 bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
-  return AllVerticesScanned() || utils::Contains(scanned_labels_, label);
+  return AllVerticesScanned() || scanned_labels_.contains(label);
 }
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }

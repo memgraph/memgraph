@@ -1,0 +1,12 @@
+os:
+  Linux:
+    distro: [null, ANY]
+compiler:
+  gcc:
+    asan: [null, True]
+    ubsan: [null, True]
+    tsan: [null, True]
+  clang:
+    asan: [null, True]
+    ubsan: [null, True]
+    tsan: [null, True]

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -119,27 +119,27 @@ static void AssertPickleAndCopyAreNotSupported(PyObject *py_obj) {
 TYPED_TEST(PyModule, PyVertex) {
   // Initialize the database with 2 vertices and 1 edge.
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(memgraph::storage::WRITE);
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
-    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).has_value());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).has_value());
 
     auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
-    ASSERT_TRUE(e.HasValue());
+    ASSERT_TRUE(e.has_value());
 
-    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // Get the first vertex as an mgp_value.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
   auto *vertex = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(vertex);
-  auto *vertex_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex,
-                                           EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertex_copy, vertex, &memory));
+  auto *vertex_value = EXPECT_MGP_NO_ERROR(
+      mgp_value *, mgp_value_make_vertex, EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertex_copy, vertex, &memory));
   mgp_vertex_destroy(vertex);
   // Initialize the Python graph object.
   auto gil = memgraph::py::EnsureGIL();
@@ -155,34 +155,34 @@ TYPED_TEST(PyModule, PyVertex) {
   ASSERT_TRUE(new_vertex_value);
   ASSERT_NE(new_vertex_value, vertex_value);  // Pointer compare.
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_vertex, new_vertex_value), 1);
-  ASSERT_EQ(
-      EXPECT_MGP_NO_ERROR(int, mgp_vertex_equal, EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, vertex_value),
-                          EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, new_vertex_value)),
-      1);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int,
+                                mgp_vertex_equal,
+                                EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, vertex_value),
+                                EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, new_vertex_value)),
+            1);
   // Clean up.
   mgp_value_destroy(new_vertex_value);
   mgp_value_destroy(vertex_value);
-  ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(PyModule, PyEdge) {
   // Initialize the database with 2 vertices and 1 edge.
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(memgraph::storage::WRITE);
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
     auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
-    ASSERT_TRUE(e.HasValue());
+    ASSERT_TRUE(e.has_value());
 
     ASSERT_TRUE(
-        e.GetValue().SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(
-        e.GetValue().SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
-    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+        e.value().SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).has_value());
+    ASSERT_TRUE(e.value().SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // Get the edge as an mgp_value.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
@@ -190,8 +190,8 @@ TYPED_TEST(PyModule, PyEdge) {
   ASSERT_TRUE(start_v);
   auto *edges_it = EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, start_v, &memory);
   ASSERT_TRUE(edges_it);
-  auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy,
-                                   EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), &memory);
+  auto *edge = EXPECT_MGP_NO_ERROR(
+      mgp_edge *, mgp_edge_copy, EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), &memory);
   auto *edge_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_edge, edge);
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_next, edges_it), nullptr);
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), nullptr);
@@ -211,24 +211,26 @@ TYPED_TEST(PyModule, PyEdge) {
   ASSERT_TRUE(new_edge_value);
   ASSERT_NE(new_edge_value, edge_value);  // Pointer compare.
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_edge, new_edge_value), 1);
-  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_equal, EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, edge_value),
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int,
+                                mgp_edge_equal,
+                                EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, edge_value),
                                 EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, new_edge_value)),
             1);
   // Clean up.
   mgp_value_destroy(new_edge_value);
   mgp_value_destroy(edge_value);
-  ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(PyModule, PyPath) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(memgraph::storage::WRITE);
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
-    ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).HasValue());
-    ASSERT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).has_value());
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
@@ -259,12 +261,14 @@ TYPED_TEST(PyModule, PyPath) {
   ASSERT_TRUE(new_path_value);
   ASSERT_NE(new_path_value, path_value);  // Pointer compare.
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_path, new_path_value), 1);
-  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_path_equal, EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, path_value),
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int,
+                                mgp_path_equal,
+                                EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, path_value),
                                 EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, new_path_value)),
             1);
   mgp_value_destroy(new_path_value);
   mgp_value_destroy(path_value);
-  ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
 TYPED_TEST(PyModule, PyObjectToMgpValue) {

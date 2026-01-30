@@ -90,7 +90,7 @@ TEST_P(FileLockerParameterizedTest, DeleteWhileInLocker) {
     {
       auto acc = locker.Access();
       const auto lock_success = acc.AddPath(lock_absolute ? file_absolute : file);
-      ASSERT_FALSE(lock_success.HasError());
+      ASSERT_TRUE(lock_success.has_value());
     }
 
     file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
@@ -137,7 +137,7 @@ TEST_P(FileLockerParameterizedTest, RenameFile) {
     {
       auto acc = locker.Access();
       const auto lock_success = acc.AddPath(lock_absolute ? file_absolute : file);
-      ASSERT_FALSE(lock_success.HasError());
+      ASSERT_TRUE(lock_success.has_value());
     }
 
     file_retainer.RenameFile(rename_absolute ? file_absolute : file, rename_absolute ? file2_absolute : file2);
@@ -183,7 +183,7 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
         auto acc = locker.Access();
         const auto lock_success =
             acc.AddPath(lock_absolute ? std::filesystem::absolute(directory_to_lock) : directory_to_lock);
-        ASSERT_FALSE(lock_success.HasError());
+        ASSERT_TRUE(lock_success.has_value());
       }
 
       file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
@@ -216,7 +216,7 @@ TEST_P(FileLockerParameterizedTest, RemovePath) {
     {
       auto acc = locker.Access();
       const auto lock_success = acc.AddPath(lock_absolute ? file_absolute : file);
-      ASSERT_FALSE(lock_success.HasError());
+      ASSERT_TRUE(lock_success.has_value());
     }
 
     file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
@@ -227,7 +227,7 @@ TEST_P(FileLockerParameterizedTest, RemovePath) {
       // If absolute was sent to AddPath method, use relative now
       // to test those combinations.
       auto ret = acc.RemovePath(lock_absolute ? file : file_absolute);
-      ASSERT_FALSE(ret.HasError());
+      ASSERT_TRUE(ret.has_value());
     }
     if (delete_explicitly_file) {
       file_retainer.DeleteFile(delete_absolute ? file_absolute : file);
@@ -258,9 +258,9 @@ TEST_F(FileLockerTest, MultipleLockers) {
     {
       auto acc = locker.Access();
       const auto lock_success1 = acc.AddPath(file1);
-      ASSERT_FALSE(lock_success1.HasError());
+      ASSERT_TRUE(lock_success1.has_value());
       const auto lock_success2 = acc.AddPath(common_file);
-      ASSERT_FALSE(lock_success2.HasError());
+      ASSERT_TRUE(lock_success2.has_value());
     }
     std::this_thread::sleep_for(200ms);
   });
@@ -270,9 +270,9 @@ TEST_F(FileLockerTest, MultipleLockers) {
     {
       auto acc = locker.Access();
       const auto lock_success1 = acc.AddPath(file2);
-      ASSERT_FALSE(lock_success1.HasError());
+      ASSERT_TRUE(lock_success1.has_value());
       const auto lock_success2 = acc.AddPath(common_file);
-      ASSERT_FALSE(lock_success2.HasError());
+      ASSERT_TRUE(lock_success2.has_value());
     }
     std::this_thread::sleep_for(200ms);
   });
@@ -302,16 +302,9 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   // setup random number generator
   std::random_device r;
 
-  std::default_random_engine engine(r());
-  std::uniform_int_distribution<int> random_short_wait(1, 10);
-  std::uniform_int_distribution<int> random_wait(1, 100);
-  std::uniform_int_distribution<int> file_distribution(0, files_number - 1);
-
   const auto sleep_for = [&](int milliseconds) {
     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
   };
-
-  const auto random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
 
   memgraph::utils::FileRetainer file_retainer;
 
@@ -322,7 +315,13 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   std::vector<std::thread> accessor_threads;
   accessor_threads.reserve(thread_num);
   for (auto i = 0; i < thread_num - 1; ++i) {
-    accessor_threads.emplace_back([&]() {
+    accessor_threads.emplace_back([&, seed = r()]() {
+      std::default_random_engine engine{seed};
+      std::uniform_int_distribution<int> random_short_wait{1, 10};
+      std::uniform_int_distribution<int> random_wait{1, 100};
+      std::uniform_int_distribution<int> file_distribution{0, files_number - 1};
+      auto const random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
+
       sleep_for(random_wait(engine));
 
       std::vector<std::filesystem::path> locked_files;
@@ -332,7 +331,7 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
         for (auto i = 0; i < file_access_num; ++i) {
           auto file = random_file();
           const auto res = acc.AddPath(file);
-          if (!res.HasError()) {
+          if (res.has_value()) {
             ASSERT_TRUE(std::filesystem::exists(file));
             locked_files.emplace_back(std::move(file));
           } else {
@@ -349,7 +348,12 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
   }
 
   std::vector<std::filesystem::path> deleted_files;
-  auto deleter = std::thread([&]() {
+  auto deleter = std::thread([&, seed = r()]() {
+    std::default_random_engine engine{seed};
+    std::uniform_int_distribution<int> random_short_wait{1, 10};
+    std::uniform_int_distribution<int> file_distribution{0, files_number - 1};
+    auto const random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
+
     sleep_for(random_short_wait(engine));
     for (auto i = 0; i < file_delete_num; ++i) {
       auto file = random_file();

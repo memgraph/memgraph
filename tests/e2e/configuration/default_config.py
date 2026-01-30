@@ -34,6 +34,10 @@ startup_config_dict = {
         "The regular expression that should be used to match the entire entered password to ensure its strength.",
     ),
     "allow_load_csv": ("true", "true", "Controls whether LOAD CSV clause is allowed in queries."),
+    "aws_access_key": ("", "", "Define AWS access key for the AWS integration."),
+    "aws_endpoint_url": ("", "", "Define AWS endpoint url for the AWS integration."),
+    "aws_region": ("", "", "Define AWS region which is used for the AWS integration."),
+    "aws_secret_key": ("", "", "Define AWS secret key for the AWS integration."),
     "audit_buffer_flush_interval_ms": (
         "200",
         "200",
@@ -60,11 +64,6 @@ startup_config_dict = {
         "Neo4j/v5.11.0 compatible graph database server - Memgraph",
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
-    "bolt_session_inactivity_timeout": (
-        "1800",
-        "1800",
-        "Time in seconds after which inactive Bolt sessions will be closed.",
-    ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
@@ -77,6 +76,11 @@ startup_config_dict = {
         "true",
         "true",
         "Controls whether the database recovers persisted data on startup.",
+    ),
+    "file_download_conn_timeout_sec": (
+        "10",
+        "10",
+        "Define a timeout for establishing a connection with a remote server during a file download.",
     ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
@@ -117,11 +121,6 @@ startup_config_dict = {
         "IP address on which the websocket server for Memgraph monitoring should listen.",
     ),
     "monitoring_port": ("7444", "7444", "Port on which the websocket server for Memgraph monitoring should listen."),
-    "storage_parallel_index_recovery": (
-        "false",
-        "false",
-        "Controls whether the index creation can be done in a multithreaded fashion.",
-    ),
     "storage_parallel_snapshot_creation": (
         "false",
         "false",
@@ -184,7 +183,13 @@ startup_config_dict = {
         "true",
         "Controls whether updating a property with the same value should create a delta object.",
     ),
+    "storage_backup_dir_enabled": (
+        "true",
+        "true",
+        "Controls whether .old dir will be used to store latest snapshot and WAL files.",
+    ),
     "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
+    "storage_gc_aggressive": ("false", "false", "Enable aggressive garbage collection."),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
     "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
     "storage_items_per_batch": (
@@ -290,5 +295,15 @@ startup_config_dict = {
     ),
     "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
+    "storage_rocksdb_enable_thread_tracking": (
+        "false",
+        "false",
+        "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. Enable when debugging disk storage performance issues (provides GetThreadList API).",
+    ),
+    "storage_rocksdb_info_log_level": (
+        "INFO_LEVEL",
+        "INFO_LEVEL",
+        "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.",
+    ),
     "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }

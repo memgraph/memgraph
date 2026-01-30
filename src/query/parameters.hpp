@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@ struct Parameters {
    *  @return Value for the given token position.
    */
   const storage::ExternalPropertyValue &AtTokenPosition(int position) const {
+    // TODO: make it not a linear scan
     auto found = std::find_if(storage_.begin(), storage_.end(), [&](const auto &a) { return a.first == position; });
     MG_ASSERT(found != storage_.end(), "Token position must be present in container");
     return found->second;
@@ -62,6 +63,7 @@ struct Parameters {
   auto size() const { return storage_.size(); }
 
   auto begin() const { return storage_.begin(); }
+
   auto end() const { return storage_.end(); }
 
  private:

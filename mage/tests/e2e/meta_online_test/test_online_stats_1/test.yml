@@ -1,0 +1,13 @@
+- query: CALL meta.stats_online(false) YIELD stats RETURN stats;
+  output:
+    - stats:
+        labelCount: 2
+        labels:
+          Movie: 2
+          Series: 1
+        nodeCount: 3
+        propertyKeyCount: 3
+        relationshipCount: 0
+        relationshipTypeCount: 0
+        relationshipTypes: {}
+        relationshipTypesCount: {}

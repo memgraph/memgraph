@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,24 +10,31 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <spdlog/sinks/sink.h>
-#include <optional>
-#include "gflags/gflags.h"
+#include "spdlog/sinks/sink.h"
+#include "spdlog/sinks/stdout_color_sinks.h"
 
-// DECLARE_string(log_level); Moved to run_time_configurable
-// DECLARE_bool(also_log_to_stderr); Moved to run_time_configurable
+#include <optional>
 
 namespace memgraph::flags {
 
-extern const std::string allowed_log_levels;
-extern const std::string log_level_help_string;
+inline std::shared_ptr<spdlog::sinks::sink> &stderr_sink() {
+  static std::shared_ptr<spdlog::sinks::sink> sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
+  return sink;
+}
+
+const std::string &GetAllowedLogLevels();
+
+constexpr const char *GetLogLevelHelpString() {
+  return "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL";
+}
 
 bool ValidLogLevel(std::string_view value);
 std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value);
 
 void InitializeLogger();
 void AddLoggerSink(spdlog::sink_ptr new_sink);
-void LogToStderr(spdlog::level::level_enum log_level);
-void UpdateStderr(spdlog::level::level_enum log_level);
-
+// Sets stderr log level to off
+void TurnOffStdErr();
+// Sets logging level to the global logging level
+void TurnOnStdErr();
 }  // namespace memgraph::flags

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,12 +14,10 @@
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
-#include <filesystem>
 #include <iterator>
 #include <memory>
 #include <optional>
 #include <string_view>
-#include <unordered_map>
 
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
@@ -47,7 +45,15 @@ class DatabaseHandler : public Handler<Database> {
 
   ~DatabaseHandler() override {
     for (auto &db : *this) {
-      db.second.access().value()->StopAllBackgroundTasks();
+      try {
+        if (auto db_acc = db.second.access()) {
+          (*db_acc)->StopAllBackgroundTasks();
+        }
+      } catch (std::exception const &e) {
+        spdlog::error("Exception in DatabaseHandler destructor: {}", e.what());
+      } catch (...) {
+        spdlog::error("Unknown exception in DatabaseHandler destructor");
+      }
     }
   }
 
@@ -58,16 +64,15 @@ class DatabaseHandler : public Handler<Database> {
    * @param config Storage configuration
    * @return HandlerT::NewResult
    */
-  HandlerT::NewResult New(storage::Config config,
-                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state) {
+  HandlerT::NewResult New(storage::Config config) {
     // Control that no one is using the same data directory
-    if (std::any_of(begin(), end(), [&](auto &elem) {
+    if (std::ranges::any_of(*this, [&](auto &elem) {
           auto db_acc = elem.second.access();
           MG_ASSERT(db_acc.has_value(), "Gatekeeper in invalid state");
           return db_acc->get()->config().durability.storage_directory == config.durability.storage_directory;
         })) {
       spdlog::info("Tried to generate new storage using a claimed directory.");
-      return NewError::EXISTS;
+      return std::unexpected{NewError::EXISTS};
     }
 
     // Create database protector factory that can look up this specific database by name
@@ -79,8 +84,7 @@ class DatabaseHandler : public Handler<Database> {
       return nullptr;
     };
 
-    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, repl_state,
-                         database_protector_factory);
+    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, database_protector_factory);
   }
 
   /**
@@ -91,7 +95,7 @@ class DatabaseHandler : public Handler<Database> {
   std::vector<std::string> All() const {
     std::vector<std::string> res;
     res.reserve(std::distance(cbegin(), cend()));
-    std::for_each(cbegin(), cend(), [&](const auto &elem) {
+    std::ranges::for_each(*this, [&](const auto &elem) {
       const auto is_marked_for_deletion = elem.second.is_marked_for_deletion();
       if (is_marked_for_deletion.has_value() && !is_marked_for_deletion.value()) res.push_back(elem.first);
     });

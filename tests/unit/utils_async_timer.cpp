@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,6 @@ inline constexpr auto kShortTimer = std::chrono::milliseconds(30);
 inline constexpr auto kMediumTimer = std::chrono::milliseconds(60);
 inline constexpr auto kLongTimer = std::chrono::milliseconds(90);
 inline constexpr auto kVeryLongTimer = std::chrono::milliseconds(100);
-inline constexpr auto kExtraLongTimer = std::chrono::milliseconds(120);
 
 // Window parameters for verification
 inline constexpr auto kDefaultNotExpiredWindow = std::chrono::milliseconds(40);
@@ -216,7 +215,9 @@ TEST(AsyncTimer, AssignmentToExpiredTimer) {
 
 TEST(AsyncTimer, DestructionWhileRunning) {
   // Create and immediately destroy a timer
-  { AsyncTimer timer_to_destroy{ToSeconds(kDefaultTimerDuration)}; }
+  {
+    AsyncTimer timer_to_destroy{ToSeconds(kDefaultTimerDuration)};
+  }
 
   // Create another timer to ensure the system still works
   AsyncTimer timer_to_wait{ToSeconds(kMediumTimer + std::chrono::milliseconds(10))};

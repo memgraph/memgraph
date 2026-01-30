@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,6 @@
 #include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query {
@@ -61,16 +60,14 @@ std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name
 }
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
-  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
+  auto const &symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scopes_.back().symbols[name] = symbol;
   return symbol;
 }
 
-auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) {
-  auto symbol = symbol_table_->CreateAnonymousSymbol();
-  return symbol;
-}
+auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
 
+// TODO: When is fetching from previous scopes ok?
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
   // NOLINTNEXTLINE
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
@@ -85,20 +82,23 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   for (auto &expr : body.named_expressions) {
     expr->Accept(*this);
   }
-  auto &scope = scopes_.back();
+  // Note: We use scope_idx instead of references because pattern comprehensions
+  // in expressions push/pop scopes, which can cause vector reallocation and
+  // invalidate references. Indices remain valid across reallocation.
+  auto const scope_idx = scopes_.size() - 1;
 
   SetEvaluationModeOnPropertyLookups(body);
 
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
-    for (const auto &sym_pair : scope.symbols) {
+    for (const auto &sym_pair : scopes_[scope_idx].symbols) {
       if (!sym_pair.second.user_declared()) {
         continue;
       }
       user_symbols.emplace_back(sym_pair.second);
     }
-    if (scope.in_return && user_symbols.empty()) {
+    if (scopes_[scope_idx].in_return && user_symbols.empty()) {
       throw SemanticException("There are no variables in scope to use for '*'.");
     }
   }
@@ -106,18 +106,18 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   // declares only those established through named expressions. New declarations
   // must not be visible inside named expressions themselves.
   bool removed_old_names = false;
-  if ((!where && body.order_by.empty()) || scope.has_aggregation) {
+  if ((!where && body.order_by.empty()) || scopes_[scope_idx].has_aggregation) {
     // WHERE and ORDER BY need to see both the old and new symbols, unless we
     // have an aggregation. Therefore, we can clear the symbols immediately if
     // there is neither ORDER BY nor WHERE, or we have an aggregation.
-    scope.symbols.clear();
+    scopes_[scope_idx].symbols.clear();
     removed_old_names = true;
   }
   // Create symbols for named expressions.
   std::unordered_set<std::string> new_names;
   for (const auto &user_sym : user_symbols) {
     new_names.insert(user_sym.name());
-    scope.symbols[user_sym.name()] = user_sym;
+    scopes_[scope_idx].symbols[user_sym.name()] = user_sym;
   }
   for (auto &named_expr : body.named_expressions) {
     const auto &name = named_expr->name_;
@@ -128,35 +128,36 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     // new symbol would have a more specific type.
     named_expr->MapTo(CreateSymbol(name, true, Symbol::Type::ANY, named_expr->token_position_));
   }
-  scope.in_order_by = true;
+  scopes_[scope_idx].in_order_by = true;
   for (const auto &order_pair : body.order_by) {
     order_pair.expression->Accept(*this);
   }
-  scope.in_order_by = false;
+  scopes_[scope_idx].in_order_by = false;
   if (body.skip) {
-    scope.in_skip = true;
+    scopes_[scope_idx].in_skip = true;
     body.skip->Accept(*this);
-    scope.in_skip = false;
+    scopes_[scope_idx].in_skip = false;
   }
   if (body.limit) {
-    scope.in_limit = true;
+    scopes_[scope_idx].in_limit = true;
     body.limit->Accept(*this);
-    scope.in_limit = false;
+    scopes_[scope_idx].in_limit = false;
   }
   if (where) where->Accept(*this);
   if (!removed_old_names) {
     // We have an ORDER BY or WHERE, but no aggregation, which means we didn't
     // clear the old symbols, so do it now. We cannot just call clear, because
     // we've added new symbols.
-    for (auto sym_it = scope.symbols.begin(); sym_it != scope.symbols.end();) {
-      if (new_names.find(sym_it->first) == new_names.end()) {
-        sym_it = scope.symbols.erase(sym_it);
+    auto &symbols = scopes_[scope_idx].symbols;
+    for (auto sym_it = symbols.begin(); sym_it != symbols.end();) {
+      if (!new_names.contains(sym_it->first)) {
+        sym_it = symbols.erase(sym_it);
       } else {
-        sym_it++;
+        ++sym_it;
       }
     }
   }
-  scopes_.back().has_aggregation = false;
+  scopes_[scope_idx].has_aggregation = false;
 }
 
 // CypherQuery
@@ -219,6 +220,7 @@ bool SymbolGenerator::PreVisit(Create &) {
   scopes_.back().in_create = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Create &) {
   scopes_.back().in_create = false;
   return true;
@@ -258,7 +260,7 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
 
   // append symbols returned in from subquery to outer scope
   for (const auto &[symbol_name, symbol] : subquery_scope.symbols) {
-    if (main_query_scope.symbols.find(symbol_name) != main_query_scope.symbols.end()) {
+    if (main_query_scope.symbols.contains(symbol_name)) {
       throw SemanticException("Variable in subquery already declared in outer scope!");
     }
 
@@ -275,6 +277,26 @@ bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
     throw RedeclareVariableError(load_csv.row_var_->name_);
   }
   load_csv.row_var_->MapTo(CreateSymbol(load_csv.row_var_->name_, true));
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(LoadParquet & /*load_parquet*/) { return false; }
+
+bool SymbolGenerator::PostVisit(LoadParquet &load_parquet) {
+  if (HasSymbol(load_parquet.row_var_->name_)) {
+    throw RedeclareVariableError(load_parquet.row_var_->name_);
+  }
+  load_parquet.row_var_->MapTo(CreateSymbol(load_parquet.row_var_->name_, true));
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(LoadJsonl & /*load_jsonl*/) { return false; }
+
+bool SymbolGenerator::PostVisit(LoadJsonl &load_jsonl) {
+  if (HasSymbol(load_jsonl.row_var_->name_)) {
+    throw RedeclareVariableError(load_jsonl.row_var_->name_);
+  }
+  load_jsonl.row_var_->MapTo(CreateSymbol(load_jsonl.row_var_->name_, true));
   return true;
 }
 
@@ -313,6 +335,7 @@ bool SymbolGenerator::PreVisit(Where &) {
   scopes_.back().in_where = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Where &) {
   scopes_.back().in_where = false;
   return true;
@@ -322,6 +345,7 @@ bool SymbolGenerator::PreVisit(Merge &) {
   scopes_.back().in_merge = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Merge &) {
   scopes_.back().in_merge = false;
   return true;
@@ -341,6 +365,7 @@ bool SymbolGenerator::PreVisit(Match &) {
   scopes_.back().in_match = true;
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Match &) {
   auto &scope = scopes_.back();
   scope.in_match = false;
@@ -363,6 +388,7 @@ bool SymbolGenerator::PreVisit(Foreach &for_each) {
       CreateSymbol(name, true, Symbol::Type::ANY, for_each.named_expression_->token_position_));
   return true;
 }
+
 bool SymbolGenerator::PostVisit([[maybe_unused]] Foreach &for_each) {
   scopes_.pop_back();
   return true;
@@ -391,8 +417,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol) {
       ident.user_declared_ = false;
-      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
-                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+      symbol = GetOrCreateSymbol(
+          ident.name_, ident.user_declared_, scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
     } else {
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
@@ -661,11 +687,11 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
 
   auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
 
-  if (!maybe_symbol.has_value()) {
+  if (!maybe_symbol) {
     throw SemanticException("Symbol not found when setting property, please contact Memgraph support!");
   }
 
-  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+  if (auto type = maybe_symbol->type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
     return true;
   }
 
@@ -691,11 +717,11 @@ bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
 
   auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
 
-  if (!maybe_symbol.has_value()) {
+  if (!maybe_symbol) {
     throw SemanticException("Symbol not found when removing property, please contact Memgraph support!");
   }
 
-  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+  if (auto type = maybe_symbol->type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
     return true;
   }
 
@@ -911,8 +937,8 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     if (HasSymbol(edge_atom.total_weight_->name_)) {
       throw RedeclareVariableError(edge_atom.total_weight_->name_);
     }
-    edge_atom.total_weight_->MapTo(GetOrCreateSymbol(edge_atom.total_weight_->name_,
-                                                     edge_atom.total_weight_->user_declared_, Symbol::Type::NUMBER));
+    edge_atom.total_weight_->MapTo(GetOrCreateSymbol(
+        edge_atom.total_weight_->name_, edge_atom.total_weight_->user_declared_, Symbol::Type::NUMBER));
   }
   return false;
 }
@@ -929,6 +955,17 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
+
+  // If there's a named path variable (e.g., [path = (a)-[]->(b) | ...]),
+  // create a PATH symbol for it before the children are visited.
+  // This is necessary because variable_ is visited before pattern_,
+  // so in_pattern is not yet true when Visit(Identifier) is called for variable_.
+  // Without this, Visit(Identifier) will throw UnboundVariableError.
+  if (pc.variable_) {
+    auto path_symbol = GetOrCreateSymbol(pc.variable_->name_, pc.variable_->user_declared_, Symbol::Type::PATH);
+    pc.variable_->MapTo(path_symbol);
+  }
+
   return true;
 }
 
@@ -994,23 +1031,24 @@ void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup)
 
   auto identifier_symbol = static_cast<Identifier *>(property_lookup.expression_)->name_;
 
-  if (this->gather_property_lookup_counts) {
-    if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
-      property_lookup_counts_by_symbol[identifier_symbol] = 0;
+  switch (phase_) {
+    case Phase::GATHER: {
+      if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
+        property_lookup_counts_by_symbol[identifier_symbol] = 0;
+      }
+
+      property_lookup_counts_by_symbol[identifier_symbol]++;
+
+      return;
     }
+    case Phase::ASSIGN: {
+      if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
+          property_lookup_counts_by_symbol[identifier_symbol] > 1) {
+        property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+      }
 
-    property_lookup_counts_by_symbol[identifier_symbol]++;
-
-    return;
-  }
-
-  if (this->assign_property_lookup_evaluations) {
-    if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
-        property_lookup_counts_by_symbol[identifier_symbol] > 1) {
-      property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+      return;
     }
-
-    return;
   }
 }
 

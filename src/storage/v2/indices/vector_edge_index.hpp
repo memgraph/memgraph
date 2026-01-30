@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,6 +65,7 @@ class VectorEdgeIndex {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
+
   struct EdgeIndexEntry {
     Vertex *from_vertex;
     Vertex *to_vertex;
@@ -88,11 +89,19 @@ class VectorEdgeIndex {
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
-  /// @param snapshot_info
   /// @param vertices vertices from which to create vector edge index
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
+  /// @brief Recovers a vector edge index based on the provided specification.
+  /// @param spec The specification for the index to be recovered.
+  /// @param vertices vertices from which to recover the index.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  /// @param thread_id Optional thread ID hint for usearch's internal optimizations.
+  void RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
@@ -153,7 +162,27 @@ class VectorEdgeIndex {
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name) const;
 
+  /// @brief Returns the vector from an edge for a given index.
+  /// @param from_vertex The from vertex of the edge.
+  /// @param to_vertex The to vertex of the edge.
+  /// @param edge The edge to get the vector from.
+  /// @param index_name The name of the index to get the vector from.
+  /// @return The vector from the edge.
+  /// NOTE: Currently used only in the tests but we will use it in the future when we'll store vectors only in the
+  /// index.
+  std::vector<float> GetVectorFromEdge(Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
+                                       std::string_view index_name) const;
+
  private:
+  /// @brief Sets up a new vector edge index structure without populating it.
+  /// @param spec The specification for the index to be created.
+  /// @throws query::VectorSearchException if index already exists or creation fails.
+  void SetupIndex(const VectorEdgeIndexSpec &spec);
+
+  /// @brief Cleans up index structures after a failed index creation.
+  /// @param spec The specification of the failed index.
+  void CleanupFailedIndex(const VectorEdgeIndexSpec &spec);
+
   /// @brief Adds or updates an edge in the vector index.
   /// @param entry The edge entry to be added or updated.
   /// @param edge_type_prop The edge type and property key for the index.
@@ -162,6 +191,20 @@ class VectorEdgeIndex {
   /// @throw query::VectorSearchException if the property is not a list or if the dimensions do not match.
   bool UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypePropKey &edge_type_prop,
                          const PropertyValue *value = nullptr);
+
+  /// @brief Populates the index with edges on a single thread.
+  /// @param vertices Accessor to the vertices to scan for edges.
+  /// @param spec The index specification.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorEdgeIndexSpec &spec,
+                                   std::optional<SnapshotObserverInfo> const &snapshot_info);
+
+  /// @brief Populates the index with edges using multiple threads.
+  /// @param vertices Accessor to the vertices to scan for edges.
+  /// @param spec The index specification.
+  /// @param snapshot_info Optional snapshot observer for progress tracking.
+  void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, const VectorEdgeIndexSpec &spec,
+                                      std::optional<SnapshotObserverInfo> const &snapshot_info);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

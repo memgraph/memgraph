@@ -40,6 +40,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   return context;
 }
 #ifdef MG_ENTERPRISE
@@ -50,6 +51,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
 
   return context;
@@ -224,7 +226,7 @@ inline uint64_t CountEdges(memgraph::query::DbAccessor *dba, memgraph::storage::
   uint64_t count = 0;
   for (auto vertex : dba->Vertices(view)) {
     auto maybe_edges = vertex.OutEdges(view);
-    MG_ASSERT(maybe_edges.HasValue());
+    MG_ASSERT(maybe_edges.has_value());
     count += CountIterable(maybe_edges->edges);
   }
   return count;

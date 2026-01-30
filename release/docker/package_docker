@@ -13,11 +13,13 @@ working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 latest_image=""
 tag_latest=""
-toolchain_version="v6"
+toolchain_version="v7"
 package_path=""
 arch=""
 src_path=""
 custom_mirror=""
+generate_sbom=false
+malloc=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -49,6 +51,14 @@ while [[ $# -gt 0 ]]; do
         custom_mirror=$2
         shift 2
     ;;
+    --generate-sbom)
+        generate_sbom=$2
+        shift 2
+    ;;
+    --malloc)
+        malloc=$2
+        shift 2
+    ;;
     *)
         echo -e "Error: Unknown option '$1'"
         exit 1
@@ -71,9 +81,18 @@ if [[ -n "$src_path" ]]; then
   tag_extension="-relwithdebinfo"
 fi
 
+if [[ "$malloc" == true ]]; then
+  tag_extension="${tag_extension}-malloc"
+fi
+
 # Copy the .deb to working directory.
 cp "$package_path" "${working_dir}/"
 cd ${working_dir}
+
+# copy SSL files to docker build directory
+mkdir -p "${working_dir}/openssl"
+cp -v ../../build/openssl*.deb "${working_dir}/openssl"
+cp -v ../../build/libssl3t64*.deb "${working_dir}/openssl"
 
 extension="${package_path##*.}"
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
@@ -108,6 +127,12 @@ docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${working_dir}/${package_name}.${extension}"
 if [[ -n "$src_path" ]]; then
   rm -rf "${working_dir}/src"
+fi
+
+if [[ "$generate_sbom" == true ]]; then
+  echo "Generating SBOM for Docker image"
+  cd ../../
+  ./tools/ci/sbom/docker-sbom.sh "${tag}"
 fi
 docker image rm $image_name || true
 echo "Built Docker image at '${working_dir}/${image_package_name}'"

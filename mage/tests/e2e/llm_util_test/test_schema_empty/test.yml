@@ -1,0 +1,4 @@
+query: >
+  CALL llm_util.schema() YIELD * RETURN *;
+exception:
+    - Can't generate a graph schema since there is no data in the database.

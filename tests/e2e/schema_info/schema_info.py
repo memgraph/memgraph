@@ -114,5 +114,24 @@ def test_spec(connect):
     assert enums[0]["values"] == ["Good", "Okay", "Bad"]
 
 
+def test_list_types_schema_info(connect):
+    memgraph = connect.cursor()
+    memgraph.execute(f"""CREATE (:A {{list: [0xff, 0xff, 0xff, 0xff, 0xff]}})""")
+
+    memgraph.execute("MATCH (n) SET n:B")
+    memgraph.execute("SHOW SCHEMA INFO;")
+    schema = memgraph.fetchall()
+    schema_json = json.loads(schema[0][0])
+    assert schema_json["nodes"][0]["labels"] == ["A", "B"]
+    assert len(schema_json["nodes"][0]["properties"]) == 1
+    prop = schema_json["nodes"][0]["properties"][0]
+    assert prop["key"] == "list"
+    assert prop["count"] == 1
+    assert prop["filling_factor"] == 100.0
+    assert len(prop["types"]) == 1
+    assert prop["types"][0]["type"] == "List"
+    assert prop["types"][0]["count"] == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

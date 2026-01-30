@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <cmath>
 #include <iosfwd>
 #include <memory>
+#include <ranges>
 #include <string_view>
 #include <utility>
 
@@ -23,10 +24,11 @@
 #include "query/graph.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/temporal.hpp"
+
+import memgraph.utils.fnv;
 
 namespace memgraph::query {
 
@@ -98,6 +100,37 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       }
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       if (!name_id_mapper) {
         throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
@@ -116,7 +149,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {
@@ -142,8 +175,8 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -205,6 +238,37 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       }
       break;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      auto &vec = other.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      auto &vec = other.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      auto &vec = other.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      break;
+    }
     case storage::PropertyValue::Type::Map: {
       if (!name_id_mapper) {
         throw TypedValueException("NameIdMapper is required for TypedValue::Map");
@@ -224,7 +288,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {
@@ -250,8 +314,8 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -308,6 +372,37 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
@@ -319,7 +414,7 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {
@@ -345,8 +440,8 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -404,6 +499,37 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      auto &vec = other.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      auto &vec = other.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      auto &vec = other.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      break;
+    }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
@@ -416,7 +542,7 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, std::chrono::microseconds{temporal_data.microseconds});
           break;
         }
         case storage::TemporalType::LocalTime: {
@@ -442,8 +568,8 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
-                                 zoned_temporal_data.timezone);
+          alloc_trait::construct(
+              alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
           break;
         }
       }
@@ -680,9 +806,24 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(std::string(string_v));
     case TypedValue::Type::List: {
       storage::PropertyValue::list_t list;
+      bool all_ints = true;
+      bool all_doubles = true;
+      bool all_numeric = true;
       list.reserve(list_v.size());
       for (const auto &v : list_v) {
+        all_ints &= v.IsInt();
+        all_doubles &= v.IsDouble();
+        all_numeric &= v.IsInt() || v.IsDouble();
         list.emplace_back(v.ToPropertyValue(name_id_mapper));
+      }
+      if (all_ints) {
+        return storage::PropertyValue(storage::IntListTag{}, std::move(list));
+      }
+      if (all_doubles) {
+        return storage::PropertyValue(storage::DoubleListTag{}, std::move(list));
+      }
+      if (all_numeric) {
+        return storage::PropertyValue(storage::NumericListTag{}, std::move(list));
       }
       return storage::PropertyValue(std::move(list));
     }
@@ -1274,11 +1415,12 @@ double ToDouble(const TypedValue &value) {
 
 namespace {
 bool IsTemporalType(const TypedValue::Type type) {
-  static constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
-                                             TypedValue::Type::LocalDateTime, TypedValue::Type::ZonedDateTime,
+  static constexpr std::array temporal_types{TypedValue::Type::Date,
+                                             TypedValue::Type::LocalTime,
+                                             TypedValue::Type::LocalDateTime,
+                                             TypedValue::Type::ZonedDateTime,
                                              TypedValue::Type::Duration};
-  return std::any_of(temporal_types.begin(), temporal_types.end(),
-                     [type](const auto temporal_type) { return temporal_type == type; });
+  return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
 };
 }  // namespace
 
@@ -1746,7 +1888,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return utils::FnvCollection<TypedValue::TVector, TypedValue, Hash>{}(value.ValueList());
     }
     case TypedValue::Type::Map: {
-      size_t hash = 6543457;
+      size_t hash = 6'543'457;
       for (const auto &kv : value.ValueMap()) {
         hash ^= std::hash<std::string_view>{}(kv.first);
         hash ^= this->operator()(kv.second);

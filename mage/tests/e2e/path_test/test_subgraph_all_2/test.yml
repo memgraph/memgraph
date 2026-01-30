@@ -1,0 +1,67 @@
+query: >
+  MATCH (p:Strategy {name: "Amber"})
+  CALL path.subgraph_all(p, {
+      relationshipFilter: [">"],
+      minHops: 0,
+      maxHops: 2
+  })
+  YIELD nodes, rels
+  RETURN nodes, rels;
+
+output:
+  - nodes:
+        - labels:
+            - Strategy
+          properties:
+            name: Amber
+        - labels:
+            - Strategy
+          properties:
+            name: Jacob
+        - labels:
+            - Operations
+          properties:
+            name: Jill
+        - labels:
+            - Support
+          properties:
+            name: Jackson
+        - labels:
+            - Research
+          properties:
+            name: Matt
+        - labels:
+            - Analytics
+          properties:
+            name: Patricia
+        - labels:
+            - Analytics
+          properties:
+            name: Zack
+        - labels:
+            - Support
+          properties:
+            name: Adam
+    rels:
+        - label: KNOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}
+        - label: KNOWS
+          properties: {}
+        - label: KNOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}
+        - label: KNOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}

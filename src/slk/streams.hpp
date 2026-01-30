@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@ using SegmentSize = uint32_t;
 // value of 256 KiB was chosen so that the segment buffer will always fit on the
 // stack (it mustn't be too large) and that it isn't too small so that most SLK
 // messages fit into a single segment.
-constexpr uint64_t kSegmentMaxDataSize = 262144;
+constexpr uint64_t kSegmentMaxDataSize = 262'144;
 constexpr uint64_t kSegmentMaxTotalSize =
     kSegmentMaxDataSize + sizeof(SegmentSize) + sizeof(SegmentSize);  // segment size + footer size
 // We require that the segment which contains file data (also file name and file size) starts in its own segment
@@ -60,6 +60,7 @@ class SlkBuilderException : public utils::BasicException {
 class Builder {
  public:
   explicit Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
+
   Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func)
       : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{other.segment_} {
     other.write_func_ = [](const uint8_t *, size_t, bool) { /* Moved builder is defunct, no write possible */ };

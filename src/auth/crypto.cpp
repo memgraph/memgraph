@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -19,6 +19,7 @@
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -43,8 +44,8 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                         "The password encryption algorithm used for authentication.", {
                           if (const auto result =
                                   memgraph::utils::IsValidEnumValueString(value, password_hash_mappings);
-                              result.HasError()) {
-                            const auto error = result.GetError();
+                              !result.has_value()) {
+                            const auto error = result.error();
                             switch (error) {
                               case memgraph::utils::ValidationError::EmptyValue: {
                                 std::cout << "Password encryption algorithm cannot be empty." << std::endl;
@@ -307,6 +308,7 @@ auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
       return {SHA::SHA_LENGTH, SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
   }
+
 }
 
 bool HashedPassword::VerifyPassword(const std::string &password) {

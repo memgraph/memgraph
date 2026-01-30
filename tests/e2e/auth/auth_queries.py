@@ -108,6 +108,184 @@ def test_show_current_roles_with_user_has_roles(memgraph):
     memgraph.execute("DROP ROLE user_role;")
 
 
+def test_username_function_no_user(memgraph):
+    results = list(memgraph.execute_and_fetch("RETURN username() AS username;"))
+    assert len(results) == 1
+    assert results[0]["username"] is None
+
+
+def test_username_function_with_user(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN username() AS username;"))
+    assert len(results) == 1
+    assert results[0]["username"] == USERNAME
+
+
+def test_roles_function_no_user(memgraph):
+    results = list(memgraph.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1
+    assert results[0]["roles"] == []
+
+
+def test_roles_function_with_user_no_roles(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1
+    assert results[0]["roles"] == []
+
+
+def test_roles_function_with_user_has_roles(memgraph):
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role;")
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1
+    roles = results[0]["roles"]
+    assert isinstance(roles, list)
+    assert len(roles) == 2
+    assert "admin_role" in roles
+    assert "user_role" in roles
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+
+
+def test_roles_function_multi_tenant(memgraph):
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("CREATE DATABASE db1;")
+    memgraph.execute("CREATE DATABASE db2;")
+    memgraph.execute("GRANT DATABASE * TO admin_role;")
+    memgraph.execute("GRANT DATABASE * TO user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role ON db1;")
+    memgraph.execute("SET ROLE FOR test_user TO user_role ON db2;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role ON memgraph;")
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+
+    # test roles() with no argument - should show all roles
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 2 and "admin_role" in roles and "user_role" in roles
+
+    # test roles() with database argument - should show roles only for that database
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('db1') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 2 and "admin_role" in roles and "user_role" in roles
+
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('db2') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 1 and "user_role" in roles
+
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('memgraph') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 1 and "admin_role" in roles
+
+    # test with non-existent database - should return empty list
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles('nonexistent') AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 0
+
+    # test roles() without argument after switching databases - should still show all roles
+    memgraph_with_user.execute_and_fetch("USE DATABASE memgraph;")
+    results = list(memgraph_with_user.execute_and_fetch("RETURN roles() AS roles;"))
+    assert len(results) == 1 and "roles" in results[0]
+    roles = results[0]["roles"]
+    assert isinstance(roles, list) and len(roles) == 2 and "admin_role" in roles and "user_role" in roles
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+    memgraph.execute("DROP DATABASE db1;")
+    memgraph.execute("DROP DATABASE db2;")
+
+
+def test_username_and_roles_functions_in_trigger(memgraph):
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role;")
+
+    memgraph.execute(
+        """
+        CREATE TRIGGER test_username_roles_trigger_invoker
+        SECURITY INVOKER
+        ON () CREATE
+        BEFORE COMMIT
+        EXECUTE
+        UNWIND createdVertices AS createdVertex
+        SET createdVertex.trigger_username = username(),
+            createdVertex.trigger_roles = roles()
+        """
+    )
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    memgraph_with_user.execute("CREATE (n:TestNode {id: 1});")
+
+    results = list(
+        memgraph_with_user.execute_and_fetch(
+            "MATCH (n:TestNode {id: 1}) RETURN n.trigger_username AS username, n.trigger_roles AS roles;"
+        )
+    )
+    assert len(results) == 1
+    assert results[0]["username"] == "test_user"
+    roles = results[0]["roles"]
+    assert isinstance(roles, list)
+    assert len(roles) == 2
+    assert "admin_role" in roles
+    assert "user_role" in roles
+
+    memgraph.execute("DROP TRIGGER test_username_roles_trigger_invoker;")
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+
+    # again capture the username and roles of the user who invoked the trigger
+    memgraph.execute(
+        """
+        CREATE TRIGGER test_username_roles_trigger_definer
+        SECURITY INVOKER
+        ON () CREATE
+        BEFORE COMMIT
+        EXECUTE
+        UNWIND createdVertices AS createdVertex
+        SET createdVertex.trigger_username = username(),
+            createdVertex.trigger_roles = roles()
+        """
+    )
+
+    memgraph_with_user.execute("CREATE (n:TestNode {id: 1});")
+    results = list(
+        memgraph_with_user.execute_and_fetch(
+            "MATCH (n:TestNode {id: 1}) RETURN n.trigger_username AS username, n.trigger_roles AS roles;"
+        )
+    )
+    assert len(results) == 1
+    assert results[0]["username"] == "test_user"
+    roles = results[0]["roles"]
+    assert isinstance(roles, list)
+    assert len(roles) == 2
+    assert "admin_role" in roles
+    assert "user_role" in roles
+
+    memgraph.execute("DROP TRIGGER test_username_roles_trigger_definer;")
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+
+
 def test_show_current_role_single_role(memgraph):
     # Create a user and single role
     memgraph.execute("CREATE USER test_user;")

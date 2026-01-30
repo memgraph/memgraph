@@ -22,20 +22,36 @@ on:
         description: "Run in test mode"
         required: false
         type: boolean
-
+      update_bsl:
+        type: boolean
+        description: "Update BSL change date"
+        default: true
+      use_test_rc:
+        description: "Use RC from 'memgraph-mock-rc/' or 'mage-mock-rc/' (cannot be used for official release)"
+        default: false
+        type: boolean
 env:
+  RELEASE_VERSION: ${{ github.event.inputs.release_version }}
+  RC_VERSION: ${{ github.event.inputs.rc_version }}
+  FORCE_PROMOTE: ${{ github.event.inputs.force_promote }}
+
   s3_region: eu-west-1
   rc_bucket: deps.memgraph.io
-  rc_dir: memgraph/v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
+  rc_dir: ${{ inputs.use_test_rc && 'memgraph-mock-rc/' || 'memgraph/' }}v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
+  mage_rc_dir: ${{ inputs.use_test_rc && 'mage-mock-rc/' || 'mage/' }}v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
   release_bucket: ${{ github.event.inputs.test == 'false' && 'download.memgraph.com' || 'deps.memgraph.io' }}
   release_dir: memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
-  package_rpm: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
+  package_rpm_amd: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
+  package_rpm_arm: memgraph-${{ github.event.inputs.release_version }}_1-1.aarch64.rpm
   package_deb_amd: memgraph_${{ github.event.inputs.release_version }}-1_amd64.deb
   package_deb_arm: memgraph_${{ github.event.inputs.release_version }}-1_arm64.deb
   package_docker: memgraph-${{ github.event.inputs.release_version }}-docker.tar.gz
   package_docker_relwithdebinfo: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-docker.tar.gz
+  package_docker_relwithdebinfo_malloc: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-malloc-docker.tar.gz
   docker_repo_rc: memgraph/memgraph
   docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
+  docker_repo_rc_mage: memgraph/memgraph-mage
+  docker_repo_release_mage: memgraph/memgraph-mage${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
 
 jobs:
   PromotePackage:
@@ -43,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-11, debian-12, docker, fedora-41, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, centos-10, debian-12, debian-13, docker, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
         malloc: [false]
         build_type: [Release]
@@ -60,6 +76,26 @@ jobs:
             arch: arm
             malloc: false
             build_type: RelWithDebInfo
+          - os: docker
+            arch: amd
+            malloc: true
+            build_type: RelWithDebInfo
+          - os: docker
+            arch: arm
+            malloc: true
+            build_type: RelWithDebInfo
+          - os: debian-12
+            arch: arm
+            malloc: false
+            build_type: Release
+          - os: debian-13
+            arch: arm
+            malloc: false
+            build_type: Release
+          - os: fedora-42
+            arch: arm
+            malloc: false
+            build_type: Release
           - os: ubuntu-24.04
             arch: arm
             malloc: false
@@ -77,6 +113,12 @@ jobs:
             malloc: false
             build_type: RelWithDebInfo
     steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
       - name: Setup AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -88,10 +130,16 @@ jobs:
         run: |
           os=${{ matrix.os }}
           if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
-            package_name=${package_rpm}
+            if [[ "${{ matrix.arch }}" == "arm" ]]; then
+              package_name=${package_rpm_arm}
+            else
+              package_name=${package_rpm_amd}
+            fi
           elif [[ $os == docker ]]; then
-            if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
+            if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" && "${{ matrix.malloc }}" == "false" ]]; then
               package_name=${package_docker_relwithdebinfo}
+            elif [[ "${{ matrix.malloc }}" == "true" ]]; then
+              package_name=${package_docker_relwithdebinfo_malloc}
             else
               package_name=${package_docker}
             fi
@@ -101,17 +149,17 @@ jobs:
               package_name=${package_deb_arm}
             fi
           fi
+          if [[ "${{ matrix.malloc }}" == "true" ]]; then
+            os="${os}-malloc"
+          fi
           if [[ "${{ matrix.arch }}" == "arm" ]]; then
             os="${os}-aarch64"
           fi
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             os="${os}-relwithdebinfo"
           fi
-          if [[ "${{ matrix.malloc }}" == "false" ]]; then
-            echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
-          else
-            echo "package_path=${os}-malloc/${package_name}" >> $GITHUB_ENV
-          fi
+          echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
+
 
       - name: Check if rc package for this build exists
         run: |
@@ -124,7 +172,7 @@ jobs:
         run: |
           if aws s3 ls s3://${release_bucket}/${release_dir}/${package_path} &> /dev/null; then
             echo "Release package for ${os} already exists at s3://${release_bucket}/${release_dir}/${package_path}"
-            if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
               echo "Set force_promote to true to override existing release!"
               exit 1
             fi
@@ -141,9 +189,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [docker]
         build_type: [Release, RelWithDebInfo]
+        malloc: [false]
+        include:
+          - build_type: RelWithDebInfo
+            malloc: true
     steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
       - name: Setup AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -151,35 +208,85 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SAK }}
           aws-region: ${{ env.s3_region }}
 
-      - name: Check if rc image for this build exists
+      - name: Set package names and tags
         run: |
+          # TODO(matt): reorder the pieces in the package names to match the order of tags both in Memgraph and MAGE
 
+          # set s3 paths for amd and arm
           package="${package_docker}"
-          os_x86="${{ matrix.os }}"
-          os_arm="${{ matrix.os }}-aarch64"
+          os_x86="docker"
+          os_arm="docker-aarch64"
+          if [[ "${{ matrix.malloc }}" == "true" ]]; then
+            os_x86="${os_x86}-malloc"
+            os_arm="docker-malloc-aarch64"  # TODO(matt): reorder this in packaging workflow
+          fi
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
-            package="${package_docker_relwithdebinfo}"
+            if [[ "${{ matrix.malloc }}" == "false" ]]; then
+              package="${package_docker_relwithdebinfo}"
+            else
+              package="${package_docker_relwithdebinfo_malloc}"
+            fi
             os_x86="${os_x86}-relwithdebinfo"
             os_arm="${os_arm}-relwithdebinfo"
           fi
-          if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${os_x86}/${package} &> /dev/null; then
-            echo "RC package for ${os_x86} does not exist at s3://${rc_bucket}/${rc_dir}/${os_x86}/${package}"
+          s3_path_amd="s3://${rc_bucket}/${rc_dir}/${os_x86}/${package}"
+          s3_path_arm="s3://${rc_bucket}/${rc_dir}/${os_arm}/${package}"
+
+          echo "AMD S3 path: ${s3_path_amd}"
+          echo "ARM S3 path: ${s3_path_arm}"
+          echo "S3_PATH_AMD=${s3_path_amd}" >> $GITHUB_ENV
+          echo "S3_PATH_ARM=${s3_path_arm}" >> $GITHUB_ENV
+
+          # set docker image tags
+          IMAGE_TAG="$RELEASE_VERSION"
+          if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
+            IMAGE_TAG="${IMAGE_TAG}-relwithdebinfo"
+          fi
+          # TODO(matt): fix packaging to add "malloc" to the tag
+          if [[ "${{ matrix.malloc }}" == "true" ]]; then
+            IMAGE_TAG="${IMAGE_TAG}-malloc"
+          fi
+          RC_IMAGE_TAG="${IMAGE_TAG}"
+          IMAGE_TAG_AMD="${IMAGE_TAG}-amd64"
+          IMAGE_TAG_ARM="${IMAGE_TAG}-arm64"
+          echo "Docker image tag: ${IMAGE_TAG}"
+          echo "Docker image tag AMD: ${IMAGE_TAG_AMD}"
+          echo "Docker image tag ARM: ${IMAGE_TAG_ARM}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "IMAGE_TAG_AMD=${IMAGE_TAG_AMD}" >> $GITHUB_ENV
+          echo "IMAGE_TAG_ARM=${IMAGE_TAG_ARM}" >> $GITHUB_ENV
+          echo "RC_IMAGE_TAG=${RC_IMAGE_TAG}" >> $GITHUB_ENV
+
+          # set repo:tag strings
+          RC_IMAGE="${docker_repo_rc}:${RC_IMAGE_TAG}"
+          RELEASE_IMAGE="${docker_repo_release}:${IMAGE_TAG}"
+          RELEASE_IMAGE_AMD="${RELEASE_IMAGE}-amd64"
+          RELEASE_IMAGE_ARM="${RELEASE_IMAGE}-arm64"
+          echo "RC Image: ${RC_IMAGE}"
+          echo "Release Image: ${RELEASE_IMAGE}"
+          echo "Release Image AMD: ${RELEASE_IMAGE_AMD}"
+          echo "Release Image ARM: ${RELEASE_IMAGE_ARM}"
+          echo "RC_IMAGE=${RC_IMAGE}" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE=${RELEASE_IMAGE}" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE_AMD=${RELEASE_IMAGE_AMD}" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE_ARM=${RELEASE_IMAGE_ARM}" >> $GITHUB_ENV
+
+      - name: Check if rc image for this build exists
+        run: |
+          if ! aws s3 ls ${S3_PATH_AMD} &> /dev/null; then
+            echo "RC package for AMD does not exist at ${S3_PATH_AMD}"
             exit 1
-          elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${os_arm}/${package} &> /dev/null; then
-            echo "RC package for ${os_arm} does not exist at s3://${rc_bucket}/${rc_dir}/${os_arm}/${package}"
+          elif ! aws s3 ls ${S3_PATH_ARM} &> /dev/null; then
+            echo "RC package for ARM does not exist at ${S3_PATH_ARM}"
             exit 1
           fi
-
 
       - name: Check if release image for this build aldready exists
         run: |
-          release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}
-          if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
-            release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}-relwithdebinfo
-          fi
+          release_image=${docker_repo_release}:${IMAGE_TAG}
           if docker manifest inspect ${release_image} &> /dev/null; then
             echo "Release image ${release_image} already exists on DockerHub"
-            if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
               echo "Set force_promote to true to override existing release!"
               exit 1
             fi
@@ -199,68 +306,244 @@ jobs:
 
       - name: Promote RC to Release (Release)
         run: |
-          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
-            rc_image=${docker_repo_rc}:${{ github.event.inputs.release_version }}
-            release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}
-            arm_s3="s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker}"
-            amd_s3="s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker}"
-          else
-            rc_image=${docker_repo_rc}:${{ github.event.inputs.release_version }}-relwithdebinfo
-            release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}-relwithdebinfo
-            arm_s3=s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64-relwithdebinfo/${package_docker_relwithdebinfo}
-            amd_s3=s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo}
-          fi
-          release_image_amd=${release_image}-amd64
-          release_image_arm=${release_image}-arm64
-
           # Download and load, retag if necessary, push temporary image
           # arm64
-          aws s3 cp "$arm_s3" - | docker load
-          docker tag ${rc_image} ${release_image_arm}
-          docker push ${release_image_arm}
+          aws s3 cp ${S3_PATH_ARM} - | docker load
+          docker tag ${RC_IMAGE} ${RELEASE_IMAGE_ARM}
+          docker push ${RELEASE_IMAGE_ARM}
 
           # amd64
-          aws s3 cp "$amd_s3" - | docker load
-          docker tag ${rc_image} ${release_image_amd}
-          docker push ${release_image_amd}
+          aws s3 cp ${S3_PATH_AMD} - | docker load
+          docker tag ${RC_IMAGE} ${RELEASE_IMAGE_AMD}
+          docker push ${RELEASE_IMAGE_AMD}
 
           # Setup manifest list for release image
-          docker manifest create ${release_image} \
-          --amend ${release_image_amd} \
-          --amend ${release_image_arm}
-          docker manifest push ${release_image}
+          docker manifest create ${RELEASE_IMAGE} \
+          --amend ${RELEASE_IMAGE_AMD} \
+          --amend ${RELEASE_IMAGE_ARM}
+          docker manifest push ${RELEASE_IMAGE}
 
           if [[ "${{ matrix.build_type }}" == "Release" ]]; then
             # Setup manifest list for latest image
-            release_image_latest=${docker_repo_release}:latest
-            docker manifest create ${release_image_latest} \
-            --amend ${release_image_amd} \
-            --amend ${release_image_arm}
-            docker manifest push ${release_image_latest}
-            echo "Successfully published ${release_image} and ${release_image_latest} to DockerHub!"
+            RELEASE_IMAGE_LATEST="${docker_repo_release}:latest"
+            docker manifest create ${RELEASE_IMAGE_LATEST} \
+            --amend ${RELEASE_IMAGE_AMD} \
+            --amend ${RELEASE_IMAGE_ARM}
+            docker manifest push ${RELEASE_IMAGE_LATEST}
+            echo "Successfully published ${RELEASE_IMAGE} and ${RELEASE_IMAGE_LATEST} to DockerHub!"
           else
-            echo "Successfully published ${release_image} to DockerHub!"
+            echo "Successfully published ${RELEASE_IMAGE} to DockerHub!"
           fi
 
 
       - name: Clean up temporary images
         run: |
-          # set tags for release/relwithdebinfo
-          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
-            tag_amd="${{ github.event.inputs.release_version }}-amd64"
-            tag_arm="${{ github.event.inputs.release_version }}-arm64"
+          sleep 5
+          echo "Deleting temporary image ${IMAGE_TAG_AMD} ..."
+          echo "https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${IMAGE_TAG_AMD}/"
+          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${IMAGE_TAG_AMD}/
+          echo "Deleting temporary image ${IMAGE_TAG_ARM} ..."
+          echo "https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${IMAGE_TAG_ARM}/"
+          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${IMAGE_TAG_ARM}/
+
+  PromoteDockerMAGE:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build_type: "Release"
+            image_ext: ""
+          - build_type: "RelWithDebInfo"
+            image_ext: "-relwithdebinfo"
+          - build_type: "Release"
+            image_ext: "-malloc"
+          - build_type: "RelWithDebInfo"
+            image_ext: "-relwithdebinfo-cuda"
+          - build_type: "RelWithDebInfo"
+            image_ext: "-relwithdebinfo-malloc"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
+      - name: Setup environment variables
+        run: |
+          mage_version="$RELEASE_VERSION"
+          image_tag="${mage_version}${{ matrix.image_ext }}"
+          echo "docker_tar_amd=mage-${mage_version}${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
+          echo "docker_tar_arm=mage-${mage_version}-arm64${{ matrix.image_ext }}.tar.gz" >> $GITHUB_ENV
+          echo "rc_image=${docker_repo_rc_mage}:${image_tag}" >> $GITHUB_ENV
+          echo "release_image=${docker_repo_release_mage}:${image_tag}" >> $GITHUB_ENV
+          echo "image_tag=${image_tag}" >> $GITHUB_ENV
+          echo "image_tag_amd=${image_tag}-amd64" >> $GITHUB_ENV
+          echo "image_tag_arm=${image_tag}-arm64" >> $GITHUB_ENV
+
+      - name: Setup S3 Paths
+        run: |
+          echo "s3_input_amd=s3://${rc_bucket}/${mage_rc_dir}/${docker_tar_amd}" >> $GITHUB_ENV
+          echo "s3_input_arm=s3://${rc_bucket}/${mage_rc_dir}/${docker_tar_arm}" >> $GITHUB_ENV
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Check if RC image for this build exists
+        run: |
+          if aws s3 ls ${s3_input_amd} &> /dev/null; then
+            echo "has_rc_package_amd=true" >> $GITHUB_ENV
           else
-            tag_amd="${{ github.event.inputs.release_version }}-relwithdebinfo-amd64"
-            tag_arm="${{ github.event.inputs.release_version }}-relwithdebinfo-arm64"
+            echo "has_rc_package_amd=false" >> $GITHUB_ENV
+            echo "RC package does not exist at ${s3_input_amd}"
           fi
 
-          echo "Deleting temporary image ${tag_amd} ..."
-          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${tag_amd}/
-          echo "Deleting temporary image ${tag_arm} ..."
-          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${tag_arm}/
+          if aws s3 ls ${s3_input_arm} &> /dev/null; then
+            echo "has_rc_package_arm=true" >> $GITHUB_ENV
+          else
+            echo "has_rc_package_arm=false" >> $GITHUB_ENV
+            echo "RC package does not exist at ${s3_input_arm}"
+          fi
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
+      - name: Early exit if no RC packages are found
+        if: ${{ env.has_rc_package_amd == 'false' && env.has_rc_package_arm == 'false' }}
         run: |
-          ./tools/docker_cleanup.sh
+          echo "Neither RC package exists. Skipping the rest of the workflow."
+          exit 0
+
+      - name: Check if release image for this build already exists
+        run: |
+          existing_amd64=false
+          existing_arm64=false
+
+          # Get the manifest details in verbose mode; suppress errors if manifest does not exist.
+          manifest_output=$(docker manifest inspect ${release_image} --verbose 2>/dev/null || true)
+
+          # If manifest_output is not empty, check for each architecture.
+          if [[ -n "$manifest_output" ]]; then
+              if echo "$manifest_output" | grep -q '"architecture": "amd64"'; then
+                  existing_amd64=true
+              fi
+              if echo "$manifest_output" | grep -q '"architecture": "arm64"'; then
+                  existing_arm64=true
+              fi
+          fi
+          echo "On Docker Hub: amd64: $existing_amd64; arm64: $existing_arm64"
+          if [ "$existing_amd64" = "true" ] || [ "$existing_arm64" = "true" ]; then
+              echo "Release image ${release_image} already exists on DockerHub with:"
+              if [ "$existing_amd64" = "true" ]; then
+                  echo " - amd64"
+              fi
+              if [ "$existing_arm64" = "true" ]; then
+                  echo " - arm64"
+              fi
+
+              if [[ "$FORCE_PROMOTE" != "true" ]]; then
+                  echo "Set force_promote to true to override the existing release!"
+                  exit 1
+              fi
+              echo "Forcing promotion of existing release ..."
+          else
+              echo "No conflict found..."
+          fi
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get dockerhub token
+        run: |
+          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
+
+      - name: Promote RC to Release
+        run: |
+          release_image_amd=${release_image}-amd64
+          release_image_arm=${release_image}-arm64
+          echo "release_image_amd=${release_image_amd}" >> $GITHUB_ENV
+          echo "release_image_arm=${release_image_arm}" >> $GITHUB_ENV
+          release_image_latest=${docker_repo_release_mage}:latest
+
+          # Download and load, retag if necessary, push temporary arm64 image if available
+          if [ "${has_rc_package_arm}" = "true" ]; then
+            echo "Downloading and loading ${rc_image} for arm64 ..."
+            aws s3 cp $s3_input_arm - | docker load
+            echo "Tagging ${rc_image} as ${release_image_arm} ..."
+            docker tag ${rc_image} ${release_image_arm}
+            echo "Pushing ${release_image_arm} to DockerHub!"
+            docker push ${release_image_arm}
+          else
+            echo "Skipping arm64 promotion: RC package not available."
+          fi
+
+          # Download and load, retag if necessary, push temporary amd64 image if available
+          if [ "${has_rc_package_amd}" = "true" ]; then
+            echo "Downloading and loading ${rc_image} for amd64 ..."
+            aws s3 cp $s3_input_amd - | docker load
+            echo "Tagging ${rc_image} as ${release_image_amd} ..."
+            docker tag ${rc_image} ${release_image_amd}
+            echo "Pushing ${release_image_amd} to DockerHub!"
+            docker push ${release_image_amd}
+          else
+            echo "Skipping amd64 promotion: RC package not available."
+          fi
+
+          # Build the manifest list from the promoted images
+          manifest_images=""
+          if [ "${has_rc_package_amd}" = "true" ]; then
+            manifest_images="$manifest_images --amend ${release_image_amd}"
+          fi
+          if [ "${has_rc_package_arm}" = "true" ]; then
+            manifest_images="$manifest_images --amend ${release_image_arm}"
+          fi
+
+          if [ -n "$manifest_images" ]; then
+            echo "Creating and pushing manifest for ${release_image} with images:$manifest_images"
+            docker manifest create ${release_image} $manifest_images
+            docker manifest push ${release_image}
+            echo "Successfully published ${release_image} to DockerHub!"
+          else
+            echo "No images promoted; skipping manifest creation."
+          fi
+
+          # Setup and push the 'latest' manifest if production image
+          if [[ -z "${{ matrix.image_ext }}" ]]; then
+            if [ -n "$manifest_images" ]; then
+              docker manifest create ${release_image_latest} $manifest_images
+              docker manifest push ${release_image_latest}
+              echo "Successfully published ${release_image_latest} to DockerHub!"
+            else
+              echo "No images promoted; skipping 'latest' manifest creation."
+            fi
+          fi
+
+      - name: Clean up temporary images
+        run: |
+          sleep 5
+          if [ "${has_rc_package_amd}" = "true" ]; then
+            echo "Deleting temporary image ${image_tag_amd} ..."
+            echo "https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_amd}/"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_amd}/
+          else
+            echo "Skipping deletion for amd64: image not promoted."
+          fi
+
+          if [ "${has_rc_package_arm}" = "true" ]; then
+            echo "Deleting temporary image ${image_tag_arm} ..."
+            echo "https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_arm}/"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_arm}/
+          else
+            echo "Skipping deletion for arm64: image not promoted."
+          fi
+
+  TriggerBSLUpdate:
+    if: ${{ github.event.inputs.update_bsl == 'true' }}
+    uses: ./.github/workflows/update-bsl.yml
+    needs: [PromotePackage, PromoteDocker]
+    secrets: inherit

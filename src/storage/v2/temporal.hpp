@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 #include <string_view>
 
 #include <boost/functional/hash_fwd.hpp>
-#include "utils/fnv.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::storage {
@@ -53,10 +52,11 @@ struct TemporalData {
   explicit TemporalData(TemporalType type, int64_t microseconds);
 
   auto operator<=>(const TemporalData &) const = default;
+
   friend std::ostream &operator<<(std::ostream &os, const TemporalData &t) {
     switch (t.type) {
       case TemporalType::Date:
-        return os << "DATE(\"" << utils::Date(t.microseconds) << "\")";
+        return os << "DATE(\"" << utils::Date(std::chrono::microseconds{t.microseconds}) << "\")";
       case TemporalType::LocalTime:
         return os << "LOCALTIME(\"" << utils::LocalTime(t.microseconds) << "\")";
       case TemporalType::LocalDateTime:
@@ -65,6 +65,7 @@ struct TemporalData {
         return os << "DURATION(\"" << utils::Duration(t.microseconds) << "\")";
     }
   }
+
   TemporalType type;
   int64_t microseconds;
 };
@@ -83,6 +84,7 @@ struct ZonedTemporalData {
                              utils::Timezone timezone);
 
   auto operator<=>(const ZonedTemporalData &) const = default;
+
   friend std::ostream &operator<<(std::ostream &os, const ZonedTemporalData &t) {
     switch (t.type) {
       case ZonedTemporalType::ZonedDateTime:

@@ -37,11 +37,7 @@ USER memgraph
 ENV HOME=/home/memgraph
 
 # Build mgbench client
-RUN source /opt/toolchain-v6/activate && \
-    ./init && \
-    rm -rf build && mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=release .. && \
-    make -j$(nproc) memgraph__mgbench__client
+RUN ./build.sh --build-type Release --target memgraph__mgbench__client
 
 # --- Final image ---
 FROM ubuntu:24.04

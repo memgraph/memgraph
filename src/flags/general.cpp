@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "general.hpp"
+#include <spdlog/spdlog.h>
 
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
@@ -17,6 +18,7 @@
 #include "utils/string.hpp"
 
 #include <iostream>
+#include <ranges>
 #include <thread>
 
 // Short help flag.
@@ -77,7 +79,7 @@ DEFINE_bool(storage_wal_enabled, false,
             "WAL periodic snapshots must be enabled.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3, "The number of snapshots that should always be kept.",
-                        FLAG_IN_RANGE(1, 1000000));
+                        FLAG_IN_RANGE(1, 1'000'000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, memgraph::storage::Config::Durability().wal_file_size_kibibytes,
                         "Minimum file size of each WAL file.",
@@ -87,23 +89,13 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
                         memgraph::storage::Config::Durability().wal_file_flush_every_n_tx,
                         "Issue a 'fsync' call after this amount of transactions are written to the "
                         "WAL file. Set to 1 for fully synchronous operation.",
-                        FLAG_IN_RANGE(1, 1000000));
+                        FLAG_IN_RANGE(1, 1'000'000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
               "The number of edges and vertices stored in a batch in a snapshot file.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
-DEFINE_VALIDATED_bool(
-    storage_parallel_index_recovery, false,
-    "Controls whether the index creation can be done in a multithreaded fashion.", {
-      spdlog::warn(
-          "storage_parallel_index_recovery flag is deprecated. Check storage_mode_parallel_schema_recovery for more "
-          "details.");
-      return true;
-    });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_parallel_schema_recovery, false,
@@ -143,6 +135,19 @@ DEFINE_bool(storage_enable_edges_metadata, false,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_delta_on_identical_property_update, true,
             "Controls whether updating a property with the same value should create a delta object.");
+
+DEFINE_bool(storage_backup_dir_enabled, true,
+            "Controls whether .old dir will be used to store latest snapshot and WAL files.");
+
+// RocksDB flags
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",
+              "RocksDB info log level. Options: DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, "
+              "FATAL_LEVEL, HEADER_LEVEL. Default is INFO_LEVEL.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_rocksdb_enable_thread_tracking, false,
+            "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. "
+            "Enable when debugging disk storage performance issues (provides GetThreadList API).");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(schema_info_enabled, false, "Set to true to enable run-time schema info tracking.");
@@ -192,8 +197,7 @@ auto memgraph::flags::ParseQueryModulesDirectory() -> std::vector<std::filesyste
   const auto directories = memgraph::utils::Split(FLAGS_query_modules_directory, ",");
   std::vector<std::filesystem::path> query_modules_directories;
   query_modules_directories.reserve(directories.size());
-  std::transform(directories.begin(), directories.end(), std::back_inserter(query_modules_directories),
-                 [](const auto &dir) { return dir; });
+  std::ranges::copy(directories, std::back_inserter(query_modules_directories));
 
   return query_modules_directories;
 }

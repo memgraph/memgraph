@@ -1,0 +1,6 @@
+query: >
+    MATCH (c:C)
+    RETURN collections.sum([1, 2.3, -3, c.id]) AS sum
+
+output:
+    - sum: 3.3

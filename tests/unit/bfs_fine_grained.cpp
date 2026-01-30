@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,9 @@ class VertexDb : public Database {
     }
   }
 
-  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
+  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override {
+    return db_->Access(memgraph::storage::WRITE);
+  }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                    EdgeAtom::Direction direction,
@@ -50,9 +52,21 @@ class VertexDb : public Database {
                                                    const std::shared_ptr<LogicalOperator> &input, bool existing_node,
                                                    Expression *lower_bound, Expression *upper_bound,
                                                    const ExpansionLambda &filter_lambda) override {
-    return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::BREADTH_FIRST,
-                                            direction, edge_types, false, lower_bound, upper_bound, existing_node,
-                                            filter_lambda, std::nullopt, std::nullopt, nullptr);
+    return std::make_unique<ExpandVariable>(input,
+                                            source_sym,
+                                            sink_sym,
+                                            edge_sym,
+                                            EdgeAtom::Type::BREADTH_FIRST,
+                                            direction,
+                                            edge_types,
+                                            false,
+                                            lower_bound,
+                                            upper_bound,
+                                            existing_node,
+                                            filter_lambda,
+                                            std::nullopt,
+                                            std::nullopt,
+                                            nullptr);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(
@@ -65,8 +79,8 @@ class VertexDb : public Database {
       auto vertex = dba->InsertVertex();
       MG_ASSERT(
           vertex.SetProperty(dba->NameToProperty("id"), memgraph::storage::PropertyValue(static_cast<int64_t>(id)))
-              .HasValue());
-      MG_ASSERT(vertex.AddLabel(dba->NameToLabel(std::to_string(id))).HasValue());
+              .has_value());
+      MG_ASSERT(vertex.AddLabel(dba->NameToLabel(std::to_string(id))).has_value());
       vertex_addr.push_back(vertex);
     }
 
@@ -77,8 +91,8 @@ class VertexDb : public Database {
       auto &from = vertex_addr[u];
       auto &to = vertex_addr[v];
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).HasValue());
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).has_value());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).has_value());
       edge_addr.push_back(*edge);
     }
 
@@ -96,10 +110,12 @@ class FineGrainedBfsTestInMemory
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
+
   static void SetUpTestCase() {
     memgraph::license::global_license_checker.EnableTesting();
     db_ = std::make_unique<VertexDb<StorageType>>();
   }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
@@ -116,8 +132,8 @@ TEST_P(FineGrainedBfsTestInMemory, All) {
 
   std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type) = GetParam();
 
-  this->db_->BfsTestWithFineGrainedFiltering(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink,
-                                             fine_grained_test_type);
+  this->db_->BfsTestWithFineGrainedFiltering(
+      db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type);
 }
 
 std::unique_ptr<VertexDb<FineGrainedBfsTestInMemory::StorageType>> FineGrainedBfsTestInMemory::db_{nullptr};
@@ -136,10 +152,12 @@ class FineGrainedBfsTestOnDisk
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
  public:
   using StorageType = memgraph::storage::DiskStorage;
+
   static void SetUpTestCase() {
     memgraph::license::global_license_checker.EnableTesting();
     db_ = std::make_unique<VertexDb<StorageType>>();
   }
+
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
@@ -156,8 +174,8 @@ TEST_P(FineGrainedBfsTestOnDisk, All) {
 
   std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type) = GetParam();
 
-  this->db_->BfsTestWithFineGrainedFiltering(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink,
-                                             fine_grained_test_type);
+  this->db_->BfsTestWithFineGrainedFiltering(
+      db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type);
 }
 
 std::unique_ptr<VertexDb<FineGrainedBfsTestOnDisk::StorageType>> FineGrainedBfsTestOnDisk::db_{nullptr};

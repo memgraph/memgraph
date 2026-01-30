@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -9,6 +9,7 @@
 /// @file
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <map>
 #include <mutex>
@@ -26,7 +27,7 @@ struct TargetArguments {
 /// Wrapper around the module executable.
 class Module final {
  private:
-  const int kStackSizeBytes = 262144;
+  const int kStackSizeBytes = 262'144;
 
  public:
   explicit Module(const std::filesystem::path &module_executable_path);
@@ -59,8 +60,8 @@ class Module final {
   std::unique_ptr<uint8_t[]> stack_{new uint8_t[kStackSizeBytes]};
   // The target arguments passed to the new process must be heap allocated.
   std::unique_ptr<TargetArguments> target_arguments_{new TargetArguments()};
-  int pipe_to_module_[2] = {-1, -1};
-  int pipe_from_module_[2] = {-1, -1};
+  std::array<int, 2> pipe_to_module_ = {-1, -1};
+  std::array<int, 2> pipe_from_module_ = {-1, -1};
 };
 
 }  // namespace memgraph::auth

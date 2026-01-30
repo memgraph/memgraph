@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@ class TestSymbolGenerator : public ::testing::Test {
   const std::string testSuite = "query_semantic";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
 
@@ -269,7 +269,8 @@ TYPED_TEST(TestSymbolGenerator, MatchWithWhere) {
 TYPED_TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
   auto prop = this->dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old"), false), AS("c")),
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
+                                  WITH(COUNT(IDENT("old"), false), AS("c")),
                                   WHERE(LESS(PROPERTY_LOOKUP(this->dba, "old", prop), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
@@ -355,7 +356,8 @@ TYPED_TEST(TestSymbolGenerator, NestedAggregation) {
 TYPED_TEST(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
   auto prop = this->dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP(this->dba, "n", prop), AS("prop")),
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                  WITH(PROPERTY_LOOKUP(this->dba, "n", prop), AS("prop")),
                                   WHERE(LESS(SUM(IDENT("prop"), false), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
@@ -562,8 +564,8 @@ TYPED_TEST(TestSymbolGenerator, WithUnwindReturn) {
   auto ret_as_list = AS("list");
   auto ret_elem = IDENT("elem");
   auto ret_as_elem = AS("elem");
-  auto query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
-                                  RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
+  auto query = QUERY(SINGLE_QUERY(
+      WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind, RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for: `list`, `elem`, `AS list`, `AS elem`
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -865,8 +867,8 @@ TYPED_TEST(TestSymbolGenerator, MatchBfsReturn) {
   auto *node_n = NODE("n");
   auto *r_prop = PROPERTY_LOOKUP(this->dba, "r", prop);
   auto *n_prop = PROPERTY_LOOKUP(this->dba, "n", prop);
-  auto *bfs = this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST,
-                                                      EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
+  auto *bfs = this->storage.template Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = r_prop;
@@ -930,7 +932,8 @@ TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   auto ident_n = this->storage.template Create<Identifier>("anon_n", false);
   auto node = this->storage.template Create<NodeAtom>(ident_n);
   auto edge = this->storage.template Create<EdgeAtom>(this->storage.template Create<Identifier>("anon_r", false),
-                                                      EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::BOTH);
+                                                      EdgeAtom::Type::DEPTH_FIRST,
+                                                      EdgeAtom::Direction::BOTH);
   edge->filter_lambda_.inner_edge = this->storage.template Create<Identifier>("anon_inner_e", false);
   edge->filter_lambda_.inner_node = this->storage.template Create<Identifier>("anon_inner_n", false);
   auto end_node = this->storage.template Create<NodeAtom>(this->storage.template Create<Identifier>("anon_end", false));
@@ -941,10 +944,10 @@ TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   EXPECT_EQ(symbol_table.max_position(), 7);
   // All symbols except `AS res` are anonymously generated.
   for (const auto &symbol : symbol_table.table()) {
-    if (symbol.second.name() == "res") {
-      EXPECT_TRUE(symbol.second.user_declared());
+    if (symbol.name() == "res") {
+      EXPECT_TRUE(symbol.user_declared());
     } else {
-      EXPECT_FALSE(symbol.second.user_declared());
+      EXPECT_FALSE(symbol.user_declared());
     }
   }
 }
@@ -957,8 +960,8 @@ TYPED_TEST(TestSymbolGenerator, MatchWShortestReturn) {
   auto *node_n = NODE("n");
   auto *r_weight = PROPERTY_LOOKUP(this->dba, "r", weight);
   auto *r_filter = PROPERTY_LOOKUP(this->dba, "r", filter);
-  auto *shortest = this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
-                                                           EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
+  auto *shortest = this->storage.template Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
   {
     shortest->weight_lambda_.inner_edge = IDENT("r");
     shortest->weight_lambda_.inner_node = IDENT("n");
@@ -1135,16 +1138,16 @@ TYPED_TEST(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
 TEST(TestSymbolTable, CreateAnonymousSymbols) {
   SymbolTable symbol_table;
   auto anon1 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon1.name_, "anon1");
+  ASSERT_EQ(anon1.name(), "anon1");
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TEST(TestSymbolTable, CreateAnonymousSymbolWithExistingUserSymbolCalledAnon) {
   SymbolTable symbol_table;
   symbol_table.CreateSymbol("anon1", false);
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TYPED_TEST(TestSymbolGenerator, PredefinedIdentifiers) {
@@ -1220,16 +1223,17 @@ TYPED_TEST(TestSymbolGenerator, Foreach) {
 
 TYPED_TEST(TestSymbolGenerator, Exists) {
   {
-    auto query = QUERY(SINGLE_QUERY(
-        MATCH(PATTERN(NODE("n"))),
-        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
+    auto query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))),
+                           RETURN("n")));
     EXPECT_THROW(MakeSymbolTable(query), SemanticException);
   }
 
   {
-    auto query =
-        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                           WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))),
+                                    RETURN("n")));
     EXPECT_THROW(MakeSymbolTable(query), SemanticException);
   }
 
@@ -1242,10 +1246,11 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
   {
     // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in
     // return
-    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                                    WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
-                                                         NODE("node", std::nullopt, false)))),
-                                    RETURN("n")));
+    auto query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(
+            PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("node", std::nullopt, false)))),
+        RETURN("n")));
     auto symbol_table = MakeSymbolTable(query);
     ASSERT_EQ(symbol_table.max_position(), 7);
 
@@ -1258,13 +1263,14 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
     ASSERT_EQ(collector.symbols_.size(), 1);
 
     auto symbol = *collector.symbols_.begin();
-    ASSERT_EQ(symbol.name_, "n");
+    ASSERT_EQ(symbol.name(), "n");
   }
 
   {
-    auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
-                                                     NODE("node", std::nullopt, false))),
-                                       RETURN("n")));
+    auto subquery = QUERY(SINGLE_QUERY(
+        MATCH(
+            PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("node", std::nullopt, false))),
+        RETURN("n")));
     auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(subquery)), RETURN("n")));
     auto symbol_table = MakeSymbolTable(query);
 
@@ -1280,7 +1286,7 @@ TYPED_TEST(TestSymbolGenerator, Exists) {
     ASSERT_EQ(collector.symbols_.size(), 1);
 
     auto symbol = *collector.symbols_.begin();
-    ASSERT_EQ(symbol.name_, "n");
+    ASSERT_EQ(symbol.name(), "n");
   }
 }
 
@@ -1289,6 +1295,12 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
   // Yields exception because n in subquery is referenced in outer scope
   auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // WITH 1 AS x CALL { RETURN 2 AS x } RETURN x
+  // Yields exception because aliased return in subquery conflicts with outer scope variable
+  subquery = QUERY(SINGLE_QUERY(RETURN(LITERAL(2), AS("x"))));
+  query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), CALL_SUBQUERY(subquery), RETURN("x")));
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
 
   // MATCH (n) CALL { MATCH (m) RETURN m.prop } RETURN n
@@ -1413,7 +1425,9 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingTwoMultipleLookups) {
 
   auto has_properties1 = MAP({in_prop1_key, LITERAL(0000)}, {in_prop2_key, LITERAL(10)});
   auto has_properties2 = MAP({in_prop1_key, LITERAL(1111)}, {in_prop2_key, LITERAL(16)});
-  auto new_map = MAP({out_prop1_key, out_prop1_val}, {out_prop2_key, out_prop2_val}, {out_prop3_key, out_prop3_val},
+  auto new_map = MAP({out_prop1_key, out_prop1_val},
+                     {out_prop2_key, out_prop2_val},
+                     {out_prop3_key, out_prop3_val},
                      {out_prop4_key, out_prop4_val});
   auto query = QUERY(
       SINGLE_QUERY(WITH(has_properties1, AS("item1"), has_properties2, AS("item2")), RETURN(new_map, AS("new_map"))));
@@ -1499,10 +1513,13 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInReturn) {
   // MATCH (n) RETURN [(n)-[edge]->(m) | m.prop] AS alias
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
-      RETURN(NEXPR("alias", PATTERN_COMPREHENSION(nullptr,
-                                                  PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
-                                                          NODE("m", std::nullopt, false)),
-                                                  nullptr, PROPERTY_LOOKUP(this->dba, "m", prop))))));
+      RETURN(NEXPR(
+          "alias",
+          PATTERN_COMPREHENSION(
+              nullptr,
+              PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("m", std::nullopt, false)),
+              nullptr,
+              PROPERTY_LOOKUP(this->dba, "m", prop))))));
 
   auto symbol_table = MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 7);
@@ -1523,10 +1540,13 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
   // MATCH (n) WITH [(n)-[edge]->(m) | m.prop] AS alias RETURN alias
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
-      WITH(NEXPR("alias", PATTERN_COMPREHENSION(nullptr,
-                                                PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
-                                                        NODE("m", std::nullopt, false)),
-                                                nullptr, PROPERTY_LOOKUP(this->dba, "m", prop)))),
+      WITH(NEXPR(
+          "alias",
+          PATTERN_COMPREHENSION(
+              nullptr,
+              PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("m", std::nullopt, false)),
+              nullptr,
+              PROPERTY_LOOKUP(this->dba, "m", prop)))),
       RETURN("alias")));
 
   auto symbol_table = MakeSymbolTable(query);
@@ -1545,9 +1565,9 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
 TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
   // RETURN [x in [1, 2, 3] | x + 1] AS added_numbers
   auto *ident = IDENT("x");
-  auto query = QUERY(
-      SINGLE_QUERY(RETURN(NEXPR("added_numbers", LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)),
-                                                                    nullptr, ADD(ident, LITERAL(1)))))));
+  auto query = QUERY(SINGLE_QUERY(RETURN(
+      NEXPR("added_numbers",
+            LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)), nullptr, ADD(ident, LITERAL(1)))))));
 
   auto symbol_table = MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 2);
@@ -1566,8 +1586,10 @@ TYPED_TEST(TestSymbolGenerator, ListComprehensionInWith) {
   // WITH [x in [1, 2, 3] WHERE x = 2 | x + 1] AS added_numbers RETURN added_numbers
   auto *ident = IDENT("x");
   auto query = QUERY(SINGLE_QUERY(
-      WITH(NEXPR("added_numbers", LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)),
-                                                     WHERE(EQ(ident, LITERAL(2))), ADD(ident, LITERAL(1))))),
+      WITH(NEXPR(
+          "added_numbers",
+          LIST_COMPREHENSION(
+              ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)), WHERE(EQ(ident, LITERAL(2))), ADD(ident, LITERAL(1))))),
       RETURN("added_numbers")));
 
   auto symbol_table = MakeSymbolTable(query);

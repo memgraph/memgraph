@@ -15,6 +15,7 @@
 #include "coordination/constants.hpp"
 #include "utils/logging.hpp"
 
+#include <nlohmann/json.hpp>
 #include <shared_mutex>
 
 namespace memgraph::coordination {

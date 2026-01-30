@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,8 +28,8 @@ using nuraft::buffer_serializer;
 
 namespace {
 std::shared_ptr<log_entry> MakeClone(const std::shared_ptr<log_entry> &entry) {
-  return std::make_shared<log_entry>(entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(),
-                                     entry->get_timestamp());
+  return std::make_shared<log_entry>(
+      entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(), entry->get_timestamp());
 }
 }  // namespace
 
@@ -46,12 +46,12 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
       auto const maybe_start_idx = durability_->Get(kStartIdx);
       bool is_first_start{false};
-      if (!maybe_last_log_entry.has_value()) {
+      if (!maybe_last_log_entry) {
         logger_.Log(nuraft_log_level::INFO,
                     "No last log entry found on disk, assuming first start of log store with durability");
         is_first_start = true;
       }
-      if (!maybe_start_idx.has_value()) {
+      if (!maybe_start_idx) {
         logger_.Log(nuraft_log_level::INFO,
                     "No last start index found on disk, assuming first start of log store with durability");
         is_first_start = true;
@@ -73,9 +73,10 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       for (auto const id : std::ranges::iota_view{durable_start_idx_value, last_log_entry + 1}) {
         auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
-        if (!entry.has_value()) {
-          logger_.Log(nuraft_log_level::TRACE, fmt::format("Missing entry with id {} in range [{}:{}]", id,
-                                                           durable_start_idx_value, last_log_entry));
+        if (!entry) {
+          logger_.Log(
+              nuraft_log_level::TRACE,
+              fmt::format("Missing entry with id {} in range [{}:{}]", id, durable_start_idx_value, last_log_entry));
           continue;
         }
 

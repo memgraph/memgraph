@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,8 +93,8 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
             collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
           }
         }
-        expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node,
-                                          unknown_expansion_group_id});
+        expansions.emplace_back(Expansion{
+            prev_node, edge, edge->direction_, false, collector.symbols_, current_node, unknown_expansion_group_id});
       };
       ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
@@ -105,7 +105,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
 void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
   ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
 
-  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](Symbol symbol, Expansion &expansion) {
+  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](const Symbol &symbol, Expansion &expansion) {
     ExpansionGroupId expansion_group_id_to_assign = next_expansion_group_id;
     if (matching.node_symbol_to_expansion_group_id.contains(symbol)) {
       expansion_group_id_to_assign = matching.node_symbol_to_expansion_group_id[symbol];
@@ -213,7 +213,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
@@ -231,7 +231,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   if (upper_bound) {
     upper_bound->value()->Accept(collector);
   }
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
@@ -240,7 +240,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
@@ -258,7 +258,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   if (upper_bound) {
     upper_bound->value()->Accept(collector);
   }
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
@@ -278,15 +278,13 @@ IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expres
   MG_ASSERT(value);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
-  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+  is_symbol_in_value_ = collector.symbols_.contains(symbol);
 }
 
 void Filters::EraseFilter(const FilterInfo &filter) {
   // TODO: Ideally, we want to determine the equality of both expression trees,
   // instead of a simple pointer compare.
-  all_filters_.erase(std::remove_if(all_filters_.begin(), all_filters_.end(),
-                                    [&filter](const auto &f) { return f.expression == filter.expression; }),
-                     all_filters_.end());
+  std::erase_if(all_filters_, [&filter](const auto &f) { return f.expression == filter.expression; });
 }
 
 // Tries to erase the filter which contains a label of a symbol
@@ -297,7 +295,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
       ++filter_it;
       continue;
     }
-    if (!utils::Contains(filter_it->used_symbols, symbol)) {
+    if (!filter_it->used_symbols.contains(symbol)) {
       ++filter_it;
       continue;
     }
@@ -307,7 +305,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
       continue;
     }
     filter_it->labels.erase(label_it);
-    DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
+    DMG_ASSERT(!std::ranges::contains(filter_it->labels, label), "Didn't expect duplicated labels");
     if (filter_it->labels.empty() && filter_it->or_labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
@@ -328,7 +326,7 @@ void Filters::EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx
       ++filter_it;
       continue;
     }
-    if (!utils::Contains(filter_it->used_symbols, symbol)) {
+    if (!filter_it->used_symbols.contains(symbol)) {
       ++filter_it;
       continue;
     }
@@ -338,7 +336,7 @@ void Filters::EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx
       continue;
     }
     filter_it->or_labels.erase(label_vec_it);
-    DMG_ASSERT(!utils::Contains(filter_it->or_labels, labels), "Didn't expect duplicated labels");
+    DMG_ASSERT(!std::ranges::contains(filter_it->or_labels, labels), "Didn't expect duplicated labels");
     if (filter_it->or_labels.empty() && filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
@@ -413,8 +411,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         prop_equal->Accept(collector);
         FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
         // Store a PropertyFilter on the value of the property.
-        filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
-                                            PropertyFilter::Type::EQUAL);
+        filter_info.property_filter.emplace(
+            symbol_table, symbol, prop_pair.first, prop_pair.second, PropertyFilter::Type::EQUAL);
         all_filters_.emplace_back(filter_info);
       }
       return;
@@ -425,7 +423,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     const auto &node_symbol = symbol_table.at(*node->identifier_);
     std::vector<LabelIx> labels;
     for (auto label : node->labels_) {
-      if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      if (std::get_if<Expression *>(&label)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
       labels.push_back(std::get<LabelIx>(label));
@@ -481,7 +479,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
     for (auto edge_type : edge->edge_types_) {
-      if (const auto *edge_type_name = std::get_if<Expression *>(&edge_type)) {
+      if (std::get_if<Expression *>(&edge_type)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
     }
@@ -582,8 +580,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return !collector.symbols_.contains(sym);
   };
 
-  auto get_point_distance_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
-                                         Expression *&other) -> bool {
+  auto get_point_distance_function =
+      [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident, Expression *&other) -> bool {
     auto *func = utils::Downcast<Function>(expr);
     auto isPointDistance = func && utils::ToUpperCase(func->function_name_) == "POINT.DISTANCE"sv;
     if (!isPointDistance) return false;
@@ -621,8 +619,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return false;
   };
 
-  auto get_point_withinbbox_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
-                                           Expression *&bottom_left, Expression *&top_right) -> bool {
+  auto get_point_withinbbox_function = [&](Expression *expr,
+                                           PropertyLookup *&propertyLookup,
+                                           Identifier *&ident,
+                                           Expression *&bottom_left,
+                                           Expression *&top_right) -> bool {
     auto *func = utils::Downcast<Function>(expr);
     auto isPointWithinbbox = func && utils::ToUpperCase(func->function_name_) == "POINT.WITHINBBOX"sv;
     if (!isPointWithinbbox) return false;
@@ -630,8 +631,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       throw SemanticException("point.withinbbox function requires 3 arguments");
     }
 
-    auto extract_prop_lookup_and_identifers = [&](Expression *point, Expression *bottom_left_expr,
-                                                  Expression *top_right_expr) -> bool {
+    auto extract_prop_lookup_and_identifers =
+        [&](Expression *point, Expression *bottom_left_expr, Expression *top_right_expr) -> bool {
       if (get_property_lookup(point, propertyLookup, ident)) {
         auto const &scan_symbol = symbol_table.at(*ident);
         if (!is_independant(scan_symbol, bottom_left_expr)) return false;
@@ -695,15 +696,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       auto [ident, nested_properties] = extract_nested_property_lookup(expr1);
       if (ident) {
         auto filter = make_filter(FilterInfo::Type::Property);
-        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties,
-                                                Bound(expr2, bound_type), std::nullopt);
+        filter.property_filter = PropertyFilter(
+            symbol_table, symbol_table.at(*ident), nested_properties, Bound(expr2, bound_type), std::nullopt);
         all_filters_.emplace_back(filter);
       }
     } else if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
-                                     Bound(expr2, bound_type), std::nullopt);
+      filter.property_filter.emplace(
+          symbol_table, symbol_table.at(*ident), prop_lookup->property_, Bound(expr2, bound_type), std::nullopt);
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }
@@ -711,15 +712,18 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       auto [ident, nested_properties] = extract_nested_property_lookup(expr2);
       if (ident) {
         auto filter = make_filter(FilterInfo::Type::Property);
-        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
-                                                std::nullopt, Bound(expr1, bound_type));
+        filter.property_filter = PropertyFilter(symbol_table,
+                                                symbol_table.at(*ident),
+                                                std::move(nested_properties),
+                                                std::nullopt,
+                                                Bound(expr1, bound_type));
         all_filters_.emplace_back(filter);
       }
     } else if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
-                                     Bound(expr1, bound_type));
+      filter.property_filter.emplace(
+          symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt, Bound(expr1, bound_type));
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }
@@ -756,15 +760,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         return false;
       }
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
-                                              val_expr, PropertyFilter::Type::IN);
+      filter.property_filter = PropertyFilter(
+          symbol_table, symbol_table.at(*ident), std::move(nested_properties), val_expr, PropertyFilter::Type::IN);
       all_filters_.emplace_back(filter);
       return true;
     }
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::IN);
+      filter.property_filter = PropertyFilter(
+          symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr, PropertyFilter::Type::IN);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -811,7 +815,22 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
   DMG_ASSERT(!utils::IsSubtype(*expr, AndOperator::kType), "Expected AndOperators have been split.");
-  if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
+
+  if (auto *edgetype_test = utils::Downcast<EdgeTypesTest>(expr)) {
+    if (auto *identifier = utils::Downcast<Identifier>(edgetype_test->expression_)) {
+      if (auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier)); it == all_filters_.end()) {
+        // No existing EdgeTypesTest for this identifier
+        auto filter = make_filter(FilterInfo::Type::EdgeType);
+        filter.edgetypes = edgetype_test->valid_edgetypes_;
+        all_filters_.emplace_back(filter);
+      } else {
+        // We could intersect the two OR lists, but for now we don't do that processing and keep it as  separate filter
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+      }
+    } else {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
+  } else if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
@@ -836,9 +855,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 
         auto before_count = as_set.size();
         for (auto &label_vec : labels_test->or_labels_) {
-          label_vec.erase(std::remove_if(label_vec.begin(), label_vec.end(),
-                                         [&](const auto &label) { return !as_set.insert(label).second; }),
-                          label_vec.end());
+          std::erase_if(label_vec, [&](const auto &label) { return !as_set.insert(label).second; });
         }
         if (as_set.size() != before_count) {
           for (const auto &label_vec : labels_test->or_labels_) {
@@ -951,9 +968,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         !add_prop_is_not_null_check(is_not)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *exists = utils::Downcast<Exists>(expr)) {
+  } else if (utils::Downcast<Exists>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
-  } else if (auto *function = utils::Downcast<Function>(expr)) {
+  } else if (utils::Downcast<Function>(expr)) {
     // WHERE point.withinbbox()
     if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -1079,21 +1096,92 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
   // If there are any pattern filters, we add those as well
   for (auto &filter : matching.filters) {
-    PatternVisitor visitor(symbol_table, storage);
-
-    filter.expression->Accept(visitor);
-    filter.matchings = visitor.getFilterMatchings();
-    filter.pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
+    PatternComprehensionCollector collector(symbol_table, storage);
+    filter.expression->Accept(collector);
+    filter.matchings = collector.getFilterMatchings();
+    filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
   }
 }
 
-PatternVisitor::PatternVisitor(SymbolTable &symbol_table, AstStorage &storage)
+// PatternComprehensionCollector implementation
+PatternComprehensionCollector::PatternComprehensionCollector(SymbolTable &symbol_table, AstStorage &storage)
     : symbol_table_(symbol_table), storage_(storage) {}
-PatternVisitor::PatternVisitor(const PatternVisitor &) = default;
-PatternVisitor::PatternVisitor(PatternVisitor &&) noexcept = default;
-PatternVisitor::~PatternVisitor() = default;
 
-void PatternVisitor::Visit(Exists &op) {
+PatternComprehensionCollector::~PatternComprehensionCollector() = default;
+
+bool PatternComprehensionCollector::PreVisit(PatternComprehension &op) {
+  PatternComprehensionMatching matching;
+  AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
+
+  // Handle named path variable (e.g., [path = (a)-[r]->(b) | ...])
+  // Unlike MATCH patterns where the path name is on Pattern::identifier_,
+  // pattern comprehensions store the path name in PatternComprehension::variable_.
+  if (op.variable_ && op.variable_->user_declared_) {
+    std::vector<Symbol> path_elements;
+    path_elements.reserve(op.pattern_->atoms_.size());
+    for (auto *const pattern_atom : op.pattern_->atoms_) {
+      path_elements.push_back(symbol_table_.at(*pattern_atom->identifier_));
+    }
+    matching.named_paths.emplace(symbol_table_.at(*op.variable_), std::move(path_elements));
+    // Also add the path symbol to expansion_symbols so it's recognized as bound
+    matching.expansion_symbols.insert(symbol_table_.at(*op.variable_));
+  }
+
+  // Process nested pattern comprehensions in filters
+  for (auto &filter : matching.filters) {
+    PatternComprehensionCollector nested_collector(symbol_table_, storage_);
+    filter.expression->Accept(nested_collector);
+    filter.matchings = nested_collector.getFilterMatchings();
+    filter.pattern_comprehension_matchings = nested_collector.getPatternComprehensionMatchings();
+  }
+
+  // Process nested pattern comprehensions in result expression
+  PatternComprehensionCollector result_collector(symbol_table_, storage_);
+  op.resultExpr_->Accept(result_collector);
+  matching.nested_pattern_comprehensions = result_collector.getPatternComprehensionMatchings();
+
+  // Create the result expression wrapper
+  matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
+  matching.result_expr->MapTo(symbol_table_.at(op));
+  matching.result_symbol = symbol_table_.at(op);
+
+  // Compute external symbols: symbols used in filter/result that are NOT bound within the comprehension.
+  // External symbols are references to variables from outer scope (e.g., FOREACH variable `x` in
+  // `[(a)-[r]->(b) WHERE a.id = x | b]`).
+  std::unordered_set<Symbol> used_symbols;
+
+  // Collect symbols from filter expression
+  if (op.filter_) {
+    UsedSymbolsCollector filter_collector(symbol_table_);
+    op.filter_->expression_->Accept(filter_collector);
+    used_symbols.insert(filter_collector.symbols_.begin(), filter_collector.symbols_.end());
+  }
+
+  // Collect symbols from result expression
+  UsedSymbolsCollector result_symbol_collector(symbol_table_);
+  op.resultExpr_->Accept(result_symbol_collector);
+  used_symbols.insert(result_symbol_collector.symbols_.begin(), result_symbol_collector.symbols_.end());
+
+  // Collect symbols bound by nested pattern comprehensions.
+  // These should NOT be treated as external symbols - they are bound within their respective nested PCs.
+  std::unordered_set<Symbol> nested_pc_symbols;
+  for (const auto &nested_pc : matching.nested_pattern_comprehensions) {
+    nested_pc_symbols.insert(nested_pc.expansion_symbols.begin(), nested_pc.expansion_symbols.end());
+  }
+
+  // External symbols = used symbols - expansion symbols - nested PC symbols
+  for (const auto &sym : used_symbols) {
+    if (!matching.expansion_symbols.contains(sym) && !nested_pc_symbols.contains(sym)) {
+      matching.external_symbols.insert(sym);
+    }
+  }
+
+  pattern_comprehension_matchings_.push_back(std::move(matching));
+
+  return false;  // Don't auto-traverse, we handled it manually
+}
+
+bool PatternComprehensionCollector::PreVisit(Exists &op) {
   FilterMatching filter_matching;
   filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
 
@@ -1103,7 +1191,6 @@ void PatternVisitor::Visit(Exists &op) {
     AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
     filter_matching.type = PatternFilterType::EXISTS_PATTERN;
   } else if (op.HasSubquery()) {
-    // For subqueries, collect the full QueryParts and store in filter_matching
     filter_matching.type = PatternFilterType::EXISTS_SUBQUERY;
     filter_matching.subquery =
         std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.GetSubquery(), true));
@@ -1114,58 +1201,33 @@ void PatternVisitor::Visit(Exists &op) {
   }
 
   filter_matchings_.push_back(std::move(filter_matching));
+
+  return false;  // Don't auto-traverse, we handled it manually
 }
 
-std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
+std::vector<FilterMatching> PatternComprehensionCollector::getFilterMatchings() { return filter_matchings_; }
 
-std::vector<PatternComprehensionMatching> PatternVisitor::getPatternComprehensionMatchings() {
+PatternComprehensionMatchings PatternComprehensionCollector::getPatternComprehensionMatchings() {
   return pattern_comprehension_matchings_;
 }
 
-static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
-                         SymbolTable &symbol_table) {
+namespace {
+
+// Collect MERGE matchings from FOREACH and its nested FOREACH clauses
+// Note: Pattern comprehensions are now collected via PatternComprehensionCollector
+void CollectForeachMergeMatchings(Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
+                                  SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
-    if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+    if (auto *merge = utils::Downcast<Merge>(clause)) {
       query_part.merge_matching.emplace_back(Matching{});
       AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part.merge_matching.back());
-    } else if (auto *nested = utils::Downcast<query::Foreach>(clause)) {
-      ParseForeach(*nested, query_part, storage, symbol_table);
+    } else if (auto *nested = utils::Downcast<Foreach>(clause)) {
+      CollectForeachMergeMatchings(*nested, query_part, storage, symbol_table);
     }
   }
 }
 
-static void ParseReturnBody(query::ReturnBody &retBody, AstStorage &storage, SymbolTable &symbol_table,
-                            std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
-  for (auto *expr : retBody.named_expressions) {
-    PatternVisitor visitor(symbol_table, storage);
-    expr->Accept(visitor);
-    auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
-    for (auto &matching : pattern_comprehension_matchings) {
-      matchings.emplace(expr->name_, matching);
-    }
-  }
-}
-
-void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this); }
-
-void PatternVisitor::Visit(PatternComprehension &op) {
-  PatternComprehensionMatching matching;
-  AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
-
-  for (auto &filter : matching.filters) {
-    PatternVisitor nested_visitor(symbol_table_, storage_);
-
-    filter.expression->Accept(nested_visitor);
-    filter.matchings = nested_visitor.getFilterMatchings();
-    filter.pattern_comprehension_matchings = nested_visitor.getPatternComprehensionMatchings();
-  }
-
-  matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
-  matching.result_expr->MapTo(symbol_table_.at(op));
-  matching.result_symbol = symbol_table_.at(op);
-
-  pattern_comprehension_matchings_.push_back(std::move(matching));
-}
+}  // namespace
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
@@ -1173,7 +1235,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
                                                      SingleQuery *single_query) {
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
-  for (auto &clause : single_query->clauses_) {
+  for (auto *clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (!query_part->remaining_clauses.empty()) {
         // New match started
@@ -1190,26 +1252,37 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
-      if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+
+      // Handle MERGE matching (direct or nested in FOREACH)
+      if (auto *merge = utils::Downcast<Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
-      } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
+      } else if (auto *foreach = utils::Downcast<Foreach>(clause)) {
+        CollectForeachMergeMatchings(*foreach, *query_part, storage, symbol_table);
+      } else if (auto *call_subquery = utils::Downcast<CallSubquery>(clause)) {
         query_part->subqueries.emplace_back(
             std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_, true)));
-      } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-        ParseForeach(*foreach, *query_part, storage, symbol_table);
-      } else if (auto *with = utils::Downcast<With>(clause)) {
-        ParseReturnBody(with->body_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+      }
+
+      // Collect pattern comprehensions from ALL non-MATCH clauses using HierarchicalTreeVisitor.
+      // This automatically traverses all expressions in all clause types including:
+      // - CREATE/MERGE pattern properties (NodeAtom/EdgeAtom)
+      // - SET/DELETE expressions
+      // - FOREACH list expression and nested clauses
+      // - WITH/RETURN named_expressions, order_by, skip, limit, where
+      // - UNWIND expression
+      // - EdgeAtom filter_lambda, weight_lambda, lower_bound, upper_bound
+      PatternComprehensionCollector collector(symbol_table, storage);
+      clause->Accept(collector);
+      query_part->pattern_comprehension_matchings.append_range(collector.getPatternComprehensionMatchings());
+
+      // Handle query part boundaries
+      if (utils::Downcast<With>(clause) || utils::Downcast<Unwind>(clause) ||
+          utils::IsSubtype(*clause, CallProcedure::kType) || utils::IsSubtype(*clause, LoadCsv::kType) ||
+          utils::IsSubtype(*clause, LoadParquet::kType) || utils::IsSubtype(*clause, LoadJsonl::kType)) {
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
-      } else if (utils::IsSubtype(*clause, query::Unwind::kType) ||
-                 utils::IsSubtype(*clause, query::CallProcedure::kType) ||
-                 utils::IsSubtype(*clause, query::LoadCsv::kType)) {
-        // This query part is done, continue with a new one.
-        query_parts.emplace_back(SingleQueryPart{});
-        query_part = &query_parts.back();
-      } else if (auto *ret = utils::Downcast<Return>(clause)) {
-        ParseReturnBody(ret->body_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+      } else if (utils::Downcast<Return>(clause)) {
         return query_parts;
       }
     }
@@ -1301,6 +1374,7 @@ FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Sym
       property_filter(std::move(property_filter)),
       id_filter(std::move(id_filter)),
       matchings({}) {}
+
 FilterInfo::FilterInfo(const FilterInfo &) = default;
 FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
 FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;

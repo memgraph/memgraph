@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
-#include "utils/fnv.hpp"
+import memgraph.utils.fnv;
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -69,9 +69,10 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     if (token == Token::UNMATCHED) {
       if (i < original_.size()) {
         throw LexingException(
-            "Invalid query. There is a wrong token at postion {} starting with {}. Remove that part of the query and "
+            "Invalid query. There is a wrong token at position {} starting with {}. Remove that part of the query and "
             "try to rerun it.",
-            i, original_[i]);
+            i,
+            original_[i]);
       }
       throw LexingException("Invalid query because of a wrong token.");
     }
@@ -173,8 +174,8 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   auto it = tokens.begin();
   while (it != tokens.end()) {
     // Store nonaliased named expressions in returns in named_exprs_.
-    it = std::find_if(it, tokens.end(),
-                      [](const std::pair<Token, std::string> &a) { return utils::IEquals(a.second, "return"); });
+    it = std::find_if(
+        it, tokens.end(), [](const std::pair<Token, std::string> &a) { return utils::IEquals(a.second, "return"); });
     // There is no RETURN so there is nothing to do here.
     if (it == tokens.end()) return;
     // Skip RETURN;
