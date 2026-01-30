@@ -233,8 +233,7 @@ int main(int argc, char **argv) {
     memgraph::flags::AppendExperimental(env_experimental);
   }
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
-  // even if
-  // `--also-log-to-stderr` is set to false.
+  // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
@@ -463,7 +462,8 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  db_config.durability.snapshot_interval = memgraph::utils::SchedulerInterval(FLAGS_storage_snapshot_interval);
+  db_config.durability.snapshot_interval =
+      memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
   if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     if (!db_config.durability.snapshot_interval) {
       if (FLAGS_storage_wal_enabled) {
