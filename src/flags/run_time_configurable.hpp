@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,11 +10,16 @@
 // licenses/APL.txt.
 #pragma once
 
+#include "gflags/gflags.h"
+
 #include <chrono>
 #include <string>
 #include "utils/observer.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(also_log_to_stderr);
 
 namespace memgraph::flags::run_time {
 
