@@ -129,6 +129,13 @@ class CoordinatorInstance {
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
+  auto AddNewCoordinator(CoordinatorInstanceConfig const &config,
+                         std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+      -> AddCoordinatorInstanceStatus;
+  auto AddSelfCoordinator(CoordinatorInstanceConfig const &config,
+                          std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+      -> AddCoordinatorInstanceStatus;
+
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 

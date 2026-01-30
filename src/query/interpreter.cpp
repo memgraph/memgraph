@@ -781,6 +781,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such coordinator server already exists!");
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
       case SUCCESS:
         break;
     }
@@ -1758,7 +1761,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
+                                std::vector<Notification> *notifications) {
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
         license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "high availability"));
@@ -1833,14 +1836,15 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                      bolt_server = bolt_server_it->second,
                      coordinator_server = coordinator_server_it->second,
                      management_server = management_server_it->second]() mutable {
-        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server, management_server);
+        handler.AddCoordinatorInstance(
+            static_cast<int32_t>(coord_server_id), bolt_server, coordinator_server, management_server);
         return std::vector<std::vector<TypedValue>>();
       };
 
       notifications->emplace_back(SeverityLevel::INFO,
                                   NotificationCode::ADD_COORDINATOR_INSTANCE,
-                                  fmt::format("Coordinator has added instance {} on coordinator server {}.",
-                                              coordinator_query->instance_name_,
+                                  fmt::format("Added coordinator with id {} and coordinator server {}.",
+                                              coord_server_id,
                                               coordinator_server_it->second));
       return callback;
     }
@@ -4668,8 +4672,7 @@ PreparedQuery PrepareCoordinatorQuery(ParsedQuery parsed_query, bool in_explicit
   }
 
   auto *coordinator_query = utils::Downcast<CoordinatorQuery>(parsed_query.query);
-  auto callback =
-      HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, config, notifications);
+  auto callback = HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, notifications);
 
   return PreparedQuery{
       .header = callback.header,
