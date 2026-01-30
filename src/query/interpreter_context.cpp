@@ -14,9 +14,11 @@
 
 #include "query/interpreter_context.hpp"
 
+#include "flags/bolt.hpp"
 #include "query/interpreter.hpp"
 
 #include "system/include/system/system.hpp"
+#include "utils/gc_offloader.hpp"
 #include "utils/resource_monitoring.hpp"
 
 namespace memgraph::query {
@@ -44,6 +46,18 @@ InterpreterContext::InterpreterContext(
       auth_checker(ac),
       replication_handler_{replication_handler},
       system_{&system} {
+  gc_offloader_.reserve(fLI::FLAGS_bolt_num_workers + 1);
+  for (size_t i = 0; i < fLI::FLAGS_bolt_num_workers + 1; ++i) {
+    gc_offloader_.push_back(std::make_unique<utils::GCFifoOffloader>());
+  }
+  gc_thread_ = std::jthread([this](std::stop_token stop_token) {
+    while (!stop_token.stop_requested()) {
+      for (auto &offloader : gc_offloader_) {
+        offloader->Collect();
+      }
+      std::this_thread::sleep_for(std::chrono::nanoseconds(10));  // Think about triggering this
+    }
+  });
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(

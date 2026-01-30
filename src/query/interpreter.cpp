@@ -270,6 +270,29 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
 }
 
 namespace memgraph::query {
+void Interpreter::ResetInterpreter() {
+  // Postpone clearing of query_executions_ to a separate thread to avoid blocking the main thread
+  if (utils::PriorityThreadPool::Worker::worker_id_ < std::numeric_limits<uint64_t>::max()) {
+    interpreter_context_->gc_offloader_[utils::PriorityThreadPool::Worker::worker_id_]->Push(
+        [query_executions = std::move(query_executions_)]() mutable { query_executions.clear(); });
+  } else {
+    query_executions_.clear();
+  }
+  system_transaction_.reset();
+  transaction_queries_->clear();
+  if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
+    current_db_.db_acc_.reset();
+  }
+}
+
+void Interpreter::MoveQueryExecution(std::unique_ptr<QueryExecution> query_execution) {
+  if (utils::PriorityThreadPool::Worker::worker_id_ < std::numeric_limits<uint64_t>::max()) {
+    interpreter_context_->gc_offloader_[utils::PriorityThreadPool::Worker::worker_id_]->Push(
+        [query_execution = std::move(query_execution)]() mutable { query_execution.reset(nullptr); });
+  } else {
+    query_execution.reset(nullptr);
+  }
+}
 
 constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
 constexpr int kSystemTxTryMS = 100;  //!< Duration of the unique try_lock_for
@@ -2647,9 +2670,10 @@ struct PullPlan {
 #endif
   );
 
-  std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
-                                                        const std::vector<Symbol> &output_symbols,
-                                                        std::map<std::string, TypedValue> *summary);
+  std::optional<plan::ProfilingStatsWithTotalTime> Pull(
+      AnyStream *stream, std::optional<int> n, const std::vector<Symbol> &output_symbols,
+      std::map<std::string, TypedValue> *summary,
+      std::vector<std::unique_ptr<utils::GCFifoOffloader>> *thread_pool = nullptr);
 
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
@@ -2727,9 +2751,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.is_main = interpreter_context->repl_state.ReadLock()->IsMain();
 }
 
-std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
-                                                                const std::vector<Symbol> &output_symbols,
-                                                                std::map<std::string, TypedValue> *summary) {
+std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(
+    AnyStream *stream, std::optional<int> n, const std::vector<Symbol> &output_symbols,
+    std::map<std::string, TypedValue> *summary, std::vector<std::unique_ptr<utils::GCFifoOffloader>> *thread_pool) {
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
   memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
@@ -2825,7 +2849,15 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
     summary->insert_or_assign("stats", std::move(stats));
   }
-  cursor_->Shutdown();
+  if (thread_pool) {
+    // Memory will be moved to the thread pool later on (safe since FIFO queue is used)
+    if (utils::PriorityThreadPool::Worker::worker_id_ < std::numeric_limits<uint64_t>::max()) {
+      thread_pool->at(utils::PriorityThreadPool::Worker::worker_id_)->Push([cursor = std::move(cursor_)]() mutable {
+        if (cursor) cursor->Shutdown();
+      });
+    }
+  }
+  if (cursor_) cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
 
   if (!flags::run_time::GetHopsLimitPartialResults() && ctx_.hops_limit.IsLimitReached()) {
@@ -3081,9 +3113,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
+      .query_handler = [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary,
+                        thread_pool = &interpreter_context->gc_offloader_](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
+        if (pull_plan->Pull(stream, n, output_symbols, summary, thread_pool)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -8796,7 +8829,7 @@ void Interpreter::AdvanceCommand() {
 
 void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution) {
   if (query_execution) {
-    query_execution->reset(nullptr);
+    MoveQueryExecution(std::move(*query_execution));
   }
   if (in_explicit_transaction_) {
     expect_rollback_ = true;

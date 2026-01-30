@@ -463,14 +463,7 @@ class Interpreter final {
   void LogQueryMessage(std::string message);
 
  private:
-  void ResetInterpreter() {
-    query_executions_.clear();
-    system_transaction_.reset();
-    transaction_queries_->clear();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
-      current_db_.db_acc_.reset();
-    }
-  }
+  void ResetInterpreter();
 
   struct QueryExecution {
     static constexpr struct ThreadSafe {
@@ -509,6 +502,8 @@ class Interpreter final {
       notifications.clear();
     }
   };
+
+  void MoveQueryExecution(std::unique_ptr<QueryExecution> query_execution);
 
   // Interpreter supports multiple prepared queries at the same time.
   // The client can reference a specific query for pull using an arbitrary qid
@@ -622,12 +617,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       } else {
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state
-        query_execution.reset(nullptr);
+        MoveQueryExecution(std::move(query_execution));
       }
     }
   } catch (const ExplicitTransactionUsageException &e) {
     LogQueryMessage(e.what());
-    query_execution.reset(nullptr);
+    MoveQueryExecution(std::move(query_execution));
     throw;
   } catch (const utils::BasicException &e) {
     LogQueryMessage(e.what());

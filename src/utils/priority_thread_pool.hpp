@@ -163,6 +163,8 @@ class PriorityThreadPool {
     template <Priority ThreadPriority>
     void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads);
 
+    static thread_local uint64_t worker_id_;
+
    private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
