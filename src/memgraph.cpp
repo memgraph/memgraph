@@ -657,8 +657,12 @@ int main(int argc, char **argv) {
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)
   //       ReplicationHandler will handle the recovery
-  auto replication_handler = memgraph::replication::ReplicationHandler{
-      repl_state, dbms_handler, system, *auth_, parameters.get()};
+#ifdef MG_ENTERPRISE
+  auto replication_handler =
+      memgraph::replication::ReplicationHandler{repl_state, dbms_handler, system, *auth_, *parameters};
+#else
+  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler, system, *parameters};
+#endif
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance

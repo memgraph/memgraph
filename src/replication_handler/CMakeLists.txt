@@ -11,7 +11,7 @@ target_sources(mg-replication_handler
         replication_handler.cpp
         system_rpc.cpp
         )
-target_include_directories(mg-replication_handler PUBLIC include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(mg-replication_handler PUBLIC include)
 
 target_link_libraries(mg-replication_handler
-        PUBLIC mg-auth mg-dbms mg-replication mg-license)
+        PUBLIC mg-auth mg-dbms mg-replication)

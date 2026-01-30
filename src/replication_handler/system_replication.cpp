@@ -27,9 +27,10 @@ class FileReplicationHandler;
 
 namespace memgraph::replication {
 
+#ifdef MG_ENTERPRISE
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
-                           auth::SynchedAuth &auth, utils::Parameters *parameters, uint64_t const request_version,
+                           auth::SynchedAuth &auth, utils::Parameters &parameters, uint64_t const request_version,
                            slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
@@ -68,6 +69,37 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
 }
+#else
+void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, utils::Parameters &parameters,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::replication::SystemRecoveryRes;
+  SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
+
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, request_version, res_builder); });
+
+  memgraph::replication::SystemRecoveryReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  // validate
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
+    return;
+  }
+
+  /*
+   * PARAMETERS (community: parameters replication only)
+   */
+  if (!utils::ApplyParametersRecovery(parameters, req.parameters)) return;
+
+  /*
+   * SUCCESSFUL RECOVERY
+   */
+  system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
+  spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
+  res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
+}
+#endif
 
 void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                              const std::optional<utils::UUID> &current_main_uuid, uint64_t const request_version,
@@ -103,15 +135,16 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
   res = FinalizeSystemTxRes(true);
 }
 
+#ifdef MG_ENTERPRISE
 void Register(replication::RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
-              auth::SynchedAuth &auth, utils::Parameters *parameters) {
+              auth::SynchedAuth &auth, utils::Parameters &parameters) {
   // NOTE: Register even without license as the user could add a license at run-time
 
   auto system_state_access = system.CreateSystemStateAccess();
 
   // need to tell REPLICA the uuid to use for "memgraph" default database
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
-      [&data, system_state_access, &dbms_handler, &auth, parameters](
+      [&data, system_state_access, &dbms_handler, &auth, &parameters](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
           auto *req_reader,
@@ -138,13 +171,43 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   // Parameters
   utils::Register(data, system_state_access, parameters);
 }
+#else
+void Register(replication::RoleReplicaData const &data, system::System &system, utils::Parameters &parameters) {
+  auto system_state_access = system.CreateSystemStateAccess();
 
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler,     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-                    replication::RoleReplicaData &data, auth::SynchedAuth &auth,
-                    system::System &system, utils::Parameters *parameters) {
+  // System recovery RPC (parameters only in community)
+  data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
+      [&data, system_state_access, &parameters](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        SystemRecoveryHandler(system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+
+  // Generic finalize message
+  data.server->rpc_server_.Register<replication::FinalizeSystemTxRpc>(
+      [&data, system_state_access](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                   uint64_t const request_version,
+                                   auto *req_reader,
+                                   auto *res_builder) mutable {
+        FinalizeSystemTxHandler(system_state_access, data.uuid_, request_version, req_reader, res_builder);
+      });
+
+  // Parameters
+  utils::Register(data, system_state_access, parameters);
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system,
+    utils::Parameters &parameters) {
   // Register storage handlers
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
-  // Register system handlers
+  // Register system handlers (dbms, auth, parameters)
   Register(data, system, dbms_handler, auth, parameters);
   // Start server
   if (!data.server->Start()) {
@@ -153,5 +216,22 @@ bool StartRpcServer(dbms::DbmsHandler &dbms_handler,     memgraph::utils::Synchr
   }
   return true;
 }
+#else
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data, system::System &system, utils::Parameters &parameters) {
+  // Register storage handlers
+  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
+  // Register system handlers (parameters only)
+  Register(data, system, parameters);
+  // Start server
+  if (!data.server->Start()) {
+    spdlog::error("Unable to start the replication server.");
+    return false;
+  }
+  return true;
+}
+#endif
 
 }  // namespace memgraph::replication
