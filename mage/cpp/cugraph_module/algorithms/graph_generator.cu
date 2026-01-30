@@ -78,9 +78,6 @@ void GenerateRMAT(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memo
                                                            clip_and_flip,
                                                            handle);
 
-    // Output message first
-    InsertMessageRecord(result, memory, "Graph created successfully!");
-
     std::vector<std::unique_ptr<mgp_vertex, VertexDelete>> vertices(num_vertices);
     for (std::size_t i = 0; i < num_vertices; ++i) {
       auto new_vertex = mgp::graph_create_vertex(graph, memory);
