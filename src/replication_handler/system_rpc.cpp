@@ -15,10 +15,47 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
+#include "utils/parameters.hpp"
 
 namespace memgraph::slk {
 
-// Serialize code for SystemRecoveryReq
+// ParameterInfo SLK (for SystemRecoveryReq::parameters), here to avoid replication_handler linking mg-parameters
+void Save(const memgraph::utils::ParameterInfo &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.name, builder);
+  memgraph::slk::Save(self.value, builder);
+  memgraph::slk::Save(static_cast<uint8_t>(self.scope), builder);
+}
+
+void Load(memgraph::utils::ParameterInfo *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->name, reader);
+  memgraph::slk::Load(&self->value, reader);
+  uint8_t scope = 0;
+  memgraph::slk::Load(&scope, reader);
+  self->scope = static_cast<utils::ParameterScope>(scope);
+}
+
+// Serialize code for SystemRecoveryReqV1
+void Save(const memgraph::replication::SystemRecoveryReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.forced_group_timestamp, builder);
+  memgraph::slk::Save(self.database_configs, builder);
+  memgraph::slk::Save(self.auth_config, builder);
+  memgraph::slk::Save(self.users, builder);
+  memgraph::slk::Save(self.roles, builder);
+  memgraph::slk::Save(self.profiles, builder);
+}
+
+void Load(memgraph::replication::SystemRecoveryReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->forced_group_timestamp, reader);
+  memgraph::slk::Load(&self->database_configs, reader);
+  memgraph::slk::Load(&self->auth_config, reader);
+  memgraph::slk::Load(&self->users, reader);
+  memgraph::slk::Load(&self->roles, reader);
+  memgraph::slk::Load(&self->profiles, reader);
+}
+
+// Serialize code for SystemRecoveryReq (v2, with parameters)
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.forced_group_timestamp, builder);
@@ -27,6 +64,7 @@ void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::B
   memgraph::slk::Save(self.users, builder);
   memgraph::slk::Save(self.roles, builder);
   memgraph::slk::Save(self.profiles, builder);
+  memgraph::slk::Save(self.parameters, builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
@@ -37,6 +75,7 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->users, reader);
   memgraph::slk::Load(&self->roles, reader);
   memgraph::slk::Load(&self->profiles, reader);
+  memgraph::slk::Load(&self->parameters, reader);
 }
 
 // Serialize code for SystemRecoveryRes
@@ -55,6 +94,13 @@ void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader 
 }  // namespace memgraph::slk
 
 namespace memgraph::replication {
+
+void SystemRecoveryReqV1::Save(const SystemRecoveryReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void SystemRecoveryReqV1::Load(SystemRecoveryReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
 
 void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);

@@ -3778,6 +3778,36 @@ class SettingQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class ParameterQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { SET_PARAMETER, UNSET_PARAMETER, SHOW_PARAMETERS, DELETE_ALL_PARAMETERS };
+
+  ParameterQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::ParameterQuery::Action action_;
+  std::string parameter_name_;
+  memgraph::query::Expression *parameter_value_{nullptr};
+
+  // TODO(@DavIvek): Add scope information (GLOBAL, DATABASE, SESSION) when implementing scopes
+
+  ParameterQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ParameterQuery>();
+    object->action_ = action_;
+    object->parameter_name_ = parameter_name_;
+    object->parameter_value_ = parameter_value_ ? parameter_value_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class VersionQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

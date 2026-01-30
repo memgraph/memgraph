@@ -14,6 +14,8 @@
 #include <list>
 #include <memory>
 #include <mutex>
+
+#include "license/license.hpp"
 #include "replication/state.hpp"
 #include "system/action.hpp"
 #include "system/rpc.hpp"
@@ -59,24 +61,20 @@ struct Transaction {
       /// durability
       action->DoDurability();
 
-#ifdef MG_ENTERPRISE
       /// replication
       auto action_sync_status = handler.ApplyAction(*action, *this);
       if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
-#endif
 
       actions_.pop_front();
     }
 
-#ifdef MG_ENTERPRISE
     /// replication
     auto action_sync_status = handler.FinalizeTransaction(*this);
     if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
       sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
     }
-#endif
     state_->FinalizeTransaction(timestamp_);
 
     lock_.unlock();
@@ -109,11 +107,14 @@ struct Transaction {
   std::list<std::unique_ptr<ISystemAction>> actions_;
 };
 
-#ifdef MG_ENTERPRISE
 struct DoReplication {
   explicit DoReplication(replication::RoleMainData &main_data) : main_data_{main_data} {}
 
   auto ApplyAction(ISystemAction const &action, Transaction const &system_tx) -> AllSyncReplicaStatus {
+    if (action.IsEnterpriseOnly() && !license::global_license_checker.IsEnterpriseValidFast()) {
+      return AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+    }
+
     auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
 
     for (auto &client : main_data_.registered_replicas_) {
@@ -150,7 +151,6 @@ struct DoReplication {
 };
 
 static_assert(ReplicationPolicy<DoReplication>);
-#endif
 
 struct DoNothing {
   auto ApplyAction(ISystemAction const & /*action*/, Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {

@@ -11,6 +11,8 @@
 
 #include "query/cypher_query_interpreter.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include "flags/experimental.hpp"
 #include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
@@ -27,6 +29,8 @@
 #include "utils/flag_validation.hpp"
 
 #include "query/plan_v2/ast_converter.hpp"
+#include "query/serialization/typed_value.hpp"
+#include "utils/parameters.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -37,20 +41,27 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            utils::Parameters const *global_parameters) -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
-  // Check that all user-specified parameters are provided.
-  // TODO: parameters should be pre populated with user_parameters, hence positions
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
+    // Prefer user-provided parameter.
     auto it = user_parameters.find(param_key);
-
-    if (it == user_parameters.end()) {
+    if (it != user_parameters.end()) {
+      parameters.Add(param_index, it->second);
+      continue;
+    }
+    // Fallback to global parameter if available.
+    if (global_parameters) {
+      auto opt = global_parameters->GetParameter(param_key, utils::ParameterScope::GLOBAL);
+      if (opt) {
+        auto value = serialization::DeserializeTypedValue(nlohmann::json::parse(*opt));
+        parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+        continue;
+      }
       throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
     }
-
-    parameters.Add(param_index, it->second);
   }
   return parameters;
 }

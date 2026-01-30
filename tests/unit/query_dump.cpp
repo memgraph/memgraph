@@ -445,6 +445,7 @@ class DumpTest : public ::testing::Test {
   memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{},
                                               nullptr,
                                               nullptr,
+                                              nullptr,
                                               repl_state,
                                               system_state
 #ifdef MG_ENTERPRISE
@@ -1282,6 +1283,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
                                                           nullptr,
                                                           nullptr,
+                                                          nullptr,
                                                           repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE
@@ -1486,6 +1488,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
 
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
+                                                          nullptr,
                                                           nullptr,
                                                           nullptr,
                                                           repl_state,

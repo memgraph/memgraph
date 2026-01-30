@@ -38,6 +38,7 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
+#include "utils/parameters.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -130,6 +131,7 @@ class ReplicationTest : public ::testing::Test {
 struct MinMemgraph {
   explicit MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+        parameters_{conf.durability.storage_directory},
         repl_state{ReplicationStateRootPath(conf)},
         dbms{conf
 #ifdef MG_ENTERPRISE
@@ -140,12 +142,13 @@ struct MinMemgraph {
         },
         db_acc{dbms.Get()},
         db{*db_acc.get()},
-        repl_handler(repl_state, dbms
+        repl_handler(repl_state, dbms, system_
 #ifdef MG_ENTERPRISE
                      ,
-                     system_, auth
+                     auth
 #endif
-        ) {
+                     ,
+                     parameters_) {
   }
 
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> { return db.ReadOnlyAccess(); }
@@ -173,6 +176,7 @@ struct MinMemgraph {
 
   memgraph::auth::SynchedAuth auth;
   memgraph::system::System system_;
+  memgraph::utils::Parameters parameters_;
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::dbms::DatabaseAccess db_acc;

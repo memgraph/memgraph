@@ -19,6 +19,7 @@
 #include "query/parameters.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/parameters.hpp"
 #include "utils/synchronized.hpp"
 
 #include "gflags/gflags.h"
@@ -59,8 +60,8 @@ class LogicalPlan {
 
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters;
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            utils::Parameters const *global_parameters = nullptr) -> Parameters;
 
 class PlanWrapper {
  public:

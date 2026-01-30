@@ -28,6 +28,7 @@ def clear_graph(context):
         database.query("STORAGE MODE IN_MEMORY_TRANSACTIONAL", context)
     else:
         database.query("DROP GRAPH", context)
+    database.query("DELETE ALL PARAMETERS", context)
 
 
 @given("an empty graph")

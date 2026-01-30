@@ -15,6 +15,7 @@
 #include "query/interpreter_context.hpp"
 
 #include "query/interpreter.hpp"
+#include "utils/parameters.hpp"
 
 #include "system/include/system/system.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -25,14 +26,16 @@ namespace memgraph::query {
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
 InterpreterContext::InterpreterContext(
-    InterpreterConfig interpreter_config, utils::Settings *settings, dbms::DbmsHandler *dbms_handler,
-    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
+    InterpreterConfig interpreter_config, memgraph::utils::Settings *settings, memgraph::utils::Parameters *parameters,
+    dbms::DbmsHandler *dbms_handler, utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
+    memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
     std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
     utils::ResourceMonitoring *resource_monitoring,
 #endif
     AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler)
     : settings(settings),
+      parameters(parameters),
       dbms_handler(dbms_handler),
       config(std::move(interpreter_config)),
       repl_state(rs),

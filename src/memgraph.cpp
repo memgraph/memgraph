@@ -63,6 +63,7 @@
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/parameters.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
@@ -90,7 +91,7 @@ constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
 constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
-constexpr uint64_t kMgVmMaxMapCount = 262'144;
+constexpr uint64_t kMgVmMaxMapCount = 262144;
 
 void WarnDeprecatedFlags() {
   auto warn_if_set = [](std::string_view name, std::string_view message) {
@@ -359,6 +360,7 @@ int main(int argc, char **argv) {
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
+  auto parameters = std::make_shared<memgraph::utils::Parameters>(data_directory / "parameters");
 
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
@@ -665,14 +667,12 @@ int main(int argc, char **argv) {
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)
   //       ReplicationHandler will handle the recovery
-  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state,
-                                                                       dbms_handler
 #ifdef MG_ENTERPRISE
-                                                                       ,
-                                                                       system,
-                                                                       *auth_
+  auto replication_handler =
+      memgraph::replication::ReplicationHandler{repl_state, dbms_handler, system, *auth_, *parameters};
+#else
+  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler, system, *parameters};
 #endif
-  };
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
@@ -690,6 +690,7 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
       settings.get(),
+      parameters.get(),
       &dbms_handler,
       repl_state,
       system,
@@ -765,16 +766,11 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::make_address(FLAGS_bolt_address),
                                                                      static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
-  memgraph::glue::Context session_context{.endpoint = server_endpoint,
-                                          .ic = &interpreter_context_,
-                                          .auth = auth_.get(),
-                                          .audit_log = &audit_log,
-                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
+  memgraph::glue::Context session_context{
+      server_endpoint, &interpreter_context_, auth_.get(), &audit_log, worker_pool_ ? &*worker_pool_ : nullptr};
 #else
-  memgraph::glue::Context session_context{.endpoint = server_endpoint,
-                                          .ic = &interpreter_context_,
-                                          .auth = auth_.get(),
-                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
+  memgraph::glue::Context session_context{
+      server_endpoint, &interpreter_context_, auth_.get(), worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
 
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
