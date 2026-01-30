@@ -61,16 +61,11 @@ namespace memgraph::logging {
   } while (false)
 #endif
 
-template <typename... Args>
-void Fatal(const char *msg, const Args &...msg_args) {
-  spdlog::critical(msg, msg_args...);
-  std::terminate();
-}
-
-#define LOG_FATAL(...)             \
-  do {                             \
-    spdlog::critical(__VA_ARGS__); \
-    std::terminate();              \
+#define LOG_FATAL(...)                 \
+  do {                                 \
+    spdlog::critical(__VA_ARGS__);     \
+    spdlog::default_logger()->flush(); \
+    std::terminate();                  \
   } while (0)
 
 #ifndef NDEBUG

@@ -37,6 +37,7 @@ void memgraph::logging::AssertFailed(std::source_location const loc, char const 
       loc.line(),
       expr,
       !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
+  spdlog::default_logger()->flush();
   std::terminate();
 }
 
