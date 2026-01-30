@@ -494,12 +494,11 @@ WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion)
 bool SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
-                 const Vertex &vertex, uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items items, const Delta &delta, Vertex *vertex,
+                 uint64_t timestamp);
 
 /// Function used to encode a `Delta` that originated from an `Edge`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
-                 uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp);
 
 /// Function used to encode the transaction start
 /// Returns the position in the WAL where the flag 'commit' is about to be written
@@ -575,8 +574,8 @@ class WalFile {
 
   ~WalFile();
 
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage);
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.

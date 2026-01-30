@@ -1,0 +1,837 @@
+# Copyright 2025 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+import os
+import sys
+import tempfile
+
+import interactive_mg_runner
+import pytest
+from common import execute_and_fetch_all
+
+interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+interactive_mg_runner.PROJECT_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+)
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
+interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.BUILD_DIR, "query_modules")
+)
+
+
+def test_durability_with_vector_index_basic(connection):
+    # Goal: That vector indices and their data are correctly restored after restart.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_with_vector_index_basic.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]})
+           CREATE (:L1 {prop1: [5.0, 6.0]});""",
+    )
+
+    def get_vector_index_info(cursor):
+        return execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+
+    def vector_search(cursor, index_name, limit, query_vector):
+        return execute_and_fetch_all(
+            cursor,
+            f"CALL vector_search.search('{index_name}', {limit}, {query_vector}) YIELD * RETURN *;",
+        )
+
+    index_info = get_vector_index_info(cursor)
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = get_vector_index_info(cursor)
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3
+
+    nodes = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    node = nodes[0][0]
+    assert "prop1" in node.properties, "Property should be visible on node"
+
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0] LIMIT 1;")
+    assert len(props) == 1
+    assert props[0][0] == [1.0, 2.0]
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+
+    search_results = vector_search(cursor, "test_index", 1, [1.0, 2.0])
+    assert len(search_results) == 1
+    assert search_results[0][0] == 0.0
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_vector_index_label_changes(connection):
+    # Goal: That adding and removing labels from nodes with vector properties is correctly persisted.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_label_changes.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (n1:L1 {prop1: [1.0, 2.0]})
+           CREATE (n2:L1 {prop1: [3.0, 4.0]})
+           CREATE (n3 {prop1: [5.0, 6.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 2
+
+    execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [1.0, 2.0]}) REMOVE n:L1;")
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 1
+
+    execute_and_fetch_all(cursor, "MATCH (n {prop1: [5.0, 6.0]}) SET n:L1;")
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 2
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 2
+
+    node_with_label = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in node_with_label[0][0].properties
+
+    property_size_label = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size_label[0][0] == 11
+
+    node_without_label = execute_and_fetch_all(cursor, "MATCH (n) WHERE NOT n:L1 RETURN n LIMIT 1;")
+    assert "prop1" in node_without_label[0][0].properties
+
+    property_size_no_label = execute_and_fetch_all(
+        cursor, "MATCH (n) WHERE NOT n:L1 RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size_no_label[0][0] == 20
+
+    prop3_node = execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [5.0, 6.0]}) RETURN n.prop1;")
+    assert prop3_node[0][0] == [5.0, 6.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_vector_index_property_changes(connection):
+    # Goal: That setting properties to null and updating vector properties is correctly persisted.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_property_changes.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]})
+           CREATE (:L1 {prop1: [5.0, 6.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 3
+
+    execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [1.0, 2.0]}) SET n.prop1 = null;")
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 2
+
+    execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [3.0, 4.0]}) SET n.prop1 = [7.0, 8.0];")
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 2
+
+    nodes = execute_and_fetch_all(cursor, "MATCH (n:L1) WHERE n.prop1 IS NOT NULL RETURN n LIMIT 1;")
+    assert "prop1" in nodes[0][0].properties
+
+    property_size = execute_and_fetch_all(
+        cursor, "MATCH (n:L1) WHERE n.prop1 IS NOT NULL RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size[0][0] == 11
+
+    null_prop = execute_and_fetch_all(cursor, "MATCH (n:L1) WHERE n.prop1 IS NULL RETURN count(*) AS cnt;")
+    assert null_prop[0][0] == 1
+
+    updated_prop = execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [7.0, 8.0]}) RETURN n.prop1;")
+    assert updated_prop[0][0] == [7.0, 8.0]
+
+    original_prop = execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [5.0, 6.0]}) RETURN n.prop1;")
+    assert original_prop[0][0] == [5.0, 6.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_two_vector_indices(connection):
+    # Goal: That two vector indices on different labels/properties are correctly restored.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_two_vector_indices.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop2) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]})
+           CREATE (:L2 {prop2: [5.0, 6.0]})
+           CREATE (:L2 {prop2: [7.0, 8.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert len(index_info) == 2
+    assert index_info[0][6] == 2
+    assert index_info[1][6] == 2
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert len(index_info) == 2
+    assert index_info[0][6] == 2
+    assert index_info[1][6] == 2
+
+    node_l1 = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in node_l1[0][0].properties
+
+    property_size_l1 = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size_l1[0][0] == 11
+
+    node_l2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
+    assert "prop2" in node_l2[0][0].properties
+
+    property_size_l2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN propertySize(n, 'prop2') LIMIT 1;")
+    assert property_size_l2[0][0] == 11
+
+    prop1 = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 LIMIT 1;")
+    assert prop1[0][0] in [[1.0, 2.0], [3.0, 4.0]]
+
+    prop2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n.prop2 LIMIT 1;")
+    assert prop2[0][0] in [[5.0, 6.0], [7.0, 8.0]]
+
+    search1 = execute_and_fetch_all(cursor, "CALL vector_search.search('test_index', 1, [1.0, 2.0]) YIELD * RETURN *;")
+    assert len(search1) == 1
+
+    search2 = execute_and_fetch_all(cursor, "CALL vector_search.search('test_index2', 1, [5.0, 6.0]) YIELD * RETURN *;")
+    assert len(search2) == 1
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_two_vector_indices_drop_one(connection):
+    # Goal: That dropping one vector index preserves vectors for remaining index on node with both labels.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_two_indices_drop_one.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert len(index_info) == 2
+    assert index_info[0][6] == 1
+    assert index_info[1][6] == 1
+
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_index;")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 1
+
+    # Verify vector is still accessible via remaining index
+    prop = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1;")
+    assert prop[0][0] == [1.0, 2.0]
+
+    prop2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n.prop1;")
+    assert prop2[0][0] == [1.0, 2.0]
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 1
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+    prop = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1;")
+    assert prop[0][0] == [1.0, 2.0]
+
+    prop2 = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n.prop1;")
+    assert prop2[0][0] == [1.0, 2.0]
+
+    search = execute_and_fetch_all(cursor, "CALL vector_search.search('test_index2', 1, [1.0, 2.0]) YIELD * RETURN *;")
+    assert len(search) == 1
+    assert search[0][0] == 0.0
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_vector_index_drop_single_index(connection):
+    # Goal: That dropping a single vector index restores vectors to property store and persists correctly.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_index_drop_single.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]})
+           CREATE (:L1 {prop1: [5.0, 6.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_index;")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 0
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 20
+
+    # Verify vectors are accessible
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
+    assert len(props) == 3
+    assert props[0][0] == [1.0, 2.0]
+    assert props[1][0] == [3.0, 4.0]
+    assert props[2][0] == [5.0, 6.0]
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 0
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 20
+
+    # Verify all vectors are still accessible
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
+    assert len(props) == 3
+    assert props[0][0] == [1.0, 2.0]
+    assert props[1][0] == [3.0, 4.0]
+    assert props[2][0] == [5.0, 6.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_two_vector_indices_remove_one_label(connection):
+    # Goal: That removing one label from node with two labels keeps property in remaining index, not on node.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_two_indices_remove_one_label.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert index_info[0][6] == 1
+    assert index_info[1][6] == 1
+
+    execute_and_fetch_all(cursor, "MATCH (n:L1:L2 {prop1: [1.0, 2.0]}) REMOVE n:L1;")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 0 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 0
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 0 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 0
+
+    node = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+
+    prop = execute_and_fetch_all(cursor, "MATCH (n:L2) RETURN n.prop1;")
+    assert prop[0][0] == [1.0, 2.0]
+
+    search = execute_and_fetch_all(cursor, "CALL vector_search.search('test_index2', 1, [1.0, 2.0]) YIELD * RETURN *;")
+    assert len(search) == 1
+    assert search[0][0] == 0.0
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_two_vector_indices_remove_both_labels(connection):
+    # Goal: That removing both labels from node transfers property to property store, not in any index.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_two_indices_remove_both_labels.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 1 and index_info[1][6] == 1 or index_info[0][6] == 1 and index_info[1][6] == 1
+
+    execute_and_fetch_all(cursor, "MATCH (n:L1:L2 {prop1: [1.0, 2.0]}) REMOVE n:L1, n:L2;")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert index_info[0][6] == 0
+    assert index_info[1][6] == 0
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert len(index_info) == 2
+    assert index_info[0][6] == 0
+    assert index_info[1][6] == 0
+
+    node = execute_and_fetch_all(cursor, "MATCH (n {prop1: [1.0, 2.0]}) WHERE NOT n:L1 AND NOT n:L2 RETURN n LIMIT 1;")
+    assert "prop1" in node[0][0].properties
+
+    property_size = execute_and_fetch_all(
+        cursor, "MATCH (n {prop1: [1.0, 2.0]}) WHERE NOT n:L1 AND NOT n:L2 RETURN propertySize(n, 'prop1') LIMIT 1;"
+    )
+    assert property_size[0][0] == 20
+
+    prop_check = execute_and_fetch_all(cursor, "MATCH (n {prop1: [1.0, 2.0]}) RETURN n.prop1;")
+    assert prop_check[0][0] == [1.0, 2.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_vector_index_nodes_before_index_creation(connection):
+    # Goal: That nodes created before index creation and nodes added after index creation are correctly restored.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_nodes_before_index.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]});""",
+    )
+
+    # Verify nodes exist but no index yet
+    node_count = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN count(*) AS cnt;")
+    assert node_count[0][0] == 2
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    # Verify index was created and existing nodes were indexed
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 2
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [5.0, 6.0]})
+           CREATE (:L1 {prop1: [7.0, 8.0]});""",
+    )
+
+    # Verify all nodes are now indexed
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 4
+
+    node_count = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN count(*) AS cnt;")
+    assert node_count[0][0] == 4
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 4
+
+    node_count = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN count(*) AS cnt;")
+    assert node_count[0][0] == 4
+
+    nodes = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n LIMIT 1;")
+    assert "prop1" in nodes[0][0].properties
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN propertySize(n, 'prop1') LIMIT 1;")
+    assert property_size[0][0] == 11
+
+    # Verify all vector properties are accessible from index
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
+    assert len(props) == 4
+    assert props[0][0] == [1.0, 2.0]
+    assert props[1][0] == [3.0, 4.0]
+    assert props[2][0] == [5.0, 6.0]
+    assert props[3][0] == [7.0, 8.0]
+
+    # Verify vector search works for nodes created before index
+    search_results = execute_and_fetch_all(
+        cursor, "CALL vector_search.search('test_index', 1, [1.0, 2.0]) YIELD * RETURN *;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == 0.0
+
+    # Verify vector search works for nodes created after index
+    search_results = execute_and_fetch_all(
+        cursor, "CALL vector_search.search('test_index', 1, [7.0, 8.0]) YIELD * RETURN *;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == 0.0
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_with_vector_index_snapshot_and_wal(connection):
+    # Goal: That vector indices and their data are correctly restored after snapshot and WAL replay.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_durability_vector_snapshot_and_wal.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        """CREATE (:L1 {prop1: [1.0, 2.0]})
+           CREATE (:L1 {prop1: [3.0, 4.0]});""",
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 2
+
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    execute_and_fetch_all(cursor, "CREATE (:L1 {prop1: [5.0, 6.0]});")
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert index_info[0][6] == 3
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == 1
+    assert index_info[0][6] == 3
+
+    props = execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];")
+    assert len(props) == 3
+    assert props[0][0] == [1.0, 2.0]
+    assert props[1][0] == [3.0, 4.0]
+    assert props[2][0] == [5.0, 6.0]
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+def test_durability_creating_index_after_vector_already_in_another_index(connection):
+    # Goal: Verify that when a node has a vector property already indexed by one index,
+    # creating a second index on the same property (but different label) works correctly after WAL recovery.
+
+    data_directory = tempfile.TemporaryDirectory()
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": "main_creating_index_after_vector_already_in_another_index.log",
+            "data_directory": data_directory.name,
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+    execute_and_fetch_all(cursor, "CREATE (n:L1:L2 {prop1: [1.0, 2.0]});")
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};'
+    )
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert len(index_info) == 2
+    assert index_info[0][6] == 1
+    assert index_info[1][6] == 1
+
+    assert (
+        len(execute_and_fetch_all(cursor, "CALL vector_search.search('test_index', 2, [1.0, 2.0]) YIELD * RETURN *;"))
+        == 1
+    )
+    assert (
+        len(execute_and_fetch_all(cursor, "CALL vector_search.search('test_index2', 2, [1.0, 2.0]) YIELD * RETURN *;"))
+        == 1
+    )
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1');")
+    assert property_size[0][0] == 19
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    index_info = sorted(index_info, key=lambda x: x[2])
+    assert len(index_info) == 2
+    assert index_info[0][6] == 1
+    assert index_info[1][6] == 1
+
+    property_size = execute_and_fetch_all(cursor, "MATCH (n:L1:L2) RETURN propertySize(n, 'prop1');")
+    assert property_size[0][0] == 19
+
+    assert (
+        len(execute_and_fetch_all(cursor, "CALL vector_search.search('test_index', 2, [1.0, 2.0]) YIELD * RETURN *;"))
+        == 1
+    )
+    assert (
+        len(execute_and_fetch_all(cursor, "CALL vector_search.search('test_index2', 2, [1.0, 2.0]) YIELD * RETURN *;"))
+        == 1
+    )
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))

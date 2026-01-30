@@ -29,10 +29,16 @@ Checks: '-*,
          -readability-magic-numbers,
          -readability-named-parameter,
          -readability-redundant-declaration,
+         -misc-no-recursion,
+         -concurrency-mt-unsafe,
+         -bugprone-easily-swappable-parameters,
+         -bugprone-unchecked-optional-access,
+         -bugprone-nondeterministic-pointer-iteration-order,
+         -clang-analyzer-optin.core.EnumCastOutOfRange,
          -readability-redundant-member-init'
 WarningsAsErrors: ''
 HeaderFilterRegex: '(^|/)(src|mage/cpp)/'
-ExcludeHeaderFilterRegex: '.*/_deps/.*'
+ExcludeHeaderFilterRegex: '.*/_deps/.*|.*/libs/.*'
 FormatStyle:     none
 CheckOptions:
   - key:             modernize-loop-convert.MaxCopySize

@@ -192,20 +192,6 @@ class VectorEdgeIndex {
   bool UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypePropKey &edge_type_prop,
                          const PropertyValue *value = nullptr);
 
-  /// @brief Populates the index with edges on a single thread.
-  /// @param vertices Accessor to the vertices to scan for edges.
-  /// @param spec The index specification.
-  /// @param snapshot_info Optional snapshot observer for progress tracking.
-  void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, const VectorEdgeIndexSpec &spec,
-                                   std::optional<SnapshotObserverInfo> const &snapshot_info);
-
-  /// @brief Populates the index with edges using multiple threads.
-  /// @param vertices Accessor to the vertices to scan for edges.
-  /// @param spec The index specification.
-  /// @param snapshot_info Optional snapshot observer for progress tracking.
-  void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, const VectorEdgeIndexSpec &spec,
-                                      std::optional<SnapshotObserverInfo> const &snapshot_info);
-
   struct Impl;
   std::unique_ptr<Impl> pimpl;
 };
