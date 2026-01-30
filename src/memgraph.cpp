@@ -233,7 +233,7 @@ int main(int argc, char **argv) {
     memgraph::flags::AppendExperimental(env_experimental);
   }
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
-  // even if
+  // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
