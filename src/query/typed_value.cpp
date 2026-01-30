@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1420,9 +1420,8 @@ bool IsTemporalType(const TypedValue::Type type) {
   return std::any_of(temporal_types.begin(), temporal_types.end(),
                      [type](const auto temporal_type) { return temporal_type == type; });
 };
-}  // namespace
 
-static constexpr bool is_canonical(TypedValue::Type type) {
+constexpr bool is_canonical(TypedValue::Type type) {
   switch (type) {
     case TypedValue::Type::Null:
     case TypedValue::Type::Int:
@@ -1439,6 +1438,7 @@ static constexpr bool is_canonical(TypedValue::Type type) {
       return false;
   }
 }
+}  // namespace
 
 // TODO: make it faster
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
