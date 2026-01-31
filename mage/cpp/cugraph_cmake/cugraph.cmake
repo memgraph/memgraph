@@ -100,10 +100,21 @@ endmacro()
 macro(target_mage_cugraph target_name)
   if (MAGE_CUGRAPH_ENABLE)
     list(APPEND MAGE_CUDA_FLAGS --expt-extended-lambda)
+    # Ensure standard integer types are available for CUDA compilation
+    # This is needed when using conda-installed Raft headers that expect
+    # standard C++ types to be available. The -include flag forces nvcc
+    # to include the header before processing the source file.
+    # Note: nvcc -include expects a file path, so we use the standard header name
+    list(APPEND MAGE_CUDA_FLAGS -include cstdint)
     if(CMAKE_BUILD_TYPE MATCHES Debug)
       message(STATUS "Building with CUDA debugging flags")
       list(APPEND MAGE_CUDA_FLAGS -g -G -Xcompiler=-rdynamic)
     endif()
+    # Ensure CUDA standard is set on the target
+    set_target_properties("${target_name}" PROPERTIES
+      CUDA_STANDARD 17
+      CUDA_STANDARD_REQUIRED ON
+    )
     target_compile_options("${target_name}"
       PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${MAGE_CXX_FLAGS}>"
               "$<$<COMPILE_LANGUAGE:CUDA>:${MAGE_CUDA_FLAGS}>"
