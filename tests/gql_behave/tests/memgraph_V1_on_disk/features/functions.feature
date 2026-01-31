@@ -685,7 +685,9 @@ Feature: Functions
             """
             RETURN all(x IN [1, 2, '3'] WHERE x < 3) AS a
             """
-        Then an error should be raised
+        Then the result should be:
+            | a    |
+            | null |
 
     Scenario: All test 04:
         When executing query:
@@ -755,7 +757,9 @@ Feature: Functions
             """
             RETURN single(x IN [1, 2, '3'] WHERE x > 2) AS a
             """
-        Then an error should be raised
+        Then the result should be:
+            | a    |
+            | null |
 
     Scenario: Single test 04:
         When executing query:
