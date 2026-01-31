@@ -55,16 +55,28 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
     auto ts = delta->timestamp->load(std::memory_order_acquire);
+    bool const is_delta_interleaved = IsDeltaInterleaved(*delta);
+
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
-      break;
+      if (is_delta_interleaved) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
     auto cid = delta->command_id;
     if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
-      break;
+      if (is_delta_interleaved) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
@@ -73,7 +85,12 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
         (cid < transaction->command_id ||
          // This check is used for on-disk storage. The vertex is valid only if it was deserialized in this transaction.
          (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
-      break;
+      if (is_delta_interleaved) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // This delta must be applied, call the callback.
@@ -95,12 +112,99 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+
+  if (ts == transaction->transaction_id) {
+    // If head delta from same transaction is interleaved, cannot add non-commutative operation
+    if (IsDeltaInterleaved(*object->delta)) {
+      transaction->has_serialization_error = true;
+      return false;
+    }
+    return true;
+  }
+
+  if (ts < transaction->start_timestamp) {
     return true;
   }
 
   transaction->has_serialization_error = true;
   return false;
+}
+
+enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED, SERIALIZATION_ERROR };
+
+/// This function prepares the object for a write of a commutative action (.i.e,
+/// an edge creation on a vertex). It checks whether there are any serialization
+/// errors in the process and returns a `WriteResult` indicating whether the
+/// caller can proceed with a write operation, and if so, is the operation
+/// commutative (`INTERLEAVED`). An interleaved delta can be prepended in all
+/// sitatuations where a "normal" delta could be, but can also be prepended onto
+/// interleaved deltas from other in-flight transactions, or to a CREATE_*_EDGE
+/// for an in-flight transaction provided that there are no uncommitted deltas
+/// other than CREATE_*_EDGE.
+template <typename TObj>
+inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
+  DMG_ASSERT(IsActionCommutative(action));
+
+  if (object->delta == nullptr) return WriteResult::SUCCESS;
+
+  auto const ts = object->delta->timestamp->load(std::memory_order_acquire);
+
+  if (ts != transaction->transaction_id) {
+    // Standard MVCC visibility rules: if the head delta was committed before
+    // this transaction started, any delta action can be prepended.
+    if (ts < transaction->start_timestamp) {
+      return WriteResult::SUCCESS;
+    }
+
+    // Head delta is from another uncommitted transaction. Check if this is
+    // a situation where the entire uncommitted delta chain is of commutative
+    // operations: if so, we can safely add an interleaved deltas.
+
+    // If the head delta is interleaved, we know we can always add another
+    // interleaved delta.
+    if (IsDeltaInterleaved(*object->delta)) {
+      return WriteResult::INTERLEAVED;
+    }
+
+    // If the head delta is an add edge operation (REMOVE_IN/OUT_EDGE undo
+    // delta) with the `has_non_commutative_upstream` flag set, we know there's
+    // a non-commutative delta upstream in that transaction's chain, and so
+    // this would be a serialization error.
+    if (IsResultOfCommutativeOperation(object->delta->action) &&
+        object->delta->vertex_edge.vertex.HasNonCommutativeUpstream()) {
+      return WriteResult::SERIALIZATION_ERROR;
+    }
+
+    for (const Delta *delta = object->delta; delta != nullptr; delta = delta->next.load(std::memory_order_acquire)) {
+      const auto delta_ts = delta->timestamp->load(std::memory_order_acquire);
+
+      if (delta_ts == transaction->transaction_id) continue;
+
+      if (delta_ts < transaction->start_timestamp) break;
+
+      // Optimization: Once we encounter an interleaved delta, we can break early
+      // because non-commutative deltas can only exist BEFORE interleaved deltas
+      // in the chain (PrepareForWrite prevents them when head is interleaved).
+      if (IsDeltaInterleaved(*delta)) {
+        break;
+      }
+
+      if (delta->action != Delta::Action::REMOVE_IN_EDGE && delta->action != Delta::Action::REMOVE_OUT_EDGE) {
+        return WriteResult::SERIALIZATION_ERROR;
+      }
+    }
+
+    return WriteResult::INTERLEAVED;
+  }
+
+  // Same transaction: check if the head delta is interleaved
+  // If the head delta belongs to the same transaction and is interleaved,
+  // then only another commutative action delta can be prepended.
+  if (IsDeltaInterleaved(*object->delta)) {
+    return WriteResult::INTERLEAVED;
+  }
+  // Head delta from same transaction is not interleaved - allow any new delta
+  return WriteResult::SUCCESS;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
@@ -151,6 +255,32 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
   return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
 }
 
+/// Computes whether a new commutative delta being added to an object should have
+/// the has_non_commutative_upstream flag set. This flag indicates whether there
+/// exists a non-commutative uncommitted delta upstream in this transaction's chain.
+template <typename TObj>
+inline bool ShouldSetNonCommutativeUpstreamFlag(Transaction *transaction, TObj *object) {
+  Delta *head = object->delta;
+  if (head == nullptr) {
+    return false;
+  }
+
+  auto const head_ts = head->timestamp->load(std::memory_order_acquire);
+  if (head_ts != transaction->transaction_id) {
+    // Different transaction - we're interleaving, so no upstream in our transaction
+    return false;
+  }
+
+  // Same transaction. Check if head is non-commutative or has the flag
+  if (IsResultOfCommutativeOperation(head->action)) {
+    // Head is an edge delta (REMOVE_IN_EDGE/REMOVE_OUT_EDGE) so inherit its flag
+    return head->vertex_edge.vertex.HasNonCommutativeUpstream();
+  }
+
+  // Head is some other non-commutative operation
+  return true;
+}
+
 /// This function creates a delta in the transaction for the object and links
 /// the delta into the object's delta list.
 /// @throw std::bad_alloc
@@ -179,6 +309,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   if (object->delta) {
     object->delta->prev.Set(delta);
   }
+
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
   // collector and other transactions will acquire the object lock to read the
   // delta from the object. Because the lock is held during the whole time this

@@ -61,32 +61,38 @@ bool EdgeAccessor::IsVisible(const View view) const {
       attached = std::ranges::any_of(from_vertex_->out_edges,
                                      [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
       delta = from_vertex_->delta;
-    }
-    ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
-      switch (delta.action) {
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-          break;
-        case Delta::Action::ADD_OUT_EDGE: {
-          if (delta.vertex_edge.edge == edge_) {
-            attached = true;
-          }
-          break;
-        }
-        case Delta::Action::REMOVE_OUT_EDGE: {
-          if (delta.vertex_edge.edge == edge_) {
-            attached = false;
-          }
-          break;
-        }
+
+      // If vertex has interleaved deltas, hold lock while applying them
+      if (!from_vertex_->has_uncommitted_interleaved_deltas) {
+        guard.unlock();
       }
-    });
+
+      ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::RECREATE_OBJECT:
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT:
+            break;
+          case Delta::Action::ADD_OUT_EDGE: {
+            if (delta.vertex_edge.edge == edge_) {
+              attached = true;
+            }
+            break;
+          }
+          case Delta::Action::REMOVE_OUT_EDGE: {
+            if (delta.vertex_edge.edge == edge_) {
+              attached = false;
+            }
+            break;
+          }
+        }
+      });
+    }
     return attached;
   };
   auto check_presence_of_edge = [&view, this]() -> bool {

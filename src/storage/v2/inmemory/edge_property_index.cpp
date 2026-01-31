@@ -73,19 +73,24 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
     deleted = from_vertex.deleted;
     delta = from_vertex.delta;
     edges = from_vertex.out_edges;
-  }
 
-  // Create and drop index will always use snapshot isolation
-  if (delta) {
-    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Exists_ActionMethod(exists),
-        Deleted_ActionMethod(deleted),
-        Edges_ActionMethod<EdgeDirection::OUT>(edges),
+    // If vertex has interleaved deltas, hold lock while applying them
+    if (!from_vertex.has_uncommitted_interleaved_deltas) {
+      guard.unlock();
+    }
+
+    // Create and drop index will always use snapshot isolation
+    if (delta) {
+      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+        // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Exists_ActionMethod(exists),
+          Deleted_ActionMethod(deleted),
+          Edges_ActionMethod<EdgeDirection::OUT>(edges),
+        });
+        // clang-format on
       });
-      // clang-format on
-    });
+    }
   }
   if (!exists || deleted || edges.empty()) {
     return;
