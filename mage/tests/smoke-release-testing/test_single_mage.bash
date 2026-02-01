@@ -48,6 +48,8 @@ test_or_expression_for_labels
 test_shortest_paths
 test_text_search
 test_durability
+test_load_csv
+test_load_jsonl
 test_load_parquet
 
 # NOTE: If the testing container is NOT restarted (each test having their own
