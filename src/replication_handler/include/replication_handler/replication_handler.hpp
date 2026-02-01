@@ -39,8 +39,8 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
 void StartReplicaClient(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
                         utils::UUID main_uuid, auth::SynchedAuth &auth, utils::Parameters &parameters);
 #else
-void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid,
-                        utils::Parameters &parameters);
+void StartReplicaClient(replication::ReplicationClient &client, system::System &system,
+                        dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid, utils::Parameters &parameters);
 #endif
 
 // TODO: Split into 2 functions: dbms and auth
@@ -52,8 +52,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                    const utils::UUID &main_uuid, auth::SynchedAuth &auth, utils::Parameters &parameters) {
 #else
 template <bool REQUIRE_LOCK = false>
-void SystemRestore(ReplicationClient &client, dbms::DbmsHandler &dbms_handler, const utils::UUID &main_uuid,
-                   utils::Parameters &parameters) {
+void SystemRestore(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
+                   const utils::UUID &main_uuid, utils::Parameters &parameters) {
 #endif
   // If the state was BEHIND, change it to RECOVERY, do the recovery process and change it to READY.
   // If the state was something else than BEHIND, return immediately.
@@ -251,7 +251,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
     SystemRestore(*maybe_client.value(), system_, dbms_handler_, main_uuid, auth_, parameters_);
 #else
-    SystemRestore(*maybe_client.value(), dbms_handler_, main_uuid, parameters_);
+    SystemRestore(*maybe_client.value(), system_, dbms_handler_, main_uuid, parameters_);
 #endif
 
     if (const auto dbms_error = HandleRegisterReplicaStatus(maybe_client); dbms_error.has_value()) {
@@ -325,7 +325,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
     StartReplicaClient(*instance_client_ptr, system_, dbms_handler_, main_uuid, auth_, parameters_);
 #else
-    StartReplicaClient(*instance_client_ptr, dbms_handler_, main_uuid, parameters_);
+    StartReplicaClient(*instance_client_ptr, system_, dbms_handler_, main_uuid, parameters_);
 #endif
     return {};
   }

@@ -76,12 +76,12 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
                         dbms::DbmsHandler &dbms_handler, utils::Parameters &parameters) {
   // Startup replication state (if recovered at startup)
-  auto replica = [&dbms_handler, &repl_state, &system, parameters](replication::RoleReplicaData &data) {
+  auto replica = [&dbms_handler, &repl_state, &system, &parameters](replication::RoleReplicaData &data) {
     return replication::StartRpcServer(dbms_handler, repl_state, data, system, parameters);
   };
 
   // Replication recovery and frequent check start
-  auto main = [&dbms_handler, parameters](replication::RoleMainData &mainData) {
+  auto main = [&dbms_handler, &system, &parameters](replication::RoleMainData &mainData) {
     dbms::DbmsHandler::RecoverStorageReplication(dbms_handler.Get(), mainData);
 
     for (auto &client : mainData.registered_replicas_) {
@@ -89,7 +89,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
           replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, mainData.uuid_)) {
         client.try_set_uuid = false;
       }
-      replication::StartReplicaClient(client, dbms_handler, mainData.uuid_, parameters);
+      replication::StartReplicaClient(client, system, dbms_handler, mainData.uuid_, parameters);
     }
 
     // Warning
@@ -134,8 +134,8 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
 void StartReplicaClient(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
                         utils::UUID main_uuid, auth::SynchedAuth &auth, utils::Parameters &parameters) {
 #else
-void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid,
-                        utils::Parameters &parameters) {
+void StartReplicaClient(replication::ReplicationClient &client, system::System &system,
+                        dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid, utils::Parameters &parameters) {
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
@@ -156,7 +156,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 #ifdef MG_ENTERPRISE
         SystemRestore<true>(local_client, system, dbms_handler, main_uuid, auth, parameters);
 #else
-        SystemRestore<true>(local_client, dbms_handler, main_uuid, parameters);
+        SystemRestore<true>(local_client, system, dbms_handler, main_uuid, parameters);
 #endif
         // Check if any database has been left behind
         dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
