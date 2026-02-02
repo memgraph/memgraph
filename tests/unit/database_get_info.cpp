@@ -77,9 +77,8 @@ class InfoTest : public testing::Test {
   }
 
   void SetUp() {
-    repl_state_.emplace(ReplicationStateRootPath(config));
 #ifdef MG_ENTERPRISE
-    dbms_handler_.emplace(config, *repl_state_, auth_, false);
+    dbms_handler_.emplace(config, auth_, false);
     auto db_acc = dbms_handler_->Get();  // Default db
     if (std::is_same_v<ConfigType, TenantConfig>) {
       constexpr std::string_view db_name = "test_db";
@@ -87,7 +86,7 @@ class InfoTest : public testing::Test {
       db_acc = dbms_handler_->Get(db_name);
     }
 #else
-    dbms_handler_.emplace(config, *repl_state_);
+    dbms_handler_.emplace(config);
     auto db_acc = dbms_handler_->Get();
 #endif
     MG_ASSERT(db_acc, "Failed to access db");
@@ -101,7 +100,6 @@ class InfoTest : public testing::Test {
   void TearDown() {
     db_acc_.reset();
     dbms_handler_.reset();
-    repl_state_.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -126,8 +124,6 @@ class InfoTest : public testing::Test {
         return config;
       }()  // iile
   };
-  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
-      repl_state_;
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
 };

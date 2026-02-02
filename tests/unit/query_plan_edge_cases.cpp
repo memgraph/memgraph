@@ -60,7 +60,7 @@ class QueryExecution : public testing::Test {
     }();  // iile
 
     repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
-    db_gk.emplace(config, *repl_state);
+    db_gk.emplace(config);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;

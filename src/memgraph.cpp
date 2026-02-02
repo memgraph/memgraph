@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -17,10 +16,10 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
-#include "auth/profiles/user_profiles.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -72,6 +71,7 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
+#include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
@@ -89,6 +89,13 @@ constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
 constexpr uint64_t kMgVmMaxMapCount = 262'144;
+
+void WarnDeprecatedFlags() {
+  auto warn_if_set = [](std::string_view name, std::string_view message) {
+    const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
+    if (!info.is_default) spdlog::warn("{}", message);
+  };
+}
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
@@ -209,6 +216,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  WarnDeprecatedFlags();
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
@@ -223,8 +231,7 @@ int main(int argc, char **argv) {
     memgraph::flags::AppendExperimental(env_experimental);
   }
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
-  // even if
-  // `--also-log-to-stderr` is set to false.
+  // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
@@ -354,9 +361,11 @@ int main(int argc, char **argv) {
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
 
-  memgraph::license::global_license_checker.CheckEnvLicense();
+  memgraph::license::global_license_checker.CheckEnvLicense(*settings);
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+    spdlog::warn("Using license info overrides");
+    memgraph::license::global_license_checker.SetLicenseInfoOverride(
+        FLAGS_license_key, FLAGS_organization_name, *settings);
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
@@ -453,7 +462,8 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  db_config.durability.snapshot_interval = memgraph::utils::SchedulerInterval(FLAGS_storage_snapshot_interval);
+  db_config.durability.snapshot_interval =
+      memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
   if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     if (!db_config.durability.snapshot_interval) {
       if (FLAGS_storage_wal_enabled) {
@@ -626,7 +636,16 @@ int main(int argc, char **argv) {
 
 #endif
 
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
+#ifdef MG_ENTERPRISE
+                                           ,
+                                           *auth_,
+                                           FLAGS_data_recovery_on_startup
+#endif
+  );
+
   // singleton replication state
+  // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       ReplicationStateRootPath(db_config)
 #ifdef MG_ENTERPRISE
@@ -635,14 +654,13 @@ int main(int argc, char **argv) {
 #endif
   };
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config,
-                                           repl_state
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           *auth_,
-                                           FLAGS_data_recovery_on_startup
-#endif
-  );
+  // TTL will be stopped with StopAllBackgroundTasks in DatabaseHandler
+  dbms_handler.ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+    db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+      const auto locked_repl_state = repl_state.ReadLock();
+      return locked_repl_state->IsMainWriteable();
+    });
+  });
 
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)
@@ -767,6 +785,7 @@ int main(int argc, char **argv) {
                                           .auth = auth_.get(),
                                           .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
+
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
 
   const auto machine_id = memgraph::utils::GetMachineId();
@@ -834,6 +853,7 @@ int main(int argc, char **argv) {
                       &server,
                       &interpreter_context_,
                       &dbms_handler,
+                      &repl_state,
                       &worker_pool_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
@@ -842,8 +862,18 @@ int main(int argc, char **argv) {
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
     server.Shutdown();
-    // Stop all triggers, streams and ttl
-    dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) { acc->StopAllBackgroundTasks(); });
+    // Don't replicate on shutdown anymore
+    {
+      auto locked_repl_state = repl_state.Lock();
+      locked_repl_state->Shutdown();
+    }
+
+    dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) {
+      // Stop all triggers, streams and ttl
+      acc->StopAllBackgroundTasks();
+      acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
+    });
+
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.

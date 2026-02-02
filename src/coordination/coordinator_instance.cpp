@@ -920,6 +920,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   auto const id_to_add = config.coordinator_id;
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+
   {
     auto const existing_coord = std::ranges::find_if(
         coordinator_instances_context,
@@ -935,65 +936,61 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
     }
   }
 
-  // Adding new coordinator
-  if (id_to_add != raft_state_->GetMyCoordinatorId()) {
-    auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
-
-    {
-      auto const existing_coord = std::ranges::find_if(
-          coordinator_instances_aux,
-          [coordinator_id = config.coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
-
-      if (existing_coord != coordinator_instances_aux.end()) {
-        return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
-      }
-    }
-
-    {
-      auto const existing_coord = std::ranges::find_if(
-          coordinator_instances_aux, [mgmt_server = config.management_server.SocketAddress()](auto const &coord) {
-            return coord.management_server == mgmt_server;
-          });
-
-      if (existing_coord != coordinator_instances_aux.end()) {
-        return AddCoordinatorInstanceStatus::MGMT_ENDPOINT_ALREADY_EXISTS;
-      }
-    }
-
-    {
-      auto const existing_coord = std::ranges::find_if(
-          coordinator_instances_aux, [coord_server = config.coordinator_server.SocketAddress()](auto const &coord) {
-            return coord.coordinator_server == coord_server;
-          });
-
-      if (existing_coord != coordinator_instances_aux.end()) {
-        return AddCoordinatorInstanceStatus::COORDINATOR_ENDPOINT_ALREADY_EXISTS;
-      }
-    }
-
-    // We only need to add coordinator instance on Raft level if it's some new instance
-    raft_state_->AddCoordinatorInstance(config);
-
-  } else {
-    // I am adding myself
-    auto const my_aux = raft_state_->GetMyCoordinatorInstanceAux();
-    if (config.coordinator_server.SocketAddress() != my_aux.coordinator_server) {
-      throw RaftAddServerException(
-          "Failed to add server since NuRaft server has been started with different network configuration!");
-    }
-    if (config.management_server.SocketAddress() != my_aux.management_server) {
-      throw RaftAddServerException(
-          "Failed to add server since management server has been started with different network configuration!");
-    }
-  }
-
   coordinator_instances_context.emplace_back(
       CoordinatorInstanceContext{.id = config.coordinator_id, .bolt_server = bolt_server_to_add});
 
-  // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coordinator_instances_context)};
+  // Adding new coordinator
+  if (id_to_add != raft_state_->GetMyCoordinatorId()) {
+    return AddNewCoordinator(config, coordinator_instances_context);
+  } else {
+    return AddSelfCoordinator(config, coordinator_instances_context);
+  }
+}
 
-  // If we managed to add it to the NuRaft configuration but not to our app logs.
+auto CoordinatorInstance::AddNewCoordinator(
+    CoordinatorInstanceConfig const &config,
+    std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+    -> AddCoordinatorInstanceStatus {
+  auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
+
+  {
+    auto const existing_coord = std::ranges::find_if(
+        coordinator_instances_aux,
+        [coordinator_id = config.coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
+
+    if (existing_coord != coordinator_instances_aux.end()) {
+      return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
+    }
+  }
+
+  {
+    auto const existing_coord = std::ranges::find_if(
+        coordinator_instances_aux, [mgmt_server = config.management_server.SocketAddress()](auto const &coord) {
+          return coord.management_server == mgmt_server;
+        });
+
+    if (existing_coord != coordinator_instances_aux.end()) {
+      return AddCoordinatorInstanceStatus::MGMT_ENDPOINT_ALREADY_EXISTS;
+    }
+  }
+
+  {
+    auto const existing_coord = std::ranges::find_if(
+        coordinator_instances_aux, [coord_server = config.coordinator_server.SocketAddress()](auto const &coord) {
+          return coord.coordinator_server == coord_server;
+        });
+
+    if (existing_coord != coordinator_instances_aux.end()) {
+      return AddCoordinatorInstanceStatus::COORDINATOR_ENDPOINT_ALREADY_EXISTS;
+    }
+  }
+
+  // We only need to add coordinator instance on Raft level if it's some new instance
+  raft_state_->AddCoordinatorInstance(config);
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = coordinator_instances_context};
+
+  // If we managed to add the instance to the NuRaft configuration but not to our app logs that is a fatal failure
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
     LOG_FATAL(
         "Couldn't append application log when adding coordinator {} to the cluster. Please restart your instance "
@@ -1001,6 +998,34 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
         "a fresh data directory and try again. If you already partially connected a cluster, please delete data "
         "directories of other coordinators too.",
         config.coordinator_id);
+  }
+  return AddCoordinatorInstanceStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::AddSelfCoordinator(
+    CoordinatorInstanceConfig const &config,
+    std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+    -> AddCoordinatorInstanceStatus {
+  // I am adding myself
+  auto const my_aux = raft_state_->GetMyCoordinatorInstanceAux();
+  if (config.coordinator_server.SocketAddress() != my_aux.coordinator_server) {
+    throw RaftAddServerException(
+        "Failed to add server since NuRaft server has been started with different network configuration!");
+  }
+  if (config.management_server.SocketAddress() != my_aux.management_server) {
+    throw RaftAddServerException(
+        "Failed to add server since management server has been started with different network configuration!");
+  }
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = coordinator_instances_context};
+
+  // Not a fatal failure when adding myself
+  if (!raft_state_->AppendClusterUpdate(delta_state)) {
+    spdlog::error(
+        "Couldn't append application log when adding coordinator {} to the cluster. Please retry the operation.",
+        config.coordinator_id);
+    return AddCoordinatorInstanceStatus::RAFT_LOG_ERROR;
   }
 
   return AddCoordinatorInstanceStatus::SUCCESS;

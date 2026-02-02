@@ -149,7 +149,7 @@ class Client {
                                       /* timeout_ms = */ timeout_ms_)) {
               // Failed connection, abort and let somebody retry in the future.
               defunct_ = true;
-              self_->Abort();
+              self_->Shutdown();
               guard_.unlock();
               throw GenericRpcFailedException();
             }
@@ -237,7 +237,7 @@ class Client {
                                     /* timeout_ms = */ timeout_ms_)) {
             // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
-            self_->Abort();
+            self_->Shutdown();
             guard_.unlock();
             throw GenericRpcFailedException();
           }
@@ -293,7 +293,7 @@ class Client {
         if (self->defunct_) throw GenericRpcFailedException();
         if (!client->client_->Write(data, size, have_more, timeout_ms)) {
           self->defunct_ = true;
-          client->Abort();
+          client->Shutdown();
           self->guard_.unlock();
           throw GenericRpcFailedException();
         }
@@ -460,7 +460,7 @@ class Client {
   }
 
   /// Call this function from another thread to abort a pending RPC call.
-  void Abort();
+  void Shutdown();
 
   auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 
