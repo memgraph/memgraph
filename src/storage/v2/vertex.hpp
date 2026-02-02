@@ -41,7 +41,7 @@ struct Vertex {
   PropertyStore properties;
   mutable utils::RWSpinLock lock;
   bool deleted{false};
-  bool has_uncommitted_interleaved_deltas{false};
+  bool has_uncommitted_non_sequential_deltas{false};
   // uint16_t PAD;
 
   Delta *delta;

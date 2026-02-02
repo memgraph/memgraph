@@ -32,7 +32,7 @@ void CompareEdges(auto const &actual_edges, std::span<ms::EdgeTypeId const> expe
 
 }  // unnamed namespace
 
-TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflict) {
+TEST(StorageV2NonSequentialIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflict) {
   std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
 
   ms::Gid v1_gid, v2_gid;
@@ -167,7 +167,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
   }
 }
 
-TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConflicts) {
+TEST(StorageV2NonSequentialIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConflicts) {
   std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
 
   ms::Gid v1_gid, v2_gid;
@@ -280,7 +280,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     CompareEdges(edges.value(), std::array{tx3->NameToEdgeType("Edge1"), tx3->NameToEdgeType("Edge3a")});
   }
 
-  // Create another two edges, giving us an interleaved delta chain of:
+  // Create another two edges, giving us a non-sequential delta chain of:
   // (v1)-[tx3*]-[tx2*]-[tx3*]-[tx2*]-[tx1]
   // where * indicates an uncommited delta.
   ASSERT_TRUE(tx2->CreateEdge(&*v1_2, &*v2_2, tx2->NameToEdgeType("Edge2b")).has_value());
@@ -432,7 +432,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   }
 }
 
-TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransactions) {
+TEST(StorageV2NonSequentialIsolation, IsolationWorksWithAbortedNonSequentialTransactions) {
   std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
 
   ms::Gid v1_gid, v2_gid;
@@ -584,7 +584,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
   }
 }
 
-TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
+TEST(StorageV2NonSequentialIsolation, AbortedEdgesNotVisibleDuringAbort) {
   std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
 
   ms::Gid v1_gid, v2_gid;
@@ -658,7 +658,7 @@ TEST(StorageV2InterleavedIsolation, AbortedEdgesNotVisibleDuringAbort) {
   }
 }
 
-TEST(StorageV2InterleavedIsolation, ConcurrentEdgeCreationSucceeds) {
+TEST(StorageV2NonSequentialIsolation, ConcurrentEdgeCreationSucceeds) {
   std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
 
   ms::Gid v1_gid, v2_gid;
@@ -700,7 +700,7 @@ TEST(StorageV2InterleavedIsolation, ConcurrentEdgeCreationSucceeds) {
   ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-TEST(StorageV2InterleavedIsolation, EdgeCreationFailsAfterLabelChange) {
+TEST(StorageV2NonSequentialIsolation, EdgeCreationFailsAfterLabelChange) {
   std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
 
   ms::Gid v1_gid, v2_gid;

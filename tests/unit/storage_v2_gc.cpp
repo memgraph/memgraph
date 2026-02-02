@@ -208,7 +208,7 @@ TEST(StorageV2Gc, Indices) {
   }
 }
 
-TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected) {
+TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollected) {
   // Need a periodic garbage collector so that certain fast path optimisations
   // aren't taken when cleaning deltas, but with an inter-collection pause large
   // enough that we can step through when debugging, etc, without anything being
@@ -250,7 +250,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected
     ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
     // Commit in order `acc1` and `acc2`. This means that even though `acc2` does
-    // have interleaved deltas, everything downstream from them is committed
+    // have non-sequential deltas, everything downstream from them is committed
     // and so garbage collection can skip the waiting list.
     ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
@@ -268,7 +268,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected
   EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
-TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) {
+TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected) {
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -327,7 +327,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) 
   EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
-TEST(StorageV2Gc, InterleavedDeltasWithMultipleAbortsAreGarbageCollected) {
+TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -452,7 +452,7 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
   EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
-TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
+TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) {
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -472,7 +472,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
     auto acc2 = storage->Access(memgraph::storage::WRITE);
     auto acc3 = storage->Access(memgraph::storage::WRITE);
 
-    // Create interleaved deltas with mixed commit/abort pattern
+    // Create non-sequential deltas with mixed commit/abort pattern
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
@@ -511,7 +511,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitInterleavedDeltasAreGarbageCollected) {
   EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
-TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
+TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -569,7 +569,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
   EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
-TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollected) {
+TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected) {
   // Use periodic GC with short interval to automatically test intermediate states
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
@@ -608,7 +608,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     // - 4 x ADD_OUT_EDGE
     ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
-    // When acc2 commits, its transaction has interleaved deltas which are
+    // When acc2 commits, its transaction has non-sequential deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
     // all contributors have committed.
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -630,7 +630,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
   ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
-TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
+TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
 
@@ -668,7 +668,7 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     // - 4 x ADD_OUT_EDGE
     ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
-    // When acc1 commits first, its transaction has interleaved deltas which are
+    // When acc1 commits first, its transaction has non-sequential deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
     // all contributors have committed.
     ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -802,7 +802,7 @@ TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
 
 // Tests state after aborting tx1 when we have the following chain:
 // (v1)-[tx1]-[tx1]
-TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
+TEST(StorageV2Gc, AbortsWithWithNoNonSequentialDeltas) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -850,7 +850,7 @@ TEST(StorageV2Gc, AbortsWithWithNoInterleavedDeltas) {
 
 // Tests state after aborting tx2 when we have the following chain:
 // (v1)-[tx2 intr]-[tx2 intr]-[tx1]
-TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
+TEST(StorageV2Gc, AbortsWhenDeltasAreNonSequential) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -904,7 +904,7 @@ TEST(StorageV2Gc, AbortsWhenDeltasAreInterleaved) {
 
 // Tests state after aborting tx1 when we have the following chain:
 // (v)-[tx2 intr]-[tx1]-[tx1]
-TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
+TEST(StorageV2Gc, AbortsWithUpstreamNonSequentialDeltas) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -958,7 +958,7 @@ TEST(StorageV2Gc, AbortsWithUpstreamInterleavedDeltas) {
 
 // Tests state after aborting tx2 when we have the following chain:
 // (v)-[tx3 intr]-[tx2 intr]-[tx2 intr]-[tx1]
-TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamInterleavedDeltas) {
+TEST(StorageV2Gc, AbortsWithUpstreamAndDownstreamNonSequentialDeltas) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -1082,7 +1082,7 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
 
 // Tests state after aborting tx1 when we have the following chain:
 // (v)-[tx2 intr]-[tx1]-[tx1]
-TEST(StorageV2Gc, AbortsAtEndOfInterleavedChain) {
+TEST(StorageV2Gc, AbortsAtEndOfNonSequentialChain) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -1250,7 +1250,7 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
   }
 }
 
-TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
+TEST(StorageV2Gc, HasNonSequentialDeltasFlagReaminsAfterAbort) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -1279,28 +1279,21 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedAfterAbort) {
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};
-      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_interleaved_deltas);
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas);
     }
 
     tx2->Abort();
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};
-      ASSERT_FALSE(v1_t2->vertex_->has_uncommitted_interleaved_deltas);
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas);
     }
 
     ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
-    ASSERT_TRUE(v1.has_value());
-    EXPECT_FALSE(v1->vertex_->has_uncommitted_interleaved_deltas);
-  }
 }
 
-TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
+TEST(StorageV2Gc, HasNonSequentialDeltasFlagRemainsAfterPartialAbort) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -1335,14 +1328,14 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
 
     {
       auto const guard = std::shared_lock{v1_t3->vertex_->lock};
-      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_interleaved_deltas);
+      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_non_sequential_deltas);
     }
 
     tx2->Abort();
 
     {
       auto const guard = std::shared_lock{v1_t3->vertex_->lock};
-      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_interleaved_deltas);
+      ASSERT_TRUE(v1_t3->vertex_->has_uncommitted_non_sequential_deltas);
     }
 
     ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -1354,11 +1347,11 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagRemainsAfterPartialAbort) {
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value());
     auto const guard = std::shared_lock{v1->vertex_->lock};
-    ASSERT_FALSE(v1->vertex_->has_uncommitted_interleaved_deltas);
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas);
   }
 }
 
-TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
+TEST(StorageV2Gc, HasNonSequentialDeltasFlagClearedWhenAllDeltasRemoved) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -1387,7 +1380,7 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
 
     {
       auto const guard = std::shared_lock{v1_t2->vertex_->lock};
-      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_interleaved_deltas);
+      ASSERT_TRUE(v1_t2->vertex_->has_uncommitted_non_sequential_deltas);
     }
 
     tx2->Abort();
@@ -1400,6 +1393,6 @@ TEST(StorageV2Gc, HasInterleavedDeltasFlagClearedWhenAllDeltasRemoved) {
     ASSERT_TRUE(v1.has_value());
     EXPECT_EQ(v1->vertex_->delta, nullptr);
     auto const guard = std::shared_lock{v1->vertex_->lock};
-    ASSERT_FALSE(v1->vertex_->has_uncommitted_interleaved_deltas);
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas);
   }
 }

@@ -157,49 +157,50 @@ static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, 
 static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
-/* Interleaved deltas relax the usual rules of MVCC by allowing certain
- * commutative operations (i.e., edge creations) to be prepended to a delta
- * chain, even in cases where normally this would be a write conflict. Doing so
- * hugely improves performance in edge-write heavy imports, at the expense
- * of increasing delta chain iteration and garbage collection whilst interleaved
- * deltas exist in the chains. */
-enum class DeltaInterleaving : uint8_t { NORMAL, INTERLEAVED };
+/* Non-sequential deltas relax the usual rules of MVCC by allowing certain
+ * operations (i.e., edge creations) to be prepended to a delta chain in a
+ * non-sequential manner, even in cases where normally this would be a write
+ * conflict. Doing so hugely improves performance in edge-write heavy imports,
+ * at the expense of increasing delta chain iteration and garbage collection
+ * whilst non-sequential deltas exist in the chains. */
+enum class DeltaSequencing : uint8_t { SEQUENTIAL, NON_SEQUENTIAL };
 
 /**
  * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
  * store flags without increasing the size of the overall `Delta`:
  *
- * is_interleaved: Whether this `Delta` is interleaved - a non-conflicting
- * commutative `Delta` operation prepended by a different transaction. When reading
- * `Delta`s, we don't stop traversing the `Delta` chain on interleaved operations
+ * is_non_sequential: Whether this `Delta` is non-sequential - a non-conflicting
+ * `Delta` operation prepended by a different transaction. When reading
+ * `Delta`s, we don't stop traversing the `Delta` chain on non-sequential operations
  * as there may be relevant `Deltas` downstream.
  *
- * has_non_commutative_upstream: Whether there exists a non-commutative
- * uncommitted delta upstream in this transaction's delta chain. This enables O(1)
- * conflict detection in PrepareForCommutativeWrite by avoiding traversal of long
- * delta chains (e.g., when a transaction adds a label then creates many edges).
+ * has_non_sequential_blocker_upstream: Whether there exists a blocking operation
+ * (non-edge-creation) uncommitted delta upstream in this transaction's delta chain.
+ * This enables O(1) conflict detection in PrepareForNonSequentialWrite by avoiding
+ * traversal of long delta chains (e.g., when a transaction adds a label then creates
+ * many edges).
  */
 class TaggedVertexPtr {
  public:
   TaggedVertexPtr() : ptr_(nullptr) {}
 
-  TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NORMAL,
-                  bool has_non_commutative_upstream = false) {
-    Set(vertex, interleaving == DeltaInterleaving::INTERLEAVED, has_non_commutative_upstream);
+  TaggedVertexPtr(Vertex *vertex, DeltaSequencing sequencing = DeltaSequencing::SEQUENTIAL,
+                  bool has_non_sequential_blocker_upstream = false) {
+    Set(vertex, sequencing == DeltaSequencing::NON_SEQUENTIAL, has_non_sequential_blocker_upstream);
   }
 
   Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x3UL); }
 
-  bool IsInterleaved() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
+  bool IsNonSequential() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
 
-  bool HasNonCommutativeUpstream() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x2UL) != 0; }
+  bool HasNonSequentialBlockerUpstream() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x2UL) != 0; }
 
-  void Set(Vertex *vertex, bool is_interleaved = false, bool has_non_commutative_upstream = false) {
+  void Set(Vertex *vertex, bool is_non_sequential = false, bool has_non_sequential_blocker_upstream = false) {
     uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
-    if (is_interleaved) {
+    if (is_non_sequential) {
       vertex_ptr |= 0x1UL;
     }
-    if (has_non_commutative_upstream) {
+    if (has_non_sequential_blocker_upstream) {
       vertex_ptr |= 0x2UL;
     }
     ptr_ = reinterpret_cast<Vertex *>(vertex_ptr);
@@ -274,62 +275,62 @@ struct Delta {
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, timestamp, command_id) {}
 
-  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_IN_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .vertex = TaggedVertexPtr(vertex, sequencing),
                     .edge = edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, timestamp, command_id) {}
+      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, timestamp, command_id) {}
 
-  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_OUT_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .vertex = TaggedVertexPtr(vertex, sequencing),
                     .edge = edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, false, timestamp, command_id) {}
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, false, timestamp, command_id) {}
 
-  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, interleaving, false, timestamp, command_id) {}
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, sequencing, false, timestamp, command_id) {}
 
-  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
-        bool has_non_commutative_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
+        bool has_non_sequential_blocker_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_IN_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, interleaving, has_non_commutative_upstream),
+                    .vertex = TaggedVertexPtr(vertex, sequencing, has_non_sequential_blocker_upstream),
                     .edge = edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NORMAL, false, timestamp, command_id) {}
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, false, timestamp, command_id) {}
 
-  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, interleaving, false, timestamp, command_id) {}
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, sequencing, false, timestamp, command_id) {}
 
-  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
-        bool has_non_commutative_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
+        bool has_non_sequential_blocker_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, interleaving, has_non_commutative_upstream),
+                    .vertex = TaggedVertexPtr(vertex, sequencing, has_non_sequential_blocker_upstream),
                     .edge = edge} {}
 
   Delta(const Delta &) = delete;
@@ -382,8 +383,8 @@ constexpr bool IsResultOfCommutativeOperation(Delta::Action action) noexcept {
   return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
 }
 
-inline bool IsDeltaInterleaved(Delta const &delta) {
-  return IsResultOfCommutativeOperation(delta.action) && delta.vertex_edge.vertex.IsInterleaved();
+inline bool IsDeltaNonSequential(Delta const &delta) {
+  return IsResultOfCommutativeOperation(delta.action) && delta.vertex_edge.vertex.IsNonSequential();
 }
 
 // This is important, we want fast discard of unlinked deltas,

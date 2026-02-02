@@ -126,8 +126,8 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
       current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
     }
 
-    // If vertex has interleaved deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_interleaved_deltas) {
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!vertex.has_uncommitted_non_sequential_deltas) {
       guard.unlock();
     }
 
@@ -226,8 +226,8 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
       });
     }
 
-    // If vertex has interleaved deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_interleaved_deltas) {
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!vertex.has_uncommitted_non_sequential_deltas) {
       guard.unlock();
     }
 

@@ -55,11 +55,11 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
     auto ts = delta->timestamp->load(std::memory_order_acquire);
-    bool const is_delta_interleaved = IsDeltaInterleaved(*delta);
+    bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
 
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
-      if (is_delta_interleaved) {
+      if (is_delta_non_sequential) {
         delta = delta->next.load(std::memory_order_acquire);
         continue;
       } else {
@@ -71,7 +71,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     // view of the database.
     auto cid = delta->command_id;
     if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
-      if (is_delta_interleaved) {
+      if (is_delta_non_sequential) {
         delta = delta->next.load(std::memory_order_acquire);
         continue;
       } else {
@@ -85,7 +85,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
         (cid < transaction->command_id ||
          // This check is used for on-disk storage. The vertex is valid only if it was deserialized in this transaction.
          (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
-      if (is_delta_interleaved) {
+      if (is_delta_non_sequential) {
         delta = delta->next.load(std::memory_order_acquire);
         continue;
       } else {
@@ -114,8 +114,8 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
 
   if (ts == transaction->transaction_id) {
-    // If head delta from same transaction is interleaved, cannot add non-commutative operation
-    if (IsDeltaInterleaved(*object->delta)) {
+    // If head delta from same transaction is non-sequential, cannot add blocking operation
+    if (IsDeltaNonSequential(*object->delta)) {
       transaction->has_serialization_error = true;
       return false;
     }
@@ -130,19 +130,18 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
-enum class WriteResult : uint8_t { SUCCESS, INTERLEAVED, SERIALIZATION_ERROR };
+enum class WriteResult : uint8_t { SUCCESS, NON_SEQUENTIAL, SERIALIZATION_ERROR };
 
-/// This function prepares the object for a write of a commutative action (.i.e,
-/// an edge creation on a vertex). It checks whether there are any serialization
-/// errors in the process and returns a `WriteResult` indicating whether the
-/// caller can proceed with a write operation, and if so, is the operation
-/// commutative (`INTERLEAVED`). An interleaved delta can be prepended in all
-/// sitatuations where a "normal" delta could be, but can also be prepended onto
-/// interleaved deltas from other in-flight transactions, or to a CREATE_*_EDGE
-/// for an in-flight transaction provided that there are no uncommitted deltas
-/// other than CREATE_*_EDGE.
+/// This function prepares the object for a write of an edge creation action on
+/// a vertex. It checks whether there are any serialization errors in the process
+/// and returns a `WriteResult` indicating whether the caller can proceed with a
+/// write operation, and if so, is the operation non-sequential (`NON_SEQUENTIAL`).
+/// A non-sequential delta can be prepended in all situations where a "normal"
+/// delta could be, but can also be prepended onto non-sequential deltas from
+/// other in-flight transactions, or to a CREATE_*_EDGE for an in-flight
+/// transaction provided that there are no uncommitted deltas other than CREATE_*_EDGE.
 template <typename TObj>
-inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
+inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *object, Delta::Action action) {
   DMG_ASSERT(IsActionCommutative(action));
 
   if (object->delta == nullptr) return WriteResult::SUCCESS;
@@ -157,21 +156,21 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
     }
 
     // Head delta is from another uncommitted transaction. Check if this is
-    // a situation where the entire uncommitted delta chain is of commutative
-    // operations: if so, we can safely add an interleaved deltas.
+    // a situation where the entire uncommitted delta chain is of edge creations:
+    // if so, we can safely add a non-sequential delta.
 
-    // If the head delta is interleaved, we know we can always add another
-    // interleaved delta.
-    if (IsDeltaInterleaved(*object->delta)) {
-      return WriteResult::INTERLEAVED;
+    // If the head delta is non-sequential, we know we can always add another
+    // non-sequential delta.
+    if (IsDeltaNonSequential(*object->delta)) {
+      return WriteResult::NON_SEQUENTIAL;
     }
 
     // If the head delta is an add edge operation (REMOVE_IN/OUT_EDGE undo
-    // delta) with the `has_non_commutative_upstream` flag set, we know there's
-    // a non-commutative delta upstream in that transaction's chain, and so
+    // delta) with the `has_non_sequential_blocker_upstream` flag set, we know
+    // there's a blocking delta upstream in that transaction's chain, and so
     // this would be a serialization error.
     if (IsResultOfCommutativeOperation(object->delta->action) &&
-        object->delta->vertex_edge.vertex.HasNonCommutativeUpstream()) {
+        object->delta->vertex_edge.vertex.HasNonSequentialBlockerUpstream()) {
       return WriteResult::SERIALIZATION_ERROR;
     }
 
@@ -182,10 +181,10 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
 
       if (delta_ts < transaction->start_timestamp) break;
 
-      // Optimization: Once we encounter an interleaved delta, we can break early
-      // because non-commutative deltas can only exist BEFORE interleaved deltas
-      // in the chain (PrepareForWrite prevents them when head is interleaved).
-      if (IsDeltaInterleaved(*delta)) {
+      // Optimization: Once we encounter a non-sequential delta, we can break early
+      // because blocking deltas can only exist BEFORE non-sequential deltas in the
+      // chain (PrepareForWrite prevents them when head is non-sequential).
+      if (IsDeltaNonSequential(*delta)) {
         break;
       }
 
@@ -194,16 +193,16 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
       }
     }
 
-    return WriteResult::INTERLEAVED;
+    return WriteResult::NON_SEQUENTIAL;
   }
 
-  // Same transaction: check if the head delta is interleaved
-  // If the head delta belongs to the same transaction and is interleaved,
-  // then only another commutative action delta can be prepended.
-  if (IsDeltaInterleaved(*object->delta)) {
-    return WriteResult::INTERLEAVED;
+  // Same transaction: check if the head delta is non-sequential
+  // If the head delta belongs to the same transaction and is non-sequential,
+  // then only another edge creation delta can be prepended.
+  if (IsDeltaNonSequential(*object->delta)) {
+    return WriteResult::NON_SEQUENTIAL;
   }
-  // Head delta from same transaction is not interleaved - allow any new delta
+  // Head delta from same transaction is not non-sequential - allow any new delta
   return WriteResult::SUCCESS;
 }
 
@@ -255,11 +254,12 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
   return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
 }
 
-/// Computes whether a new commutative delta being added to an object should have
-/// the has_non_commutative_upstream flag set. This flag indicates whether there
-/// exists a non-commutative uncommitted delta upstream in this transaction's chain.
+/// Computes whether a new edge creation delta being added to an object should have
+/// the has_non_sequential_blocker_upstream flag set. This flag indicates whether
+/// there exists a blocking (non-edge-creation) uncommitted delta upstream in this
+/// transaction's chain.
 template <typename TObj>
-inline bool ShouldSetNonCommutativeUpstreamFlag(Transaction *transaction, TObj *object) {
+inline bool ShouldSetNonSequentialBlockerUpstreamFlag(Transaction *transaction, TObj *object) {
   Delta *head = object->delta;
   if (head == nullptr) {
     return false;
@@ -267,17 +267,17 @@ inline bool ShouldSetNonCommutativeUpstreamFlag(Transaction *transaction, TObj *
 
   auto const head_ts = head->timestamp->load(std::memory_order_acquire);
   if (head_ts != transaction->transaction_id) {
-    // Different transaction - we're interleaving, so no upstream in our transaction
+    // Different transaction - we're non-sequential, so no upstream in our transaction
     return false;
   }
 
-  // Same transaction. Check if head is non-commutative or has the flag
+  // Same transaction. Check if head is blocking or has the flag
   if (IsResultOfCommutativeOperation(head->action)) {
     // Head is an edge delta (REMOVE_IN_EDGE/REMOVE_OUT_EDGE) so inherit its flag
-    return head->vertex_edge.vertex.HasNonCommutativeUpstream();
+    return head->vertex_edge.vertex.HasNonSequentialBlockerUpstream();
   }
 
-  // Head is some other non-commutative operation
+  // Head is some other blocking operation (non-edge-creation)
   return true;
 }
 

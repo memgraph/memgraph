@@ -69,10 +69,10 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
-    bool const is_delta_interleaved = IsDeltaInterleaved(*delta);
+    bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
 
     if (ts < start_timestamp) {
-      if (is_delta_interleaved) {
+      if (is_delta_non_sequential) {
         delta = delta->next.load(std::memory_order_acquire);
         continue;
       } else {

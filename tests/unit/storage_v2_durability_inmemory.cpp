@@ -4270,7 +4270,7 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
   ASSERT_TRUE(result.has_value());
 }
 
-TEST_F(DurabilityTest, WalInterleavedDeltaEncoding) {
+TEST_F(DurabilityTest, WalNonSequentialDeltaEncoding) {
   memgraph::storage::Config config{};
   config.durability.storage_directory = storage_directory;
   config.durability.snapshot_wal_mode =

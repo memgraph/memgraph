@@ -163,12 +163,12 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
   memgraph::utils::Scheduler *scheduler_;
 };
 
-bool HasUncommittedInterleavedDeltas(Vertex const *vertex) {
-  DMG_ASSERT(vertex->lock.is_locked(), "HasUncommittedInterleavedDeltas must be called with vertex lock held");
+bool HasUncommittedNonSequentialDeltas(Vertex const *vertex) {
+  DMG_ASSERT(vertex->lock.is_locked(), "HasUncommittedNonSequentialDeltas must be called with vertex lock held");
   Delta *delta = vertex->delta;
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts >= kTransactionInitialId && IsDeltaInterleaved(*delta)) {
+    if (ts >= kTransactionInitialId && IsDeltaNonSequential(*delta)) {
       return true;
     }
     delta = delta->next.load(std::memory_order_acquire);
@@ -184,9 +184,9 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
           Delta *next = delta.next.load(std::memory_order_acquire);
           if (next == nullptr) return true;
           auto next_ts = next->timestamp->load(std::memory_order_acquire);
-          return !(next_ts >= kTransactionInitialId && IsDeltaInterleaved(*next));
+          return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
         }(),
-        "downstream active interleaved delta found during rapid cleanup");
+        "downstream active non-sequential delta found during rapid cleanup");
     impact_tracker.update(delta.action);
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -219,13 +219,13 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
   }
 }
 
-/** When we have interleaved deltas, we can no longer use the shortcut of
+/** When we have non-sequential deltas, we can no longer use the shortcut of
  * only processing deltas downstream from a "head" delta, i.e., one whose `prev`
  * is a vertex. Instead, we have to walk upstream, following `prev` pointers
  * until we find the vertex. Obviously, this can be costly with large delta
  * chains, so the cost is mitigated by:
- * - only finding the vertex when we need to find the upstream vertex from an
- *   interleaved delta
+ * - only finding the vertex when we need to find the upstream vertex from a
+ *   non-sequential delta
  * - caching any intermediate subchain "heads" we find for this transaction. In
  *   practise, this massively reduces the amount of iterating needed to be done,
  *   as once we come across a delta we've seen before we can quickly work out to
@@ -262,7 +262,7 @@ class DeltaVertexCache {
       auto const prev_ts = current_prev.delta->timestamp->load(std::memory_order_acquire);
       // If the ts for the previous delta is different than this one's, we know
       // that they are from different transactions and so this delta is the
-      // head of an interleaved subchain.
+      // head of a non-sequential subchain.
       if (delta_ts != prev_ts) {
         if (delta_ts == commit_timestamp_) discovered_subchain_heads.push_back(delta);
 
@@ -656,21 +656,21 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_result == WriteResult::INTERLEAVED) {
-    transaction_.has_interleaved_deltas = true;
-    from_vertex->has_uncommitted_interleaved_deltas = true;
+  if (from_result == WriteResult::NON_SEQUENTIAL) {
+    transaction_.has_non_sequential_deltas = true;
+    from_vertex->has_uncommitted_non_sequential_deltas = true;
   }
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_result == WriteResult::INTERLEAVED) {
-      transaction_.has_interleaved_deltas = true;
-      to_vertex->has_uncommitted_interleaved_deltas = true;
+    if (to_result == WriteResult::NON_SEQUENTIAL) {
+      transaction_.has_non_sequential_deltas = true;
+      to_vertex->has_uncommitted_non_sequential_deltas = true;
     }
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
@@ -699,10 +699,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     }
   }
 
-  bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
-  bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
-  bool const from_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, from_vertex);
-  bool const to_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, to_vertex);
+  bool const from_non_sequential = (from_result == WriteResult::NON_SEQUENTIAL);
+  bool const to_non_sequential = (to_result == WriteResult::NON_SEQUENTIAL);
+  bool const from_has_non_sequential_blocker_upstream =
+      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex);
+  bool const to_has_non_sequential_blocker_upstream =
+      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex);
 
   utils::AtomicMemoryBlock([this,
                             edge,
@@ -710,18 +712,18 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                             edge_type = edge_type,
                             to_vertex = to_vertex,
                             &schema_acc,
-                            from_interleaved,
-                            to_interleaved,
-                            from_has_non_commutative_upstream,
-                            to_has_non_commutative_upstream]() {
+                            from_non_sequential,
+                            to_non_sequential,
+                            from_has_non_sequential_blocker_upstream,
+                            to_has_non_sequential_blocker_upstream]() {
     CreateAndLinkDelta(&transaction_,
                        from_vertex,
                        Delta::RemoveOutEdgeTag(),
                        edge_type,
                        to_vertex,
                        edge,
-                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
-                       from_has_non_commutative_upstream);
+                       from_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
+                       from_has_non_sequential_blocker_upstream);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_,
@@ -730,8 +732,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                        edge_type,
                        from_vertex,
                        edge,
-                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
-                       to_has_non_commutative_upstream);
+                       to_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
+                       to_has_non_sequential_blocker_upstream);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -806,21 +808,21 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  auto const from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_result == WriteResult::INTERLEAVED) {
-    transaction_.has_interleaved_deltas = true;
-    from_vertex->has_uncommitted_interleaved_deltas = true;
+  if (from_result == WriteResult::NON_SEQUENTIAL) {
+    transaction_.has_non_sequential_deltas = true;
+    from_vertex->has_uncommitted_non_sequential_deltas = true;
   }
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_result == WriteResult::INTERLEAVED) {
-      transaction_.has_interleaved_deltas = true;
-      to_vertex->has_uncommitted_interleaved_deltas = true;
+    if (to_result == WriteResult::NON_SEQUENTIAL) {
+      transaction_.has_non_sequential_deltas = true;
+      to_vertex->has_uncommitted_non_sequential_deltas = true;
     }
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
@@ -857,10 +859,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   }
 
-  bool const from_interleaved = (from_result == WriteResult::INTERLEAVED);
-  bool const to_interleaved = (to_result == WriteResult::INTERLEAVED);
-  bool const from_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, from_vertex);
-  bool const to_has_non_commutative_upstream = ShouldSetNonCommutativeUpstreamFlag(&transaction_, to_vertex);
+  bool const from_non_sequential = (from_result == WriteResult::NON_SEQUENTIAL);
+  bool const to_non_sequential = (to_result == WriteResult::NON_SEQUENTIAL);
+  bool const from_has_non_sequential_blocker_upstream =
+      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex);
+  bool const to_has_non_sequential_blocker_upstream =
+      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex);
 
   utils::AtomicMemoryBlock([this,
                             edge,
@@ -868,18 +872,18 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                             edge_type = edge_type,
                             to_vertex = to_vertex,
                             &schema_acc,
-                            from_interleaved,
-                            to_interleaved,
-                            from_has_non_commutative_upstream,
-                            to_has_non_commutative_upstream]() {
+                            from_non_sequential,
+                            to_non_sequential,
+                            from_has_non_sequential_blocker_upstream,
+                            to_has_non_sequential_blocker_upstream]() {
     CreateAndLinkDelta(&transaction_,
                        from_vertex,
                        Delta::RemoveOutEdgeTag(),
                        edge_type,
                        to_vertex,
                        edge,
-                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
-                       from_has_non_commutative_upstream);
+                       from_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
+                       from_has_non_sequential_blocker_upstream);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_,
@@ -888,8 +892,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                        edge_type,
                        from_vertex,
                        edge,
-                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NORMAL,
-                       to_has_non_commutative_upstream);
+                       to_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
+                       to_has_non_sequential_blocker_upstream);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -973,8 +977,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-  bool const no_interleaved_deltas = !transaction_.has_interleaved_deltas;
-  if (no_older_transactions && no_newer_transactions && no_interleaved_deltas) [[unlikely]] {
+  bool const no_non_sequential_deltas = !transaction_.has_non_sequential_deltas;
+  if (no_older_transactions && no_newer_transactions && no_non_sequential_deltas) [[unlikely]] {
     // STEP 0) Can only do fast discard if GC is not running
     //         We can't unlink our transactions deltas until all the older deltas in GC have been unlinked
     //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
@@ -1157,9 +1161,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
   transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
-  // If the transaction had interleaved deltas, we should re-establish the
-  // `has_uncommitted_interleaved_deltas` flag on any vertices we've touched
-  if (transaction_.has_interleaved_deltas) {
+  // If the transaction had non-sequential deltas, we should re-establish the
+  // `has_uncommitted_non_sequential_deltas` flag on any vertices we've touched
+  if (transaction_.has_non_sequential_deltas) {
     std::unordered_set<Vertex *> vertices_to_check;
     for (Delta const &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
@@ -1178,8 +1182,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
     for (Vertex *vertex : vertices_to_check) {
       auto guard = std::unique_lock{vertex->lock};
-      if (vertex->has_uncommitted_interleaved_deltas) {
-        vertex->has_uncommitted_interleaved_deltas = HasUncommittedInterleavedDeltas(vertex);
+      if (vertex->has_uncommitted_non_sequential_deltas) {
+        vertex->has_uncommitted_non_sequential_deltas = HasUncommittedNonSequentialDeltas(vertex);
       }
     }
   }
@@ -1260,7 +1264,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
                                                             std::list<Gid> &current_deleted_vertices,
                                                             IndexPerformanceTracker &impact_tracker) {
-  DMG_ASSERT(!transaction_.has_interleaved_deltas, "interleaved deltas are not candidates for rapid delta cleanup");
+  DMG_ASSERT(!transaction_.has_non_sequential_deltas,
+             "non-sequential deltas are not candidates for rapid delta cleanup");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
@@ -1304,7 +1309,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
 
   bool const cleanup_performed = mem_storage->waiting_gc_deltas_.WithLock([&](const auto &waiting_list) -> bool {
     if (!waiting_list.empty()) {
-      // There are interleaved transactions in the waiting room that might reference
+      // There are non-sequential transactions in the waiting room that might reference
       // the same objects we're about to clean up. Skip rapid cleanup to be safe.
       return false;
     }
@@ -1378,7 +1383,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // To track which edge type indexes need cleaning up, we need the edge type which is held in vertices in/out edges
     // Hence need to first once to modify edges, so it can read vectices information intact.
 
-    // Edges pass. Because edges cannot have interleaved deltas, we needn't
+    // Edges pass. Because edges cannot have non-sequential deltas, we needn't
     // concern ourselves with them here. We guarantee that any of our deltas
     // with an edge as the upstream object are a monolithic block of deltas
     // belonging to this transaction, and that these terminate in either a
@@ -1612,7 +1617,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         }
       } else {
         // Surgical delta chain removal: we don't own the head, so our deltas are
-        // interleaved in the middle of the chain. We need to "snip out" our deltas
+        // non-sequential in the middle of the chain. We need to "snip out" our deltas
         // without disturbing the rest of the chain.
         // We handle four cases depending on what surrounds our delta subchain:
 
@@ -1648,8 +1653,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         }
       }
 
-      if (vertex->has_uncommitted_interleaved_deltas) {
-        vertex->has_uncommitted_interleaved_deltas = HasUncommittedInterleavedDeltas(vertex);
+      if (vertex->has_uncommitted_non_sequential_deltas) {
+        vertex->has_uncommitted_non_sequential_deltas = HasUncommittedNonSequentialDeltas(vertex);
       }
     };
 
@@ -1752,7 +1757,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
     if (!transaction_.deltas.empty()) {
-      if (transaction_.has_interleaved_deltas) {
+      if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
           waiting_list.emplace_back(InMemoryStorage::GCDeltas(0,
                                                               std::move(transaction_.deltas),
@@ -2648,7 +2653,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // When a transaction commits with interleaved deltas, its deltas may be mixed with
+  // When a transaction commits with non-sequential deltas, its deltas may be mixed with
   // deltas from other transactions in the same delta chains. We cannot immediately unlink
   // these deltas because:
   // 1. Other "contributor" transactions may still be running
@@ -2656,7 +2661,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // 3. We must use the highest commit timestamp among all contributors as the safe
   //    unlinking horizon to prevent visibility violations
   //
-  // This waiting room holds committed transactions with interleaved deltas until all
+  // This waiting room holds committed transactions with non-sequential deltas until all
   // their "contributors" (other transactions sharing the same delta chains) have finished.
   waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
     auto it = waiting_list.begin();
@@ -2668,7 +2673,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       std::unordered_set<const Delta *> visited;
 
       for (const auto &delta : it->deltas_) {
-        if (!IsDeltaInterleaved(delta)) continue;
+        if (!IsDeltaNonSequential(delta)) continue;
         if (visited.contains(&delta)) continue;
 
         auto *current = &delta;
@@ -2814,8 +2819,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             vertex->delta = nullptr;
 
-            if (vertex->has_uncommitted_interleaved_deltas) {
-              vertex->has_uncommitted_interleaved_deltas = false;
+            if (vertex->has_uncommitted_non_sequential_deltas) {
+              vertex->has_uncommitted_non_sequential_deltas = false;
             }
 
             if (vertex->deleted) {
@@ -2972,7 +2977,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         guard.unlock();
         // correct the markers, and defer until next GC run
         for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
-          // Use unlinkable_timestamp as mark_timestamp for interleaved deltas.
+          // Use unlinkable_timestamp as mark_timestamp for non-sequential deltas.
           // This ensures they aren't freed until all transactions that could
           // see them have finished.
           unlinked_undo_buffer.mark_timestamp_ = unlinked_undo_buffer.unlinkable_timestamp_;
@@ -3386,8 +3391,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // their delta chains. This approach has a drawback because we lose the
     // correct order of the operations. Because of that, we need to traverse the
     // deltas several times and we have to manually ensure that the stored deltas
-    // will be ordered correctly. The exception is if we have interleaved
-    // deltas. We can detect first (upstream) delta in an interleaved delta
+    // will be ordered correctly. The exception is if we have non-sequential
+    // deltas. We can detect first (upstream) delta in an non-sequential delta
     // subchain by checking if the `prev` delta is from another transaction. If
     // this is the case, we can process the subchain as normal, but we *do*
     // need to look upstream to find the vertex at the head. To optimise this,

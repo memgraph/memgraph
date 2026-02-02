@@ -64,8 +64,8 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
     delta = from_vertex.delta;
     edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
 
-    // If vertex has interleaved deltas, hold lock while applying them
-    if (!from_vertex.has_uncommitted_interleaved_deltas) {
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!from_vertex.has_uncommitted_non_sequential_deltas) {
       guard.unlock();
     }
 

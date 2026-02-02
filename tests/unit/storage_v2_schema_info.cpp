@@ -2541,11 +2541,22 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
           "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"}
           ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
 
-      static const std::array<nlohmann::json, 16> possible_schemas = {
-          no_labels_no_prop, from_label_no_prop, to_label_no_prop, both_labels_no_prop,
-          no_labels_w_prop,  from_label_w_prop,  to_label_w_prop,  both_labels_w_prop,
-          no_labels_w_prop2, from_label_w_prop2, to_label_w_prop2, both_labels_w_prop2,
-          no_labels_w_prop3, from_label_w_prop3, to_label_w_prop3, both_labels_w_prop3};
+      static const std::array<nlohmann::json, 16> possible_schemas = {no_labels_no_prop,
+                                                                      from_label_no_prop,
+                                                                      to_label_no_prop,
+                                                                      both_labels_no_prop,
+                                                                      no_labels_w_prop,
+                                                                      from_label_w_prop,
+                                                                      to_label_w_prop,
+                                                                      both_labels_w_prop,
+                                                                      no_labels_w_prop2,
+                                                                      from_label_w_prop2,
+                                                                      to_label_w_prop2,
+                                                                      both_labels_w_prop2,
+                                                                      no_labels_w_prop3,
+                                                                      from_label_w_prop3,
+                                                                      to_label_w_prop3,
+                                                                      both_labels_w_prop3};
 
       auto itr = std::find_if(possible_schemas.begin(), possible_schemas.end(), [&json](auto &in) {
         // Support no edges as well
@@ -3051,8 +3062,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
   }
 }
 
-// Test for potential double-processing: Interleaved transactions modify labels on opposite endpoints
-TYPED_TEST(SchemaInfoTestWEdgeProp, InterleavedLabelChangesOnBothEndpoints) {
+// Test for potential double-processing: Non-sequential transactions modify labels on opposite endpoints
+TYPED_TEST(SchemaInfoTestWEdgeProp, NonSequentialLabelChangesOnBothEndpoints) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
 
@@ -3102,7 +3113,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, InterleavedLabelChangesOnBothEndpoints) {
       << "After both commits, edge should be counted once with both labels. Actual: " << json.dump(2);
 }
 
-// Test: Edge created, then label added with interleaved transactions
+// Test: Edge created, then label added with non-sequential transactions
 TYPED_TEST(SchemaInfoTestWEdgeProp, BothEndpointsModifiedSameTransaction) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;

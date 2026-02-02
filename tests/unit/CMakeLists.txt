@@ -644,8 +644,8 @@ add_unit_test(storage_v2_gc
     LINK_TARGETS mg::storage
 )
 
-add_unit_test(storage_v2_interleaved_isolation
-    SOURCES storage_v2_interleaved_isolation.cpp
+add_unit_test(storage_v2_non_sequential_isolation
+    SOURCES storage_v2_non_sequential_isolation.cpp
     LINK_TARGETS mg::storage
 )
 

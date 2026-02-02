@@ -26,30 +26,30 @@
 namespace {
 // Helper class to manage vertex lock during delta reads.
 // Acquires shared lock in constructor.
-// For interleaved deltas: holds lock until destructor (through ApplyDeltasForRead).
-// For non-interleaved: call unlock_if_not_interleaved() after copying snapshot.
+// For non-sequential deltas: holds lock until destructor (through ApplyDeltasForRead).
+// For non-non-sequential: call unlock_if_not_non_sequential() after copying snapshot.
 template <typename T>
 class ReadGuard {
  public:
   explicit ReadGuard(T const *obj) : guard_(obj->lock) {
-    if constexpr (requires { obj->has_interleaved_deltas; }) {
-      has_interleaved_ = obj->has_interleaved_deltas;
+    if constexpr (requires { obj->has_non_sequential_deltas; }) {
+      has_non_sequential_ = obj->has_non_sequential_deltas;
     }
   }
 
   // Call this after copying snapshot (vertex state + delta pointer)
-  // Unlocks immediately if not interleaved, keeps locked if interleaved
-  void unlock_if_not_interleaved() {
-    if (!has_interleaved_ && guard_.owns_lock()) {
+  // Unlocks immediately if not non-sequential, keeps locked if non-sequential
+  void unlock_if_not_non_sequential() {
+    if (!has_non_sequential_ && guard_.owns_lock()) {
       guard_.unlock();
     }
   }
 
-  bool has_interleaved() const { return has_interleaved_; }
+  bool has_non_sequential() const { return has_non_sequential_; }
 
  private:
   std::shared_lock<memgraph::utils::RWSpinLock> guard_;
-  bool has_interleaved_{false};
+  bool has_non_sequential_{false};
 };
 
 using VertexReadGuard = ReadGuard<memgraph::storage::Vertex>;
@@ -102,11 +102,11 @@ std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, V
 }
 
 // Manages lock lifetime based on whether vertex currently has uncommitted
-// interleaved deltas. Any transaction that has created interleaved deltas may
+// non-sequential deltas. Any transaction that has created non-sequential deltas may
 // abort and have to remove deltas from the middle of the delta chain. When a
-// vertex has these uncommitted interleaved deltas in its chain, this read lock
+// vertex has these uncommitted non-sequential deltas in its chain, this read lock
 // must be held both when we read the `vertex.delta` AND continue to be held
-// whilst we walk the delta chain. For vertices with no uncommitted interleaved
+// whilst we walk the delta chain. For vertices with no uncommitted non-sequential
 // deltas, this uses the shorter lock duration of just reading `vertex.delta`
 // under lock.
 class VertexReadLock {
@@ -116,10 +116,11 @@ class VertexReadLock {
 
   class SnapshotGuard {
    public:
-    explicit SnapshotGuard(VertexReadLock *manager, bool has_uncommitted_interleaved_deltas)
-        : manager_{manager}, has_uncommitted_interleaved_deltas_{has_uncommitted_interleaved_deltas} {}
+    explicit SnapshotGuard(VertexReadLock *manager, bool has_uncommitted_non_sequential_deltas)
+        : manager_{manager}, has_uncommitted_non_sequential_deltas_{has_uncommitted_non_sequential_deltas} {}
+
     ~SnapshotGuard() {
-      if (!has_uncommitted_interleaved_deltas_) {
+      if (!has_uncommitted_non_sequential_deltas_) {
         manager_->lock_.unlock();
       }
     }
@@ -131,7 +132,7 @@ class VertexReadLock {
 
    private:
     VertexReadLock *manager_;
-    bool has_uncommitted_interleaved_deltas_;
+    bool has_uncommitted_non_sequential_deltas_;
   };
 
   // `AcquireLock` can be called at most once per `VertexReadLock` instance.
@@ -139,7 +140,7 @@ class VertexReadLock {
   // the lock could result in deadlock.
   SnapshotGuard AcquireLock() {
     lock_.lock();
-    return SnapshotGuard{this, vertex_->has_uncommitted_interleaved_deltas};
+    return SnapshotGuard{this, vertex_->has_uncommitted_non_sequential_deltas};
   }
 
  private:

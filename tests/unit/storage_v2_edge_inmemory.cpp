@@ -5413,7 +5413,7 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateInterleavedOperations) {
+TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateNonSequentialOperations) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
   memgraph::storage::Gid gid_v1, gid_v2;
@@ -5453,7 +5453,7 @@ TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateInterleavedOperations) {
   ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializationErrors) {
+TEST_P(StorageEdgeTest, NonSequentialOperationsOnCurrentTransactionsAreSerializationErrors) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
   memgraph::storage::Gid gid_v1, gid_v2;
@@ -5483,7 +5483,7 @@ TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializ
   EXPECT_EQ(label_result.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
 }
 
-TEST_P(StorageEdgeTest, OnlyInterleavedOperationsCanBePerformedWhenHeadOperationIsInterleaved) {
+TEST_P(StorageEdgeTest, OnlyNonSequentialOperationsCanBePerformedWhenHeadOperationIsNonSequential) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
   memgraph::storage::Gid gid_v1, gid_v2, gid_v3;

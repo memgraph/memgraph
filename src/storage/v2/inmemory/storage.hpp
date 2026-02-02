@@ -846,7 +846,7 @@ class InMemoryStorage final : public Storage {
 
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
 
-  // Interleaved delta chains waiting for all contributors to commit
+  // Non-sequential delta chains waiting for all contributors to commit
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> waiting_gc_deltas_{};
 
   // Ownership of unlinked deltas is transferred to garbage_undo_buffers once transaction is committed/aborted

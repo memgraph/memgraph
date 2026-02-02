@@ -130,8 +130,8 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     delta = vertex.delta;
     has_label = std::ranges::contains(vertex.labels, label);
 
-    // If vertex has interleaved deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_interleaved_deltas) {
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!vertex.has_uncommitted_non_sequential_deltas) {
       guard.unlock();
     }
 

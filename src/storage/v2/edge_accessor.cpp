@@ -62,8 +62,8 @@ bool EdgeAccessor::IsVisible(const View view) const {
                                      [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
       delta = from_vertex_->delta;
 
-      // If vertex has interleaved deltas, hold lock while applying them
-      if (!from_vertex_->has_uncommitted_interleaved_deltas) {
+      // If vertex has non-sequential deltas, hold lock while applying them
+      if (!from_vertex_->has_uncommitted_non_sequential_deltas) {
         guard.unlock();
       }
 

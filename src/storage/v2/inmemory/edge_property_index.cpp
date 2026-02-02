@@ -74,8 +74,8 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
     delta = from_vertex.delta;
     edges = from_vertex.out_edges;
 
-    // If vertex has interleaved deltas, hold lock while applying them
-    if (!from_vertex.has_uncommitted_interleaved_deltas) {
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!from_vertex.has_uncommitted_non_sequential_deltas) {
       guard.unlock();
     }
 
