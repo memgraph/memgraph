@@ -210,8 +210,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanParallel);
   PRE_VISIT(ScanParallelByLabel);
   PRE_VISIT(ScanParallelByLabelProperties);
-  PRE_VISIT(ScanParallelByPointDistance);
-  PRE_VISIT(ScanParallelByWithinbbox);
   PRE_VISIT(ScanParallelByEdge);
   PRE_VISIT(ScanParallelByEdgeType);
   PRE_VISIT(ScanParallelByEdgeTypeProperty);
@@ -290,8 +288,6 @@ using ExpectParallelMerge = OpChecker<ParallelMerge>;
 using ExpectScanParallel = OpChecker<ScanParallel>;
 using ExpectScanParallelByLabel = OpChecker<ScanParallelByLabel>;
 using ExpectScanParallelByLabelProperties = OpChecker<ScanParallelByLabelProperties>;
-using ExpectScanParallelByPointDistance = OpChecker<ScanParallelByPointDistance>;
-using ExpectScanParallelByWithinbbox = OpChecker<ScanParallelByWithinbbox>;
 using ExpectScanParallelByEdge = OpChecker<ScanParallelByEdge>;
 using ExpectScanParallelByEdgeType = OpChecker<ScanParallelByEdgeType>;
 using ExpectScanParallelByEdgeTypeProperty = OpChecker<ScanParallelByEdgeTypeProperty>;

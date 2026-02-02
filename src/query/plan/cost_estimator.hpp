@@ -369,26 +369,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(ScanParallelByPointDistance &op) override {
-    cardinality_ *= EstimatePointQueryCardinality(op.label_, op.property_);
-    if (index_hints_.HasPointIndex(db_accessor_, op.label_, op.property_)) {
-      use_index_hints_ = true;
-    }
-    IncrementCost(CostParam::kScanAllByPointDistance);
-    num_threads_ = 1;  // End of parallel section
-    return true;
-  }
-
-  bool PostVisit(ScanParallelByWithinbbox &op) override {
-    cardinality_ *= EstimatePointQueryCardinality(op.label_, op.property_);
-    if (index_hints_.HasPointIndex(db_accessor_, op.label_, op.property_)) {
-      use_index_hints_ = true;
-    }
-    IncrementCost(CostParam::kScanAllByPointWithinbbox);
-    num_threads_ = 1;  // End of parallel section
-    return true;
-  }
-
   bool PostVisit(ScanParallelByEdge & /* op */) override {
     // ScanParallelByEdge is not yet implemented (throws NotYetImplemented)
     // For cost estimation, we'll use a placeholder cost

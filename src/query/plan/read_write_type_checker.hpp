@@ -110,8 +110,6 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(ScanParallel &) override;
   bool PreVisit(ScanParallelByLabel &) override;
   bool PreVisit(ScanParallelByLabelProperties &) override;
-  bool PreVisit(ScanParallelByPointDistance &) override;
-  bool PreVisit(ScanParallelByWithinbbox &) override;
   bool PreVisit(ScanParallelByEdge &) override;
   bool PreVisit(ScanParallelByEdgeType &) override;
   bool PreVisit(ScanParallelByEdgeTypeProperty &) override;

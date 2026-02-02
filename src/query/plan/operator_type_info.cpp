@@ -218,16 +218,6 @@ constexpr utils::TypeInfo query::plan::ScanParallelByLabelProperties::kType{
     .name = "ScanParallelByLabelProperties",
     .superclass = &query::plan::ScanParallel::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallelByPointDistance::kType{
-    .id = utils::TypeId::SCAN_PARALLEL_BY_POINT_DISTANCE,
-    .name = "ScanParallelByPointDistance",
-    .superclass = &query::plan::ScanParallel::kType};
-
-constexpr utils::TypeInfo query::plan::ScanParallelByWithinbbox::kType{
-    .id = utils::TypeId::SCAN_PARALLEL_BY_POINT_WITHINBBOX,
-    .name = "ScanParallelByWithinbbox",
-    .superclass = &query::plan::ScanParallel::kType};
-
 constexpr utils::TypeInfo query::plan::ScanParallelByEdge::kType{.id = utils::TypeId::SCAN_PARALLEL_BY_EDGE,
                                                                  .name = "ScanParallelByEdge",
                                                                  .superclass = &query::plan::ScanParallel::kType};

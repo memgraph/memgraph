@@ -120,8 +120,6 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(ScanParallel)
   DEFAULT_VISITS(ScanParallelByLabel)
   DEFAULT_VISITS(ScanParallelByLabelProperties)
-  DEFAULT_VISITS(ScanParallelByPointDistance)
-  DEFAULT_VISITS(ScanParallelByWithinbbox)
   DEFAULT_VISITS(ScanParallelByEdge)
   DEFAULT_VISITS(ScanParallelByEdgeType)
   DEFAULT_VISITS(ScanParallelByEdgeTypeProperty)
@@ -294,10 +292,14 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (utils::IsSubtype(scan_type, ScanAllByEdge::kType)) {
       auto *scan_edge = dynamic_cast<ScanAllByEdge *>(target_scan);
       MG_ASSERT(scan_edge, "Expected ScanAllByEdge or subtype");
-      scan_chunk = std::make_shared<ScanChunkByEdge>(parallel_merge, scan_edge->common_.edge_symbol,
-                                                     scan_edge->common_.node1_symbol, scan_edge->common_.node2_symbol,
-                                                     scan_edge->common_.direction, scan_edge->common_.edge_types,
-                                                     scan_edge->view_, state_symbol);
+      scan_chunk = std::make_shared<ScanChunkByEdge>(parallel_merge,
+                                                     scan_edge->common_.edge_symbol,
+                                                     scan_edge->common_.node1_symbol,
+                                                     scan_edge->common_.node2_symbol,
+                                                     scan_edge->common_.direction,
+                                                     scan_edge->common_.edge_types,
+                                                     scan_edge->view_,
+                                                     state_symbol);
     } else {
       // Vertex scan - use ScanChunk
       auto *scan = dynamic_cast<ScanAll *>(target_scan);
@@ -475,8 +477,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (scan_type == ScanAllByLabelProperties::kType) {
       auto *scan = dynamic_cast<ScanAllByLabelProperties *>(scan_op);
-      return std::make_shared<ScanParallelByLabelProperties>(input, scan->view_, num_threads_, state_symbol,
-                                                             scan->label_, scan->properties_, scan->expression_ranges_);
+      return std::make_shared<ScanParallelByLabelProperties>(
+          input, scan->view_, num_threads_, state_symbol, scan->label_, scan->properties_, scan->expression_ranges_);
     }
     if (scan_type == ScanAllByPointDistance::kType) {
       // Not supported at the moment
@@ -494,46 +496,60 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (scan_type == ScanAllByEdge::kType) {
       auto *scan = dynamic_cast<ScanAllByEdge *>(scan_op);
-      return std::make_shared<ScanParallelByEdge>(input, scan->view_, num_threads_, state_symbol,
-                                                  scan->common_.edge_symbol, scan->common_.node1_symbol,
-                                                  scan->common_.node2_symbol, scan->common_.direction);
+      return std::make_shared<ScanParallelByEdge>(input,
+                                                  scan->view_,
+                                                  num_threads_,
+                                                  state_symbol,
+                                                  scan->common_.edge_symbol,
+                                                  scan->common_.node1_symbol,
+                                                  scan->common_.node2_symbol,
+                                                  scan->common_.direction);
     }
     if (scan_type == ScanAllByEdgeType::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeType *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeType>(input, scan->view_, num_threads_, state_symbol,
-                                                      scan->common_.edge_types[0]);
+      return std::make_shared<ScanParallelByEdgeType>(
+          input, scan->view_, num_threads_, state_symbol, scan->common_.edge_types[0]);
     }
     if (scan_type == ScanAllByEdgeTypeProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypeProperty>(input, scan->view_, num_threads_, state_symbol,
-                                                              scan->common_.edge_types[0], scan->property_);
+      return std::make_shared<ScanParallelByEdgeTypeProperty>(
+          input, scan->view_, num_threads_, state_symbol, scan->common_.edge_types[0], scan->property_);
     }
     if (scan_type == ScanAllByEdgeTypePropertyValue::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeTypePropertyValue *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypePropertyValue>(input, scan->view_, num_threads_, state_symbol,
-                                                                   scan->common_.edge_types[0], scan->property_,
+      return std::make_shared<ScanParallelByEdgeTypePropertyValue>(input,
+                                                                   scan->view_,
+                                                                   num_threads_,
+                                                                   state_symbol,
+                                                                   scan->common_.edge_types[0],
+                                                                   scan->property_,
                                                                    scan->expression_->Clone(ast_storage));
     }
     if (scan_type == ScanAllByEdgeTypePropertyRange::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeTypePropertyRange *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeTypePropertyRange>(input, scan->view_, num_threads_, state_symbol,
-                                                                   scan->common_.edge_types[0], scan->property_,
-                                                                   scan->lower_bound_, scan->upper_bound_);
+      return std::make_shared<ScanParallelByEdgeTypePropertyRange>(input,
+                                                                   scan->view_,
+                                                                   num_threads_,
+                                                                   state_symbol,
+                                                                   scan->common_.edge_types[0],
+                                                                   scan->property_,
+                                                                   scan->lower_bound_,
+                                                                   scan->upper_bound_);
     }
     if (scan_type == ScanAllByEdgeProperty::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgeProperty *>(scan_op);
-      return std::make_shared<ScanParallelByEdgeProperty>(input, scan->view_, num_threads_, state_symbol,
-                                                          scan->property_);
+      return std::make_shared<ScanParallelByEdgeProperty>(
+          input, scan->view_, num_threads_, state_symbol, scan->property_);
     }
     if (scan_type == ScanAllByEdgePropertyValue::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgePropertyValue *>(scan_op);
-      return std::make_shared<ScanParallelByEdgePropertyValue>(input, scan->view_, num_threads_, state_symbol,
-                                                               scan->property_, scan->expression_);
+      return std::make_shared<ScanParallelByEdgePropertyValue>(
+          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->expression_);
     }
     if (scan_type == ScanAllByEdgePropertyRange::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgePropertyRange *>(scan_op);
-      return std::make_shared<ScanParallelByEdgePropertyRange>(input, scan->view_, num_threads_, state_symbol,
-                                                               scan->property_, scan->lower_bound_, scan->upper_bound_);
+      return std::make_shared<ScanParallelByEdgePropertyRange>(
+          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->lower_bound_, scan->upper_bound_);
     }
 
     // Unsupported scan type
@@ -908,43 +924,59 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<LogicalOperator *> update_ops;
         if (auto *union_op = dynamic_cast<Union *>(current)) {
           if (ConflictingOperators(union_op->right_op_.get())) break;
-          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
-                                 original_start)) {
+          if (FindScanForSymbols(
+                  union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops, original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
           if (ConflictingOperators(cartesian_op->right_op_.get())) break;
-          if (FindScanForSymbols(cartesian_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+          if (FindScanForSymbols(cartesian_op->left_op_.get(),
+                                 symbols_to_find,
+                                 found_scan,
+                                 found_parent,
+                                 update_ops,
                                  original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
           if (ConflictingOperators(indexed_join_op->sub_branch_.get())) break;
-          if (FindScanForSymbols(indexed_join_op->main_branch_.get(), symbols_to_find, found_scan, found_parent,
-                                 update_ops, original_start)) {
+          if (FindScanForSymbols(indexed_join_op->main_branch_.get(),
+                                 symbols_to_find,
+                                 found_scan,
+                                 found_parent,
+                                 update_ops,
+                                 original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *hash_join_op = dynamic_cast<HashJoin *>(current)) {
           if (ConflictingOperators(hash_join_op->right_op_.get())) break;
-          if (FindScanForSymbols(hash_join_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+          if (FindScanForSymbols(hash_join_op->left_op_.get(),
+                                 symbols_to_find,
+                                 found_scan,
+                                 found_parent,
+                                 update_ops,
                                  original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *rollup_apply_op = dynamic_cast<RollUpApply *>(current)) {
           if (ConflictingOperators(rollup_apply_op->list_collection_branch_.get())) break;
-          if (FindScanForSymbols(rollup_apply_op->input_.get(), symbols_to_find, found_scan, found_parent, update_ops,
+          if (FindScanForSymbols(rollup_apply_op->input_.get(),
+                                 symbols_to_find,
+                                 found_scan,
+                                 found_parent,
+                                 update_ops,
                                  original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
         } else if (auto *union_op = dynamic_cast<Union *>(current)) {
           if (ConflictingOperators(union_op->right_op_.get())) break;
-          if (FindScanForSymbols(union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops,
-                                 original_start)) {
+          if (FindScanForSymbols(
+                  union_op->left_op_.get(), symbols_to_find, found_scan, found_parent, update_ops, original_start)) {
             target_scan = found_scan;
             scan_parent = found_parent;
           }
@@ -987,8 +1019,8 @@ std::unique_ptr<LogicalOperator> RewriteParallelExecution(
         }
         const auto threads = static_cast<size_t>(value.ValueInt());
         if (threads > FLAGS_bolt_num_workers) {
-          spdlog::trace("Requesting {} threads, more than available. Forcing {} threads.", threads,
-                        FLAGS_bolt_num_workers);
+          spdlog::trace(
+              "Requesting {} threads, more than available. Forcing {} threads.", threads, FLAGS_bolt_num_workers);
           return FLAGS_bolt_num_workers;
         }
         return threads;
