@@ -3,12 +3,13 @@ boto3==1.36.23
 defusedxml==0.7.1
 duckdb==1.2.1
 elasticsearch==8.17.0
-filelock==3.19.1
+filelock==3.20.3
 gekko==1.2.1
 gensim==4.3.3
 gqlalchemy==1.8.0
 huggingface-hub==0.35.1
 igraph==0.11.8
+jaraco-context==6.1.0
 mysql-connector-python==9.1.0
 neo4j==5.28.2
 networkx==2.8.8

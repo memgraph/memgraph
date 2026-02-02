@@ -137,4 +137,5 @@ else
     rm dgl-2.5-cp312-cp312-linux_x86_64.whl
   fi
 fi
+pip uninstall -y setuptools wheel
 rm -fr /home/memgraph/.cache/pip
