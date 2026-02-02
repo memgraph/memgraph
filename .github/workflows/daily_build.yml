@@ -32,6 +32,11 @@ on:
       skip_mage:
         type: boolean
         description: "Skip MAGE build"
+        default: false
+      skip_smoke_tests:
+        type: boolean
+        description: "Skip smoke tests"
+        default: false
       skip_stress_tests:
         type: boolean
         description: "Skip stress tests"
@@ -246,7 +251,7 @@ jobs:
       cuda: ${{ matrix.cuda }}
       push_to_s3: true
       malloc: ${{ matrix.malloc }}
-      run_smoke_tests: true
+      run_smoke_tests: ${{ !inputs.skip_smoke_tests }}
       run_tests: true
       package_deb: "default"
       generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
