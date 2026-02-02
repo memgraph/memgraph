@@ -27,7 +27,7 @@ struct HopsLimit {
 
   HopsLimit() = default;
 
-  HopsLimit(int64_t limit, int64_t batch)
+  explicit HopsLimit(int64_t limit, int64_t batch = 1U)
       : limit(limit), batch(batch), shared_quota_{std::in_place, limit, std::max(batch, 1L)} {}
 
   bool IsUsed() const { return limit.has_value(); }
@@ -39,6 +39,12 @@ struct HopsLimit {
   // Used for multi-threaded execution where each thread needs to free its left quota.
   void Free() {
     if (shared_quota_) shared_quota_->Free();
+  }
+
+  static int64_t WorkersToBatch(uint64_t n_workers) {
+    // Used in multi-threaded execution to determine the batch size for each worker.
+    // Generating 4x more batches to lower the possibility of one worker exhausting the quota.
+    return static_cast<int64_t>(n_workers) * 4;
   }
 
   // Return the number of available hops (or consumed amount which behaves similarly for check > 0)

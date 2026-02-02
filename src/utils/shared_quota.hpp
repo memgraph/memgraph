@@ -63,6 +63,28 @@ class QuotaCoordinator {
   void NotifyWaiters();
 };
 
+/**
+ * SharedQuota provides thread-safe quota management with adaptive batching.
+ *
+ * SINGLE-THREADED: Equivalent to a simple counter with amortized O(1) operations.
+ *   - First Decrement() acquires entire quota in one batch
+ *   - Subsequent operations consume from local batch (no atomic overhead)
+ *
+ * PARALLEL: Lock-free quota distribution with epoch-based waiting.
+ *   - Multiple threads share a QuotaCoordinator via shared_ptr
+ *   - Each thread acquires batches adaptively to prevent starvation
+ *   - Automatic batch reacquisition when local quota is exhausted
+ *
+ * Example (single-threaded):
+ *   SharedQuota quota(100);  // 100 total quota
+ *   while (quota.Decrement() > 0) { process(); }
+ *
+ * Example (parallel - preloaded):
+ *   SharedQuota quota(SharedQuota::preload);  // Create uninitialized
+ *   // Later, when limit is known:
+ *   quota.Initialize(limit, num_threads);
+ *   while (quota.Decrement() > 0) { process(); }
+ */
 class SharedQuota {
   std::shared_ptr<QuotaCoordinator> coord_{nullptr};
   int64_t desired_batch_size_{0};

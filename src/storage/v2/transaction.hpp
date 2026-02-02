@@ -166,11 +166,7 @@ struct Transaction {
 
   void SetParallelExecution() { parallel_execution_ = true; }
 
-  void SetSerialExecution() { parallel_execution_ = false; }
-
-  bool IsParallelExecution() const { return parallel_execution_; }
-
-  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !IsParallelExecution(); }
+  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};

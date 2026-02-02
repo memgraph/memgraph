@@ -2700,11 +2700,14 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
-    const int64_t batch = parallel_execution ? static_cast<int64_t>(parallel_execution.value() * 4) : 0;
+    if (parallel_execution) {
+      ctx_.hops_limit = HopsLimit(*hops_limit, HopsLimit::WorkersToBatch(*parallel_execution));
+    } else {
+      ctx_.hops_limit = HopsLimit(*hops_limit);
+    }
 #else
-    const int64_t batch = 0;
+    ctx_.hops_limit = HopsLimit(*hops_limit);
 #endif
-    ctx_.hops_limit = HopsLimit(*hops_limit, batch);
   }
 #ifdef MG_ENTERPRISE
   ctx_.parallel_execution = parallel_execution;
@@ -3081,7 +3084,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     plan::ParallelChecker parallel_checker;
     parallel_checker.CheckParallelized(plan->plan());
     if (parallel_checker.is_parallelized_) {
-      dba->SetParallelExecution();  // Internal flag
+      dba->SetParallelExecution();  // Internal flag needed to disable delta cache for parallel queries
       if (interpreter_context->worker_pool == nullptr) {
         spdlog::trace(
             R"(Parallel execution is not supported while using "asio" scheduler. Please switch to "priority_queue" scheduler "

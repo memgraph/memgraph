@@ -205,7 +205,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
     auto *initial_block = static_cast<Block *>(aligned_buffer);
     initial_block->capacity = available;
     initial_block->size = 0;
-    initial_block->next = nullptr;
+    initial_block->alignment = alignment;
 
     // Add to global list for cleanup
     {
@@ -258,15 +258,14 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
  private:
   /// Memory block structure - stored at the beginning of allocated memory
   struct Block {
-    Block *next{nullptr};  // Next block (for cleanup)
-    size_t size{0};        // Current allocation size (non-atomic, thread-local)
-    size_t capacity;       // Total capacity (constant)
-    size_t alignment;      // Alignment of the block (for cleanup)
+    size_t size{0};    // Current allocation size (non-atomic, thread-local)
+    size_t capacity;   // Total capacity (constant)
+    size_t alignment;  // Alignment of the block (for cleanup)
 
     Block() = default;
 
-    Block(Block *next_block, size_t initial_size, size_t block_capacity, size_t block_alignment)
-        : next(next_block), size(initial_size), capacity(block_capacity), alignment(block_alignment) {}
+    Block(size_t initial_size, size_t block_capacity, size_t block_alignment)
+        : size(initial_size), capacity(block_capacity), alignment(block_alignment) {}
 
     char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
 

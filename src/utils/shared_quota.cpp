@@ -100,7 +100,7 @@ QuotaCoordinator::QuotaHandle &QuotaCoordinator::QuotaHandle::operator=(QuotaHan
 }
 
 int64_t QuotaCoordinator::QuotaHandle::Consume(int64_t amount) {
-  // Cosume from local batch
+  // Consume from local batch
   auto consumed = std::min(amount, amount_);
   amount_ -= consumed;
   return consumed;

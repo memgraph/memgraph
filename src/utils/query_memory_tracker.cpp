@@ -12,6 +12,7 @@
 #include "utils/query_memory_tracker.hpp"
 
 #include "memory/query_memory_control.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::utils {
@@ -64,10 +65,7 @@ void QueryMemoryTracker::StopProcTracking() { GetProcTracker() = nullptr; }
 
 void QueryMemoryTracker::CreateOrSetProcTracker(int64_t procedure_id, size_t limit) {
   auto *&proc_tracker = GetProcTracker();
-  if (procedure_id == NO_PROCEDURE) [[unlikely]] {
-    proc_tracker = nullptr;
-    return;
-  }
+  DMG_ASSERT(procedure_id >= 0, "Procedure id must be non-negative");
   // Read-only access to the proc tracker
   {
     const std::shared_lock lock(proc_trackers_mutex_);
@@ -80,8 +78,7 @@ void QueryMemoryTracker::CreateOrSetProcTracker(int64_t procedure_id, size_t lim
   // Write access to the proc tracker
   {
     const std::unique_lock lock(proc_trackers_mutex_);
-    auto [it, inserted] = proc_memory_trackers_.emplace(
-        std::piecewise_construct, std::forward_as_tuple(procedure_id), std::forward_as_tuple());
+    auto [it, inserted] = proc_memory_trackers_.try_emplace(procedure_id);
     // Only set limits if we actually inserted a new entry.
     // Another thread may have inserted between releasing the shared lock and acquiring the unique lock.
     // Setting limits on an already-in-use tracker would cause data races and incorrect behavior.

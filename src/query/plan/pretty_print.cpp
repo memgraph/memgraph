@@ -430,21 +430,21 @@ PRE_VISIT_IGNORE(ScanParallelByEdgePropertyValue);
 PRE_VISIT_IGNORE(ScanParallelByEdgePropertyRange);
 
 bool PlanPrinter::PreVisit(AggregateParallel & /*unused*/) {
-  // Hinding in the plan, since it is an implementation detail
+  // Hiding in the plan, since it is an implementation detail
   // Next operator is always going to be Aggregate, so no information is lost
   is_parallel_ = true;  // Start of parallel execution
   return true;
 }
 
 bool PlanPrinter::PreVisit(OrderByParallel & /*unused*/) {
-  // Hinding in the plan, since it is an implementation detail
+  // Hiding in the plan, since it is an implementation detail
   // Next operator is always going to be OrderBy, so no information is lost
   is_parallel_ = true;  // Start of parallel execution
   return true;
 }
 
 bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
-  // Hinding in the plan, since it is a backend connector, not a logical operator
+  // Hiding in the plan, since it is a backend connector, not a logical operator
   is_parallel_ = false;  // End of parallel execution
   return true;
 }

@@ -66,8 +66,6 @@ class QueryMemoryTracker {
   // Procedure setup is not thread safe, but MemoryTracker is thread-safe via atomics.
   std::unordered_map<int64_t, memgraph::utils::MemoryTracker> proc_memory_trackers_;
   std::shared_mutex proc_trackers_mutex_;
-  // Procedure ids start from 1. Procedure id -1 means there is no procedure to track.
-  static constexpr int64_t NO_PROCEDURE{-1};
 };
 
 }  // namespace memgraph::utils

@@ -244,7 +244,7 @@ ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::all
   }
 
   // Create new block at the beginning of the allocated memory
-  auto *new_block = new (new_buffer) Block(nullptr, 0, total_size - sizeof(Block), align);
+  auto *new_block = new (new_buffer) Block(0, total_size - sizeof(Block), align);
 
   // Add to global list for cleanup
   {
