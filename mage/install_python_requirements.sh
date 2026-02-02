@@ -5,6 +5,7 @@ set -euo pipefail
 CI=false
 CACHE_PRESENT=false
 CUDA=false
+CUDA_VERSION=13.0
 ARCH=amd64
 WHEEL_CACHE_DIR="$(pwd)/wheels"
 DEB_PACKAGE=false
@@ -20,6 +21,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --cuda)
       CUDA=$2
+      shift 2
+      ;;
+    --cuda-version)
+      CUDA_VERSION=$2
       shift 2
       ;;
     --arch)
@@ -73,13 +78,38 @@ else
   python3 -m pip install --no-cache-dir -r "$(pwd)/../src/auth/reference_modules/requirements.txt"
 fi
 
+# custom package links TODO(matt): use official binaries when available
+BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels"
+if [[ "$ARCH" == "arm64" ]]; then
+  BASE_URL="${BASE_URL}/arm64"
+  TORCH_CLUSTER="$BASE_URL/torch_cluster-1.6.3-cp312-cp312-linux_aarch64.whl"
+  TORCH_GEOMETRIC="$BASE_URL/torch_geometric-2.8.0-py3-none-any.whl"
+  TORCH_SCATTER="$BASE_URL/torch_scatter-2.1.2-cp312-cp312-linux_aarch64.whl"
+  TORCH_SPARSE="$BASE_URL/torch_sparse-0.6.18-cp312-cp312-linux_aarch64.whl"
+  TORCH_SPLINE_CONV="$BASE_URL/torch_spline_conv-1.2.2-cp312-cp312-linux_aarch64.whl"
+else
+  if [[ "$CUDA" == true ]]; then
+    BASE_URL="${BASE_URL}/cuda-${CUDA_VERSION}"
+  else
+    BASE_URL="${BASE_URL}/amd64"
+  fi
+  TORCH_CLUSTER="$BASE_URL/torch_cluster-1.6.3-cp312-cp312-linux_x86_64.whl"
+  TORCH_GEOMETRIC="$BASE_URL/torch_geometric-2.8.0-py3-none-any.whl"
+  TORCH_SCATTER="$BASE_URL/torch_scatter-2.1.2-cp312-cp312-linux_x86_64.whl"
+  TORCH_SPARSE="$BASE_URL/torch_sparse-0.6.18-cp312-cp312-linux_x86_64.whl"
+  TORCH_SPLINE_CONV="$BASE_URL/torch_spline_conv-1.2.2-cp312-cp312-linux_x86_64.whl"
+fi
+
 if [ "$ARCH" = "arm64" ]; then
   if [ "$CACHE_PRESENT" = "true" ]; then
     echo "Using cached torch packages"
     python3 -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
   else
-    python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
-
+    {
+      python3 -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
+    } || {
+      python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
+    }
     curl -o dgl-2.5-cp312-cp312-linux_aarch64.whl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/arm64/dgl-2.5-cp312-cp312-linux_aarch64.whl
     python3 -m pip install --no-cache-dir dgl-2.5-cp312-cp312-linux_aarch64.whl
     rm dgl-2.5-cp312-cp312-linux_aarch64.whl
@@ -89,11 +119,15 @@ else
       echo "Using cached torch packages"
       python3 -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
   else
-    if [[ "$CUDA" == true ]]; then
-      python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cu130.html
-    else
-      python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
-    fi
+    {
+      python3 -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
+    } || {
+      if [[ "$CUDA" == true ]]; then
+        python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cu130.html
+      else
+        python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
+      fi
+    }
     curl -o dgl-2.5-cp312-cp312-linux_x86_64.whl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/amd64/dgl-2.5-cp312-cp312-linux_x86_64.whl
     python3 -m pip install --no-cache-dir dgl-2.5-cp312-cp312-linux_x86_64.whl
     rm dgl-2.5-cp312-cp312-linux_x86_64.whl

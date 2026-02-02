@@ -22,7 +22,7 @@ ARG CACHE_PRESENT
 ENV MG_VERSION=${MG_VERSION}
 ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
-ARG CUSTOM_MIRROR
+ARG CUSTOM_MIRROR=false
 
 COPY --from=cugraph-dev /opt/conda/lib/libcugraph.so /opt/conda/lib/libcugraph.so
 COPY --from=cugraph-dev /opt/conda/lib/libcugraph_c.so /opt/conda/lib/libcugraph_c.so
@@ -31,21 +31,27 @@ COPY --from=cugraph-dev /opt/conda/lib/librapids_logger.so /opt/conda/lib/librap
 COPY --from=cugraph-dev /opt/conda/include /opt/conda/include
 
 # install custom openssl packages
+# copy custom openssl packages, runtime install script and install requirements
 COPY openssl/ /tmp/openssl/
-RUN if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
-      apt-get update && apt-get install -y \
-      /tmp/openssl/*.deb \
-      --no-install-recommends && \
-      rm -rf /var/lib/apt/lists/* /tmp/openssl /var/tmp/*; \
-    fi
-
-# Install runtime requirements for MAGE
 COPY install_runtime_requirements.sh /install_runtime_requirements.sh
-RUN chmod +x /install_runtime_requirements.sh && \
-    /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
-      --py-version ${PY_VERSION} --custom-mirror ${CUSTOM_MIRROR} \
-      --cuda true && \
-    rm /install_runtime_requirements.sh
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
+    apt-get update && apt-get install -y \
+    /tmp/openssl/*.deb \
+    --no-install-recommends && \
+    rm -rf /tmp/*; \
+  fi && \
+  chmod +x /install_runtime_requirements.sh && \
+  /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
+    --py-version ${PY_VERSION} --cuda true && \
+  rm /install_runtime_requirements.sh && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  fi
 
 # install memgraph
 COPY memgraph.deb .
@@ -80,13 +86,6 @@ RUN cd $HOME && \
     ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda true --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
     rm /home/memgraph/install_python_requirements.sh && \
     rm -rf /tmp/wheels
-
-RUN if [ -n "$CUSTOM_MIRROR" ]; then \
-    sed -E -i \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
-        /etc/apt/sources.list.d/ubuntu.sources; \
-    fi
 
 USER memgraph
 EXPOSE 7687
