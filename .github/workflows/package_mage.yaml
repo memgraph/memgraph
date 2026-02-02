@@ -26,6 +26,10 @@ on:
         type: boolean
         description: "Build the image for CUDA"
         default: false
+      cugraph:
+        type: boolean
+        description: "Build the image for CuGraph"
+        default: false
       push_to_s3:
         type: boolean
         description: "Push the image to S3?"
@@ -68,6 +72,10 @@ on:
       cuda:
         type: boolean
         description: "Build the image for CUDA"
+        default: false
+      cugraph:
+        type: boolean
+        description: "Build the image for CuGraph"
         default: false
       push_to_s3:
         type: boolean
@@ -121,7 +129,7 @@ jobs:
   BuildMage:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.build_packages == 'true' }}
-    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.malloc && 'Malloc' || '' }}
+    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.cugraph && ' CuGraph' || '' }}${{ matrix.malloc && 'Malloc' || '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
@@ -133,6 +141,7 @@ jobs:
       memgraph_download_link: ${{ matrix.memgraph_download_link }}
       s3_dest_dir: ${{ matrix.s3_dest_dir }}
       cuda: ${{ matrix.cuda == 'true' }}
+      cugraph: ${{ matrix.cugraph == 'true' }}
       push_to_s3: ${{ matrix.push_to_s3 == 'true' }}
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
