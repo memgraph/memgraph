@@ -9,8 +9,12 @@ Periodically restarts the REPLICA instance (data_2, port 7688) to test replicati
 import multiprocessing
 import os
 import random
-import subprocess
+import sys
 
+# Add docker_ha directory to path for common imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+from common import restart_container
 from neo4j import GraphDatabase
 
 # Connection settings (MAIN instance)
@@ -27,28 +31,6 @@ NUM_WORKERS = 2  # Reduced from 4
 
 # Instance to restart (REPLICA)
 RESTART_INSTANCE = "data_2"  # port 7688
-
-# Deployment script path
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEPLOYMENT_SCRIPT = os.path.join(SCRIPT_DIR, "..", "..", "deployment", "deployment.sh")
-
-
-def restart_container(instance_name: str) -> None:
-    """
-    Restart a specific container using the deployment script.
-
-    Args:
-        instance_name: Name of the instance to restart (e.g., "data_1", "coord_2")
-    """
-    print(f"Restarting instance: {instance_name}")
-    result = subprocess.run(
-        [DEPLOYMENT_SCRIPT, "restart", instance_name],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise Exception(f"Failed to restart {instance_name}: {result.stderr}")
-    print(f"Instance {instance_name} restart triggered")
 
 
 def create_driver():
