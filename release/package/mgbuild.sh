@@ -1837,8 +1837,8 @@ while [[ $# -gt 0 ]]; do
         shift 2
     ;;
     --cugraph)
-      cugraph=true
-      shift 1
+      [[ "$2" == "true" ]] && cugraph=true
+      shift 2
     ;;
     --enterprise-license)
         enterprise_license=$2

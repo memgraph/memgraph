@@ -249,6 +249,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: "Build Memgraph binaries"
@@ -259,6 +260,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
           build-memgraph $ADDITIONAL_BUILD_ARGS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -272,6 +274,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
           package-memgraph
 
       - name: "Copy package"
@@ -281,6 +284,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           copy \
           --package \
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
@@ -295,6 +299,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           copy \
           --sbom
 
@@ -305,6 +310,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           build-heaptrack
 
       - name: "Copy heaptrack"
@@ -315,6 +321,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           copy-heaptrack \
           --dest-dir "$(pwd)/mage"
 
@@ -329,6 +336,7 @@ jobs:
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
+            --cugraph $CUGRAPH \
             build-ssl \
             --version "3.5.4" \
             --conan-remote $CONAN_REMOTE \
@@ -346,6 +354,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
           build-mage
 
       - name: Build DEB package in MGBUILD container
@@ -357,6 +366,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             package-mage-deb \
             --version $MEMGRAPH_VERSION \
             $PACKAGE_ARGS
@@ -374,6 +384,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             build-pymgclient
           ls -la mage/wheels
 
@@ -386,6 +397,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             test-mage unit \
             --ci \
             $TEST_ARGS
@@ -399,6 +411,7 @@ jobs:
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
+            --cugraph $CUGRAPH \
             generate-memgraph-build-sbom \
             --conan-remote $CONAN_REMOTE
 
@@ -409,6 +422,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           stop --remove
 
       - name: Build image
@@ -418,6 +432,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             package-mage-docker \
             --docker-repository-name $DOCKER_REPOSITORY_NAME \
             --image-tag $IMAGE_TAG \
@@ -465,6 +480,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             test-mage e2e
 
       - name: Wait for e2e Docker images to be available
