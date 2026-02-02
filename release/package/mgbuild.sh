@@ -1414,23 +1414,27 @@ package_mage_docker() {
   cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
   cd $PROJECT_ROOT/mage
 
+  build_args=(
+    --target $docker_target
+    --platform linux/${arch}64
+    --tag ${docker_repository_name}:$image_tag
+    --file $dockerfile
+    --build-arg MEMGRAPH_REF=$memgraph_ref
+    --build-arg BUILD_TYPE=$build_type
+    --build-arg CACHE_PRESENT=$cache_present
+    --build-arg CUSTOM_MIRROR=$custom_mirror
+    --progress=plain
+  )
+
   # copy custom mirror for CI
   if [[ "$custom_mirror" = "true" ]]; then
     cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/mage/ci.sources
+    build_args+=(--secret id=ubuntu_sources,src=ci.sources)
   fi
 
   # build the docker image
   docker buildx build \
-    --target $docker_target \
-    --platform linux/${arch}64 \
-    --tag ${docker_repository_name}:$image_tag \
-    --file $dockerfile \
-    --build-arg MEMGRAPH_REF=$memgraph_ref \
-    --build-arg BUILD_TYPE=$build_type \
-    --build-arg CACHE_PRESENT=$cache_present \
-    --build-arg CUSTOM_MIRROR=$custom_mirror \
-    --progress=plain \
-    --secret id=ubuntu_sources,src=ci.sources \
+    ${build_args[*]} \
     --load .
 
   # print the image size in both SI and IEC units
