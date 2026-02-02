@@ -74,11 +74,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -187,8 +192,8 @@ jobs:
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
-    runs-on: [self-hosted, Linux, "${{ github.event_name == 'merge_group' && 'laufey' || 'benchmark' }}"]
-    timeout-minutes: 60
+    runs-on: [self-hosted, Linux, benchmark]
+    timeout-minutes: 80
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -204,11 +209,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -229,6 +239,15 @@ jobs:
           --os $OS \
           --arch $ARCH \
           init-tests
+
+      - name: Force container into first numa group
+        run: |
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Using numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
 
       - name: Run macro benchmarks
         run: |
@@ -324,11 +343,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -441,11 +465,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -566,11 +595,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
