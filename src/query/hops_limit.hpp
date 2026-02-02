@@ -53,6 +53,7 @@ struct HopsLimit {
       auto consumed = shared_quota_->Decrement(increment);
       if (consumed < increment) {
         is_limit_reached = true;
+        shared_quota_.reset();  // free any left over quota
       }
       return consumed;
     }

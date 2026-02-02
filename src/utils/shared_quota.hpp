@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -20,8 +21,9 @@ namespace memgraph::utils {
 
 class QuotaCoordinator {
   std::atomic<int64_t> remaining_quota_{0};
-  std::atomic<int> active_holders_{0};
-  std::atomic<uint32_t> epoch_{0};  // Incremented whenever the state changes in a way waiters care about.
+  std::atomic<int> active_handlers_{0};
+  // Incremented whenever the state changes in a way waiters care about (quota returned or holders finished).
+  std::atomic<uint32_t> epoch_{0};
   std::atomic<uint8_t> initialized_{false};
 
  public:
@@ -34,6 +36,7 @@ class QuotaCoordinator {
 
    public:
     QuotaHandle(QuotaCoordinator *coord, int64_t amount);
+
     ~QuotaHandle() { ReturnUnused(); }
 
     QuotaHandle(const QuotaHandle &) = delete;
@@ -42,9 +45,12 @@ class QuotaCoordinator {
     QuotaHandle &operator=(QuotaHandle &&other) noexcept;
 
     int64_t Count() const { return amount_; }
+
     // Returns the amount that was actually consumed.
     int64_t Consume(int64_t amount);
     void Increment(int64_t amount);
+
+   private:
     void ReturnUnused();
   };
 
@@ -76,16 +82,15 @@ class SharedQuota {
   SharedQuota(SharedQuota &&other) noexcept;
   SharedQuota &operator=(SharedQuota &&other) noexcept;
 
-  // Returns the amount that was actually decremented.
+  // Primary entry point for workers to consume quota.
   int64_t Decrement(int64_t amount = 1);
-  // Increment the local quota. This is useful in cases where we optimistically decremented and need to return it.
-  // IMPORTANT: Increment ONLY works against Dectrements of 1. Otherwise we could lose the handle.
+  // Returns quota to the LOCAL handle (no atomic overhead).
   void Increment();
-  // Reacquire the handler with the desired batch size.
+  // Manually refresh the local batch from the coordinator.
   void Reacquire();
-  // Useful for multi-threaded exeucitons where each thread needs to free its left quota.
+  // Drops the current handle and returns unused quota to the coordinator.
   void Free();
-  // Initialize the quota coordinator when preloaded and used by multiple threads.
+  // Initialize the coordinator if it was created via Preload.
   void Initialize(int64_t limit, int64_t n_batches = 1);
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -179,7 +179,7 @@ TEST(QuotaTest, WakeOnZeroRemaining) {
   });
 
   // Thread B: Sees 0 quota, Waits.
-  // Should wake up when T1 finishes, realize active_holders is 0, and exit.
+  // Should wake up when T1 finishes, realize active_handlers is 0, and exit.
   std::jthread t2([&]() {
     t1_holding.wait();
     // Should block here, then return handle with 0 count
@@ -575,4 +575,166 @@ TEST(SharedQuotaTest, WaitOnZero) {
 
   t1.join();
   t2.join();
+}
+
+TEST(SharedQuotaTest, SingleThreadFullConsumption) {
+  const int64_t limit = 1000;
+  const int64_t batch = 100;
+  QuotaCoordinator coord(limit);
+  int64_t processed = 0;
+
+  while (auto handle = coord.Acquire(batch)) {
+    while (handle->Consume(1) > 0) processed++;
+  }
+  ASSERT_EQ(processed, limit);
+}
+
+TEST(SharedQuotaTest, MultiThreadFullConsumption) {
+  const int64_t limit = 50000;
+  const int thread_count = 8;
+  QuotaCoordinator coord(limit);
+  std::atomic<int64_t> global_processed{0};
+
+  std::vector<std::jthread> threads;
+  for (int i = 0; i < thread_count; ++i) {
+    threads.emplace_back([&]() {
+      while (auto handle = coord.Acquire(100)) {
+        while (handle->Consume(1) > 0) global_processed.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+  }
+  threads.clear();
+  ASSERT_EQ(global_processed.load(), limit);
+}
+
+TEST(SharedQuotaTest, ReturnUnusedQuota) {
+  const int64_t limit = 200;
+  QuotaCoordinator coord(limit);
+  std::atomic<int64_t> global_processed{0};
+  std::latch start_latch(2);
+
+  std::jthread t1([&]() {
+    start_latch.arrive_and_wait();
+    auto handle = coord.Acquire(100);
+    if (handle && handle->Consume(1) > 0) global_processed++;
+    // handle scope ends, returning 99
+  });
+
+  std::jthread t2([&]() {
+    start_latch.arrive_and_wait();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    while (auto handle = coord.Acquire(10)) {
+      while (handle->Consume(1) > 0) global_processed++;
+    }
+  });
+
+  t1.join();
+  t2.join();
+  ASSERT_EQ(global_processed.load(), limit);
+}
+
+// --- NEW EDGE CASE TESTS ---
+
+TEST(SharedQuotaTest, TinyLimitLargeBatchCount) {
+  // Tests if division-based batching handles limits smaller than requested batches
+  const int64_t limit = 5;
+  const int64_t n_batches = 100;
+  SharedQuota quota(limit, n_batches);
+
+  int64_t total = 0;
+  while (quota.Decrement(1) > 0) total++;
+
+  ASSERT_EQ(total, limit);
+}
+
+// --- HEAVY STRESS TEST ---
+
+TEST(SharedQuotaTest, StressTestHighChurn) {
+  /**
+   * This test targets the race condition where active_holders_ might hit 0
+   * while a thread is between checking quota and incrementing its handle.
+   */
+  const int64_t limit = 200000;
+  const int thread_count = std::max(4u, std::thread::hardware_concurrency());
+  const int64_t batch_size = 50;
+
+  QuotaCoordinator coord(limit);
+  std::atomic<int64_t> total_consumed{0};
+
+  auto worker = [&](int id) {
+    while (true) {
+      auto handle = coord.Acquire(batch_size);
+      if (!handle) break;
+
+      int64_t local_count = 0;
+      while (handle->Consume(1) > 0) {
+        local_count++;
+        // Frequent yields to force context switches during acquisition/return phases
+        if (local_count % 13 == 0) std::this_thread::yield();
+
+        // Occasionally return quota mid-way to stress ReturnQuota
+        if (id % 2 == 0 && local_count == 25) {
+          handle.reset();
+          break;
+        }
+      }
+
+      total_consumed.fetch_add(local_count, std::memory_order_relaxed);
+    }
+  };
+
+  std::vector<std::jthread> threads;
+  for (int i = 0; i < thread_count; ++i) {
+    threads.emplace_back(worker, i);
+  }
+  threads.clear();  // Join all
+
+  ASSERT_EQ(total_consumed.load(), limit) << "Lost quota or premature termination detected in stress test!";
+}
+
+TEST(SharedQuotaTest, StressTestLowQuota) {
+  const int64_t limit = 1;
+  const int thread_count = std::max(4u, std::thread::hardware_concurrency());
+  const int64_t batch_size = 1;
+
+  QuotaCoordinator coord(limit);
+
+  auto worker = [&](int id) {
+    int loop_count = 0;
+    std::this_thread::sleep_for(std::chrono::microseconds(id));
+    while (true) {
+      loop_count++;
+      auto handle = coord.Acquire(batch_size);
+      std::this_thread::yield();
+      if (!handle) break;  // Should happen only when quota is 0 (consume is called)
+      if (loop_count > 100) {
+        handle->Consume(1);  // All other threads should break here
+        std::this_thread::yield();
+        break;
+      }
+      std::this_thread::yield();
+      // handle destruction will give back the 1 unit of quota
+    }
+  };
+
+  std::vector<std::jthread> threads;
+  for (int i = 0; i < thread_count; ++i) {
+    threads.emplace_back(worker, i);
+  }
+  threads.clear();  // Join all
+}
+
+// --- SHARED QUOTA COPY/MOVE LOGIC ---
+
+TEST(SharedQuotaTest, AssignmentExchangesHandleSafely) {
+  SharedQuota q1(100, 10);
+  SharedQuota q2(200, 10);
+
+  q1.Decrement(10);  // q1 has a handle
+  q2.Decrement(10);  // q2 has a handle
+
+  // Move assignment should return q1's handle quota to its original coord
+  q1 = std::move(q2);
+
+  ASSERT_EQ(q1.Decrement(190), 190);
 }
