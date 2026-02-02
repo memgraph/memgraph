@@ -352,7 +352,7 @@ jobs:
   TriggerCVEScan:
     name: Trigger CVE Scan
     needs: [CurrentDateJob, DailyDockerArtifact, BuildAndTestMAGE]
-    if: ${{ needs.CurrentDateJob.outputs.is_sunday == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_cve_scan)) }}
+    if: ${{ (needs.CurrentDateJob.outputs.is_sunday == 'true' && github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && inputs.run_cve_scan) }}
     uses: ./.github/workflows/cve_scan.yml
     with:
       date: "${{ needs.CurrentDateJob.outputs.current_date }}"
