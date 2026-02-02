@@ -1438,32 +1438,33 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
   // compared to SingleSourceShortestPath (multi-source BFS).
   // assumes STShortestPaths is source*destination complexity
-  bool ShouldUseSTShortestPath(double S, double T, EdgeAtom::Direction direction) {
-    if (S == 0 || T == 0) return false;
+  bool ShouldUseSTShortestPath(double source_cnt, double target_cnt, EdgeAtom::Direction direction) {
+    if (source_cnt == 0 || target_cnt == 0) return false;
 
-    const double V = db_->VerticesCount();
-    const double E = db_->EdgesCount();
-    if (V == 0 || E == 0) return false;
+    const double vertex_cnt = db_->VerticesCount();
+    const double edge_cnt = db_->EdgesCount();
+    if (vertex_cnt == 0 || edge_cnt == 0) return false;
 
     // 1. Pair explosion guard
-    if (S * T > 1024) return false;
+    if (source_cnt * target_cnt > 1024) return false;
 
     // 2. Balance heuristic
-    const double ratio = std::max(S, T) / std::min(S, T);
+    const double ratio = std::max(source_cnt, target_cnt) / std::min(source_cnt, target_cnt);
     if (ratio > 4.0) return false;
 
     // 3. Branching factor (cheap structural hint)
+    // edge_cnt is the number of edges in the graph, mg doesn't support bidirectional edges
     const bool undirected = (direction == EdgeAtom::Direction::BOTH);
-    const double b = undirected ? (2.0 * E / V) : (E / V);
+    const double branching_factor_estimate = undirected ? edge_cnt / vertex_cnt : (edge_cnt / vertex_cnt) / 2.0;
 
     // If graph is chain-like or tree-like, bidirectional shines
-    if (b <= 2.0) return true;
+    if (branching_factor_estimate <= 2.0) return true;
 
     // 4. Otherwise fall back to conservative math
-    double d = std::log(V) / std::log(std::max(b, 1.01));
-    d = std::clamp(d, 2.0, 12.0);
+    double hop_count_estimate = std::log(vertex_cnt) / std::log(std::max(branching_factor_estimate, 1.01));
+    hop_count_estimate = std::clamp(hop_count_estimate, 2.0, 12.0);
 
-    return T < std::pow(b, d / 2.0) / 8.0;
+    return target_cnt < std::pow(branching_factor_estimate, hop_count_estimate / 2.0) / 8.0;
   }
 
   // Estimates cardinality for indexed scan operators only.
