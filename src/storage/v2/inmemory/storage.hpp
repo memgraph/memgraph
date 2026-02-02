@@ -826,13 +826,11 @@ class InMemoryStorage final : public Storage {
   std::mutex gc_lock_;
 
   struct GCDeltas {
-    GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp,
-             uint64_t transaction_id)
+    GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
         : mark_timestamp_{mark_timestamp},
           deltas_{std::move(deltas)},
           commit_timestamp_{std::move(commit_timestamp)},
-          unlinkable_timestamp_{commit_timestamp_ ? commit_timestamp_->load(std::memory_order_acquire) : 0},
-          transaction_id_{transaction_id} {}
+          unlinkable_timestamp_{commit_timestamp_ ? commit_timestamp_->load(std::memory_order_acquire) : 0} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
@@ -841,7 +839,6 @@ class InMemoryStorage final : public Storage {
     delta_container deltas_;                                     //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
     uint64_t unlinkable_timestamp_{};  //!< earliest timestamp when these deltas can be safely unlinked
-    uint64_t transaction_id_{};        //!< the transaction ID that created these deltas
   };
 
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
