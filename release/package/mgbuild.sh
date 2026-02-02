@@ -1429,7 +1429,7 @@ package_mage_docker() {
     --build-arg BUILD_TYPE=$build_type \
     --build-arg CACHE_PRESENT=$cache_present \
     --build-arg CUSTOM_MIRROR=$custom_mirror \
-    --load . --progress=plain \
+    --progress=plain \
     --secret id=ubuntu_sources,src=ci.sources \
     --load .
 
