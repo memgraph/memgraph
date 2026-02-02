@@ -71,19 +71,17 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   bool has_label = false;
   auto current_values_equal_to_value = std::vector<bool>{};
   const Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{vertex.lock};
-    delta = vertex.delta;
-    deleted = vertex.deleted;
-    if (!delta && deleted) return false;
-    has_label = std::ranges::contains(vertex.labels, label);
-    if (!delta && !has_label) return false;
-    current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+  auto guard = std::shared_lock{vertex.lock};
+  delta = vertex.delta;
+  deleted = vertex.deleted;
+  if (!delta && deleted) return false;
+  has_label = std::ranges::contains(vertex.labels, label);
+  if (!delta && !has_label) return false;
+  current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
 
-    // If vertex has non-sequential deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_non_sequential_deltas) {
-      guard.unlock();
-    }
+  // If vertex has non-sequential deltas, hold lock while applying them
+  if (!vertex.has_uncommitted_non_sequential_deltas) {
+    guard.unlock();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
