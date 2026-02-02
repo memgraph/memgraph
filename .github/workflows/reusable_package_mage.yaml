@@ -187,6 +187,9 @@ jobs:
             echo "Cache is not present. Skipping wheel fetch."
           fi
 
+          # move wheels into wheels directory
+          mv -v mage/wheels/$WHEEL_PATH/* mage/wheels/
+
       - name: Set image tag and artifact name
         run: |
           echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH"
