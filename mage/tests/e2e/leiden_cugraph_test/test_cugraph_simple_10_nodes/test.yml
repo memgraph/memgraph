@@ -20,7 +20,7 @@ output:
   - node_id: 6
     partition: 0
   - node_id: 7
-    partition: 1
+    partition: 0
   - node_id: 8
     partition: 1
   - node_id: 9

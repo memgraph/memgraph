@@ -187,8 +187,8 @@ jobs:
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
-    runs-on: [self-hosted, Linux, "${{ github.event_name == 'merge_group' && 'laufey' || 'benchmark' }}"]
-    timeout-minutes: 60
+    runs-on: [self-hosted, Linux, benchmark]
+    timeout-minutes: 80
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -229,6 +229,15 @@ jobs:
           --os $OS \
           --arch $ARCH \
           init-tests
+
+      - name: Force container into first numa group
+        run: |
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Using numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
 
       - name: Run macro benchmarks
         run: |

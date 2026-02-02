@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,6 +81,11 @@ const std::chrono::time_zone *GetTimezone();
 std::string GetQueryLogDirectory();
 
 /**
+ * @brief Get the also-log-to-stderr value
+ * @return bool
+ */
+bool GetAlsoLogToStderr();
+/**
  * @brief Get the AWS region setting
  * @return std::string
  */
@@ -103,6 +108,12 @@ auto GetAwsSecretKey() -> std::string;
  * @return std::string
  */
 auto GetAwsEndpointUrl() -> std::string;
+
+/**
+ * @brief Get the storage snapshot interval
+ * @return std::string
+ */
+auto GetStorageSnapshotInterval() -> std::string;
 
 /**
  * @brief Get the file_download_timeout run-time config value

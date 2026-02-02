@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -21,7 +20,6 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
-#include "auth/profiles/user_profiles.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -234,8 +232,7 @@ int main(int argc, char **argv) {
     memgraph::flags::AppendExperimental(env_experimental);
   }
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
-  // even if
-  // `--also-log-to-stderr` is set to false.
+  // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
@@ -366,9 +363,11 @@ int main(int argc, char **argv) {
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
 
-  memgraph::license::global_license_checker.CheckEnvLicense();
+  memgraph::license::global_license_checker.CheckEnvLicense(*settings);
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+    spdlog::warn("Using license info overrides");
+    memgraph::license::global_license_checker.SetLicenseInfoOverride(
+        FLAGS_license_key, FLAGS_organization_name, *settings);
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
@@ -465,7 +464,8 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  db_config.durability.snapshot_interval = memgraph::utils::SchedulerInterval(FLAGS_storage_snapshot_interval);
+  db_config.durability.snapshot_interval =
+      memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
   if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     if (!db_config.durability.snapshot_interval) {
       if (FLAGS_storage_wal_enabled) {
