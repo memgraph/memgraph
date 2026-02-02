@@ -3,10 +3,9 @@
 Vector workload script for RAG stress testing on Docker.
 Creates nodes with 1500-dimension vectors in batches using multiprocessing.
 
-Workers write to the MAIN instance (data_1, port 7687).
-Periodically restarts the REPLICA instance (data_2, port 7688) to test replication resilience.
+Workers write to the MAIN instance using bolt+routing protocol.
+Periodically restarts the REPLICA instance to test replication resilience.
 """
-import multiprocessing
 import os
 import random
 import sys
@@ -14,13 +13,10 @@ import sys
 # Add docker_ha directory to path for common imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
-from common import restart_container
-from neo4j import GraphDatabase
+from common import create_bolt_routing_driver_for, execute_bolt_routing_query, restart_container, run_parallel
 
-# Connection settings (MAIN instance)
-HOST = "127.0.0.1"
-PORT = 7687  # data_1 (MAIN)
-URI = f"bolt://{HOST}:{PORT}"
+COORDINATOR = "coord_1"
+REPLICA = "data_2"
 
 # Workload configuration
 BATCH_SIZE = 1000  # Reduced from 10000
@@ -28,14 +24,6 @@ NUM_BATCHES = 10  # Reduced from 100
 VECTOR_DIMENSIONS = 128  # Reduced from 1500
 RESTART_EVERY_N_BATCHES = 5
 NUM_WORKERS = 2  # Reduced from 4
-
-# Instance to restart (REPLICA)
-RESTART_INSTANCE = "data_2"  # port 7688
-
-
-def create_driver():
-    """Create a new database driver."""
-    return GraphDatabase.driver(URI, auth=("", ""))
 
 
 def generate_vector(dimensions: int) -> list[float]:
@@ -46,7 +34,7 @@ def generate_vector(dimensions: int) -> list[float]:
 def create_indexes() -> None:
     """Create necessary indexes."""
     print("Creating indexes...")
-    driver = create_driver()
+    driver = create_bolt_routing_driver_for(COORDINATOR)
     try:
         with driver.session() as session:
             session.run("CREATE INDEX ON :VectorNode;")
@@ -56,66 +44,47 @@ def create_indexes() -> None:
         driver.close()
 
 
-def process_batch(batch_num: int) -> tuple[int, int]:
+def build_batch_query_tasks(batch_numbers: list[int]) -> list[tuple[str, str, dict]]:
     """
-    Process a single batch - called by worker processes.
-
-    Args:
-        batch_num: The batch number to process.
-
-    Returns:
-        Tuple of (batch_num, nodes_created).
-    """
-    driver = create_driver()
-    try:
-        nodes_data = [
-            {"id": batch_num * BATCH_SIZE + i, "vector": generate_vector(VECTOR_DIMENSIONS)} for i in range(BATCH_SIZE)
-        ]
-
-        with driver.session() as session:
-            session.run(
-                """
-                UNWIND $nodes AS node
-                CREATE (:VectorNode {id: node.id, embedding: node.vector})
-                """,
-                nodes=nodes_data,
-            )
-
-        return (batch_num, BATCH_SIZE)
-    finally:
-        driver.close()
-
-
-def run_batches_parallel(batch_numbers: list[int]) -> int:
-    """
-    Run multiple batches in parallel using a process pool.
+    Build a list of query tasks for parallel execution.
 
     Args:
         batch_numbers: List of batch numbers to process.
 
     Returns:
-        Total nodes created.
+        List of (instance_name, query, params) tuples.
     """
-    with multiprocessing.Pool(processes=NUM_WORKERS) as pool:
-        results = pool.map(process_batch, batch_numbers)
+    query = """
+        UNWIND $nodes AS node
+        CREATE (:VectorNode {id: node.id, embedding: node.vector})
+    """
 
-    total = sum(count for _, count in results)
-    return total
+    tasks = []
+    for batch_num in batch_numbers:
+        nodes_data = [
+            {"id": batch_num * BATCH_SIZE + i, "vector": generate_vector(VECTOR_DIMENSIONS)} for i in range(BATCH_SIZE)
+        ]
+        tasks.append((COORDINATOR, query, {"nodes": nodes_data}))
+
+    return tasks
 
 
-def main():
-    num_chunks = NUM_BATCHES // RESTART_EVERY_N_BATCHES  # 10 chunks of 10 batches
+def run_batches_parallel(batch_numbers: list[int]) -> None:
+    """
+    Run multiple batches in parallel using a process pool.
 
-    print(f"Connecting to Memgraph MAIN at {URI}")
-    print(f"Workload: {NUM_BATCHES * BATCH_SIZE:,} nodes with {VECTOR_DIMENSIONS}-dimension vectors")
-    print(f"Batch size: {BATCH_SIZE:,}, Batches per chunk: {RESTART_EVERY_N_BATCHES}, Chunks: {num_chunks}")
-    print(f"Workers: {NUM_WORKERS}")
-    print(f"Restart {RESTART_INSTANCE} (REPLICA) after each chunk")
-    print("-" * 60)
+    Args:
+        batch_numbers: List of batch numbers to process.
+    """
+    tasks = build_batch_query_tasks(batch_numbers)
+    run_parallel(execute_bolt_routing_query, tasks, num_workers=NUM_WORKERS)
 
-    create_indexes()
 
-    total_created = 0
+def run_workload() -> None:
+    """
+    Run the vector workload in chunks, restarting REPLICA between chunks.
+    """
+    num_chunks = NUM_BATCHES // RESTART_EVERY_N_BATCHES
 
     for chunk in range(num_chunks):
         start_batch = chunk * RESTART_EVERY_N_BATCHES
@@ -123,18 +92,30 @@ def main():
 
         print(f"\nChunk {chunk + 1}/{num_chunks}: batches {start_batch + 1}-{start_batch + RESTART_EVERY_N_BATCHES}")
 
-        nodes_created = run_batches_parallel(batch_numbers)
-        total_created += nodes_created
+        run_batches_parallel(batch_numbers)
 
-        print(f"Chunk {chunk + 1} completed. Total nodes: {total_created:,}")
+        print(f"Chunk {chunk + 1} completed.")
 
         # Restart REPLICA after each chunk (except the last)
         if chunk < num_chunks - 1:
-            print(f"\n--- Restarting {RESTART_INSTANCE} (REPLICA) ---")
-            restart_container(RESTART_INSTANCE)
+            print(f"\n--- Restarting {REPLICA} (REPLICA) ---")
+            restart_container(REPLICA)
+
+
+def main():
+    num_chunks = NUM_BATCHES // RESTART_EVERY_N_BATCHES
+
+    print(f"Workload: {NUM_BATCHES * BATCH_SIZE:,} nodes with {VECTOR_DIMENSIONS}-dimension vectors")
+    print(f"Batch size: {BATCH_SIZE:,}, Batches per chunk: {RESTART_EVERY_N_BATCHES}, Chunks: {num_chunks}")
+    print(f"Workers: {NUM_WORKERS}")
+    print(f"Restart {REPLICA} (REPLICA) after each chunk")
+    print("-" * 60)
+
+    create_indexes()
+    run_workload()
 
     print("-" * 60)
-    print(f"Successfully created {total_created:,} nodes with vectors!")
+    print("Workload completed successfully!")
 
 
 if __name__ == "__main__":
