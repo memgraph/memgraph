@@ -32,6 +32,8 @@ constexpr char const *kArgumentSeed = "seed";
 constexpr char const *kArgumentClipAndFlip = "clip_and_flip";
 
 constexpr char const *kFieldMessage = "message";
+constexpr char const *kResultFieldSource = "source";
+constexpr char const *kResultFieldTarget = "target";
 
 constexpr char const *kDefaultEdgeType = "RELATIONSHIP";
 
@@ -62,15 +64,26 @@ void GenerateRMAT(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memo
     raft::handle_t handle{};
 
     auto num_vertices = 1 << scale;  // RMAT generator defines this
-    auto edges = mg_cugraph::GenerateCugraphRMAT(scale, num_edges, parameter_a, parameter_b, parameter_c, seed,
-                                                 clip_and_flip, handle);
+
+    // Create RNG state from seed for cuGraph 25.x API
+    raft::random::RngState rng_state(static_cast<std::uint64_t>(seed));
+
+    // Generate RMAT edges using cuGraph 25.x API
+    auto edges = mg_cugraph::GenerateCugraphRMAT<vertex_t>(rng_state,
+                                                           static_cast<std::size_t>(scale),
+                                                           static_cast<std::size_t>(num_edges),
+                                                           parameter_a,
+                                                           parameter_b,
+                                                           parameter_c,
+                                                           clip_and_flip,
+                                                           handle);
 
     std::vector<std::unique_ptr<mgp_vertex, VertexDelete>> vertices(num_vertices);
     for (std::size_t i = 0; i < num_vertices; ++i) {
       auto new_vertex = mgp::graph_create_vertex(graph, memory);
 
-      for (size_t i = 0; i < mgp::list_size(node_labels); ++i) {
-        auto label_str = mgp::value_get_string(mgp::list_at(node_labels, i));
+      for (size_t j = 0; j < mgp::list_size(node_labels); ++j) {
+        auto label_str = mgp::value_get_string(mgp::list_at(node_labels, j));
         mgp::vertex_add_label(new_vertex, mgp_label{.name = label_str});
       }
 
@@ -88,6 +101,13 @@ void GenerateRMAT(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memo
       mgp_vertex *dst_vertex = dst_vertex_ptr.get();
 
       auto new_edge = mgp::graph_create_edge(graph, src_vertex, dst_vertex, mgp_edge_type{.name = edge_type}, memory);
+
+      // Output the created edge
+      auto *record = mgp::result_new_record(result);
+      if (record == nullptr) throw mg_exception::NotEnoughMemoryException();
+
+      mg_utility::InsertIntValueResult(record, kResultFieldSource, static_cast<int64_t>(src), memory);
+      mg_utility::InsertIntValueResult(record, kResultFieldTarget, static_cast<int64_t>(dst), memory);
 
       mgp_edge_destroy(new_edge);
     }
@@ -137,6 +157,8 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp::proc_add_opt_arg(rmat_proc, kArgumentClipAndFlip, mgp::type_bool(), default_clip_and_flip);
 
     mgp::proc_add_result(rmat_proc, kFieldMessage, mgp::type_string());
+    mgp::proc_add_result(rmat_proc, kResultFieldSource, mgp::type_int());
+    mgp::proc_add_result(rmat_proc, kResultFieldTarget, mgp::type_int());
   } catch (const std::exception &e) {
     mgp_value_destroy(default_scale);
     mgp_value_destroy(default_num_edges);

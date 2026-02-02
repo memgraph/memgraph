@@ -12,10 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// NOTE: balancedCutClustering only exists in the legacy cugraph::ext_raft namespace
+// and requires legacy::GraphCSRView. There is no modern API equivalent.
+
+#include <cugraph/legacy/graph.hpp>
+#include <cugraph/algorithms.hpp>
+
 #include "mg_cugraph_utility.hpp"
 
 namespace {
-// TODO: Check Balanced Cut API. Update in new cuGraph API.
+// NOTE: Spectral clustering legacy API only supports int32_t vertex/edge types
 using vertex_t = int32_t;
 using edge_t = int32_t;
 using weight_t = double;
@@ -55,7 +61,6 @@ void InsertBalancedCutResult(mgp_graph *graph, mgp_result *result, mgp_memory *m
 
 void BalancedCutClusteringProc(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
   try {
-    // TODO: Not supporting int64_t
     int num_clusters = mgp::value_get_int(mgp::list_at(args, 0));
     int num_eigenvectors = mgp::value_get_int(mgp::list_at(args, 1));
     double ev_tolerance = mgp::value_get_double(mgp::list_at(args, 2));
@@ -74,20 +79,30 @@ void BalancedCutClusteringProc(mgp_list *args, mgp_graph *graph, mgp_result *res
     raft::handle_t handle{};
     auto stream = handle.get_stream();
 
-    // IMPORTANT: Balanced cut cuGraph algorithm works only on legacy code
+    // IMPORTANT: Balanced cut cuGraph algorithm works only on legacy CSR graph format
     auto cu_graph_ptr =
         mg_cugraph::CreateCugraphLegacyFromMemgraph<vertex_t, edge_t, weight_t>(*mg_graph.get(), handle);
     auto cu_graph_view = cu_graph_ptr->view();
     cu_graph_view.prop.directed = false;
 
     rmm::device_uvector<vertex_t> clustering_result(n_vertices, stream);
-    // Only supported for weighted graphs
-    cugraph::ext_raft::balancedCutClustering(cu_graph_view, num_clusters, num_eigenvectors, ev_tolerance, ev_maxiter,
-                                             kmean_tolerance, kmean_maxiter, clustering_result.data());
 
-    for (vertex_t node_id = 0; node_id < clustering_result.size(); ++node_id) {
-      auto cluster = clustering_result.element(node_id, stream);
-      InsertBalancedCutResult(graph, result, memory, mg_graph->GetMemgraphNodeId(node_id), cluster);
+    // Create RNG state for cuGraph 25.x API
+    raft::random::RngState rng_state(42);
+
+    // Call balancedCutClustering API - cuGraph 25.x requires handle and rng_state
+    cugraph::ext_raft::balancedCutClustering(handle, rng_state, cu_graph_view, num_clusters, num_eigenvectors,
+                                   static_cast<weight_t>(ev_tolerance), ev_maxiter,
+                                   static_cast<weight_t>(kmean_tolerance), kmean_maxiter,
+                                   clustering_result.data());
+
+    // Copy results to host and output
+    std::vector<vertex_t> h_clustering(n_vertices);
+    raft::update_host(h_clustering.data(), clustering_result.data(), n_vertices, stream);
+    handle.sync_stream();
+
+    for (vertex_t node_id = 0; node_id < static_cast<vertex_t>(n_vertices); ++node_id) {
+      InsertBalancedCutResult(graph, result, memory, mg_graph->GetMemgraphNodeId(node_id), h_clustering[node_id]);
     }
   } catch (const std::exception &e) {
     // We must not let any exceptions out of our module.

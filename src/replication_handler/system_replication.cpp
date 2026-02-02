@@ -134,13 +134,18 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
 #endif
 
 #ifdef MG_ENTERPRISE
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data, auth::SynchedAuth &auth,
-                    system::System &system) {
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system) {
 #else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data) {
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data) {
 #endif
   // Register storage handlers
-  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
+  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
 #ifdef MG_ENTERPRISE
   // Register system handlers
   Register(data, system, dbms_handler, auth);

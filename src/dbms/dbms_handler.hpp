@@ -121,8 +121,7 @@ class DbmsHandler {
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config, utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
-              auth::SynchedAuth &auth,
+  DbmsHandler(storage::Config config, auth::SynchedAuth &auth,
               bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
@@ -130,13 +129,11 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config, utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state)
-      : repl_state_{repl_state},
-        db_gatekeeper_{[&] {
+  DbmsHandler(storage::Config config)
+      : db_gatekeeper_{[&] {
                          config.salient.name = kDefaultDB;
                          return std::move(config);
                        }(),
-                       repl_state_,
                        [this]() -> storage::DatabaseProtectorPtr {
                          if (auto db_acc = db_gatekeeper_.access()) {
                            return std::make_unique<DatabaseProtector>(*db_acc);
@@ -313,10 +310,6 @@ class DbmsHandler {
     return {db_gatekeeper_.access()->get()->name()};
 #endif
   }
-
-  auto ReplicationState() { return repl_state_.Lock(); }
-
-  auto ReplicationState() const { return repl_state_.ReadLock(); }
 
   /**
    * @brief Return all active databases.
@@ -667,14 +660,6 @@ class DbmsHandler {
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
   auth::SynchedAuth &auth_;                       //!< Synchronized auth::Auth
 #endif
- private:
-  // NOTE: atm the only reason this exists here, is because we pass it into the construction of New Database's
-  //       Database only uses it as a convience to make the correct Access without out needing to be told the
-  //       current replication role. TODO: make Database Access explicit about the role and remove this from
-  //       dbms stuff
-  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock>
-      &repl_state_;  //!< Ref to global replication state
-
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif

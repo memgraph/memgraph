@@ -114,7 +114,7 @@ class ReplicationStorageClient {
 
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
-  void AbortRpcClient() const { client_.rpc_client_.Abort(); }
+  void AbortRpcClient() const { client_.rpc_client_.Shutdown(); }
 
   void SetMaybeBehind() {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });

@@ -11,7 +11,7 @@
   <a href="https://github.com/memgraph/memgraph/blob/master/licenses/BSL.txt">
     <img src="https://img.shields.io/badge/license-BSL-yellowgreen" alt="license" title="license"/>
   </a>
-  <a href="https://github.com/memgraph/memgraph/blob/master/licenses/MEL.txt" alt="Documentation">
+  <a href="https://github.com/memgraph/memgraph/blob/master/licenses/MEL.pdf" alt="Documentation">
     <img src="https://img.shields.io/badge/license-MEL-yellow" alt="license" title="license"/>
   </a>
 </p>
@@ -180,7 +180,7 @@ We maintain a zero-tolerance policy towards any violations. Our shared commitmen
 
 Memgraph Community is available under the [BSL
 license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
-[MEL license](./licenses/MEL.txt).
+[MEL license](./licenses/MEL.pdf).
 
 ## :busts_in_silhouette: Community
 

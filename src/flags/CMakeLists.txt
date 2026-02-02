@@ -13,7 +13,6 @@ target_sources(mg-flags
         isolation_level.hpp
         log_level.hpp
         memory_limit.hpp
-        query.hpp
         replication.hpp
         run_time_configurable.hpp
         storage_access.hpp
@@ -31,7 +30,6 @@ target_sources(mg-flags
         isolation_level.cpp
         log_level.cpp
         memory_limit.cpp
-        query.cpp
         replication.cpp
         run_time_configurable.cpp
         storage_access.cpp

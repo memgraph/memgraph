@@ -766,7 +766,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
 
-  bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
+  bool InitializeWalFile(std::string_view epoch_id);
   void FinalizeWalFile();
 
   StorageInfo GetBaseInfo() override;
