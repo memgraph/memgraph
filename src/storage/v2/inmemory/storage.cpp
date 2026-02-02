@@ -1637,8 +1637,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         else if (prev_delta != nullptr && current == nullptr) {
           prev_delta->next.store(nullptr, std::memory_order_release);
         }
-        // Case 3: Our deltas are at the head but we don't "own" it (shouldn't happen
-        // in normal flow as should_unlink would be true, but defensive)
+        // Case 3: Our deltas were at the head when created, but another transaction
+        // has since prepended non-sequential deltas, so we no longer own the head.
         // Chain: vertex -> [our deltas] -> current -> ...
         // Result: vertex -> current -> ...
         else if (prev_delta == nullptr && current != nullptr) {
