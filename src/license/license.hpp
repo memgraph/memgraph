@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -87,8 +87,8 @@ struct LicenseChecker {
   LicenseChecker(LicenseChecker &&) = delete;
   LicenseChecker operator=(LicenseChecker &&) = delete;
 
-  void CheckEnvLicense();
-  void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
+  void CheckEnvLicense(utils::Settings &settings);
+  void SetLicenseInfoOverride(std::string license_key, std::string organization_name, utils::Settings &settings);
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
   void DisableTesting();
   // Checks if license is valid and if enterprise is enabled

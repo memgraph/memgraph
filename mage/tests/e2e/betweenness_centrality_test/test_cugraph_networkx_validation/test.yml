@@ -1,0 +1,25 @@
+# Betweenness values validated against NetworkX ground truth
+query: >
+  CALL cugraph.betweenness_centrality.get() YIELD node, betweenness_centrality
+  RETURN node.id AS node_id, betweenness_centrality as betweenness
+  ORDER BY node_id ASC;
+
+output:
+  - node_id: 1
+    betweenness: 0.0
+  - node_id: 2
+    betweenness: 0.25
+  - node_id: 3
+    betweenness: 0.428571
+  - node_id: 4
+    betweenness: 0.535714
+  - node_id: 5
+    betweenness: 0.0
+  - node_id: 6
+    betweenness: 0.25
+  - node_id: 7
+    betweenness: 0.428571
+  - node_id: 8
+    betweenness: 0.535714
+  - node_id: 9
+    betweenness: 0.571429
