@@ -21,6 +21,10 @@ on:
         type: boolean
         description: "Skip packaging"
         default: false
+      skip_docker_artifact:
+        type: boolean
+        description: "Skip Docker artifact"
+        default: false
       skip_issu_tests:
         type: boolean
         description: "Skip ISSU tests"
@@ -145,7 +149,7 @@ jobs:
     secrets: inherit
 
   DailyDockerArtifact:
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_docker_artifact)  }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
