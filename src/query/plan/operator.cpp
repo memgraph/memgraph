@@ -2397,23 +2397,220 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-// TODO: this should maybe do bfs from each source and destination
-class STShortestPathCursor : public query::plan::Cursor {
+class BFSCursor : public query::plan::Cursor {
  public:
-  STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
-    MG_ASSERT(self_.common_.existing_node,
-              "s-t shortest path algorithm should only "
-              "be used when `existing_node` flag is "
-              "set!");
+  BFSCursor(const ExpandVariable &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self_.input()->MakeCursor(mem)),
+        processed_(mem),
+        to_visit_next_(mem),
+        to_visit_current_(mem) {
+    /*MG_ASSERT(!self_.common_.existing_node,
+              "Single source shortest path algorithm "
+              "should not be used when `existing_node` "
+              "flag is set, s-t shortest path algorithm "
+              "should be used instead!"); */
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("STShortestPath");
+    SCOPED_PROFILE_OP("BFSCursor");
 
     AbortCheck(context);
 
+    if (!type_) {
+      type_ = Type::SINGLE_SOURCE;
+      // TODO: calculate type
+    }
+
+    return PullBidirectionalBFS(frame, context);
+  }
+
+  bool PullSingleSourceBFS(Frame &frame, ExecutionContext &context) {
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  storage::View::OLD,
+                                  nullptr,
+                                  &context.number_of_hops,
+                                  context.user_or_role);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    // for the given (edge, vertex) pair checks if they satisfy the
+    // "where" condition. if so, places them in the to_visit_ structure.
+    auto expand_pair = [this, &evaluator, &frame, &context, &frame_writer](EdgeAccessor edge,
+                                                                           VertexAccessor vertex) -> bool {
+      (void)context;  // unused in community version
+      // if we already processed the given vertex it doesn't get expanded
+      if (processed_.contains(vertex)) return false;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !(context.auth_checker->Has(
+                vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        return false;
+      }
+#endif
+      frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+      frame_writer.Write(self_.filter_lambda_.inner_node_symbol, vertex);
+      std::optional<Path> curr_acc_path = std::nullopt;
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                  "Accumulated path must have Path type");
+
+        auto expand_path = [&](TypedValue &value) {
+          Path &accumulated_path = value.ValuePath();
+          accumulated_path.Expand(edge);
+          accumulated_path.Expand(vertex);
+        };
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+
+        curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
+      }
+
+      if (self_.filter_lambda_.expression) {
+        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
+        switch (result.type()) {
+          case TypedValue::Type::Null:
+            return true;
+          case TypedValue::Type::Bool:
+            if (!result.ValueBool()) return true;
+            break;
+          default:
+            throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
+        }
+      }
+      to_visit_next_.emplace_back(edge, vertex, std::move(curr_acc_path));
+      processed_.emplace(vertex, edge);
+      return true;
+    };
+
+    auto restore_frame_state_after_expansion = [this, &frame_writer](bool was_expanded) {
+      if (was_expanded && self_.filter_lambda_.accumulated_path_symbol) {
+        auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
+      }
+    };
+
+    // populates the to_visit_next_ structure with expansions
+    // from the given vertex. skips expansions that don't satisfy
+    // the "where" condition.
+    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        auto out_edges_result =
+            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+        context.number_of_hops += out_edges_result.expanded_count;
+        for (const auto &edge : out_edges_result.edges) {
+          bool was_expanded = expand_pair(edge, edge.To());
+          restore_frame_state_after_expansion(was_expanded);
+        }
+      }
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        auto in_edges_result =
+            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+        context.number_of_hops += in_edges_result.expanded_count;
+        for (const auto &edge : in_edges_result.edges) {
+          bool was_expanded = expand_pair(edge, edge.From());
+          restore_frame_state_after_expansion(was_expanded);
+        }
+      }
+    };
+
+    // do it all in a loop because we skip some elements
+    while (true) {
+      AbortCheck(context);
+      // if we have nothing to visit on the current depth, switch to next
+      if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
+
+      // if current is still empty, it means both are empty, so pull from
+      // input
+      if (to_visit_current_.empty()) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+
+        if (context.hops_limit.IsLimitReached()) return false;
+
+        to_visit_current_.clear();
+        to_visit_next_.clear();
+        processed_.clear();
+
+        const auto &vertex_value = frame[self_.input_symbol_];
+        // it is possible that the vertex is Null due to optional matching
+        if (vertex_value.IsNull()) continue;
+        lower_bound_ =
+            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
+        upper_bound_ = self_.upper_bound_
+                           ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                           : std::numeric_limits<int64_t>::max();
+
+        if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
+
+        const auto &vertex = vertex_value.ValueVertex();
+        processed_.emplace(vertex, std::nullopt);
+
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          // Add initial vertex of path to the accumulated path
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
+        }
+
+        expand_from_vertex(vertex);
+
+        // go back to loop start and see if we expanded anything
+        continue;
+      }
+
+      // take the next expansion from the queue
+      auto [curr_edge, curr_vertex, curr_acc_path] = to_visit_current_.back();
+      to_visit_current_.pop_back();
+
+      // create the frame value for the edges
+      auto *pull_memory = context.evaluation_context.memory;
+      utils::pmr::vector<TypedValue> edge_list(pull_memory);
+      edge_list.emplace_back(curr_edge);
+      auto last_vertex = curr_vertex;
+      while (true) {
+        const EdgeAccessor &last_edge = edge_list.back().ValueEdge();
+        last_vertex = last_edge.From() == last_vertex ? last_edge.To() : last_edge.From();
+        // origin_vertex must be in processed
+        const auto &previous_edge = processed_.find(last_vertex)->second;
+        if (!previous_edge) break;
+
+        edge_list.emplace_back(previous_edge.value());
+      }
+
+      // expand only if what we've just expanded is less then max depth
+      if (static_cast<int64_t>(edge_list.size()) < upper_bound_) {
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
+        }
+        if (!context.hops_limit.IsLimitReached()) {
+          expand_from_vertex(curr_vertex);
+        }
+      }
+
+      if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
+
+      frame_writer.Write(self_.common_.node_symbol, curr_vertex);
+
+      // place edges on the frame in the correct order
+      std::reverse(edge_list.begin(), edge_list.end());
+      frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    processed_.clear();
+    to_visit_next_.clear();
+    to_visit_current_.clear();
+  }
+
+  bool PullBidirectionalBFS(Frame &frame, ExecutionContext &context) {
     ExpressionEvaluator evaluator(&frame,
                                   context.symbol_table,
                                   context.evaluation_context,
@@ -2450,14 +2647,11 @@ class STShortestPathCursor : public query::plan::Cursor {
     return false;
   }
 
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override { input_cursor_->Reset(); }
-
  private:
-  const ExpandVariable &self_;
-  UniqueCursorPtr input_cursor_;
-
+  //////////////////////////
+  // STShortestPath start //
+  //////////////////////////
+  // TODO: is it possible to run this simultaneously instead of for each (source, target) pair?
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
 
   void ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge, const VertexEdgeMapT &out_edge,
@@ -2668,213 +2862,22 @@ class STShortestPathCursor : public query::plan::Cursor {
       std::swap(sink_frontier, sink_next);
     }
   }
-};
 
-class SingleSourceShortestPathCursor : public query::plan::Cursor {
- public:
-  SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input()->MakeCursor(mem)),
-        processed_(mem),
-        to_visit_next_(mem),
-        to_visit_current_(mem) {
-    MG_ASSERT(!self_.common_.existing_node,
-              "Single source shortest path algorithm "
-              "should not be used when `existing_node` "
-              "flag is set, s-t shortest path algorithm "
-              "should be used instead!");
-  }
+  //////////////////////////
+  // STShortestPath end //
+  //////////////////////////
+  enum class Type : uint8_t {
+    SINGLE_SOURCE,
+    BIDIRECTIONAL,
+  };
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP("SingleSourceShortestPath");
-
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role);
-    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-
-    // for the given (edge, vertex) pair checks if they satisfy the
-    // "where" condition. if so, places them in the to_visit_ structure.
-    auto expand_pair = [this, &evaluator, &frame, &context, &frame_writer](EdgeAccessor edge,
-                                                                           VertexAccessor vertex) -> bool {
-      (void)context;  // unused in community version
-      // if we already processed the given vertex it doesn't get expanded
-      if (processed_.contains(vertex)) return false;
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(
-                vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        return false;
-      }
-#endif
-      frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
-      frame_writer.Write(self_.filter_lambda_.inner_node_symbol, vertex);
-      std::optional<Path> curr_acc_path = std::nullopt;
-      if (self_.filter_lambda_.accumulated_path_symbol) {
-        MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
-                  "Accumulated path must have Path type");
-
-        auto expand_path = [&](TypedValue &value) {
-          Path &accumulated_path = value.ValuePath();
-          accumulated_path.Expand(edge);
-          accumulated_path.Expand(vertex);
-        };
-        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
-
-        curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
-      }
-
-      if (self_.filter_lambda_.expression) {
-        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
-        switch (result.type()) {
-          case TypedValue::Type::Null:
-            return true;
-          case TypedValue::Type::Bool:
-            if (!result.ValueBool()) return true;
-            break;
-          default:
-            throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
-        }
-      }
-      to_visit_next_.emplace_back(edge, vertex, std::move(curr_acc_path));
-      processed_.emplace(vertex, edge);
-      return true;
-    };
-
-    auto restore_frame_state_after_expansion = [this, &frame_writer](bool was_expanded) {
-      if (was_expanded && self_.filter_lambda_.accumulated_path_symbol) {
-        auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
-        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
-      }
-    };
-
-    // populates the to_visit_next_ structure with expansions
-    // from the given vertex. skips expansions that don't satisfy
-    // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
-      if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += out_edges_result.expanded_count;
-        for (const auto &edge : out_edges_result.edges) {
-          bool was_expanded = expand_pair(edge, edge.To());
-          restore_frame_state_after_expansion(was_expanded);
-        }
-      }
-      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges_result =
-            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += in_edges_result.expanded_count;
-        for (const auto &edge : in_edges_result.edges) {
-          bool was_expanded = expand_pair(edge, edge.From());
-          restore_frame_state_after_expansion(was_expanded);
-        }
-      }
-    };
-
-    // do it all in a loop because we skip some elements
-    while (true) {
-      AbortCheck(context);
-      // if we have nothing to visit on the current depth, switch to next
-      if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
-
-      // if current is still empty, it means both are empty, so pull from
-      // input
-      if (to_visit_current_.empty()) {
-        if (!input_cursor_->Pull(frame, context)) return false;
-
-        if (context.hops_limit.IsLimitReached()) return false;
-
-        to_visit_current_.clear();
-        to_visit_next_.clear();
-        processed_.clear();
-
-        const auto &vertex_value = frame[self_.input_symbol_];
-        // it is possible that the vertex is Null due to optional matching
-        if (vertex_value.IsNull()) continue;
-        lower_bound_ =
-            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
-        upper_bound_ = self_.upper_bound_
-                           ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
-                           : std::numeric_limits<int64_t>::max();
-
-        if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
-
-        const auto &vertex = vertex_value.ValueVertex();
-        processed_.emplace(vertex, std::nullopt);
-
-        if (self_.filter_lambda_.accumulated_path_symbol) {
-          // Add initial vertex of path to the accumulated path
-          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
-        }
-
-        expand_from_vertex(vertex);
-
-        // go back to loop start and see if we expanded anything
-        continue;
-      }
-
-      // take the next expansion from the queue
-      auto [curr_edge, curr_vertex, curr_acc_path] = to_visit_current_.back();
-      to_visit_current_.pop_back();
-
-      // create the frame value for the edges
-      auto *pull_memory = context.evaluation_context.memory;
-      utils::pmr::vector<TypedValue> edge_list(pull_memory);
-      edge_list.emplace_back(curr_edge);
-      auto last_vertex = curr_vertex;
-      while (true) {
-        const EdgeAccessor &last_edge = edge_list.back().ValueEdge();
-        last_vertex = last_edge.From() == last_vertex ? last_edge.To() : last_edge.From();
-        // origin_vertex must be in processed
-        const auto &previous_edge = processed_.find(last_vertex)->second;
-        if (!previous_edge) break;
-
-        edge_list.emplace_back(previous_edge.value());
-      }
-
-      // expand only if what we've just expanded is less then max depth
-      if (static_cast<int64_t>(edge_list.size()) < upper_bound_) {
-        if (self_.filter_lambda_.accumulated_path_symbol) {
-          MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
-          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
-        }
-        if (!context.hops_limit.IsLimitReached()) {
-          expand_from_vertex(curr_vertex);
-        }
-      }
-
-      if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
-
-      frame_writer.Write(self_.common_.node_symbol, curr_vertex);
-
-      // place edges on the frame in the correct order
-      std::reverse(edge_list.begin(), edge_list.end());
-      frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
-
-      return true;
-    }
-  }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    processed_.clear();
-    to_visit_next_.clear();
-    to_visit_current_.clear();
-  }
-
- private:
   const ExpandVariable &self_;
-  const UniqueCursorPtr input_cursor_;
+  UniqueCursorPtr input_cursor_;
+  std::optional<Type> type_;
+
+  ///////////////////////////
+  // SingleSourceBFS start //
+  ///////////////////////////
 
   // Depth bounds. Calculated on each pull from the input, the initial value
   // is irrelevant.
@@ -4205,22 +4208,24 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
   switch (type_) {
-    case EdgeAtom::Type::BREADTH_FIRST:
-      if (common_.existing_node) {
-        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem);
-      } else {
-        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-      }
-    case EdgeAtom::Type::DEPTH_FIRST:
+    case EdgeAtom::Type::BREADTH_FIRST: {
+      return MakeUniqueCursorPtr<BFSCursor>(mem, *this, mem);
+    }
+    case EdgeAtom::Type::DEPTH_FIRST: {
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
-    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
+    }
+    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH: {
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
-    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
+    }
+    case EdgeAtom::Type::ALL_SHORTEST_PATHS: {
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::KSHORTEST:
+    }
+    case EdgeAtom::Type::KSHORTEST: {
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::SINGLE:
+    }
+    case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
+    }
   }
 }
 
