@@ -3192,8 +3192,11 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
   auto inner_query = parsed_query.query_string.substr(kExplainQueryStart.size());
-  ParsedQuery parsed_inner_query = ParseQuery(
-      inner_query, parsed_query.user_parameters, &interpreter_context->ast_cache, interpreter_context->config.query);
+  ParsedQuery parsed_inner_query = ParseQuery(inner_query,
+                                              parsed_query.user_parameters,
+                                              &interpreter_context->ast_cache,
+                                              interpreter_context->config.query,
+                                              interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -3285,7 +3288,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   ParsedQuery parsed_inner_query = ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()),
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
-                                              interpreter_context->config.query);
+                                              interpreter_context->config.query,
+                                              interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
@@ -7783,8 +7787,11 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
-    ParsedQuery parsed_query = ParseQuery(
-        query_string, params_getter(nullptr), &interpreter_context_->ast_cache, interpreter_context_->config.query);
+    ParsedQuery parsed_query = ParseQuery(query_string,
+                                          params_getter(nullptr),
+                                          &interpreter_context_->ast_cache,
+                                          interpreter_context_->config.query,
+                                          interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
     return Interpreter::ParseInfo{std::move(parsed_query), parsing_time, is_schema_assert_query};

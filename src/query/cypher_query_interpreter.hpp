@@ -119,7 +119,8 @@ struct ParsedQuery {
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
+                       utils::Parameters const *global_parameters = nullptr);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:

@@ -60,24 +60,25 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
         parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
         continue;
       }
-      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
     }
+    throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
   }
   return parameters;
 }
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
+                       utils::Parameters const *global_parameters) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // get user-specified parameters
+  // get user-specified parameters (and global parameters for fallback)
   // ATM we don't need to correctly materise actual PropertyValues exepct Strings
   // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
-  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, global_parameters);
 
   // Cache the query's AST if it isn't already.
   auto hash = stripped_query.stripped_query().hash();
