@@ -163,12 +163,12 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
   memgraph::utils::Scheduler *scheduler_;
 };
 
-bool HasUncommittedNonSequentialDeltas(Vertex const *vertex) {
+bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_transaction_id) {
   DMG_ASSERT(vertex->lock.is_locked(), "HasUncommittedNonSequentialDeltas must be called with vertex lock held");
   Delta *delta = vertex->delta;
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts >= kTransactionInitialId && IsDeltaNonSequential(*delta)) {
+    if (ts != skip_transaction_id && ts >= kTransactionInitialId && IsDeltaNonSequential(*delta)) {
       return true;
     }
     delta = delta->next.load(std::memory_order_acquire);
@@ -1186,7 +1186,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     for (Vertex *vertex : vertices_to_check) {
       auto guard = std::unique_lock{vertex->lock};
       if (vertex->has_uncommitted_non_sequential_deltas) {
-        vertex->has_uncommitted_non_sequential_deltas = HasUncommittedNonSequentialDeltas(vertex);
+        vertex->has_uncommitted_non_sequential_deltas =
+            HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id);
       }
     }
   }
@@ -1657,7 +1658,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
 
       if (vertex->has_uncommitted_non_sequential_deltas) {
-        vertex->has_uncommitted_non_sequential_deltas = HasUncommittedNonSequentialDeltas(vertex);
+        vertex->has_uncommitted_non_sequential_deltas =
+            HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id);
       }
     };
 
