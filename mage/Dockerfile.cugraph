@@ -4,7 +4,7 @@ ARG CUDA_VERSION_MINOR=13.1.0
 ARG PY_VERSION_DEFAULT=3.12
 ARG MG_VERSION=3.7.2
 
-FROM nvcr.io/nvidia/rapidsai/base:${RAPIDS_VERSION}-cuda${CUDA_VERSION}-py${PY_VERSION_DEFAULT} AS cugraph-dev
+FROM rapidsai/base:${RAPIDS_VERSION}-cuda${CUDA_VERSION}-py${PY_VERSION_DEFAULT} AS cugraph-dev
 
 FROM nvidia/cuda:${CUDA_VERSION_MINOR}-runtime-ubuntu24.04 AS prod
 
