@@ -24,6 +24,11 @@ ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR=false
 
+RUN apt-get update && \
+    apt-get remove -y 'cuda-compat-*' && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY --from=cugraph-dev /opt/conda/lib/libcugraph.so /opt/conda/lib/libcugraph.so
 COPY --from=cugraph-dev /opt/conda/lib/libcugraph_c.so /opt/conda/lib/libcugraph_c.so
 COPY --from=cugraph-dev /opt/conda/lib/librmm.so /opt/conda/lib/librmm.so
