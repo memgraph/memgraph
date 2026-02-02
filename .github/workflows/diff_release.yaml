@@ -74,11 +74,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -204,11 +209,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -333,11 +343,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -450,11 +465,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -575,11 +595,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |

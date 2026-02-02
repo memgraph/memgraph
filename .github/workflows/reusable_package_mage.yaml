@@ -228,11 +228,16 @@ jobs:
 
       - name: "Spin up mgbuild container"
         run: |
+          if [[ "$OS" =~ ^ubuntu-24.04.* ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: "Build Memgraph binaries"
         if: ${{ inputs.memgraph_download_link == '' }}
@@ -322,11 +327,6 @@ jobs:
           mv -v build/openssl*.deb mage/openssl
           mv -v build/libssl3t64*.deb mage/openssl
 
-      - name: Probe fastest mirror
-        run: |
-          FASTEST=$(bash tools/ci/test-mirrors.sh)
-          echo "CUSTOM_MIRROR=${FASTEST}" >> $GITHUB_ENV
-
       - name: Build Query Modules in MGBUILD container
         run: |
           ./release/package/mgbuild.sh \
@@ -411,7 +411,7 @@ jobs:
             --image-tag $IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror $CUSTOM_MIRROR
+            --custom-mirror true
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
