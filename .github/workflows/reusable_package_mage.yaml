@@ -189,8 +189,8 @@ jobs:
 
       - name: Set image tag and artifact name
         run: |
-          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA"
-          read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA")
+          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH"
+          read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH")
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
