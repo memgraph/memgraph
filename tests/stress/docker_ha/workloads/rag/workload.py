@@ -15,16 +15,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from common import Protocol, QueryType, execute_query, restart_container, run_parallel
 
+# Instance names
 MAIN = "data_1"
 COORDINATOR = "coord_1"
 REPLICA = "data_2"
 
 # Workload configuration
-BATCH_SIZE = 1000  # Reduced from 10000
-NUM_BATCHES = 10  # Reduced from 100
-VECTOR_DIMENSIONS = 128  # Reduced from 1500
-RESTART_EVERY_N_BATCHES = 5
-NUM_WORKERS = 2  # Reduced from 4
+BATCH_SIZE = 1000
+NUM_BATCHES = 1000  # Number of nodes is NUM_BATCHES * BATCH_SIZE
+VECTOR_DIMENSIONS = 1024
+RESTART_PROBABILITY = 0.05
+NUM_WORKERS = 8
 
 
 def generate_vector(dimensions: int) -> list[float]:
@@ -64,7 +65,7 @@ def build_batch_query_tasks(batch_numbers: list[int]) -> list[tuple]:
         nodes_data = [
             {"id": batch_num * BATCH_SIZE + i, "vector": generate_vector(VECTOR_DIMENSIONS)} for i in range(BATCH_SIZE)
         ]
-        tasks.append((MAIN, query, {"nodes": nodes_data}, Protocol.BOLT, QueryType.WRITE, True))
+        tasks.append((COORDINATOR, query, {"nodes": nodes_data}, Protocol.BOLT_ROUTING, QueryType.WRITE, False))
 
     return tasks
 
@@ -82,33 +83,29 @@ def run_batches_parallel(batch_numbers: list[int]) -> None:
 
 def run_workload() -> None:
     """
-    Run the vector workload in chunks, restarting REPLICA between chunks.
+    Run the vector workload, randomly restarting REPLICA based on probability.
     """
-    num_chunks = NUM_BATCHES // RESTART_EVERY_N_BATCHES
+    restart_count = 0
 
-    for chunk in range(num_chunks):
-        start_batch = chunk * RESTART_EVERY_N_BATCHES
-        batch_numbers = list(range(start_batch, start_batch + RESTART_EVERY_N_BATCHES))
+    for batch_num in range(NUM_BATCHES):
+        print(f"\nBatch {batch_num + 1}/{NUM_BATCHES}")
 
-        print(f"\nChunk {chunk + 1}/{num_chunks}: batches {start_batch + 1}-{start_batch + RESTART_EVERY_N_BATCHES}")
+        run_batches_parallel([batch_num])
 
-        run_batches_parallel(batch_numbers)
-
-        print(f"Chunk {chunk + 1} completed.")
-
-        # Restart REPLICA after each chunk (except the last)
-        if chunk < num_chunks - 1:
-            print(f"\n--- Restarting {REPLICA} (REPLICA) ---")
+        # Randomly restart REPLICA based on probability (except after last batch)
+        if batch_num < NUM_BATCHES - 1 and random.random() < RESTART_PROBABILITY:
+            restart_count += 1
+            print(f"\n--- Restarting {REPLICA} (REPLICA) [restart #{restart_count}] ---")
             restart_container(REPLICA)
+
+    print(f"\nTotal restarts: {restart_count}")
 
 
 def main():
-    num_chunks = NUM_BATCHES // RESTART_EVERY_N_BATCHES
-
     print(f"Workload: {NUM_BATCHES * BATCH_SIZE:,} nodes with {VECTOR_DIMENSIONS}-dimension vectors")
-    print(f"Batch size: {BATCH_SIZE:,}, Batches per chunk: {RESTART_EVERY_N_BATCHES}, Chunks: {num_chunks}")
+    print(f"Batch size: {BATCH_SIZE:,}, Batches: {NUM_BATCHES}")
     print(f"Workers: {NUM_WORKERS}")
-    print(f"Restart {REPLICA} (REPLICA) after each chunk")
+    print(f"Restart probability: {RESTART_PROBABILITY * 100:.1f}%")
     print("-" * 60)
 
     create_indexes()
