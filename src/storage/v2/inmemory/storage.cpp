@@ -176,6 +176,49 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
+void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std::list<Gid> &current_deleted_edges,
+                           std::list<Gid> &current_deleted_vertices, IndexPerformanceTracker &impact_tracker) {
+  for (auto &delta : deltas) {
+    DMG_ASSERT(
+        [&delta]() {
+          Delta *next = delta.next.load(std::memory_order_acquire);
+          if (next == nullptr) return true;
+          auto next_ts = next->timestamp->load(std::memory_order_acquire);
+          return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
+        }(),
+        "downstream active non-sequential delta found during rapid cleanup");
+    impact_tracker.update(delta.action);
+    auto prev = delta.prev.Get();
+    switch (prev.type) {
+      case PreviousPtr::Type::NULL_PTR:
+        break;
+      case PreviousPtr::Type::DELTA:
+        if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_id) {
+          prev.delta->next.store(nullptr, std::memory_order_release);
+        }
+        break;
+      case PreviousPtr::Type::VERTEX: {
+        auto &vertex = *prev.vertex;
+        vertex.delta = nullptr;
+        if (vertex.deleted) {
+          DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+          current_deleted_vertices.push_back(vertex.gid);
+        }
+        break;
+      }
+      case PreviousPtr::Type::EDGE: {
+        auto &edge = *prev.edge;
+        edge.delta = nullptr;
+        if (edge.deleted) {
+          DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+          current_deleted_edges.push_back(edge.gid);
+        }
+        break;
+      }
+    }
+  }
+}
+
 /** When we have non-sequential deltas, we can no longer use the shortcut of
  * only processing deltas downstream from a "head" delta, i.e., one whose `prev`
  * is a vertex. Instead, we have to walk upstream, following `prev` pointers
@@ -1222,61 +1265,34 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const unlink_remove_clear = [&](delta_container &deltas) {
-    for (auto &delta : deltas) {
-      DMG_ASSERT(
-          [&delta]() {
-            Delta *next = delta.next.load(std::memory_order_acquire);
-            if (next == nullptr) return true;
-            auto next_ts = next->timestamp->load(std::memory_order_acquire);
-            return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
-          }(),
-          "downstream active non-sequential delta found during rapid cleanup");
-      impact_tracker.update(delta.action);
-      auto prev = delta.prev.Get();
-      switch (prev.type) {
-        case PreviousPtr::Type::NULL_PTR:
-        case PreviousPtr::Type::DELTA:
-          break;
-        case PreviousPtr::Type::VERTEX: {
-          auto &vertex = *prev.vertex;
-          vertex.delta = nullptr;
-          if (vertex.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_vertices.push_back(vertex.gid);
-          }
-          break;
-        }
-        case PreviousPtr::Type::EDGE: {
-          auto &edge = *prev.edge;
-          edge.delta = nullptr;
-          if (edge.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_edges.push_back(edge.gid);
-          }
-          break;
-        }
-      }
-    }
-    deltas.clear();
-  };
-
   // STEP 1) ensure everything in GC is gone
 
   // 1.a) old garbage_undo_buffers are safe to remove
+  //      we are the only transaction, no one is reading those unlinked deltas
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
 
-  // 1.b) old committed_transactions_ need minimal unlinking + remove + clear
+  // 1.b.0) old committed_transactions_ need minimal unlinking + remove + clear
+  //      must be done before this transactions delta unlinking
   auto linked_undo_buffers = std::list<GCDeltas>{};
   mem_storage->committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
 
+  // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
-    unlink_remove_clear(gc_deltas.deltas_);
+    UnlinkAndRemoveDeltas(
+        gc_deltas.deltas_, gc_deltas.transaction_id_, current_deleted_edges, current_deleted_vertices, impact_tracker);
   }
 
-  // STEP 2) this transaction's deltas also minimal unlinking + remove + clear
-  unlink_remove_clear(transaction_.deltas);
+  // STEP 2) this transaction's deltas also minimal unlinking + remove
+  UnlinkAndRemoveDeltas(transaction_.deltas,
+                        transaction_.transaction_id,
+                        current_deleted_edges,
+                        current_deleted_vertices,
+                        impact_tracker);
+
+  // STEP 3) clear all deltas after unlinking is complete
+  linked_undo_buffers.clear();
+  transaction_.deltas.clear();
 }
 
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
@@ -1683,8 +1699,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        garbage_undo_buffers.emplace_back(
-            mark_timestamp, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp));
+        garbage_undo_buffers.emplace_back(mark_timestamp,
+                                          std::move(transaction_.deltas),
+                                          std::move(transaction_.commit_timestamp),
+                                          transaction_.transaction_id);
       });
     }
 
@@ -1738,13 +1756,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(
-              InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)));
+          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0,
+                                                              std::move(transaction_.deltas),
+                                                              std::move(transaction_.commit_timestamp),
+                                                              transaction_.transaction_id));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
           committed_transactions.emplace_back(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp));
+              0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp), transaction_.transaction_id);
         });
       }
     }
