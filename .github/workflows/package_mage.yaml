@@ -129,7 +129,7 @@ jobs:
   BuildMage:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.build_packages == 'true' }}
-    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.cugraph && ' CuGraph' || '' }}${{ matrix.malloc && 'Malloc' || '' }}
+    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.cugraph && ' CuGraph' || '' }}${{ matrix.malloc && ' Malloc' || '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
