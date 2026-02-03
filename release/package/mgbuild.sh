@@ -1423,6 +1423,7 @@ package_mage_docker() {
     --build-arg BUILD_TYPE=$build_type
     --build-arg CACHE_PRESENT=$cache_present
     --build-arg CUSTOM_MIRROR=$custom_mirror
+    --build-arg CUDA=$cuda
     --progress=plain
   )
 
