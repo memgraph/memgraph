@@ -9,7 +9,7 @@ CREATE (:__mg_vertex__:`has_coord` {__mg_id__: 6, `coord`: POINT({ x:0, y:1, sri
 CREATE (:__mg_vertex__:`has_coord` {__mg_id__: 7, `coord`: POINT({ x:0, y:1, z:2, srid: 9157 })});
 CREATE (:__mg_vertex__:`edge_index_from` {__mg_id__: 8});
 CREATE (:__mg_vertex__:`edge_index_to` {__mg_id__: 9});
-CREATE (:__mg_vertex__:`Label` {__mg_id__: 10, `embedding`: []});
+CREATE (:__mg_vertex__:`Label` {__mg_id__: 10, `embedding`: [1, 2, 3]});
 CREATE (:__mg_vertex__:`composite` {__mg_id__: 11, `a`: 1, `b`: 2, `c`: 3, `d`: 4});
 CREATE (:__mg_vertex__:`composite` {__mg_id__: 12, `a`: 4, `b`: 3, `c`: 2, `d`: 1});
 CREATE (:__mg_vertex__:`TTL` {__mg_id__: 13, `ttl`: 4102444800});
@@ -41,8 +41,8 @@ CREATE INDEX ON :`TTL`(`ttl`);
 CREATE TEXT INDEX `text_index_with_properties` ON :`text`(`prop1`, `prop2`);
 CREATE TEXT INDEX `text_index_without_properties` ON :`text`;
 CREATE POINT INDEX ON :`has_coord`(`coord`);
-CREATE VECTOR INDEX `vector_index_name_1` ON :`Label1`(`embedding1`) WITH CONFIG { "dimension": 3, "metric": "l2sq", "capacity": 1000, "resize_coefficient": 2, "scalar_kind": "f16" };
 CREATE VECTOR INDEX `vector_index_name` ON :`Label`(`embedding`) WITH CONFIG { "dimension": 3, "metric": "l2sq", "capacity": 1000, "resize_coefficient": 2, "scalar_kind": "f32" };
+CREATE VECTOR INDEX `vector_index_name_1` ON :`Label1`(`embedding1`) WITH CONFIG { "dimension": 3, "metric": "l2sq", "capacity": 1000, "resize_coefficient": 2, "scalar_kind": "f16" };
 CREATE VECTOR EDGE INDEX `vector_edge_index_name` ON :`REL`(`embedding`) WITH CONFIG { "dimension": 3, "metric": "l2sq", "capacity": 1000, "resize_coefficient": 2, "scalar_kind": "f16" };
 CREATE CONSTRAINT ON (u:`label`) ASSERT EXISTS (u.`ext`);
 CREATE CONSTRAINT ON (u:`label2`) ASSERT u.`prop2`, u.`prop` IS UNIQUE;

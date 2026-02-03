@@ -679,12 +679,16 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  auto matches = [&](const VectorIndexRecoveryInfo &ri) {
+  auto is_relevant = [&](const VectorIndexRecoveryInfo &ri) {
     return ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id);
   };
-  auto matching_recovery_infos =
-      recovery_info_vec | rv::filter(matches) | r::to<std::vector<VectorIndexRecoveryInfo>>();
-  if (matching_recovery_infos.empty()) return;
+
+  std::vector<VectorIndexRecoveryInfo *> matching;
+  matching.reserve(recovery_info_vec.size());
+  for (auto &ri : recovery_info_vec) {
+    if (is_relevant(ri)) matching.push_back(&ri);
+  }
+  if (matching.empty()) return;
 
   const auto vector = std::invoke([&]() {
     switch (value.type()) {
@@ -702,8 +706,8 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const Propert
     }
   });
 
-  for (auto &ri : matching_recovery_infos) {
-    ri.index_entries[vertex->gid] = vector;
+  for (auto *matching_recovery_info : matching) {
+    matching_recovery_info->index_entries[vertex->gid] = vector;
   }
 }
 
