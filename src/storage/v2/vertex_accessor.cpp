@@ -439,7 +439,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   return std::move(old_value);
 }
 
-Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }

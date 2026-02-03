@@ -1169,8 +1169,8 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         if (!id) return false;
         vector_index_ids.push_back(*id);
       }
-      value =
-          PropertyValue(PropertyValue::VectorIndexIdData{std::move(vector_index_ids), utils::small_vector<float>{}});
+      value = PropertyValue(
+          PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = utils::small_vector<float>{}});
       return true;
     }
   }
@@ -1275,7 +1275,8 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         vector_index_ids.push_back(*id);
       }
       return std::optional<PropertyValue>{
-          std::in_place, PropertyValue::VectorIndexIdData{std::move(vector_index_ids), utils::small_vector<float>{}}};
+          std::in_place,
+          PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = utils::small_vector<float>{}}};
     }
   }
 }
@@ -2330,11 +2331,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
   memcpy(static_cast<void *>(&data), buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
 
   if (size == 0) {
-    return {std::span<uint8_t>{}, BufferMode::EMPTY};
+    return {.view = std::span<uint8_t>{}, .storage_mode = BufferMode::EMPTY};
   }
 
   if (size % 8 == 0) {
-    return {std::span{data, size}, BufferMode::BUFFER};
+    return {.view = std::span{data, size}, .storage_mode = BufferMode::BUFFER};
   }
 
   auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
@@ -2342,11 +2343,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
     case kUseLocalBuffer: {
       auto *local_start = &buffer[1];
       auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
-      return {std::span{local_start, local_size}, BufferMode::LOCAL};
+      return {.view = std::span{local_start, local_size}, .storage_mode = BufferMode::LOCAL};
     }
     case kUseCompressedBuffer: {
       auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
-      return {std::span{data, real_size}, BufferMode::COMPRESSED};
+      return {.view = std::span{data, real_size}, .storage_mode = BufferMode::COMPRESSED};
     }
     default: {
       MG_ASSERT(false, "Corrupt property storage");
@@ -2362,11 +2363,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
   memcpy(static_cast<void *>(&data), static_cast<const uint8_t *>(buffer.data() + sizeof(uint32_t)), sizeof(uint8_t *));
 
   if (size == 0) {
-    return {std::span<uint8_t>{}, BufferMode::EMPTY};
+    return {.view = std::span<uint8_t>{}, .storage_mode = BufferMode::EMPTY};
   }
 
   if (size % 8 == 0) {
-    return {std::span{data, size}, BufferMode::BUFFER};
+    return {.view = std::span{data, size}, .storage_mode = BufferMode::BUFFER};
   }
 
   auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
@@ -2374,11 +2375,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
     case kUseLocalBuffer: {
       auto const *local_start = &buffer[1];
       auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
-      return {std::span{local_start, local_size}, BufferMode::LOCAL};
+      return {.view = std::span{local_start, local_size}, .storage_mode = BufferMode::LOCAL};
     }
     case kUseCompressedBuffer: {
       auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
-      return {std::span{data, real_size}, BufferMode::COMPRESSED};
+      return {.view = std::span{data, real_size}, .storage_mode = BufferMode::COMPRESSED};
     }
     default: {
       MG_ASSERT(false, "Corrupt property storage");

@@ -192,8 +192,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
           IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex});
       if (ShouldUnregisterFromIndex(vector_property, index_id)) {
         locked_index->get(&vertex, vector.data());
-        vertex.properties.SetProperty(label_prop.property(), PropertyValue(std::move(vector)));
-        vector.resize(dimension);
+        vertex.properties.SetProperty(label_prop.property(), PropertyValue(vector));
       } else {
         vertex.properties.SetProperty(label_prop.property(), vector_property);
       }
