@@ -745,3 +745,60 @@ TEST(StorageV2NonSequentialIsolation, EdgeCreationFailsAfterLabelChange) {
   tx1->Abort();
   tx2->Abort();
 }
+
+TEST(StorageV2NonSequentialIsolation, BlockingOperationRejectedWithCommittedHeadAndUncommittedDownstream) {
+  std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
+
+  ms::Gid v1_gid, v2_gid;
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_tx1 = tx1->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx1.has_value() && v2_tx1.has_value());
+  auto edge1 = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, tx1->NameToEdgeType("TYPE1"));
+  ASSERT_TRUE(edge1.has_value());
+
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx2.has_value() && v2_tx2.has_value());
+  auto edge2 = tx2->CreateEdge(&*v1_tx2, &*v2_tx2, tx2->NameToEdgeType("TYPE2"));
+  ASSERT_TRUE(edge2.has_value());
+
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  auto tx3 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx3 = tx3->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_tx3 = tx3->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx3.has_value() && v2_tx3.has_value());
+  auto edge3 = tx3->CreateEdge(&*v1_tx3, &*v2_tx3, tx3->NameToEdgeType("TYPE3"));
+  ASSERT_TRUE(edge3.has_value());
+
+  ASSERT_TRUE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx3.reset();
+
+  auto tx4 = storage->Access(memgraph::storage::WRITE);
+  auto v1_tx4 = tx4->FindVertex(v1_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_tx4.has_value());
+
+  // This should fail with a serialization error. Although the head delta is
+  // committed, we have uncommitted deltas downstream and so cannot prepend a
+  // sequential delta.
+  auto label = tx4->NameToLabel("Label1");
+  auto res = v1_tx4->AddLabel(label);
+  ASSERT_FALSE(res.has_value());
+  EXPECT_EQ(res.error(), ms::Error::SERIALIZATION_ERROR);
+
+  tx2->Abort();
+  tx4->Abort();
+}

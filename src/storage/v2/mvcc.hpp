@@ -123,6 +123,12 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   }
 
   if (ts < transaction->start_timestamp) {
+    if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
+      if (object->has_uncommitted_non_sequential_deltas) {
+        transaction->has_serialization_error = true;
+        return false;
+      }
+    }
     return true;
   }
 
