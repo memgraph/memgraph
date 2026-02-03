@@ -168,8 +168,20 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   Delta *delta = vertex->delta;
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts != skip_transaction_id && ts >= kTransactionInitialId && IsDeltaNonSequential(*delta)) {
-      return true;
+
+    if (ts == skip_transaction_id) {
+      // don't include our own deltas they will soon been committed
+    } else {
+      if (IsDeltaNonSequential(*delta)) {
+        if (ts >= kTransactionInitialId) {
+          // found UncommittedNonSequential
+          return true;
+        }
+        // skip committed ones
+      } else {
+        // Found a Sequential Delta, hence can't be a NonSequential block
+        return false;
+      }
     }
     delta = delta->next.load(std::memory_order_acquire);
   }
@@ -843,8 +855,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   }
 
-  bool const from_non_sequential = (from_result == WriteResult::NON_SEQUENTIAL);
-  bool const to_non_sequential = (to_result == WriteResult::NON_SEQUENTIAL);
+  auto const from_non_sequential =
+      (from_result == WriteResult::NON_SEQUENTIAL) ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL;
+  auto const to_non_sequential =
+      (to_result == WriteResult::NON_SEQUENTIAL) ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL;
   bool const from_has_non_sequential_blocker_upstream =
       ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex);
   bool const to_has_non_sequential_blocker_upstream =
@@ -852,9 +866,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   utils::AtomicMemoryBlock([this,
                             edge,
-                            from_vertex = from_vertex,
-                            edge_type = edge_type,
-                            to_vertex = to_vertex,
+                            from_vertex,
+                            edge_type,
+                            to_vertex,
                             &schema_acc,
                             from_non_sequential,
                             to_non_sequential,
@@ -866,7 +880,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                        edge_type,
                        to_vertex,
                        edge,
-                       from_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
+                       from_non_sequential,
                        from_has_non_sequential_blocker_upstream);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
@@ -876,7 +890,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
                        edge_type,
                        from_vertex,
                        edge,
-                       to_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
+                       to_non_sequential,
                        to_has_non_sequential_blocker_upstream);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
@@ -1142,9 +1156,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
   }
 
-  MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-  transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-
   // If the transaction had non-sequential deltas, we should re-establish the
   // `has_uncommitted_non_sequential_deltas` flag on any vertices we've touched
   if (transaction_.has_non_sequential_deltas) {
@@ -1175,6 +1186,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
       }
     }
   }
+
+  MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+  transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
 #ifndef NDEBUG
   auto const prev = mem_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;

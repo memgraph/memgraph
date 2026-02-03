@@ -649,6 +649,11 @@ add_unit_test(storage_v2_non_sequential_isolation
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_delta_correctness
+    SOURCES storage_v2_delta_correctness.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
     LINK_TARGETS mg::storage mg-utils

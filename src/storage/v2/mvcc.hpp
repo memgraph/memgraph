@@ -158,6 +158,12 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     // Standard MVCC visibility rules: if the head delta was committed before
     // this transaction started, any delta action can be prepended.
     if (ts < transaction->start_timestamp) {
+      if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
+        if (object->has_uncommitted_non_sequential_deltas) {
+          transaction->has_non_sequential_deltas = true;
+          return WriteResult::NON_SEQUENTIAL;
+        }
+      }
       return WriteResult::SUCCESS;
     }
 
