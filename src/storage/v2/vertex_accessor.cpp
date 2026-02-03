@@ -181,7 +181,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   /// TODO: some by pointers, some by reference => not good, make it better
   transaction_->active_constraints_.unique_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
-  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_);
+  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
@@ -243,7 +243,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   transaction_->active_constraints_.unique_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_, storage_);
+  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
@@ -432,13 +432,13 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_, storage_);
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
   return std::move(old_value);
 }
 
-Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &props) {
+Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -446,7 +446,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   if (!storage_->indices_.vector_index_.Empty()) {
-    for (auto &[property_id, property_value] : props) {
+    for (auto &[property_id, property_value] : properties) {
       if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, property_id, property_value)) {
         property_value = std::move(*converted);
       }
@@ -462,15 +462,16 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
   bool result{false};
   utils::AtomicMemoryBlock(
-      [&result, &props, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
-        if (!vertex->properties.InitProperties(props)) {
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
+        if (!vertex->properties.InitProperties(properties)) {
           result = false;
           return;
         }
-        for (const auto &[property, new_value] : props) {
+        for (const auto &[property, new_value] : properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
           // TODO: defer until once all properties have been set, to make fewer entries ?
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage);
+          storage->indices_.UpdateOnSetProperty(
+              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
           transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
           if (transaction->constraint_verification_info) {
             if (!new_value.IsNull()) {
@@ -491,7 +492,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
         }
         // TODO If not performant enough there is also InitProperty()
         if (!transaction->active_constraints_.type_->empty()) {
-          for (auto const &[property_id, property_value] : props) {
+          for (auto const &[property_id, property_value] : properties) {
             if (auto validation_result =
                     transaction->active_constraints_.type_->Validate(*vertex, property_id, property_value);
                 !validation_result.has_value()) {
@@ -547,7 +548,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
-      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage);
+      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage->name_id_mapper_.get());
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -600,7 +601,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage);
+          storage->indices_.UpdateOnSetProperty(
+              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {
             std::visit(utils::Overloaded{
@@ -700,13 +702,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    properties = vertex_->properties.Properties();
-    r::for_each(properties, [&](auto &property_value_pair) {
-      property_value_pair.second = vertex_->properties.GetProperty(
-          property_value_pair.first,
-          PropertyDecoder<Vertex>{
-              .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
-    });
+    properties = vertex_->properties.Properties(PropertyDecoder<Vertex>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
     delta = vertex_->delta;
   }
 

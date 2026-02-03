@@ -5101,7 +5101,7 @@ namespace {
 
 template <typename T>
 concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue &property_value,
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
              std::map<storage::PropertyId, storage::PropertyValue> properties) {
       {
         value.ClearProperties()

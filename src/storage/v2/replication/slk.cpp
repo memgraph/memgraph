@@ -393,12 +393,10 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
-      utils::small_vector<std::string> ids;
-      slk::Load(&ids, reader);
-      utils::small_vector<float> list;
-      slk::Load(&list, reader);
-      *value = storage::ExternalPropertyValue(
-          storage::ExternalPropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = std::move(list)});
+      storage::ExternalPropertyValue::VectorIndexIdData data;
+      slk::Load(&data.ids, reader);
+      slk::Load(&data.vector, reader);
+      *value = storage::ExternalPropertyValue(std::move(data));
       return;
     }
   }

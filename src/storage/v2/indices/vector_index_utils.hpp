@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <exception>
-
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
@@ -145,6 +143,12 @@ inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
 /// @throws query::VectorSearchException if the scalar kind is unsupported.
 inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
   switch (scalar) {
+    case unum::usearch::scalar_kind_t::b1x8_k:
+      return "b1x8";
+    case unum::usearch::scalar_kind_t::u40_k:
+      return "u40";
+    case unum::usearch::scalar_kind_t::uuid_k:
+      return "uuid";
     case unum::usearch::scalar_kind_t::bf16_k:
       return "bf16";
     case unum::usearch::scalar_kind_t::f64_k:
@@ -173,7 +177,7 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
       return "i8";
     default:
       throw query::VectorSearchException(
-          "Unsupported scalar kind. Supported scalars are bf16, f64, f32, f16, f8, "
+          "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
           "u64, u32, u16, u8, i64, i32, i16, and i8.");
   }
 }
@@ -183,6 +187,15 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
 /// @return The corresponding scalar kind.
 /// @throws query::VectorSearchException if the scalar name is unsupported.
 inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
+  if (name == "b1x8" || name == "binary") {
+    return unum::usearch::scalar_kind_t::b1x8_k;
+  }
+  if (name == "u40") {
+    return unum::usearch::scalar_kind_t::u40_k;
+  }
+  if (name == "uuid") {
+    return unum::usearch::scalar_kind_t::uuid_k;
+  }
   if (name == "bf16" || name == "bfloat16") {
     return unum::usearch::scalar_kind_t::bf16_k;
   }
@@ -224,7 +237,7 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   }
 
   throw query::VectorSearchException(
-      fmt::format("Unsupported scalar name: {}. Supported scalars are bf16, f64, f32, f16, f8, "
+      fmt::format("Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
                   "u64, u32, u16, u8, i64, i32, i16, and i8.",
                   name));
 }
@@ -289,25 +302,6 @@ inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t in
   return ids.empty();  // Return true if should restore (no more IDs)
 }
 
-/// @brief Retrieves a vector from a USearch index using the get method and returns it as a PropertyValue of type
-/// double.
-/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
-/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
-/// @param index The USearch index to retrieve the vector from.
-/// @param key The key to look up in the index.
-/// @return A PropertyValue containing the vector as a list of double values, or empty if the key is not in the index.
-template <typename IndexType, typename KeyType>
-PropertyValue GetVectorAsPropertyValue(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
-  auto locked_index = index.ReadLock();
-  const auto dimension = locked_index->dimensions();
-  std::vector<double> vector(dimension);
-  const auto retrieved_count = locked_index->get(key, vector.data());
-  if (retrieved_count == 0) {
-    return {};
-  }
-  return PropertyValue(std::move(vector));
-}
-
 /// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
 /// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
 /// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
@@ -350,7 +344,7 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
         "Vector index property must have the same number of dimensions as specified in the index.");
   }
 
-  auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
+  auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
   {
     auto locked_index = mg_index.MutableSharedLock();
     if (locked_index->contains(key)) {

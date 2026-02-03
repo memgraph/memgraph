@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/vector_index.hpp"
+#include <range/v3/algorithm/contains.hpp>
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -61,8 +62,10 @@ bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Ac
   try {
     if (!SetupIndex(spec)) return false;
     PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
-      PropertyDecoder<Vertex> decoder{indices, name_id_mapper, &vertex};
-      AddVertexToIndex(spec, vertex, decoder, std::nullopt);
+      AddVertexToIndex(spec,
+                       vertex,
+                       PropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
+                       std::nullopt);
       if (snapshot_info) {
         snapshot_info->Update(UpdateType::VECTOR_IDX);
       }
@@ -122,8 +125,11 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
             // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
             UpdateVectorIndex(mg_index, spec, &vertex, std::move(it->second), thread_id);
           } else {
-            PropertyDecoder<Vertex> decoder{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex};
-            AddVertexToIndex(spec, vertex, decoder, thread_id);
+            AddVertexToIndex(
+                spec,
+                vertex,
+                PropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
+                thread_id);
           }
           if (snapshot_info) {
             snapshot_info->Update(UpdateType::VECTOR_IDX);
@@ -150,10 +156,18 @@ void VectorIndex::AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const 
   auto property = vertex.properties.GetProperty(spec.property, decoder);
   if (property.IsNull()) return;
 
-  auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
-  auto vector_data = property.IsVectorIndexId() ? property.ValueVectorIndexList() : ListToVector(property);
-  UpdateVectorIndex(mg_index, spec, &vertex, std::move(vector_data), thread_id);
+  if (property.IsVectorIndexId()) {
+    // If property is a vector index id already, we add the index id to the list of already stored index ids.
+    property.ValueVectorIndexIds().push_back(decoder.name_id_mapper->NameToId(spec.index_name));
+  } else {
+    // If property is not a vector index id, we create a new vector index id and set it in the property store.
+    property = PropertyValue(PropertyValue::VectorIndexIdData{
+        .ids = utils::small_vector<uint64_t>{decoder.name_id_mapper->NameToId(spec.index_name)},
+        .vector = ListToVector(property)});
+  }
   vertex.properties.SetProperty(spec.property, property);
+  auto &[mg_index, _] = pimpl->index_.at({spec.label_id, spec.property});
+  UpdateVectorIndex(mg_index, spec, &vertex, std::move(property.ValueVectorIndexList()), thread_id);
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
@@ -171,8 +185,9 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   auto index_id = name_id_mapper->NameToId(index_name);
   for (auto &vertex : vertices) {
     if (locked_index->contains(&vertex)) {
-      PropertyDecoder<Vertex> decoder{indices, name_id_mapper, &vertex};
-      auto vector_property = vertex.properties.GetProperty(label_prop.property(), decoder);
+      auto vector_property = vertex.properties.GetProperty(
+          label_prop.property(),
+          PropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex});
       if (ShouldUnregisterFromIndex(vector_property, index_id)) {
         locked_index->get(&vertex, vector.data());
         vertex.properties.SetProperty(label_prop.property(), PropertyValue(std::move(vector)));
@@ -241,21 +256,18 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Prope
       ids.erase(ranges::remove(ids, decoder.name_id_mapper->NameToId(index_it->second)), ids.end());
       auto &index_item = pimpl->index_.at({label, property_id});
 
-      // Remove vertex from the index
       auto locked_index = index_item.mg_index.MutableSharedLock();
-      locked_index->remove(vertex);
-
       // If the list of index ids is empty, we restore the vector from the index. Otherwise, we keep the property value
       // as is.
       const auto property_value_to_set = std::invoke([&]() {
         if (ids.empty()) {
-          std::vector<double> vector;
-          vector.reserve(locked_index->dimensions());
+          std::vector<double> vector(locked_index->dimensions());
           locked_index->get(vertex, vector.data());
           return PropertyValue(std::move(vector));
         }
         return old_vertex_property_value;
       });
+      locked_index->remove(vertex);
       vertex->properties.SetProperty(property_id, property_value_to_set);
     }
   }
@@ -273,14 +285,17 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
       auto &index_item = pimpl->index_.at(label_prop);
       UpdateVectorIndex(index_item.mg_index, index_item.spec, vertex, vector_property);
     }
-  } else {
-    // If we are setting a null value, we remove the property from all indices.
-    DMG_ASSERT(value.IsNull(), "Unexpected property value type in update property of vector index");
+  } else if (value.IsNull()) {
+    // If value is null, we have to remove the vertex from all indices that contain it (by label).
     auto indices = GetIndicesByProperty(property);
-    for (const auto &[_, index_name] : indices) {
-      RemoveVertexFromIndex(vertex, index_name);
-    }
+    auto vertex_has_label = [&](const auto &label_prop_index_name) {
+      return r::contains(vertex->labels, label_prop_index_name.first);
+    };
+    r::for_each(indices | rv::filter(vertex_has_label), [&](const auto &label_prop_index_name) {
+      RemoveVertexFromIndex(vertex, label_prop_index_name.second);
+    });
   }
+  // Otherwise, we don't update the index.
 }
 
 void VectorIndex::RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name) {
@@ -464,7 +479,7 @@ std::unordered_map<LabelId, std::string> VectorIndex::GetIndicesByProperty(Prope
 
 void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
   for (auto &[vertex, info] : cleanup_collection) {
-    PropertyDecoder<Vertex> decoder{indices, name_id_mapper, vertex};
+    const PropertyDecoder<Vertex> decoder{.indices = indices, .name_id_mapper = name_id_mapper, .entity = vertex};
     const auto &[labels_to_add, labels_to_remove, property_to_abort] = info;
     for (auto label : labels_to_remove) {
       UpdateOnRemoveLabel(label, vertex, decoder);

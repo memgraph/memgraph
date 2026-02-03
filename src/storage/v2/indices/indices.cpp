@@ -56,27 +56,27 @@ void Indices::DropGraphClearIndices() {
   text_edge_index_.Clear();
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, Storage *storage) {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   text_index_.UpdateOnAddLabel(label, vertex, tx);
-  PropertyDecoder<Vertex> decoder{&storage->indices_, storage->name_id_mapper_.get(), vertex};
-  vector_index_.UpdateOnAddLabel(label, vertex, decoder);
+  vector_index_.UpdateOnAddLabel(
+      label, vertex, PropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
 }
 
-void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, Storage *storage) {
+void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
   tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   text_index_.UpdateOnRemoveLabel(label, vertex, tx);
-  PropertyDecoder<Vertex> decoder{&storage->indices_, storage->name_id_mapper_.get(), vertex};
-  vector_index_.UpdateOnRemoveLabel(label, vertex, decoder);
+  vector_index_.UpdateOnRemoveLabel(
+      label, vertex, PropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
-                                  Storage *storage) {
+                                  NameIdMapper *name_id_mapper) {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   text_index_.UpdateOnSetProperty(vertex, tx, property);
-  vector_index_.UpdateOnSetProperty(property, value, vertex, storage->name_id_mapper_.get());
+  vector_index_.UpdateOnSetProperty(property, value, vertex, name_id_mapper);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,

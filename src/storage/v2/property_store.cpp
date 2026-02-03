@@ -1618,11 +1618,17 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       const auto &vector_index_ids = value.ValueVectorIndexIds();
       auto count = reader->ReadUint(payload_size);
       if (!count || *count != vector_index_ids.size()) return false;
-      for (auto id : vector_index_ids) {
+      utils::small_vector<uint64_t> read_ids;
+      read_ids.reserve(*count);
+      for (uint64_t i = 0; i < *count; ++i) {
         auto read_id = reader->ReadUint(Size::INT64);
-        if (!read_id || *read_id != id) return false;
+        if (!read_id) return false;
+        read_ids.push_back(*read_id);
       }
-      return true;
+      utils::small_vector<uint64_t> expected_sorted(vector_index_ids.begin(), vector_index_ids.end());
+      std::ranges::sort(expected_sorted);
+      std::ranges::sort(read_ids);
+      return read_ids == expected_sorted;
     }
   }
 }
@@ -1812,6 +1818,7 @@ enum class ExpectedPropertyStatus {
       }
     } break;
     case VECTOR:
+      // If property store type is VECTOR, it means that we stored list somewhere else but it's still a list for user.
       type = ExtendedPropertyType{PropertyValue::Type::List};
       break;
   }
@@ -1953,6 +1960,7 @@ enum class ExpectedPropertyStatus {
       return PropertyId::FromUint(*property_id);
     }
     case VECTOR:
+      // If property store type is VECTOR, it means that we stored list somewhere else but it's still a list for user.
       type = ExtendedPropertyType{PropertyValue::Type::List};
       break;
   }
@@ -2684,6 +2692,27 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   };
   return WithReader(get_properties);
 }
+
+template <typename T>
+std::map<PropertyId, PropertyValue> PropertyStore::Properties(const PropertyDecoder<T> &decoder) const {
+  auto get_properties = [&](Reader &reader) {
+    std::map<PropertyId, PropertyValue> props;
+    PropertyValue value;
+    while (true) {
+      auto prop = DecodeAnyProperty(&reader, value);
+      if (!prop) break;
+      if (value.IsVectorIndexId()) {
+        value.ValueVectorIndexList() = decoder.indices->vector_index_.GetVectorPropertyFromIndex(
+            decoder.entity, decoder.name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]));
+      }
+      props.emplace(*prop, std::move(value));
+    }
+    return props;
+  };
+  return WithReader(get_properties);
+}
+
+template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const PropertyDecoder<Vertex> &) const;
 
 std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes() const {
   auto get_properties = [&](Reader &reader) {

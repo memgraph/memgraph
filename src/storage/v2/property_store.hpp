@@ -125,6 +125,12 @@ class PropertyStore {
   /// @throw std::bad_alloc
   std::map<PropertyId, PropertyValue> Properties() const;
 
+  /// Returns all properties currently stored in the store, with values decoded
+  /// (e.g. vector index IDs resolved). The time complexity of this function is O(n).
+  /// @throw std::bad_alloc
+  template <typename T>
+  std::map<PropertyId, PropertyValue> Properties(const PropertyDecoder<T> &decoder) const;
+
   std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
 
   std::optional<PropertyValue> GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const;

@@ -195,8 +195,7 @@ template <AccessorWithSetProperty T>
 storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
                                        storage::NameIdMapper *name_id_mapper) {
   try {
-    auto new_value = value.ToPropertyValue(name_id_mapper);
-    auto maybe_old_value = record->SetProperty(key, new_value);
+    auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
     if (!maybe_old_value) {
       ProcessError(maybe_old_value.error());
     }
