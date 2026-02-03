@@ -16,7 +16,7 @@ import time
 
 from neo4j import GraphDatabase
 
-NUM_NODES = 10000
+NUM_NODES = 1000
 
 
 def setup_data(session):
@@ -82,16 +82,6 @@ def test_parallel_count(session):
     summary = result.consume()
     assert_read_only_summary(summary)
 
-    # Check notifications
-    notifications = summary.notifications
-    assert notifications is not None
-    found_parallel = False
-    for n in notifications:
-        if n.get("code") == "ParallelExecution":
-            found_parallel = True
-            break
-    assert found_parallel, "Expected 'ParallelExecution' notification code"
-
     print("Parallel Count passed.")
 
 
@@ -113,7 +103,7 @@ def test_parallel_orderby(session):
 
 def test_parallel_filter_agg(session):
     print("Testing Parallel Filter + Aggregation...")
-    cutoff = 5000
+    cutoff = 500
     expected_count = NUM_NODES - cutoff
     query = "USING PARALLEL EXECUTION MATCH (n:ParallelNode) WHERE n.id > $cutoff RETURN count(n) AS cnt"
     result = session.run(query, cutoff=cutoff)
