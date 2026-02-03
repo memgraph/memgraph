@@ -863,4 +863,68 @@ Feature: Vector search related features
 
         Then the result should be:
             | distance | node                        | similarity |
-            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0        |
+            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0       |
+
+
+    Scenario: After dropping vector index vector property is restored on vertex
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label | property | count |
+            | 'label+property_vector'   | 'L1'  | 'prop1'  | 1     |
+        When executing query:
+            """
+            DROP VECTOR INDEX test_index
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                    |
+            | (:L1 {prop1: [1.0, 2.0]}) |
+
+
+    Scenario: Vector index creation fails when existing node has non-vector property and database remains unchanged
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:L1 {id: 1, prop1: [1.0, 1.0]})
+            CREATE (:L1 {id: 2, prop1: [2.0, 2.0]})
+            CREATE (:L1 {id: 3, prop1: [3.0, 3.0]})
+            CREATE (:L1 {id: 4, prop1: 'not_a_vector'})
+            CREATE (:L1 {id: 5, prop1: [5.0, 5.0]})
+            """
+        When executing query:
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};
+            """
+        Then an error should be raised
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.id AS id, n.prop1 AS prop1 ORDER BY n.id;
+            """
+        Then the result should be:
+            | id | prop1      |
+            | 1  | [1.0, 1.0] |
+            | 2  | [2.0, 2.0] |
+            | 3  | [3.0, 3.0] |
+            | 4  | 'not_a_vector' |
+            | 5  | [5.0, 5.0] |
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name | label | property | metric | size | scalar_kind | index_type |
