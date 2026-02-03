@@ -12,6 +12,7 @@
 #include "utils/shared_quota.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <utility>
 #include "utils/logging.hpp"
 
@@ -67,7 +68,7 @@ std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(uint64_t 
 }
 
 void QuotaCoordinator::NotifyWaiters() {
-  epoch_.fetch_add(1, std::memory_order_release);
+  epoch_.fetch_add(1, std::memory_order_acq_rel);
   epoch_.notify_all();
 }
 
@@ -105,7 +106,7 @@ void QuotaCoordinator::QuotaHandle::Increment(uint64_t amount) {
 void QuotaCoordinator::QuotaHandle::ReturnUnused() {
   if (coord_) {
     // Return quota to coordinator
-    if (amount_ > 0) coord_->remaining_quota_.fetch_add(amount_, std::memory_order_release);
+    if (amount_ > 0) coord_->remaining_quota_.fetch_add(amount_, std::memory_order_acq_rel);
     // Decrement active handlers
     auto active_handlers = coord_->active_handlers_.fetch_sub(1, std::memory_order_acq_rel) - 1;
     // State changed!
@@ -131,16 +132,28 @@ SharedQuota::SharedQuota(uint64_t limit, uint64_t n_batches)
 SharedQuota::SharedQuota(Preload)
     : coord_(std::make_shared<QuotaCoordinator>()), desired_batch_size_(0), handle_(std::nullopt) {}
 
+void SharedQuota::ReleaseOtherPlanQuotas() {
+  if (!plan_quotas_) return;
+  for (auto *q : *plan_quotas_) {
+    if (q != this) q->Free();
+  }
+}
+
 SharedQuota::SharedQuota(const SharedQuota &other) noexcept
     : coord_(other.coord_),
       desired_batch_size_(other.desired_batch_size_),
-      handle_(std::nullopt) {}  // Handle is acquired lazily on first Decrement.
+      handle_(std::nullopt),  // Handle is acquired lazily on first Decrement.
+      plan_quotas_(other.plan_quotas_) {
+  if (plan_quotas_) plan_quotas_->push_back(this);
+}
 
 SharedQuota &SharedQuota::operator=(const SharedQuota &other) noexcept {
   if (this != &other) {
     handle_.reset();
     coord_ = other.coord_;
     desired_batch_size_ = other.desired_batch_size_;
+    plan_quotas_ = other.plan_quotas_;
+    if (plan_quotas_) plan_quotas_->push_back(this);
     // Do not acquire a new handle here, it will lazily acquire on first Decrement.
   }
   return *this;
@@ -149,7 +162,14 @@ SharedQuota &SharedQuota::operator=(const SharedQuota &other) noexcept {
 SharedQuota::SharedQuota(SharedQuota &&other) noexcept
     : coord_(std::exchange(other.coord_, nullptr)),
       desired_batch_size_(std::exchange(other.desired_batch_size_, 0)),
-      handle_(std::exchange(other.handle_, std::nullopt)) {}
+      handle_(std::exchange(other.handle_, std::nullopt)),
+      plan_quotas_(std::exchange(other.plan_quotas_, nullptr)) {
+  if (plan_quotas_) {
+    plan_quotas_->push_back(this);
+    auto it = std::find(plan_quotas_->begin(), plan_quotas_->end(), &other);
+    if (it != plan_quotas_->end()) plan_quotas_->erase(it);
+  }
+}
 
 SharedQuota &SharedQuota::operator=(SharedQuota &&other) noexcept {
   if (this != &other) {
@@ -157,6 +177,12 @@ SharedQuota &SharedQuota::operator=(SharedQuota &&other) noexcept {
     coord_ = std::exchange(other.coord_, nullptr);
     desired_batch_size_ = std::exchange(other.desired_batch_size_, 0);
     handle_ = std::exchange(other.handle_, std::nullopt);
+    plan_quotas_ = std::exchange(other.plan_quotas_, nullptr);
+    if (plan_quotas_) {
+      plan_quotas_->push_back(this);
+      auto it = std::find(plan_quotas_->begin(), plan_quotas_->end(), &other);
+      if (it != plan_quotas_->end()) plan_quotas_->erase(it);
+    }
   }
   return *this;
 }
@@ -188,7 +214,8 @@ void SharedQuota::Increment() {
 }
 
 void SharedQuota::Reacquire() {
-  handle_.reset();  // Returns existing unused quota before grabbing a new batch.
+  handle_.reset();           // Returns existing unused quota before grabbing a new batch.
+  ReleaseOtherPlanQuotas();  // Avoids deadlock when multiple shared quotas are used.
   if (coord_) handle_ = coord_->Acquire(desired_batch_size_);
 }
 

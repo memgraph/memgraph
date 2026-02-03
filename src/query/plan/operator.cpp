@@ -46,6 +46,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/graph.hpp"
 #include "query/interpret/eval.hpp"
+#include "query/parallel_state.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -489,6 +490,7 @@ struct CreationHelper {
   std::map<const LogicalOperator *, utils::SharedQuota> quotas_;  // Skip/Limit cursors need to use the same quota
   std::map<const LogicalOperator *, std::shared_ptr<SharedDistinctState>>
       shared_distinct_states_;  // Distinct cursors share deduplication state
+  std::shared_ptr<std::vector<utils::SharedQuota *>> shared_plan_quotas_{nullptr};
 
   utils::SharedQuota GetSharedQuota(const LogicalOperator *op) {
     auto [it, _] = quotas_.try_emplace(op, utils::SharedQuota(utils::SharedQuota::preload));
@@ -5038,7 +5040,7 @@ SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNes
 
 bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  const SCOPED_PROFILE_OP("SetNestedProperty");
+  SCOPED_PROFILE_OP("SetNestedProperty");
 
   AbortCheck(context);
 
@@ -10171,11 +10173,14 @@ class ParallelBranchCursor : public Cursor {
   ParallelBranchCursor(const std::shared_ptr<LogicalOperator> &branch_input, size_t num_threads,
                        utils::MemoryResource *mem)
       : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
+        branch_plan_quotas_(num_threads),
         branch_cursors_(std::invoke([&]() {
           const PlanCreationHelper helper{collection_scheduler_};
           std::vector<UniqueCursorPtr> cursors;
           cursors.reserve(num_threads);
           for (size_t i = 0; i < num_threads; i++) {
+            branch_plan_quotas_[i] = std::make_shared<std::vector<utils::SharedQuota *>>();
+            plan_creation_helper_.shared_plan_quotas_ = branch_plan_quotas_[i];  // Branch specific plan quotas
             cursors.push_back(branch_input->MakeCursor(mem));
           }
           return cursors;
@@ -10262,6 +10267,12 @@ class ParallelBranchCursor : public Cursor {
           context.trigger_context_collector = &collector;
         }
 
+        // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
+        // shared quotas are used)
+        if (branch_plan_quotas_[i] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
+          context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[i]);
+        }
+
         // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
         Frame frame_local(static_cast<int64_t>(frame_size));
 
@@ -10309,6 +10320,11 @@ class ParallelBranchCursor : public Cursor {
 
     // TODO Reuse the same logic as each thread
     // Execute branch 0 on the main thread
+    // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
+    // shared quotas are used)
+    if (branch_plan_quotas_[0] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
+      context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[0]);
+    }
     const auto &cursor = branch_cursors_[0];
     try {
       pre_pull_func(cursor.get());
@@ -10448,6 +10464,7 @@ class ParallelBranchCursor : public Cursor {
   }
 
   std::shared_ptr<utils::CollectionScheduler> collection_scheduler_;
+  std::vector<std::shared_ptr<std::vector<utils::SharedQuota *>>> branch_plan_quotas_;
   const std::vector<UniqueCursorPtr> branch_cursors_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
@@ -10993,6 +11010,7 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
     shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
+    shared_quota_->SetPlanQuotas(plan_creation_helper_.shared_plan_quotas_);
   }
 #endif
 }
@@ -11080,6 +11098,7 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
     shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
+    shared_quota_->SetPlanQuotas(plan_creation_helper_.shared_plan_quotas_);
   }
 #endif
 }

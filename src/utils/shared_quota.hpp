@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace memgraph::utils {
 
@@ -88,6 +90,11 @@ class SharedQuota {
   std::shared_ptr<QuotaCoordinator> coord_{nullptr};
   uint64_t desired_batch_size_{0};
   std::optional<QuotaCoordinator::QuotaHandle> handle_{std::nullopt};
+  // When set, this quota is part of a plan with multiple quotas. Before reacquiring we Free() all
+  // others in the list to avoid deadlock. Each branch has its own list (same-thread quotas only).
+  std::shared_ptr<std::vector<SharedQuota *>> plan_quotas_{nullptr};
+
+  void ReleaseOtherPlanQuotas();
 
  public:
   constexpr static struct Preload {
@@ -96,14 +103,28 @@ class SharedQuota {
   explicit SharedQuota(uint64_t limit, uint64_t n_batches = 1);
   // Used to setup the objects, but not initialize the quota.
   explicit SharedQuota(Preload /*unused*/);
-  ~SharedQuota() = default;
+
+  ~SharedQuota() {
+    Free();
+    if (plan_quotas_) {
+      auto it = std::find(plan_quotas_->begin(), plan_quotas_->end(), this);
+      if (it != plan_quotas_->end()) plan_quotas_->erase(it);
+    }
+  }
 
   SharedQuota(const SharedQuota &other) noexcept;
   SharedQuota &operator=(const SharedQuota &other) noexcept;
   SharedQuota(SharedQuota &&other) noexcept;
   SharedQuota &operator=(SharedQuota &&other) noexcept;
 
+  /// Associate this quota with the plan's quota list (same list for all quotas in one branch).
+  void SetPlanQuotas(std::shared_ptr<std::vector<SharedQuota *>> list) {
+    plan_quotas_ = list;
+    if (plan_quotas_) plan_quotas_->push_back(this);
+  }
+
   // Primary entry point for workers to consume quota.
+  // When batch is exhausted, releases other plan quotas then reacquires (if plan_quotas_ is set).
   uint64_t Decrement(uint64_t amount = 1);
   // Returns quota to the LOCAL handle (no atomic overhead).
   void Increment();
