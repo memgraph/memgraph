@@ -1391,7 +1391,7 @@ package_mage_docker() {
     esac
   done
 
-  if [[ "$build_type" = "RelWithDebInfo" ]]; then
+  if [[ "$build_type" = "RelWithDebInfo" && "$cugraph" = "false" ]]; then
     docker_target="relwithdebinfo"
   else
     docker_target="prod"
