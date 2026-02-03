@@ -148,7 +148,18 @@ jobs:
 
       - name: Check mgdeps-cache availability
         run: |
-          if curl --silent --fail "http://mgdeps-cache:8000/wheels/" -o /dev/null; then
+          if [[ "$CUGRAPH" == true  || "$CUDA" == true ]]; then
+            echo "Using wheels build for CUDA"
+            WHEEL_PATH="cuda-13.0"
+          elif [[ "$ARCH" == "arm" ]]; then
+            echo "Using wheels build for ARM"
+            WHEEL_PATH="arm64"
+          else
+            echo "Using wheels build for AMD"
+            WHEEL_PATH="amd64"
+          fi
+          echo "MAGE_WHEEL_PATH=${WHEEL_PATH}" >> $GITHUB_ENV
+          if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
             echo "mgdeps-cache is reachable :D"
             echo "CACHE_PRESENT=true" >> $GITHUB_ENV
           else
@@ -169,26 +180,15 @@ jobs:
 
       - name: Create wheels directory and fetch wheels if available
         run: |
-          if [[ "$CUGRAPH" == true  || "$CUDA" == true ]]; then
-            echo "Using wheels build for CUDA"
-            WHEEL_PATH="cuda-13.0"
-          elif [[ "$ARCH" == "arm" ]]; then
-            echo "Using wheels build for ARM"
-            WHEEL_PATH="arm64"
-          else
-            echo "Using wheels build for AMD"
-            WHEEL_PATH="amd64"
-          fi
-          mkdir -p mage/wheels
+
+          mkdir -p mage/wheels/${MAGE_WHEEL_PATH}
           if [ "$CACHE_PRESENT" = "true" ]; then
             echo "Cache is present. Fetching wheels..."
-            wget -nv -r -np -nH --cut-dirs=1 -P mage/wheels "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/"
+            wget -nv -r -np -nH --cut-dirs=1 -P mage/wheels "http://mgdeps-cache:8000/wheels/${MAGE_WHEEL_PATH}/"#
+            mv -v mage/wheels/$MAGE_WHEEL_PATH/* mage/wheels/
           else
             echo "Cache is not present. Skipping wheel fetch."
           fi
-
-          # move wheels into wheels directory
-          mv -v mage/wheels/$WHEEL_PATH/* mage/wheels/
 
       - name: Set image tag and artifact name
         run: |
