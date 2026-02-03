@@ -120,6 +120,11 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   TryUpdateClusterConfigFromDisk();
 }
 
+// It could happen that config from disk doesn't contain self coordinator's information
+// This is because we send the log with this coordinator being part of the cluster config
+// only after the gap is small enough so it could happen that for the short time window
+// the config doesn't contain this coordinator. This should be temporary and the log which
+// contains the current coordinator should be after shortly accepted.
 void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config) {
@@ -129,10 +134,6 @@ void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   try {
     const auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
     from_json(cluster_config_json, cluster_config_);
-    auto const &servers = cluster_config_->get_servers();
-    auto const self = std::ranges::find_if(
-        servers, [this](auto const &srv_config) { return my_srv_config_->get_id() == srv_config->get_id(); });
-    MG_ASSERT(self != std::ranges::end(servers), "Couldn't find self srv_config in servers from disk");
   } catch (std::exception const &e) {
     LOG_FATAL("Error occurred while parsing cluster config {}", e.what());
   }
