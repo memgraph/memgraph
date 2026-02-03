@@ -70,11 +70,11 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     --no-install-recommends && \
     rm -rf /tmp/*; \
   fi && \
+  apt-get install adduser -y && \
   chmod +x /install_runtime_requirements.sh && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
     --py-version ${PY_VERSION} --cuda ${CUDA} && \
   rm /install_runtime_requirements.sh && \
-  apt install -y adduser && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
   dpkg -i memgraph.deb && \
