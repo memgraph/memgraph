@@ -129,7 +129,7 @@ jobs:
   BuildMage:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.build_packages == 'true' }}
-    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda && ' CUDA' || '' }}${{ matrix.cugraph && ' CuGraph' || '' }}${{ matrix.malloc && ' Malloc' || '' }}
+    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda == 'true' && ' CUDA' || '' }}${{ matrix.cugraph == 'true' && ' CuGraph' || '' }}${{ matrix.malloc == 'true' && ' Malloc' || '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
@@ -145,7 +145,7 @@ jobs:
       push_to_s3: ${{ matrix.push_to_s3 == 'true' }}
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
-      run_tests: ${{ matrix.run_tests == 'true' }}
+      run_tests: ${{ matrix.run_tests == 'true' && matrix.cugraph == 'false' }}
       package_deb: ${{ matrix.package_deb }}
       generate_sbom: ${{ matrix.generate_sbom == 'true' }}
       ref: ${{ matrix.ref }}

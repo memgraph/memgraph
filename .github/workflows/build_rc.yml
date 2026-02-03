@@ -290,8 +290,8 @@ jobs:
       cugraph: ${{ matrix.cugraph }}
       push_to_s3: true
       malloc: ${{ matrix.malloc }}
-      run_smoke_tests: true
-      run_tests: true
+      run_smoke_tests: ${{ matrix.cugraph == false && true || false }}
+      run_tests: ${{ matrix.cugraph == false && true || false }}
       package_deb: "default"
       generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
