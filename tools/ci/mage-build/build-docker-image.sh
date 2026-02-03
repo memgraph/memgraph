@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -euo pipefail
 
 TOOLCHAIN="v7"
 OS="ubuntu-24.04"
@@ -12,6 +12,7 @@ IMAGE_TAG="custom"
 MEMGRAPH_URL=""
 MEMGRAPH_REF="$(git branch --show-current)"
 BUILD_TYPE="Release"
+CUGRAPH=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build-type)
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
     --memgraph-url)
       MEMGRAPH_URL=$2
       shift 2
+    ;;
+    --cugraph)
+      CUGRAPH=true
+      shift 1
     ;;
     *)
       echo "Unknown option: $1"
@@ -45,47 +50,45 @@ if [[ -z "$MEMGRAPH_URL" ]]; then
 fi
 wget -O mage/memgraph.deb "$MEMGRAPH_URL"
 
+MGBUILD_ARGS=(
+  --toolchain $TOOLCHAIN
+  --os "$OS"
+  --arch $ARCH
+  --build-type $BUILD_TYPE
+)
+if [[ "$CUGRAPH" = true ]]; then
+  MGBUILD_ARGS+=("--cugraph" "true")
+fi
+
+
 # Launch mgbuild container to build MAGE
 ./release/package/mgbuild.sh \
-  --toolchain $TOOLCHAIN \
-  --os "$OS" \
-  --arch $ARCH \
+  ${MGBUILD_ARGS[*]} \
   run
 
 ./release/package/mgbuild.sh \
-  --toolchain $TOOLCHAIN \
-  --os "$OS" \
-  --arch $ARCH \
-  --build-type $BUILD_TYPE \
+  ${MGBUILD_ARGS[*]} \
   build-mage
 
 if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
   ./release/package/mgbuild.sh \
-    --toolchain $TOOLCHAIN \
-    --os "$OS" \
-    --arch $ARCH \
+    ${MGBUILD_ARGS[*]} \
     build-heaptrack
 
   ./release/package/mgbuild.sh \
-    --toolchain $TOOLCHAIN \
-    --os "$OS" \
-    --arch $ARCH \
+    ${MGBUILD_ARGS[*]} \
     copy-heaptrack \
     --dest-dir "$(pwd)/mage"
 fi
 
 ./release/package/mgbuild.sh \
-  --toolchain $TOOLCHAIN \
-  --os "$OS" \
-  --arch $ARCH \
+  ${MGBUILD_ARGS[*]} \
   stop --remove
 
-mkdir mage/openssl
+mkdir -p mage/openssl
+mkdir -p mage/wheels
 ./release/package/mgbuild.sh \
-  --toolchain $TOOLCHAIN \
-  --os "$OS" \
-  --arch $ARCH \
-  --build-type $BUILD_TYPE \
+  ${MGBUILD_ARGS[*]} \
   package-mage-docker \
   --docker-repository-name memgraph/memgraph-mage \
   --image-tag $IMAGE_TAG \
