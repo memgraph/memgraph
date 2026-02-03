@@ -104,10 +104,10 @@ ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
 # Add gdb
-RUN --mount=type=secret,id=ubuntu_sources,target=/tmp/ubuntu.sources,required=false \
-  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /tmp/ubuntu.sources ]; then \
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
-    cp -v /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
   apt-get update && apt-get install -y \
   gdb libc6-dbg \
