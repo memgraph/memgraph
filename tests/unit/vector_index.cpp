@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #include <gtest/gtest.h>
 #include <sys/types.h>
+#include <algorithm>
 #include <string_view>
 #include <thread>
 
@@ -400,6 +401,82 @@ TEST_F(VectorIndexTest, CreateIndexWhenNodesExistsAlreadyTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+  }
+}
+
+TEST_F(VectorIndexTest, IndexCreationFailsWhenNodeHasNonVectorPropertyAndDatabaseRemainsUnchanged) {
+  static constexpr std::string_view label = "L1";
+  static constexpr std::string_view prop_name = "prop1";
+  static constexpr std::string_view id_prop = "id";
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    const auto label_id = acc->NameToLabel(label);
+    const auto prop_id = acc->NameToProperty(prop_name);
+    const auto id_prop_id = acc->NameToProperty(id_prop);
+
+    auto create_vertex = [&](int64_t id, PropertyValue prop1_val) {
+      auto vertex = acc->CreateVertex();
+      MG_ASSERT(vertex.AddLabel(label_id).has_value());
+      MG_ASSERT(vertex.SetProperty(id_prop_id, PropertyValue(id)).has_value());
+      MG_ASSERT(vertex.SetProperty(prop_id, prop1_val).has_value());
+    };
+
+    create_vertex(1, PropertyValue(PropertyValue::double_list_t{1.5, 1.5}));
+    create_vertex(2, PropertyValue("not_a_vector"));
+    create_vertex(3, PropertyValue(PropertyValue::double_list_t{5.5, 5.5}));
+
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto label_id = unique_acc->NameToLabel(label);
+    const auto property_id = unique_acc->NameToProperty(prop_name);
+    const auto spec = VectorIndexSpec{.index_name = test_index.data(),
+                                      .label_id = label_id,
+                                      .property = property_id,
+                                      .metric_kind = metric,
+                                      .dimension = 2,
+                                      .resize_coefficient = resize_coefficient,
+                                      .capacity = 10,
+                                      .scalar_kind = scalar_kind};
+
+    EXPECT_THROW(static_cast<void>(unique_acc->CreateVectorIndex(spec)), std::exception);
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    const auto prop_id = acc->NameToProperty(prop_name);
+    const auto id_prop_id = acc->NameToProperty(id_prop);
+
+    std::vector<std::pair<int64_t, PropertyValue>> rows;
+    for (auto vertex : acc->Vertices(View::NEW)) {
+      auto id_val = vertex.GetProperty(id_prop_id, View::NEW);
+      auto prop1_val = vertex.GetProperty(prop_id, View::NEW);
+      ASSERT_TRUE(id_val.has_value() && !id_val->IsNull());
+      ASSERT_TRUE(prop1_val.has_value());
+      rows.emplace_back(static_cast<int64_t>(id_val->ValueInt()), *prop1_val);
+    }
+    std::ranges::sort(rows, [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
+
+    // Abort happened -> properties remain double list / string (no VectorIndexId, since index was never created)
+    EXPECT_EQ(rows.size(), 3);
+    EXPECT_EQ(rows[0].first, 1);
+    EXPECT_TRUE(rows[0].second.IsDoubleList());
+    EXPECT_EQ(rows[0].second.ValueDoubleList(), (std::vector<double>{1.5, 1.5}));
+    EXPECT_EQ(rows[1].first, 2);
+    EXPECT_TRUE(rows[1].second.IsString());
+    EXPECT_EQ(rows[1].second.ValueString(), "not_a_vector");
+    EXPECT_EQ(rows[2].first, 3);
+    EXPECT_TRUE(rows[2].second.IsDoubleList());
+    EXPECT_EQ(rows[2].second.ValueDoubleList(), (std::vector<double>{5.5, 5.5}));
+  }
+
+  // No vector index should exist after failed creation
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
   }
 }
 

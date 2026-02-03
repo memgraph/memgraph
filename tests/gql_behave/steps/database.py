@@ -26,7 +26,6 @@ def query(q, context, params={}):
         List of query results.
     """
     results_list = []
-    context.exception = None
 
     session = context.driver.session()
     try:
