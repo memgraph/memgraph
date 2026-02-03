@@ -87,6 +87,7 @@ if [[ "$ARCH" == "arm64" ]]; then
   TORCH_SCATTER="$BASE_URL/torch_scatter-2.1.2-cp312-cp312-linux_aarch64.whl"
   TORCH_SPARSE="$BASE_URL/torch_sparse-0.6.18-cp312-cp312-linux_aarch64.whl"
   TORCH_SPLINE_CONV="$BASE_URL/torch_spline_conv-1.2.2-cp312-cp312-linux_aarch64.whl"
+  DGL="$BASE_URL/dgl-2.5-cp312-cp312-linux_aarch64.whl"
 else
   if [[ "$CUDA" == true ]]; then
     BASE_URL="${BASE_URL}/cuda-${CUDA_VERSION}"
@@ -98,6 +99,7 @@ else
   TORCH_SCATTER="$BASE_URL/torch_scatter-2.1.2-cp312-cp312-linux_x86_64.whl"
   TORCH_SPARSE="$BASE_URL/torch_sparse-0.6.18-cp312-cp312-linux_x86_64.whl"
   TORCH_SPLINE_CONV="$BASE_URL/torch_spline_conv-1.2.2-cp312-cp312-linux_x86_64.whl"
+  DGL="$BASE_URL/dgl-2.5-cp312-cp312-linux_x86_64.whl"
 fi
 
 if [ "$ARCH" = "arm64" ]; then
@@ -105,13 +107,14 @@ if [ "$ARCH" = "arm64" ]; then
     echo "Using cached torch packages"
     python3 -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
   else
+    # Attempt to install from S3 first, if that fails, fallback to pulling from PyG and building from source, if necessary
     {
       python3 -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
     } || {
       python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
     }
     curl -o dgl-2.5-cp312-cp312-linux_aarch64.whl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/arm64/dgl-2.5-cp312-cp312-linux_aarch64.whl
-    python3 -m pip install --no-cache-dir dgl-2.5-cp312-cp312-linux_aarch64.whl
+    python3 -m pip install --no-cache-dir $DGL
     rm dgl-2.5-cp312-cp312-linux_aarch64.whl
   fi
 else
@@ -119,6 +122,7 @@ else
       echo "Using cached torch packages"
       python3 -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
   else
+    # Attempt to install from S3 first, if that fails, fallback to pulling from PyG and building from source, if necessary
     {
       python3 -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
     } || {
@@ -129,7 +133,7 @@ else
       fi
     }
     curl -o dgl-2.5-cp312-cp312-linux_x86_64.whl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/amd64/dgl-2.5-cp312-cp312-linux_x86_64.whl
-    python3 -m pip install --no-cache-dir dgl-2.5-cp312-cp312-linux_x86_64.whl
+    python3 -m pip install --no-cache-dir $DGL
     rm dgl-2.5-cp312-cp312-linux_x86_64.whl
   fi
 fi
