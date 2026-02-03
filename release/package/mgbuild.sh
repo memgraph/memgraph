@@ -1335,7 +1335,7 @@ package_mage_deb() {
   if [[ "$cugraph" = true ]]; then
     cuda=true
     # TODO(matt): install this in mgbuild container image
-    docker exec -it -u root $build_container bash -c "apt-get update && apt-get install -y fakeroot"
+    docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y fakeroot"
   fi
 
   echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
