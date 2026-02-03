@@ -402,6 +402,11 @@ add_unit_test(utils_scheduler
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(consolidated_scheduler
+    SOURCES consolidated_scheduler.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_signals
     SOURCES utils_signals.cpp
     LINK_TARGETS mg-utils
