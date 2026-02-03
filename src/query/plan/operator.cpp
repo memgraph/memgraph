@@ -2403,14 +2403,21 @@ class BFSCursor : public query::plan::Cursor {
   BFSCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_.input()->MakeCursor(mem)),
+        source_cursor_(nullptr),
         processed_(mem),
         to_visit_next_(mem),
         to_visit_current_(mem) {
-    /*MG_ASSERT(!self_.common_.existing_node,
-              "Single source shortest path algorithm "
-              "should not be used when `existing_node` "
-              "flag is set, s-t shortest path algorithm "
-              "should be used instead!"); */
+    // Check if self_.input() is an indexed scan for destination
+    // If so, create a source cursor for SingleSourceBFS
+    std::shared_ptr<LogicalOperator> source_input = self_.input();
+    const auto &input_type_info = source_input->GetTypeInfo();
+    if (input_type_info == ScanAllByLabel::kType || input_type_info == ScanAllByLabelProperties::kType ||
+        input_type_info == ScanAllById::kType) {
+      // self_.input() is an indexed scan for destination, create source cursor
+      if (source_input->HasSingleInput()) {
+        source_cursor_ = source_input->input()->MakeCursor(mem);
+      }
+    }
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -2435,6 +2442,14 @@ class BFSCursor : public query::plan::Cursor {
     SINGLE_SOURCE,
     BIDIRECTIONAL,
   };
+
+  const ExpandVariable &self_;
+  UniqueCursorPtr input_cursor_;
+  UniqueCursorPtr source_cursor_;  // Used when input_cursor_ is destination scan and we need source for SingleSourceBFS
+  std::optional<Type> type_;
+  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>> processed_;
+  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
+  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
 
   // Helper function to check if source has an index
   bool HasIndexedSource(std::shared_ptr<LogicalOperator> input_op) const {
@@ -2555,26 +2570,42 @@ class BFSCursor : public query::plan::Cursor {
       return Type::SINGLE_SOURCE;
     }
 
-    // Check if source has index
-    // When existing_node is true, the input chain has been modified:
-    // - self_.input() is the indexed scan for destination
-    // - self_.input()->input() is the original input chain for source
+    // Check if source has index and if destination has index
     std::shared_ptr<LogicalOperator> source_input = self_.input();
-    if (self_.common_.existing_node && source_input && source_input->HasSingleInput()) {
-      source_input = source_input->input();
+    LogicalOperator *dest_scan = nullptr;
+    bool destination_has_index = false;
+
+    // Check if self_.input() is an indexed scan for destination
+    // (created at plan time but existing_node was not set to true)
+    const auto &input_type_info = source_input->GetTypeInfo();
+    if (input_type_info == ScanAllByLabel::kType || input_type_info == ScanAllByLabelProperties::kType ||
+        input_type_info == ScanAllById::kType) {
+      // self_.input() is the indexed scan for destination
+      destination_has_index = true;
+      dest_scan = source_input.get();
+      // Source is in the input chain before the destination scan
+      if (source_input->HasSingleInput()) {
+        source_input = source_input->input();
+      } else {
+        // No source input chain
+        return Type::SINGLE_SOURCE;
+      }
+    } else if (self_.common_.existing_node) {
+      // Legacy case: existing_node was set at plan time (for non-BFS or old code paths)
+      destination_has_index = true;
+      dest_scan = source_input.get();
+      if (source_input && source_input->HasSingleInput()) {
+        source_input = source_input->input();
+      }
     }
+
     bool source_has_index = HasIndexedSource(source_input);
 
-    // Check if destination has index (existing_node flag indicates destination has index)
-    bool destination_has_index = self_.common_.existing_node;
-
     // Only use STShortestPath if we have indexes for both source and destination
-    if (source_has_index && destination_has_index) {
+    if (source_has_index && destination_has_index && dest_scan) {
       // Estimate cardinalities
       double source_cardinality = EstimateIndexedScanCardinality(source_input.get(), context);
-
-      // When existing_node is true, self_.input() is the indexed scan for destination
-      double destination_cardinality = EstimateIndexedScanCardinality(self_.input().get(), context);
+      double destination_cardinality = EstimateIndexedScanCardinality(dest_scan, context);
 
       // Use cost-based decision with the formula
       if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, context)) {
@@ -2685,7 +2716,16 @@ class BFSCursor : public query::plan::Cursor {
       // if current is still empty, it means both are empty, so pull from
       // input
       if (to_visit_current_.empty()) {
-        if (!input_cursor_->Pull(frame, context)) return false;
+        // For SingleSourceBFS, we need to pull source vertices.
+        // If source_cursor_ is available (meaning input_cursor_ is destination scan), use it
+        // Otherwise, use input_cursor_ (which is the source input)
+        bool pulled = false;
+        if (source_cursor_) {
+          pulled = source_cursor_->Pull(frame, context);
+        } else {
+          pulled = input_cursor_->Pull(frame, context);
+        }
+        if (!pulled) return false;
 
         if (context.hops_limit.IsLimitReached()) return false;
 
@@ -2723,6 +2763,41 @@ class BFSCursor : public query::plan::Cursor {
       auto [curr_edge, curr_vertex, curr_acc_path] = to_visit_current_.back();
       to_visit_current_.pop_back();
 
+      // Check if we should use CheckExistingNode logic.
+      // This is true if:
+      // 1. existing_node flag is set (legacy/plan-time decision), OR
+      // 2. We're using bidirectional BFS (type_ is BIDIRECTIONAL) which means we have indexed destination
+      bool should_check_existing = self_.common_.existing_node || (type_.has_value() && *type_ == Type::BIDIRECTIONAL);
+
+      // If we should check existing node, check early if the expanded vertex matches the destination
+      // to avoid expensive path reconstruction for vertices that won't match
+      if (should_check_existing && !CheckExistingNode(curr_vertex, self_.common_.node_symbol, frame)) {
+        // Still need to expand from this vertex if we haven't reached max depth
+        // Calculate path length without full reconstruction
+        int64_t path_length = 1;
+        auto last_vertex = curr_vertex;
+        const EdgeAccessor *last_edge = &curr_edge;
+        while (true) {
+          last_vertex = last_edge->From() == last_vertex ? last_edge->To() : last_edge->From();
+          const auto &previous_edge = processed_.find(last_vertex)->second;
+          if (!previous_edge) break;
+          path_length++;
+          last_edge = &previous_edge.value();
+        }
+
+        // expand only if what we've just expanded is less then max depth
+        if (path_length < upper_bound_) {
+          if (self_.filter_lambda_.accumulated_path_symbol) {
+            MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
+            frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
+          }
+          if (!context.hops_limit.IsLimitReached()) {
+            expand_from_vertex(curr_vertex);
+          }
+        }
+        continue;
+      }
+
       // create the frame value for the edges
       auto *pull_memory = context.evaluation_context.memory;
       utils::pmr::vector<TypedValue> edge_list(pull_memory);
@@ -2751,20 +2826,15 @@ class BFSCursor : public query::plan::Cursor {
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
-      // If existing_node is set, we need to check if the expanded vertex matches
-      // the destination vertex from the input (which was filtered via indexed scan)
-      if (self_.common_.existing_node && !CheckExistingNode(curr_vertex, self_.common_.node_symbol, frame)) {
-        continue;
-      }
-
       // Write the vertex to frame (needed for filter evaluation and for next operator)
       frame_writer.Write(self_.common_.node_symbol, curr_vertex);
 
-      // Apply filters that were removed by GenScanByIndex when existing_node=true.
-      // These filters need to be manually applied in SingleSourceBFS because we expand
-      // to ALL neighbors, not just the destination from the indexed scan.
-      // We apply them exactly like Filter::FilterCursor does.
-      if (self_.common_.existing_node && !self_.removed_destination_filters_.empty()) {
+      // Apply filters that were removed by GenScanByIndex when using SingleSourceBFS.
+      // These filters need to be manually applied because we expand to ALL neighbors,
+      // not just the destination from the indexed scan.
+      // We only apply them if we're NOT using bidirectional BFS (which handles them via CheckExistingNode).
+      bool is_single_source = !type_.has_value() || *type_ != Type::BIDIRECTIONAL;
+      if (is_single_source && !self_.removed_destination_filters_.empty()) {
         // Evaluate filters exactly like Filter::FilterCursor does
         bool all_filters_passed = true;
         for (auto *filter_expr : self_.removed_destination_filters_) {
@@ -2786,10 +2856,18 @@ class BFSCursor : public query::plan::Cursor {
     }
   }
 
-  void Shutdown() override { input_cursor_->Shutdown(); }
+  void Shutdown() override {
+    input_cursor_->Shutdown();
+    if (source_cursor_) {
+      source_cursor_->Shutdown();
+    }
+  }
 
   void Reset() override {
     input_cursor_->Reset();
+    if (source_cursor_) {
+      source_cursor_->Reset();
+    }
     processed_.clear();
     to_visit_next_.clear();
     to_visit_current_.clear();
@@ -3052,26 +3130,10 @@ class BFSCursor : public query::plan::Cursor {
   // STShortestPath end //
   //////////////////////////
 
-  const ExpandVariable &self_;
-  UniqueCursorPtr input_cursor_;
-  std::optional<Type> type_;
-
-  ///////////////////////////
-  // SingleSourceBFS start //
-  ///////////////////////////
-
   // Depth bounds. Calculated on each pull from the input, the initial value
   // is irrelevant.
   int64_t lower_bound_{-1};
   int64_t upper_bound_{-1};
-
-  // maps vertices to the edge they got expanded from. it is an optional
-  // edge because the root does not get expanded from anything.
-  // contains visited vertices as well as those scheduled to be visited.
-  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>> processed_;
-  // edge, vertex we have yet to visit, for current and next depth and their accumulated paths
-  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_next_;
-  utils::pmr::vector<std::tuple<EdgeAccessor, VertexAccessor, std::optional<Path>>> to_visit_current_;
 };
 
 namespace {

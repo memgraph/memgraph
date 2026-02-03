@@ -375,8 +375,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // For BFS: try to create indexed scan for destination if source has index.
-      // BFSCursor will decide at runtime whether to use bidirectional or single-source BFS.
+      // For BFS: create indexed scan for destination if source has index.
+      // The cost-based decision will be made at runtime in BFSCursor::CalculateBFSType.
+      // We don't set existing_node=true here - that will be determined at runtime.
       bool source_has_index = HasIndexedSource(expand.input());
       if (source_has_index) {
         // Collect all filter expressions for destination node symbol before GenScanByIndex
@@ -414,12 +415,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         std::unique_ptr<LogicalOperator> indexed_scan = GenScanByIndex(dst_scan);
         if (indexed_scan) {
+          // Always set the indexed scan as input, but don't set existing_node=true yet.
+          // BFSCursor will decide at runtime whether to use bidirectional (existing_node=true semantics)
+          // or single-source (existing_node=false semantics) based on cost.
           expand.set_input(std::move(indexed_scan));
-          expand.common_.existing_node = true;
 
           // Collect filter expressions that were removed by GenScanByIndex
-          // These are expressions that filter the destination node symbol and are now in filter_exprs_for_removal_
-          // but weren't there before GenScanByIndex was called
+          // These will be used in SingleSourceBFS if that's chosen at runtime
           for (auto *expr : destination_filter_expressions_before) {
             if (filter_exprs_for_removal_.contains(expr) && !filter_exprs_before.contains(expr)) {
               expand.removed_destination_filters_.push_back(expr);
