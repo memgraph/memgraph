@@ -10217,96 +10217,84 @@ class ParallelBranchCursor : public Cursor {
     const auto num_branches_without_main = num_branches - 1;
 
     utils::TaskCollection tasks(num_branches);
-    std::exception_ptr exception(nullptr);  // Only one exception is possible, so we use a single exception pointer
+    std::vector<std::exception_ptr> exceptions(num_branches, nullptr);
     // Store context copies from each branch for unification after execution
     std::vector<ExecutionContext> branch_contexts(num_branches_without_main);
     // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
     std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(num_branches_without_main);
     std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(num_branches_without_main);
 
-    const auto main_thread_id = std::this_thread::get_id();
-
-    // State used only for scheduled branches (id >= 1). When main thread steals a task, we skip
-    // mem_tracking and timer accumulation so the main thread's tracker is not double-counted.
-    struct ScheduledBranchState {
-      std::thread::id main_thread_id;
-      memgraph::memory::CrossThreadMemoryTracking *mem_tracking;
-      utils::Timer *timer;
-      const std::optional<ScopedProfile> *profile;  // reset via const_cast in on_exit
-      size_t metadata_i;
-    };
-
-    auto execute_one_branch = [&](size_t branch_id,
-                                  Frame &frame_to_use,
-                                  ExecutionContext &ctx,
-                                  const std::optional<ScheduledBranchState> &scheduled_state) {
-      const bool is_scheduled = scheduled_state.has_value();
-      const bool running_on_main = std::this_thread::get_id() == scheduled_state->main_thread_id;
-
-      if (is_scheduled) {
-        const OOMExceptionEnabler oom_exception;
-        if (!running_on_main) {
-          scheduled_state->mem_tracking->StartTracking();
-        }
-        ctx.stats_root = nullptr;
-        ctx.stats = plan::ProfilingStats();
-        SCOPED_PROFILE_OP_BY_REF(self);
-
-        const size_t metadata_i = scheduled_state->metadata_i;
-        if (ctx.frame_change_collector != nullptr) {
-          auto &collector = branch_frame_collectors[metadata_i].emplace(ctx.frame_change_collector->get_allocator());
-          collector.CopyStructureFrom(*ctx.frame_change_collector);
-          ctx.frame_change_collector = &collector;
-        }
-        if (ctx.trigger_context_collector != nullptr) {
-          auto &collector =
-              branch_trigger_collectors[metadata_i].emplace(ctx.trigger_context_collector->CreateEmptyWithSameConfig());
-          ctx.trigger_context_collector = &collector;
-        }
-      }
-
-      DMG_ASSERT(!ctx.auth_checker || ctx.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
-      const auto &cursor = branch_cursors_[branch_id];
-
-      auto on_exit = utils::OnScopeExit([&]() {
-        // NOTE: hops limit is shared between threads, free before moving context
-        ctx.hops_limit.Free();
-        if (is_scheduled) {
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-          const_cast<std::optional<ScopedProfile> &>(*scheduled_state->profile).reset();
-          if (!running_on_main) {
-            ctx.profile_execution_time += scheduled_state->timer->Elapsed();
-            scheduled_state->mem_tracking->StopTracking();
-          }
-          branch_contexts[scheduled_state->metadata_i] = std::move(ctx);
-        }
-      });
-
-      try {
-        pre_pull_func(cursor.get());
-        pull_result.fetch_add((int)cursor->Pull(frame_to_use, ctx));
-        post_pull_func(cursor.get(), &frame_to_use);
-      } catch (const std::exception &e) {
-        DMG_ASSERT(ctx.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
-        if (!ctx.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
-          exception = std::current_exception();
-        }
-      }
-    };
-
-    // Execute branches 1..N in parallel (may be stolen by main thread)
+    // Execute branches 1..N in parallel
     for (size_t i = 1; i < num_branches; i++) {
-      tasks.AddTask([execute_one_branch,
+      tasks.AddTask([&,
                      i,
                      context,
                      frame_size = frame.elems().size(),
-                     main_thread_id,
-                     profile_ptr = &profile,
+                     main_thread = std::this_thread::get_id(),
+                     post_pull_func,
                      mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
-        utils::Timer timer;
-        ScheduledBranchState state{main_thread_id, &mem_tracking, &timer, profile_ptr, i - 1};
+        const OOMExceptionEnabler oom_exception;
+        const utils::Timer timer;
+        if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+          mem_tracking.StartTracking();
+        }
+        // Create parallel operator entry in branch's stats tree
+        context.stats_root = nullptr;
+        context.stats = plan::ProfilingStats();
+        SCOPED_PROFILE_OP_BY_REF(self);
+
+        DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
+        const auto &cursor = branch_cursors_[i];
+        const auto metadata_i = i - 1;
+        if (context.frame_change_collector != nullptr) {
+          auto &collector =
+              branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+          // Copy the cache structure (keys and invalidators) from the main collector so that
+          // cache invalidation works correctly when frame values change in this branch.
+          collector.CopyStructureFrom(*context.frame_change_collector);
+          context.frame_change_collector = &collector;
+        }
+        if (context.trigger_context_collector != nullptr) {
+          // Create an empty collector with same config for this branch (don't copy existing data)
+          // Main branch retains its own data, this branch will only receive new changes.
+          auto &collector = branch_trigger_collectors[metadata_i].emplace(
+              context.trigger_context_collector->CreateEmptyWithSameConfig());
+          context.trigger_context_collector = &collector;
+        }
+
+        // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
         Frame frame_local(static_cast<int64_t>(frame_size));
-        execute_one_branch(i, frame_local, context, state);
+
+        auto on_exit = utils::OnScopeExit([&]() {
+          // Force state reset (life extended through the context)
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+          const_cast<std::optional<ScopedProfile> &>(profile).reset();
+          if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+            // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
+            // Main thread is handled by the higher level
+            context.profile_execution_time += timer.Elapsed();
+            // Main thread will continue using the same tracker
+            mem_tracking.StopTracking();
+          }
+          // NOTE: hops limit is shared between threads, so we need to free the leftover quota
+          context.hops_limit.Free();
+          // Move current context to the branch context for unification
+          branch_contexts[metadata_i] = std::move(context);
+        });
+
+        try {
+          pre_pull_func(cursor.get());
+          pull_result.fetch_add((int)cursor->Pull(frame_local, context));
+          post_pull_func(cursor.get(), &frame_local);
+        } catch (const std::exception &e) {
+          // Stop all other threads
+          DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+          if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
+            // Set exception occurred flag and pass exception to the main thread
+            exceptions[i] = std::current_exception();
+          }
+          return;
+        }
       });
     }
 
@@ -10319,14 +10307,31 @@ class ParallelBranchCursor : public Cursor {
     collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
     collection_scheduler_->SetPool(context.worker_pool);
 
-    // Execute branch 0 on the main thread (same logic as scheduled branches, but no collector/timer/mem_tracking)
-    execute_one_branch(0, frame, context, std::nullopt);
+    // TODO Reuse the same logic as each thread
+    // Execute branch 0 on the main thread
+    const auto &cursor = branch_cursors_[0];
+    try {
+      pre_pull_func(cursor.get());
+      pull_result.fetch_add((int)cursor->Pull(frame, context));
+      // NOTE: hops limit is shared between threads, so we need to free the leftover quota
+      context.hops_limit.Free();
+      post_pull_func(cursor.get(), &frame);
+    } catch (const std::exception &e) {
+      DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+      if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
+        // Exception occurred on the main thread, set flag and pass exception to the main thread
+        exceptions[0] = std::current_exception();
+      }
+    }
 
     collection_scheduler_->WaitOrSteal();
 
     // Check for exceptions
-    if (exception) {
-      std::rethrow_exception(exception);
+    if (const auto exception_it = std::find_if(
+            exceptions.begin(), exceptions.end(), [](const std::exception_ptr &e) { return e != nullptr; });
+        exception_it != exceptions.end()) {
+      // Just rethrow the first exception
+      std::rethrow_exception(*exception_it);
     }
 
     // Nothing to pull, return
@@ -10807,6 +10812,7 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
   symbols.insert(symbols.end(), right.begin(), right.end());
   return symbols;
 #else
+  (void)table;
   return {};
 #endif
 }
@@ -10939,6 +10945,7 @@ std::vector<Symbol> OrderByParallel::ModifiedSymbols(const SymbolTable &table) c
   symbols.insert(symbols.end(), right.begin(), right.end());
   return symbols;
 #else
+  (void)table;
   return {};
 #endif
 }
@@ -10947,6 +10954,7 @@ std::vector<Symbol> OrderByParallel::OutputSymbols(const SymbolTable &symbol_tab
 #ifdef MG_ENTERPRISE
   return input_->OutputSymbols(symbol_table);
 #else
+  (void)symbol_table;
   return {};
 #endif
 }
