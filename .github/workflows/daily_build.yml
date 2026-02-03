@@ -224,18 +224,22 @@ jobs:
             build_arch: "amd"
             malloc: true
             cuda: false
+            cugraph: false
           - build_type: "RelWithDebInfo"
             build_arch: "amd"
             cuda: true
             malloc: false
+            cugraph: false
           - build_type: "RelWithDebInfo"
             build_arch: "amd"
             cuda: false
             malloc: true
+            cugraph: false
           - build_type: "RelWithDebInfo"
             build_arch: "arm"
             cuda: false
             malloc: true
+            cugraph: false
           - build_type: "RelWithDebInfo"
             build_arch: "amd"
             cuda: false
