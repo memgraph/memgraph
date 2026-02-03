@@ -120,6 +120,11 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   TryUpdateClusterConfigFromDisk();
 }
 
+// It could happen that config from disk doesn't contain self coordinator's information
+// This is because we send the log with this coordinator being part of the cluster config
+// only after the gap is small enough so it could happen that for the short time window
+// the config doesn't contain this coordinator. This should be temporary and the log which
+// contains the current coordinator should be after shortly accepted.
 void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config) {

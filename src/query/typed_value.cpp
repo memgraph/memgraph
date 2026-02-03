@@ -1446,6 +1446,24 @@ bool IsTemporalType(const TypedValue::Type type) {
                                              TypedValue::Type::Duration};
   return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
 };
+
+constexpr bool is_canonical(TypedValue::Type type) {
+  switch (type) {
+    case TypedValue::Type::Null:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+    case TypedValue::Type::String:
+    case TypedValue::Type::Bool:
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      return true;
+    default:
+      return false;
+  }
+}
 }  // namespace
 
 // TODO: make it faster
@@ -1478,6 +1496,8 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
     }
   };
   if (!is_legal(a.type()) || !is_legal(b.type())) {
+    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type()))
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
   }
 
@@ -1487,7 +1507,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     } else {
       return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
     }
@@ -1495,7 +1515,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     }
 
     switch (a.type()) {

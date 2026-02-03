@@ -61,12 +61,17 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       # This is also needed if we want do to comparison against other branches
       # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
@@ -188,12 +193,17 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Set base branch
         run: |
@@ -271,12 +281,17 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Set base branch
         run: |
