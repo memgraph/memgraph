@@ -917,6 +917,11 @@ class DbAccessor final {
     return accessor_->CreateVectorIndex(std::move(spec));
   }
 
+  std::expected<utils::small_vector<uint64_t>, storage::StorageIndexDefinitionError> GetVectorIndexIdsForVertex(
+      storage::Vertex *vertex, storage::PropertyId property) {
+    return accessor_->GetVectorIndexIdsForVertex(vertex, property);
+  }
+
   std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) {
     return accessor_->DropVectorIndex(index_name);
   }

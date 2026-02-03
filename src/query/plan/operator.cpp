@@ -1254,6 +1254,7 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
       case storage::PropertyValue::Type::Enum:
       case storage::PropertyValueType::Point2d:
       case storage::PropertyValueType::Point3d:
+      case storage::PropertyValueType::VectorIndexId:
         // Prevent indexed lookup with something that would fail if we did
         // the original filter with `operator<`. Note, for some reason,
         // Cypher does not support comparing boolean values.

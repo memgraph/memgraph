@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -459,6 +459,10 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     }
     case storage::PropertyValue::Type::Point3d: {
       return {value.ValuePoint3d()};
+    }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vector = value.ValueVectorIndexList();
+      return vector | std::ranges::views::transform([](auto v) { return Value(v); }) | std::ranges::to<std::vector>();
     }
   }
 }

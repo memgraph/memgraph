@@ -1136,8 +1136,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
-    std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
     std::map<EdgeTypePropKey,
              std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
         vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
@@ -1164,7 +1162,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
                 auto prop_id = current->property.key;
-                auto from_vertex = current->property.out_vertex;
+                auto *from_vertex = current->property.out_vertex;
 
                 const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
                 auto vec_prop_is_interesting =
@@ -1263,21 +1261,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 vertex->labels.pop_back();
 
                 storage_->UpdateLabelCount(current->label.value, -1);
-
                 index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
-
-                // we have to remove the vertex from the vector index if this label is indexed and vertex has
-                // needed property
-                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
-                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
-                  // label is in the vector index
-                  for (const auto &property : vector_properties->second) {
-                    if (vertex->properties.HasProperty(property)) {
-                      // it has to be removed from the index
-                      vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(vertex);
-                    }
-                  }
-                }
                 break;
               }
               case Delta::Action::ADD_LABEL: {
@@ -1287,20 +1271,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
                 storage_->UpdateLabelCount(current->label.value, 1);
 
-                // we have to add the vertex to the vector index if this label is indexed and vertex has needed
-                // property
-                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
-                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
-                  // label is in the vector index
-                  for (const auto &property : vector_properties->second) {
-                    auto current_value = vertex->properties.GetProperty(property);
-                    if (!current_value.IsNull()) {
-                      // it has to be added to the index
-                      vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
-                          std::move(current_value), vertex);
-                    }
-                  }
-                }
+                index_abort_processor.CollectOnLabelAddition(current->label.value, vertex);
                 break;
               }
               case Delta::Action::SET_PROPERTY: {
@@ -1308,23 +1279,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // For property label index
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
-                index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
-
-                const auto &vector_index_labels = index_abort_processor.vector_.p2l.find(current->property.key);
-                const auto has_vector_index = vector_index_labels != index_abort_processor.vector_.p2l.end();
-                if (has_vector_index) {
-                  auto has_indexed_label = [&vector_index_labels](auto label) {
-                    return std::binary_search(
-                        vector_index_labels->second.begin(), vector_index_labels->second.end(), label);
-                  };
-                  auto indexed_labels_on_vertex =
-                      vertex->labels | rv::filter(has_indexed_label) | r::to<std::vector<LabelId>>();
-
-                  for (const auto &label : indexed_labels_on_vertex) {
-                    vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
-                        *current->property.value, vertex);
-                  }
-                }
+                index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
                 // Setting the correct value
                 vertex->properties.SetProperty(current->property.key, *current->property.value);
                 break;
@@ -1449,14 +1404,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// this is because they point into vertices skip_list
 
     // Cleanup INDICES
-    index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
-
-    for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
-      storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
-    }
-    for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
-      storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
-    }
+    index_abort_processor.Process(storage_->indices_,
+                                  transaction_.active_indices_,
+                                  transaction_.start_timestamp,
+                                  mem_storage->name_id_mapper_.get());
     for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
       storage_->indices_.vector_edge_index_.RestoreEntries(edge_type_prop, prop_edges);
     }
@@ -1804,7 +1755,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector index on nodes with the same name as vector edge index
-  if (vector_edge_index.IndexExists(spec.index_name) || !vector_index.CreateIndex(spec, vertices_acc)) {
+  if (vector_edge_index.IndexExists(spec.index_name) ||
+      !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
@@ -1819,7 +1771,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
-  if (vector_index.DropIndex(index_name)) {
+  auto vertices_acc = in_memory->vertices_.access();
+  if (vector_index.DropIndex(index_name, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
   } else if (vector_edge_index.DropIndex(index_name)) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
@@ -1829,6 +1782,19 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
   return {};
+}
+
+utils::small_vector<uint64_t> InMemoryStorage::InMemoryAccessor::GetVectorIndexIdsForVertex(Vertex *vertex,
+                                                                                            PropertyId property) {
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  return in_memory->indices_.vector_index_.GetVectorIndexIdsForVertex(
+      vertex, property, in_memory->name_id_mapper_.get());
+}
+
+utils::small_vector<float> InMemoryStorage::InMemoryAccessor::GetVectorFromVectorIndex(
+    Vertex *vertex, std::string_view index_name) const {
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  return in_memory->indices_.vector_index_.GetVectorPropertyFromIndex(vertex, index_name);
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
@@ -2963,7 +2929,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
-    auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
+    auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
       while (true) {
         auto *older = delta->next.load(std::memory_order_acquire);
         if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
@@ -2999,7 +2965,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT:
@@ -3024,7 +2990,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::REMOVE_OUT_EDGE:
             return true;
@@ -3048,7 +3014,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
-      find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
+      find_and_apply_deltas(&delta, prev.edge, [](auto action) {
         switch (action) {
           case Delta::Action::SET_PROPERTY:
             return true;
@@ -3072,7 +3038,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::ADD_OUT_EDGE:
             return true;
@@ -3096,7 +3062,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::RECREATE_OBJECT:
             return true;
@@ -3119,9 +3085,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
-    append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
-      mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
-      replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg);
+    append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
+      mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+      replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
       // We send in progress msg every 10s. RPC timeout on main is configured with 30s
       if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
         timer.ResetStartTime();

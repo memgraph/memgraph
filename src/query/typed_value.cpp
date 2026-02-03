@@ -197,6 +197,12 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
       return;
     }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = value.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      return;
+    }
   }
   LOG_FATAL("Unsupported type");
 }
@@ -336,6 +342,12 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
       break;
     }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = other.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      break;
+    }
   }
 
   other = storage::PropertyValue();
@@ -460,6 +472,12 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
       alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
+      return;
+    }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = value.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
   }
@@ -588,6 +606,12 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
       alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
+      break;
+    }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = other.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
     }
   }
@@ -1422,6 +1446,24 @@ bool IsTemporalType(const TypedValue::Type type) {
                                              TypedValue::Type::Duration};
   return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
 };
+
+constexpr bool is_canonical(TypedValue::Type type) {
+  switch (type) {
+    case TypedValue::Type::Null:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+    case TypedValue::Type::String:
+    case TypedValue::Type::Bool:
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      return true;
+    default:
+      return false;
+  }
+}
 }  // namespace
 
 // TODO: make it faster
@@ -1454,6 +1496,8 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
     }
   };
   if (!is_legal(a.type()) || !is_legal(b.type())) {
+    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type()))
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
   }
 
@@ -1463,7 +1507,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     } else {
       return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
     }
@@ -1471,7 +1515,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     }
 
     switch (a.type()) {
