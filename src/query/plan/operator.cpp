@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <execution>
 #include <functional>
@@ -2419,11 +2420,169 @@ class BFSCursor : public query::plan::Cursor {
     AbortCheck(context);
 
     if (!type_) {
-      type_ = Type::SINGLE_SOURCE;
-      // TODO: calculate type
+      type_ = CalculateBFSType(context);
     }
 
-    return PullBidirectionalBFS(frame, context);
+    if (*type_ == Type::BIDIRECTIONAL) {
+      return PullBidirectionalBFS(frame, context);
+    } else {
+      return PullSingleSourceBFS(frame, context);
+    }
+  }
+
+ private:
+  enum class Type : uint8_t {
+    SINGLE_SOURCE,
+    BIDIRECTIONAL,
+  };
+
+  // Helper function to check if source has an index
+  bool HasIndexedSource(std::shared_ptr<LogicalOperator> input_op) const {
+    if (!input_op) {
+      return false;
+    }
+    const auto &type_info = input_op->GetTypeInfo();
+    // if the input is filtered, we need to check if the filter uses an index
+    if (type_info == Filter::kType) {
+      return HasIndexedSource(input_op->input());
+    }
+
+    return type_info == ScanAllByLabel::kType || type_info == ScanAllByLabelProperties::kType ||
+           type_info == ScanAllById::kType;
+  }
+
+  // Estimates cardinality for indexed scan operators only.
+  double EstimateIndexedScanCardinality(LogicalOperator *op, ExecutionContext &context) const {
+    MG_ASSERT(op, "Input operator is null");
+
+    const auto &type_info = op->GetTypeInfo();
+    if (type_info == ScanAllById::kType) {
+      return 1.0;
+    }
+    if (type_info == ScanAllByLabel::kType) {
+      auto *scan_op = dynamic_cast<ScanAllByLabel *>(op);
+      return static_cast<double>(context.db_accessor->VerticesCount(scan_op->label_));
+    }
+    if (type_info == ScanAllByLabelProperties::kType) {
+      auto *scan_op = dynamic_cast<ScanAllByLabelProperties *>(op);
+      // For runtime estimation, we use basic count without property ranges
+      // as ranges depend on runtime parameters that may not be available yet
+      return static_cast<double>(context.db_accessor->VerticesCount(scan_op->label_, scan_op->properties_));
+    }
+    // For other operators, traverse to find the underlying scan
+    // This handles cases like Filter -> ScanAllByLabel
+    if (op->HasSingleInput()) {
+      return EstimateIndexedScanCardinality(op->input().get(), context);
+    }
+    MG_ASSERT(false, "Unknown indexed scan operator type");
+  }
+
+  // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
+  // compared to SingleSourceShortestPath (multi-source BFS).
+  // assumes STShortestPaths is source*destination complexity
+  bool ShouldUseSTShortestPath(double source_cnt, double target_cnt, ExecutionContext &context) const {
+    if (source_cnt == 0 || target_cnt == 0) return false;
+
+    const double vertex_cnt = context.db_accessor->VerticesCount();
+    const double edge_cnt = context.db_accessor->EdgesCount();
+    if (vertex_cnt == 0 || edge_cnt == 0) return false;
+
+    // 1. Pair explosion guard
+    if (source_cnt * target_cnt > 1024) return false;
+
+    // 2. Balance heuristic
+    const double ratio = std::max(source_cnt, target_cnt) / std::min(source_cnt, target_cnt);
+    if (ratio > 4.0) return false;
+
+    // 3. Branching factor (cheap structural hint)
+    // edge_cnt is the number of edges in the graph, mg doesn't support bidirectional edges
+    const bool undirected = (self_.common_.direction == EdgeAtom::Direction::BOTH);
+    const double branching_factor_estimate = undirected ? edge_cnt / vertex_cnt : (edge_cnt / vertex_cnt) / 2.0;
+
+    // If graph is chain-like or tree-like, bidirectional shines
+    if (branching_factor_estimate <= 2.0) return true;
+
+    // 4. Otherwise fall back to conservative math
+    double hop_count_estimate = std::log(vertex_cnt) / std::log(std::max(branching_factor_estimate, 1.01));
+    hop_count_estimate = std::clamp(hop_count_estimate, 2.0, 12.0);
+
+    return target_cnt < std::pow(branching_factor_estimate, hop_count_estimate / 2.0) / 8.0;
+  }
+
+  // Collects Filter expressions from the input chain that filter the given symbol
+  std::vector<Expression *> CollectFiltersForSymbol(std::shared_ptr<LogicalOperator> op, const Symbol &symbol) const {
+    std::vector<Expression *> filters;
+    while (op) {
+      const auto &type_info = op->GetTypeInfo();
+      if (type_info == Filter::kType) {
+        auto *filter_op = dynamic_cast<Filter *>(op.get());
+        if (filter_op && filter_op->expression_) {
+          // Check if this filter uses the symbol
+          // We collect all filters in the chain - the caller will evaluate them
+          filters.push_back(filter_op->expression_);
+        }
+      }
+      if (op->HasSingleInput()) {
+        op = op->input();
+      } else {
+        break;
+      }
+    }
+    return filters;
+  }
+
+  // Evaluates filters for a vertex symbol
+  bool EvaluateFiltersForVertex(const std::vector<Expression *> &filters, const VertexAccessor &vertex,
+                                const Symbol &vertex_symbol, Frame &frame, ExpressionEvaluator &evaluator,
+                                ExecutionContext &context) const {
+    if (filters.empty()) return true;
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    frame_writer.Write(vertex_symbol, vertex);
+
+    for (auto *filter_expr : filters) {
+      if (!EvaluateFilter(evaluator, filter_expr)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Calculates which BFS type to use based on indexes and cardinalities
+  Type CalculateBFSType(ExecutionContext &context) const {
+    // When accumulated path is used, we cannot use ST shortest path algorithm.
+    if (self_.filter_lambda_.accumulated_path_symbol) {
+      return Type::SINGLE_SOURCE;
+    }
+
+    // Check if source has index
+    // When existing_node is true, the input chain has been modified:
+    // - self_.input() is the indexed scan for destination
+    // - self_.input()->input() is the original input chain for source
+    std::shared_ptr<LogicalOperator> source_input = self_.input();
+    if (self_.common_.existing_node && source_input && source_input->HasSingleInput()) {
+      source_input = source_input->input();
+    }
+    bool source_has_index = HasIndexedSource(source_input);
+
+    // Check if destination has index (existing_node flag indicates destination has index)
+    bool destination_has_index = self_.common_.existing_node;
+
+    // Only use STShortestPath if we have indexes for both source and destination
+    if (source_has_index && destination_has_index) {
+      // Estimate cardinalities
+      double source_cardinality = EstimateIndexedScanCardinality(source_input.get(), context);
+
+      // When existing_node is true, self_.input() is the indexed scan for destination
+      double destination_cardinality = EstimateIndexedScanCardinality(self_.input().get(), context);
+
+      // Use cost-based decision with the formula
+      if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, context)) {
+        return Type::BIDIRECTIONAL;
+      }
+    }
+
+    return Type::SINGLE_SOURCE;
   }
 
   bool PullSingleSourceBFS(Frame &frame, ExecutionContext &context) {
@@ -2537,6 +2696,7 @@ class BFSCursor : public query::plan::Cursor {
         const auto &vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
+
         lower_bound_ =
             self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
         upper_bound_ = self_.upper_bound_
@@ -2591,7 +2751,32 @@ class BFSCursor : public query::plan::Cursor {
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
+      // If existing_node is set, we need to check if the expanded vertex matches
+      // the destination vertex from the input (which was filtered via indexed scan)
+      if (self_.common_.existing_node && !CheckExistingNode(curr_vertex, self_.common_.node_symbol, frame)) {
+        continue;
+      }
+
+      // Write the vertex to frame (needed for filter evaluation and for next operator)
       frame_writer.Write(self_.common_.node_symbol, curr_vertex);
+
+      // Apply filters that were removed by GenScanByIndex when existing_node=true.
+      // These filters need to be manually applied in SingleSourceBFS because we expand
+      // to ALL neighbors, not just the destination from the indexed scan.
+      // We apply them exactly like Filter::FilterCursor does.
+      if (self_.common_.existing_node && !self_.removed_destination_filters_.empty()) {
+        // Evaluate filters exactly like Filter::FilterCursor does
+        bool all_filters_passed = true;
+        for (auto *filter_expr : self_.removed_destination_filters_) {
+          if (!EvaluateFilter(evaluator, filter_expr)) {
+            all_filters_passed = false;
+            break;
+          }
+        }
+        if (!all_filters_passed) {
+          continue;
+        }
+      }
 
       // place edges on the frame in the correct order
       std::reverse(edge_list.begin(), edge_list.end());
@@ -2866,10 +3051,6 @@ class BFSCursor : public query::plan::Cursor {
   //////////////////////////
   // STShortestPath end //
   //////////////////////////
-  enum class Type : uint8_t {
-    SINGLE_SOURCE,
-    BIDIRECTIONAL,
-  };
 
   const ExpandVariable &self_;
   UniqueCursorPtr input_cursor_;
@@ -4260,6 +4441,12 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
     object->weight_lambda_ = std::nullopt;
   }
   object->total_weight_ = total_weight_;
+  object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
+  // Clone removed destination filters
+  object->removed_destination_filters_.reserve(removed_destination_filters_.size());
+  for (auto *expr : removed_destination_filters_) {
+    object->removed_destination_filters_.push_back(expr ? expr->Clone(storage) : nullptr);
+  }
   return object;
 }
 

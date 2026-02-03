@@ -374,59 +374,59 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
-    // Check if we have indexes for both source and destination
-    // We only use STShortestPath if we know both cardinalities (both have indexes)
-    bool source_has_index = HasIndexedSource(expand.input());
-
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // For BFS: only try to create indexed scan for destination if we have source index
-      // This prevents removing filters when we won't use STShortestPath
-      std::unique_ptr<LogicalOperator> indexed_scan = nullptr;
-      bool destination_has_index = false;
-      // Track expressions marked for removal by GenScanByIndex so we can unmark them
-      // if we don't use the indexed scan
-      std::unordered_set<Expression *> marked_for_removal;
-
+      // For BFS: try to create indexed scan for destination if source has index.
+      // BFSCursor will decide at runtime whether to use bidirectional or single-source BFS.
+      bool source_has_index = HasIndexedSource(expand.input());
       if (source_has_index) {
-        // Save current state of filter_exprs_for_removal_ before calling GenScanByIndex
-        std::unordered_set<Expression *> before_removal(filter_exprs_for_removal_);
-        // Only try to create indexed scan if we have source index
-        // This way filters are only removed if we might use STShortestPath
-        indexed_scan = GenScanByIndex(dst_scan);
-        destination_has_index = (indexed_scan != nullptr);
-        // Track what was marked for removal by this call
-        if (destination_has_index) {
-          // Collect expressions that were newly marked for removal
-          for (auto *expr : filter_exprs_for_removal_) {
-            if (!before_removal.contains(expr)) {
-              marked_for_removal.insert(expr);
+        // Collect all filter expressions for destination node symbol before GenScanByIndex
+        // so we can track which ones get removed
+        std::unordered_set<Expression *> destination_filter_expressions_before;
+        auto property_filters = filters_.PropertyFilters(expand.common_.node_symbol);
+        auto id_filters = filters_.IdFilters(expand.common_.node_symbol);
+        auto point_filters = filters_.PointFilters(expand.common_.node_symbol);
+
+        for (const auto &filter_info : property_filters) {
+          if (filter_info.expression) {
+            destination_filter_expressions_before.insert(filter_info.expression);
+          }
+        }
+        for (const auto &filter_info : id_filters) {
+          if (filter_info.expression) {
+            destination_filter_expressions_before.insert(filter_info.expression);
+          }
+        }
+        for (const auto &filter_info : point_filters) {
+          if (filter_info.expression) {
+            destination_filter_expressions_before.insert(filter_info.expression);
+          }
+        }
+        // Also collect label filter expressions
+        for (const auto &filter : filters_) {
+          if (filter.type == FilterInfo::Type::Label && filter.used_symbols.contains(expand.common_.node_symbol) &&
+              filter.expression) {
+            destination_filter_expressions_before.insert(filter.expression);
+          }
+        }
+
+        // Save current state of filter_exprs_for_removal_ to track what gets added
+        auto filter_exprs_before = filter_exprs_for_removal_;
+
+        std::unique_ptr<LogicalOperator> indexed_scan = GenScanByIndex(dst_scan);
+        if (indexed_scan) {
+          expand.set_input(std::move(indexed_scan));
+          expand.common_.existing_node = true;
+
+          // Collect filter expressions that were removed by GenScanByIndex
+          // These are expressions that filter the destination node symbol and are now in filter_exprs_for_removal_
+          // but weren't there before GenScanByIndex was called
+          for (auto *expr : destination_filter_expressions_before) {
+            if (filter_exprs_for_removal_.contains(expr) && !filter_exprs_before.contains(expr)) {
+              expand.removed_destination_filters_.push_back(expr);
             }
           }
         }
       }
-
-      // Only use STShortestPath if we have indexes for both source and destination
-      if (source_has_index && destination_has_index) {
-        // Estimate cardinalities
-        double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
-        double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
-
-        // Use cost-based decision with the formula
-        if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
-          expand.set_input(std::move(indexed_scan));
-          expand.common_.existing_node = true;
-        } else {
-          // If STShortestPath is not beneficial, don't use the indexed scan
-          // Unmark filters that were marked for removal so they remain in place
-          for (auto *expr : marked_for_removal) {
-            filter_exprs_for_removal_.erase(expr);
-          }
-          // Note: We can't easily restore filters_ that were erased, but the expressions
-          // being unmarked should prevent Filter operators from being removed
-        }
-      }
-      // If we don't have indexes for both, don't use STShortestPath
-      // Filters remain intact since GenScanByIndex was never called
     } else {
       // For non-BFS: use indexed scan if available (existing behavior)
       std::unique_ptr<LogicalOperator> indexed_scan =
@@ -1433,83 +1433,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     return type_info == ScanAllByLabel::kType || type_info == ScanAllByLabelProperties::kType ||
            type_info == ScanAllById::kType;
-  }
-
-  // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
-  // compared to SingleSourceShortestPath (multi-source BFS).
-  // assumes STShortestPaths is source*destination complexity
-  bool ShouldUseSTShortestPath(double source_cnt, double target_cnt, EdgeAtom::Direction direction) {
-    if (source_cnt == 0 || target_cnt == 0) return false;
-
-    const double vertex_cnt = db_->VerticesCount();
-    const double edge_cnt = db_->EdgesCount();
-    if (vertex_cnt == 0 || edge_cnt == 0) return false;
-
-    // 1. Pair explosion guard
-    if (source_cnt * target_cnt > 1024) return false;
-
-    // 2. Balance heuristic
-    const double ratio = std::max(source_cnt, target_cnt) / std::min(source_cnt, target_cnt);
-    if (ratio > 4.0) return false;
-
-    // 3. Branching factor (cheap structural hint)
-    // edge_cnt is the number of edges in the graph, mg doesn't support bidirectional edges
-    const bool undirected = (direction == EdgeAtom::Direction::BOTH);
-    const double branching_factor_estimate = undirected ? edge_cnt / vertex_cnt : (edge_cnt / vertex_cnt) / 2.0;
-
-    // If graph is chain-like or tree-like, bidirectional shines
-    if (branching_factor_estimate <= 2.0) return true;
-
-    // 4. Otherwise fall back to conservative math
-    double hop_count_estimate = std::log(vertex_cnt) / std::log(std::max(branching_factor_estimate, 1.01));
-    hop_count_estimate = std::clamp(hop_count_estimate, 2.0, 12.0);
-
-    return target_cnt < std::pow(branching_factor_estimate, hop_count_estimate / 2.0) / 8.0;
-  }
-
-  // Estimates cardinality for indexed scan operators only.
-  // Since we only call this when we know the operator uses an index, we only need
-  // to handle the indexed scan operator types.
-  double EstimateIndexedScanCardinality(LogicalOperator *op) {
-    MG_ASSERT(op, "Input operator is null");
-
-    const auto &type_info = op->GetTypeInfo();
-    if (type_info == ScanAllById::kType) {
-      return 1.0;
-    }
-    if (type_info == ScanAllByLabel::kType) {
-      auto *scan_op = dynamic_cast<ScanAllByLabel *>(op);
-      return static_cast<double>(db_->VerticesCount(scan_op->label_));
-    }
-    if (type_info == ScanAllByLabelProperties::kType) {
-      auto *scan_op = dynamic_cast<ScanAllByLabelProperties *>(op);
-
-      auto maybe_propertyvalue_ranges =
-          scan_op->expression_ranges_ | ranges::views::transform([&](ExpressionRange const &er) {
-            return er.ResolveAtPlantime(parameters_, db_->GetStorageAccessor()->GetNameIdMapper());
-          }) |
-          ranges::to_vector;
-
-      auto cardinality = std::invoke([&]() -> double {
-        if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
-          auto propertyvalue_ranges = maybe_propertyvalue_ranges |
-                                      ranges::views::transform([](auto &&optional) { return *optional; }) |
-                                      ranges::to_vector;
-
-          return db_->VerticesCount(scan_op->label_, scan_op->properties_, propertyvalue_ranges);
-        }
-        // no values, but we still have the label + properties
-        // use basic count without property ranges (ranges depend on runtime parameters)
-        return db_->VerticesCount(scan_op->label_, scan_op->properties_);
-      });
-      return static_cast<double>(cardinality);
-    }
-    // For other operators, traverse to find the underlying scan
-    // This handles cases like Filter -> ScanAllByLabel
-    if (op->HasSingleInput()) {
-      return EstimateIndexedScanCardinality(op->input().get());
-    }
-    MG_ASSERT(false, "Unknown indexed scan operator type");
   }
 
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node

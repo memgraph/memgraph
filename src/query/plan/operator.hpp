@@ -1175,6 +1175,10 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
 
+  /// Filter expressions that were removed by GenScanByIndex for the destination node.
+  /// These need to be manually applied in BFSCursor when SingleSourceBFS is used.
+  std::vector<Expression *> removed_destination_filters_;
+
   std::string_view OperatorName() const;
 
   std::string ToString() const override;
