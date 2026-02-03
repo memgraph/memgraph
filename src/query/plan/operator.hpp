@@ -2010,7 +2010,11 @@ class ScanParallel : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override {
+#ifdef MG_ENTERPRISE
     return input_->ModifiedSymbols(table);
+#else
+    return {};
+#endif
   }
 
   std::string ToString() const override;

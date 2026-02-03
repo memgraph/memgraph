@@ -9524,6 +9524,7 @@ std::unique_ptr<LogicalOperator> ScanChunkByEdge::Clone(AstStorage *storage) con
   return object;
 }
 
+#ifdef MG_ENTERPRISE
 template <typename TChunksFun>
 class ScanParallelCursor : public Cursor {
  public:
@@ -9599,16 +9600,21 @@ class ScanParallelCursor : public Cursor {
   // Used to signal branch collectors to clear their caches when input changes.
   uint64_t batch_version_{0};
 };
+#endif
 
 UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
     // Make sure chunks is valid for duration of the cursor
     auto *db = context.db_accessor;
     return db->ChunkedVertices(view_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallel is not supported in the community edition");
+#endif
 }
 
 ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
@@ -9636,12 +9642,16 @@ ACCEPT_WITH_INPUT(ScanParallelByLabel)
 
 UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedVertices(view_, label_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByLabel is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByLabel::ToString() const {
@@ -9666,12 +9676,16 @@ ACCEPT_WITH_INPUT(ScanParallelByEdgeType)
 
 UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedEdges(view_, edge_type_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeType is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdgeType::ToString() const {
@@ -9702,7 +9716,7 @@ ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
 
 UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertiesOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame,
@@ -9724,6 +9738,10 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByLabelProperties is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByLabelProperties::ToString() const {
@@ -9754,12 +9772,16 @@ ACCEPT_WITH_INPUT(ScanParallelByEdgeTypeProperty)
 
 UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeTypeProperty is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdgeTypeProperty::ToString() const {
@@ -9794,7 +9816,7 @@ ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyRange)
 
 UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyRangeOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame,
@@ -9810,6 +9832,10 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeTypePropertyRange is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
@@ -9847,12 +9873,16 @@ ACCEPT_WITH_INPUT(ScanParallelByEdgeProperty)
 
 UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return db->ChunkedEdges(view_, property_, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeProperty is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdgeProperty::ToString() const {
@@ -9879,13 +9909,17 @@ ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyValue)
 
 UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyValueOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
     return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgePropertyValue is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdgePropertyValue::ToString() const {
@@ -9917,7 +9951,7 @@ ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyRange)
 
 UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyRangeOperator);
-
+#ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame,
@@ -9933,6 +9967,10 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgePropertyRange is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdgePropertyRange::ToString() const {
@@ -9970,7 +10008,11 @@ ACCEPT_WITH_INPUT(ScanParallelByEdge)
 
 UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+#ifdef MG_ENTERPRISE
   throw utils::NotYetImplemented("Parallel scan over edges!");
+#else
+  throw QueryRuntimeException("ScanParallelByEdge is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdge::ToString() const {
@@ -10002,6 +10044,7 @@ ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyValue)
 
 UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyValueOperator);
+#ifdef MG_ENTERPRISE
   // Note: There's no ChunkedEdges(edge_type, property, value) method, so we use the range version
   // with equal bounds to simulate the value lookup
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
@@ -10016,6 +10059,10 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
     return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeTypePropertyValue is not supported in the community edition");
+#endif
 }
 
 std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
@@ -10058,9 +10105,15 @@ std::vector<Symbol> ParallelMerge::ModifiedSymbols(const SymbolTable &table) con
 }
 
 UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
+#ifdef MG_ENTERPRISE
   return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem);
+#else
+  (void)mem;
+  throw QueryRuntimeException("ParallelMerge is not supported in the community edition");
+#endif
 }
 
+#ifdef MG_ENTERPRISE
 class ParallelMergeCursor : public Cursor {
  public:
   ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
@@ -10105,6 +10158,7 @@ class ParallelMergeCursor : public Cursor {
   std::shared_ptr<Cursor> input_cursor_;
   bool scheduled_{false};
 };
+#endif
 
 #ifdef MG_ENTERPRISE
 /**
@@ -10721,11 +10775,17 @@ class AggregateParallelCursor : public ParallelBranchCursor {
 };
 #endif
 
+#ifdef MG_ENTERPRISE
 AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
     : input_(agg_inputs), num_threads_(num_threads) {
   DMG_ASSERT(dynamic_cast<Aggregate *>(agg_inputs.get()) != nullptr, "Input must be an Aggregate");
   DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
 }
+#else
+AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> & /*agg_inputs*/, size_t /*num_threads*/) {
+  throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
+}
+#endif
 
 UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
@@ -10741,10 +10801,14 @@ UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const 
 }
 
 std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table) const {
+#ifdef MG_ENTERPRISE
   auto symbols = std::vector<Symbol>();
   auto right = input_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), right.begin(), right.end());
   return symbols;
+#else
+  return {};
+#endif
 }
 
 ACCEPT_WITH_INPUT(AggregateParallel);
@@ -10843,11 +10907,17 @@ class OrderByParallelCursor : public ParallelBranchCursor {
 };
 #endif
 
+#ifdef MG_ENTERPRISE
 OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby_input, size_t num_threads)
     : input_(orderby_input), num_threads_(num_threads) {
   DMG_ASSERT(dynamic_cast<OrderBy *>(orderby_input.get()) != nullptr, "Input must be an OrderBy");
   DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
 }
+#else
+OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> & /*orderby_input*/, size_t /*num_threads*/) {
+  throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
+}
+#endif
 
 UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
@@ -10863,14 +10933,22 @@ UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 std::vector<Symbol> OrderByParallel::ModifiedSymbols(const SymbolTable &table) const {
+#ifdef MG_ENTERPRISE
   auto symbols = std::vector<Symbol>();
   auto right = input_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), right.begin(), right.end());
   return symbols;
+#else
+  return {};
+#endif
 }
 
 std::vector<Symbol> OrderByParallel::OutputSymbols(const SymbolTable &symbol_table) const {
+#ifdef MG_ENTERPRISE
   return input_->OutputSymbols(symbol_table);
+#else
+  return {};
+#endif
 }
 
 ACCEPT_WITH_INPUT(OrderByParallel);
