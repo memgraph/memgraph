@@ -13,8 +13,9 @@ import sys
 # Add docker_ha directory to path for common imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
-from common import create_bolt_routing_driver_for, execute_bolt_routing_query, restart_container, run_parallel
+from common import Protocol, QueryType, execute_query, restart_container, run_parallel
 
+MAIN = "data_1"
 COORDINATOR = "coord_1"
 REPLICA = "data_2"
 
@@ -34,17 +35,16 @@ def generate_vector(dimensions: int) -> list[float]:
 def create_indexes() -> None:
     """Create necessary indexes."""
     print("Creating indexes...")
-    driver = create_bolt_routing_driver_for(COORDINATOR)
-    try:
-        with driver.session() as session:
-            session.run("CREATE INDEX ON :VectorNode;")
-            session.run("CREATE INDEX ON :VectorNode(id);")
-        print("Indexes created.")
-    finally:
-        driver.close()
+    execute_query(
+        COORDINATOR, "CREATE INDEX ON :VectorNode;", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE
+    )
+    execute_query(
+        COORDINATOR, "CREATE INDEX ON :VectorNode(id);", protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE
+    )
+    print("Indexes created.")
 
 
-def build_batch_query_tasks(batch_numbers: list[int]) -> list[tuple[str, str, dict]]:
+def build_batch_query_tasks(batch_numbers: list[int]) -> list[tuple]:
     """
     Build a list of query tasks for parallel execution.
 
@@ -52,7 +52,7 @@ def build_batch_query_tasks(batch_numbers: list[int]) -> list[tuple[str, str, di
         batch_numbers: List of batch numbers to process.
 
     Returns:
-        List of (instance_name, query, params) tuples.
+        List of (instance_name, query, params, protocol, query_type, retries) tuples.
     """
     query = """
         UNWIND $nodes AS node
@@ -64,7 +64,7 @@ def build_batch_query_tasks(batch_numbers: list[int]) -> list[tuple[str, str, di
         nodes_data = [
             {"id": batch_num * BATCH_SIZE + i, "vector": generate_vector(VECTOR_DIMENSIONS)} for i in range(BATCH_SIZE)
         ]
-        tasks.append((COORDINATOR, query, {"nodes": nodes_data}))
+        tasks.append((MAIN, query, {"nodes": nodes_data}, Protocol.BOLT, QueryType.WRITE, True))
 
     return tasks
 
@@ -77,7 +77,7 @@ def run_batches_parallel(batch_numbers: list[int]) -> None:
         batch_numbers: List of batch numbers to process.
     """
     tasks = build_batch_query_tasks(batch_numbers)
-    run_parallel(execute_bolt_routing_query, tasks, num_workers=NUM_WORKERS)
+    run_parallel(execute_query, tasks, num_workers=NUM_WORKERS)
 
 
 def run_workload() -> None:

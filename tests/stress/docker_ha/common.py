@@ -4,11 +4,27 @@ Common utilities for Docker HA stress tests.
 import multiprocessing
 import os
 import subprocess
+from enum import Enum
 from typing import Any, Callable, Iterable, TypeVar
 
 from neo4j import GraphDatabase
+from neo4j.exceptions import ClientError, DatabaseError
+
+
+class Protocol(Enum):
+    BOLT = "BOLT"
+    BOLT_ROUTING = "BOLT_ROUTING"
+
+
+class QueryType(Enum):
+    READ = "READ"
+    WRITE = "WRITE"
+
 
 R = TypeVar("R")
+
+# Error messages to ignore
+SYNC_REPLICA_ERROR = "At least one SYNC replica has not confirmed committing last transaction."
 
 # Deployment script path (relative to this file)
 _COMMON_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -114,43 +130,48 @@ def run_parallel(
         return pool.starmap(worker_fn, tasks)
 
 
-def execute_query(instance_name: str, query: str, params: dict[str, Any] | None = None) -> Any:
+def execute_query(
+    instance_name: str,
+    query: str,
+    params: dict[str, Any] | None = None,
+    protocol: Protocol = Protocol.BOLT,
+    query_type: QueryType = QueryType.READ,
+    apply_retry_mechanism: bool = False,
+) -> Any:
     """
-    Execute a single query on a specific instance. Designed to be used as a worker function.
+    Execute a query on a specific instance.
 
     Args:
-        instance_name: Name of the instance (data_1, data_2, coord_1, coord_2, coord_3)
+        instance_name: Name of the instance (data_1, data_2, coord_1, coord_2, coord_3).
+                       For BOLT_ROUTING, must be a coordinator (coord_1, coord_2, coord_3).
         query: Cypher query to execute.
         params: Optional query parameters.
+        protocol: Protocol.BOLT or Protocol.BOLT_ROUTING.
+        query_type: QueryType.READ or QueryType.WRITE (only used when apply_retry_mechanism=True).
+        apply_retry_mechanism: If True, use transaction functions with automatic retry on transient errors.
 
     Returns:
-        Query result summary or data as needed.
+        Query result counters.
     """
-    driver = create_bolt_driver_for(instance_name)
+    if protocol == Protocol.BOLT_ROUTING:
+        driver = create_bolt_routing_driver_for(instance_name)
+    else:
+        driver = create_bolt_driver_for(instance_name)
+
     try:
         with driver.session() as session:
-            result = session.run(query, params or {})
-            return result.consume().counters
-    finally:
-        driver.close()
-
-
-def execute_bolt_routing_query(instance_name: str, query: str, params: dict[str, Any] | None = None) -> Any:
-    """
-    Execute a single query using bolt+routing driver. Designed to be used as a worker function.
-
-    Args:
-        instance_name: Name of the instance (data_1, data_2, coord_1, coord_2, coord_3)
-        query: Cypher query to execute.
-        params: Optional query parameters.
-
-    Returns:
-        Query result summary or data as needed.
-    """
-    driver = create_bolt_routing_driver_for(instance_name)
-    try:
-        with driver.session() as session:
-            result = session.run(query, params or {})
-            return result.consume().counters
+            if apply_retry_mechanism:
+                if query_type == QueryType.WRITE:
+                    return session.execute_write(lambda tx: tx.run(query, params or {}).consume().counters)
+                else:
+                    return session.execute_read(lambda tx: tx.run(query, params or {}).consume().counters)
+            else:
+                result = session.run(query, params or {})
+                return result.consume().counters
+    except (ClientError, DatabaseError) as e:
+        if SYNC_REPLICA_ERROR in str(e):
+            # Ignore SYNC replica confirmation errors - the write succeeded on MAIN
+            return None
+        raise
     finally:
         driver.close()

@@ -3,6 +3,9 @@
 # Set enabled: false to skip a workload.
 
 workloads:
+  - config: workloads/concurrent_write/workload.yaml
+    enabled: true
+
   - config: workloads/rag/workload.yaml
     enabled: true
 

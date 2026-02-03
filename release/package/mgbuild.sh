@@ -1090,7 +1090,7 @@ test_memgraph() {
         python3 -m venv $PROJECT_ROOT/tests/ve3
         source $PROJECT_ROOT/tests/ve3/bin/activate
         pip install --upgrade pip
-        pip install -r $PROJECT_ROOT/tests/stress/requirements.txt
+        pip install -r $PROJECT_ROOT/tests/requirements.txt
       else
         source $PROJECT_ROOT/tests/ve3/bin/activate
       fi
