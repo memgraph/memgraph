@@ -1359,6 +1359,7 @@ package_mage_docker() {
   local memgraph_ref=""
   local cache_present=false
   local custom_mirror=false
+  local cuda=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --docker-repository-name)
@@ -1379,6 +1380,10 @@ package_mage_docker() {
       ;;
       --custom-mirror)
         [[ "$2" == "true" ]] && custom_mirror=true
+        shift 2
+      ;;
+      --cuda)
+        [[ "$2" == "true" ]] && cuda=true
         shift 2
       ;;
       *)

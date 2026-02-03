@@ -441,7 +441,8 @@ jobs:
             --image-tag $IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror true
+            --custom-mirror true \
+            --cuda $CUDA
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
