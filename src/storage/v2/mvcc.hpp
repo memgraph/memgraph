@@ -168,6 +168,8 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     // If the head delta is non-sequential, we know we can always add another
     // non-sequential delta.
     if (IsDeltaNonSequential(*object->delta)) {
+      transaction->has_non_sequential_deltas = true;
+      object->has_uncommitted_non_sequential_deltas = true;
       return WriteResult::NON_SEQUENTIAL;
     }
 
@@ -199,6 +201,8 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
       }
     }
 
+    transaction->has_non_sequential_deltas = true;
+    object->has_uncommitted_non_sequential_deltas = true;
     return WriteResult::NON_SEQUENTIAL;
   }
 
@@ -206,6 +210,8 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
   // If the head delta belongs to the same transaction and is non-sequential,
   // then only another edge creation delta can be prepended.
   if (IsDeltaNonSequential(*object->delta)) {
+    transaction->has_non_sequential_deltas = true;
+    object->has_uncommitted_non_sequential_deltas = true;
     return WriteResult::NON_SEQUENTIAL;
   }
   // Head delta from same transaction is not non-sequential - allow any new delta

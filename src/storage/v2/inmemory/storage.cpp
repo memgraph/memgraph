@@ -615,20 +615,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_result == WriteResult::NON_SEQUENTIAL) {
-    transaction_.has_non_sequential_deltas = true;
-    from_vertex->has_uncommitted_non_sequential_deltas = true;
-  }
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_result == WriteResult::NON_SEQUENTIAL) {
-      transaction_.has_non_sequential_deltas = true;
-      to_vertex->has_uncommitted_non_sequential_deltas = true;
-    }
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
