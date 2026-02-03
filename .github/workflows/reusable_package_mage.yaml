@@ -100,7 +100,7 @@ env:
 jobs:
   BuildAndPush:
     name: "Build and Test MAGE"
-    runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'colossus' }}"]
+    runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 30
     outputs:
       s3_package_url: ${{ steps.output-url.outputs.s3_url }}
