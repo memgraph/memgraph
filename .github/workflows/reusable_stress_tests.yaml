@@ -27,7 +27,7 @@ jobs:
   stress_test_native_standalone:
     name: "Stress Tests Native Standalone"
     if: ${{ inputs.deployment == 'native_standalone' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
+    runs-on: [self-hosted, DockerMgBuild, X64, Memory256G]
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
@@ -112,7 +112,7 @@ jobs:
   stress_test_native_ha:
     name: "Stress Tests Native HA"
     if: ${{ inputs.deployment == 'native_ha' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
+    runs-on: [self-hosted, DockerMgBuild, X64, Memory256G]
     timeout-minutes: 180
     env:
       OS: ubuntu-24.04
@@ -188,7 +188,7 @@ jobs:
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
     if: ${{ inputs.deployment == 'docker_ha' }}
-    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64"]') || fromJSON('["self-hosted", "X64"]') }}
+    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Memory256G"]') || fromJSON('["self-hosted", "X64", "Memory256G"]') }}
     timeout-minutes: 180
     steps:
       - name: Set up repository
