@@ -218,6 +218,7 @@ jobs:
         build_arch: ["amd", "arm"]
         malloc: [false]
         cuda: [false]
+        cugraph: [false]
         include:
           - build_type: "Release"
             build_arch: "amd"
