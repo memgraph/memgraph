@@ -9,16 +9,24 @@ Periodically restarts the REPLICA instance to test replication resilience.
 import os
 import random
 import sys
+import time
 
 # Add docker_ha directory to path for common imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
-from common import Protocol, QueryType, execute_query, restart_container, run_parallel
+from common import Protocol, QueryType, execute_and_fetch, execute_query, restart_container, run_parallel
 
 # Instance names
 MAIN = "data_1"
 COORDINATOR = "coord_1"
 REPLICA = "data_2"
+
+# Queries
+SHOW_REPLICAS_QUERY = "SHOW REPLICAS;"
+SHOW_METRICS_QUERY = "SHOW METRICS;"
+
+# Metrics
+SNAPSHOT_RECOVERY_LATENCY_METRIC = "SnapshotRecoveryLatency_us_99p"
 
 # Workload configuration
 BATCH_SIZE = 1000
@@ -65,7 +73,7 @@ def build_batch_query_tasks(batch_numbers: list[int]) -> list[tuple]:
         nodes_data = [
             {"id": batch_num * BATCH_SIZE + i, "vector": generate_vector(VECTOR_DIMENSIONS)} for i in range(BATCH_SIZE)
         ]
-        tasks.append((COORDINATOR, query, {"nodes": nodes_data}, Protocol.BOLT_ROUTING, QueryType.WRITE, False))
+        tasks.append((COORDINATOR, query, {"nodes": nodes_data}, Protocol.BOLT_ROUTING, QueryType.WRITE, True))
 
     return tasks
 
@@ -81,6 +89,74 @@ def run_batches_parallel(batch_numbers: list[int]) -> None:
     run_parallel(execute_query, tasks, num_workers=NUM_WORKERS)
 
 
+def show_replicas() -> None:
+    """Print the current replica status in CSV format."""
+    results = execute_and_fetch(COORDINATOR, SHOW_REPLICAS_QUERY, protocol=Protocol.BOLT_ROUTING)
+    if results:
+        headers = list(results[0].keys())
+        print(",".join(headers))
+        for replica in results:
+            values = [str(replica[h]) for h in headers]
+            print(",".join(values))
+
+
+def get_metric(instance: str, name: str):
+    """
+    Get a metric value by name from an instance.
+
+    Args:
+        instance: Instance name to query.
+        name: Metric name to find.
+
+    Returns:
+        Metric value if found, None otherwise.
+
+    Raises:
+        Exception if instance is not reachable.
+    """
+    results = execute_and_fetch(instance, SHOW_METRICS_QUERY, protocol=Protocol.BOLT)
+    for metric in results:
+        if metric.get("name") == name:
+            return metric.get("value")
+    return None
+
+
+def show_replica_snapshot_metric() -> None:
+    """Print SnapshotRecoveryLatency_us_99p from replica metrics (converted to seconds)."""
+    try:
+        value_us = get_metric(REPLICA, SNAPSHOT_RECOVERY_LATENCY_METRIC)
+        if value_us is not None:
+            value_s = value_us / 1_000_000
+            print(f"Replica SnapshotRecoveryLatency_s_99p: {value_s:.2f}s")
+        else:
+            print("SnapshotRecoveryLatency_s_99p: not found")
+    except Exception:
+        print("SnapshotRecoveryLatency_s_99p: replica not reachable for metrics")
+
+
+def verify_replicas_ready() -> bool:
+    """
+    Verify that all databases in all replicas have 'ready' status.
+
+    Returns:
+        True if all databases are ready, False otherwise.
+    """
+    results = execute_and_fetch(COORDINATOR, SHOW_REPLICAS_QUERY, protocol=Protocol.BOLT_ROUTING)
+    all_ready = True
+
+    for replica in results:
+        name = replica.get("name", "unknown")
+        data_info = replica.get("data_info", {})
+
+        for db_name, db_status in data_info.items():
+            status = db_status.get("status", "unknown")
+            if status != "ready":
+                print(f"WARN: Replica {name}, database {db_name} status is '{status}', expected 'ready'")
+                all_ready = False
+
+    return all_ready
+
+
 def run_workload() -> None:
     """
     Run the vector workload, randomly restarting REPLICA based on probability.
@@ -91,6 +167,8 @@ def run_workload() -> None:
         print(f"\nBatch {batch_num + 1}/{NUM_BATCHES}")
 
         run_batches_parallel([batch_num])
+        show_replicas()
+        show_replica_snapshot_metric()
 
         # Randomly restart REPLICA based on probability (except after last batch)
         if batch_num < NUM_BATCHES - 1 and random.random() < RESTART_PROBABILITY:
@@ -112,7 +190,18 @@ def main():
     run_workload()
 
     print("-" * 60)
-    print("Workload completed successfully!")
+    print("Waiting 30 seconds before final verification...")
+    time.sleep(30)
+
+    print("\nFinal replica status:")
+    show_replicas()
+
+    if verify_replicas_ready():
+        print("\nAll replicas are in sync!")
+        print("Workload completed successfully!")
+    else:
+        print("\nERROR: Not all replicas are in sync!")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

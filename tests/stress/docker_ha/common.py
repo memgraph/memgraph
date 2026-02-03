@@ -130,6 +130,43 @@ def run_parallel(
         return pool.starmap(worker_fn, tasks)
 
 
+def _run_query(
+    instance_name: str,
+    query: str,
+    params: dict[str, Any] | None,
+    protocol: Protocol,
+    query_type: QueryType,
+    apply_retry_mechanism: bool,
+    result_handler: Callable,
+) -> Any:
+    """
+    Internal function to run a query with configurable result handling.
+
+    Returns None if SYNC replica error occurs (write succeeded on MAIN).
+    """
+    if protocol == Protocol.BOLT_ROUTING:
+        driver = create_bolt_routing_driver_for(instance_name)
+    else:
+        driver = create_bolt_driver_for(instance_name)
+
+    try:
+        with driver.session() as session:
+            if apply_retry_mechanism:
+                if query_type == QueryType.WRITE:
+                    return session.execute_write(lambda tx: result_handler(tx.run(query, params or {})))
+                else:
+                    return session.execute_read(lambda tx: result_handler(tx.run(query, params or {})))
+            else:
+                return result_handler(session.run(query, params or {}))
+    except (ClientError, DatabaseError) as e:
+        if SYNC_REPLICA_ERROR in str(e):
+            # Ignore SYNC replica confirmation errors - the write succeeded on MAIN
+            return None
+        raise
+    finally:
+        driver.close()
+
+
 def execute_query(
     instance_name: str,
     query: str,
@@ -137,7 +174,7 @@ def execute_query(
     protocol: Protocol = Protocol.BOLT,
     query_type: QueryType = QueryType.READ,
     apply_retry_mechanism: bool = False,
-) -> Any:
+) -> None:
     """
     Execute a query on a specific instance.
 
@@ -149,29 +186,48 @@ def execute_query(
         protocol: Protocol.BOLT or Protocol.BOLT_ROUTING.
         query_type: QueryType.READ or QueryType.WRITE (only used when apply_retry_mechanism=True).
         apply_retry_mechanism: If True, use transaction functions with automatic retry on transient errors.
+    """
+    _run_query(
+        instance_name,
+        query,
+        params,
+        protocol,
+        query_type,
+        apply_retry_mechanism,
+        result_handler=lambda result: result.consume(),
+    )
+
+
+def execute_and_fetch(
+    instance_name: str,
+    query: str,
+    params: dict[str, Any] | None = None,
+    protocol: Protocol = Protocol.BOLT,
+    query_type: QueryType = QueryType.READ,
+    apply_retry_mechanism: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Execute a query and fetch all results.
+
+    Args:
+        instance_name: Name of the instance (data_1, data_2, coord_1, coord_2, coord_3).
+                       For BOLT_ROUTING, must be a coordinator (coord_1, coord_2, coord_3).
+        query: Cypher query to execute.
+        params: Optional query parameters.
+        protocol: Protocol.BOLT or Protocol.BOLT_ROUTING.
+        query_type: QueryType.READ or QueryType.WRITE (only used when apply_retry_mechanism=True).
+        apply_retry_mechanism: If True, use transaction functions with automatic retry on transient errors.
 
     Returns:
-        Query result counters.
+        List of result records as dictionaries.
     """
-    if protocol == Protocol.BOLT_ROUTING:
-        driver = create_bolt_routing_driver_for(instance_name)
-    else:
-        driver = create_bolt_driver_for(instance_name)
-
-    try:
-        with driver.session() as session:
-            if apply_retry_mechanism:
-                if query_type == QueryType.WRITE:
-                    return session.execute_write(lambda tx: tx.run(query, params or {}).consume().counters)
-                else:
-                    return session.execute_read(lambda tx: tx.run(query, params or {}).consume().counters)
-            else:
-                result = session.run(query, params or {})
-                return result.consume().counters
-    except (ClientError, DatabaseError) as e:
-        if SYNC_REPLICA_ERROR in str(e):
-            # Ignore SYNC replica confirmation errors - the write succeeded on MAIN
-            return None
-        raise
-    finally:
-        driver.close()
+    result = _run_query(
+        instance_name,
+        query,
+        params,
+        protocol,
+        query_type,
+        apply_retry_mechanism,
+        result_handler=lambda result: [record.data() for record in result],
+    )
+    return result if result is not None else []
