@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,19 +55,21 @@ struct Indices {
     EdgeTypeIndex::AbortProcessor edge_type_;
     EdgeTypePropertyIndex::AbortProcessor edge_type_property_;
     EdgePropertyIndex::AbortProcessor edge_property_;
-    // TODO: point? Nothing to abort, it gets build in Commit
+    // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
-    VectorIndex::IndexStats vector_;
+    VectorIndex::AbortProcessor vector_;
     VectorEdgeIndex::IndexStats vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
-    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+    void CollectOnLabelAddition(LabelId labelId, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
     bool IsInterestingEdgeProperty(PropertyId property);
 
-    void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp);
+    void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp,
+                 NameIdMapper *name_id_mapper);
   };
 
   auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;
@@ -78,13 +80,16 @@ struct Indices {
 
   /// This function should be called whenever a label is added to a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper);
 
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
+  /// This function should be called whenever a label is removed from a vertex.
+  /// @throw std::bad_alloc
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper);
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
+                           NameIdMapper *name_id_mapper);
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc

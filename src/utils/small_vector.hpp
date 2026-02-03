@@ -333,6 +333,13 @@ struct small_vector {
     std::ranges::uninitialized_copy(first, last, begin(), end());
   }
 
+  explicit small_vector(uint32_t count) : size_(count), capacity_(std::max(size_, kSmallCapacity)) {
+    if (!usingSmallBuffer(capacity_)) {
+      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
+    }
+    std::uninitialized_default_construct_n(begin(), size_);
+  }
+
   void push_back(const_reference value) {
     if (capacity_ == size_) {
       reserve(capacity_ == 0 ? 1 : 2 * capacity_);
@@ -468,6 +475,12 @@ struct small_vector {
   auto back() -> reference { return begin()[size_ - 1]; }
 
   [[nodiscard]] auto back() const -> const_reference { return begin()[size_ - 1]; }
+
+  auto data() -> pointer { return (usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_; }
+
+  [[nodiscard]] auto data() const -> const_pointer {
+    return (usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_;
+  }
 
   [[nodiscard]] auto empty() const -> bool { return size_ == 0; }
 
