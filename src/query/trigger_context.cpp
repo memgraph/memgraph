@@ -594,9 +594,9 @@ void TriggerContextCollector::MergeFrom(TriggerContextCollector &&other) {
     }
 
     // Merge deleted_objects: append all from other, but skip if the object was created in main
-    for (auto &&deleted_obj : other_registry.deleted_objects) {
+    for (auto &deleted_obj : other_registry.deleted_objects) {
       if (!main_registry.created_objects.contains(deleted_obj.object.Gid())) {
-        main_registry.deleted_objects.push_back(std::move(deleted_obj));
+        main_registry.deleted_objects.emplace_back(std::move(deleted_obj));
       }
     }
 
