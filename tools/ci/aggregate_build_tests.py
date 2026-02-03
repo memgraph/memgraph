@@ -76,6 +76,9 @@ def parse_file_os_arch(file, image_type):
         if "cuda" in file:
             arch = f"{arch}-cuda"
 
+        if "cugraph" in file:
+            arch = f"{arch}-cugraph"
+
     elif image_type == "memgraph":
         if "aarch64" in file:
             arch = "arm64"
