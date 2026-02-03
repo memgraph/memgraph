@@ -786,4 +786,33 @@ class TypedValueException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(TypedValueException)
 };
 
+/**
+ * Exception raised by the TypedValue system, specifically when
+ * trying to perform a comparison (relational operator or equality
+ * test) on TypedValues of incompatible Types.
+ */
+class IncompatibleTypesComparisonException : public TypedValueException {
+ public:
+  using TypedValueException::TypedValueException;
+  SPECIALIZE_GET_EXCEPTION_NAME(IncompatibleTypesComparisonException)
+};
+
+constexpr bool is_canonical(TypedValue::Type type) {
+  switch (type) {
+    case TypedValue::Type::Null:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+    case TypedValue::Type::String:
+    case TypedValue::Type::Bool:
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      return true;
+    default:
+      return false;
+  }
+}
+
 }  // namespace memgraph::query
