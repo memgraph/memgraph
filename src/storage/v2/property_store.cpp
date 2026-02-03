@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/property_store.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -2473,16 +2474,13 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
 }
 
 template <typename T>
-PropertyValue PropertyStore::GetProperty(PropertyId property, const PropertyDecoder<T> &decoder) const {
+PropertyValue PropertyStore::GetProperty(PropertyId property, const IndexedPropertyDecoder<T> &decoder) const {
   auto property_value = GetProperty(property);
-  if (property_value.IsVectorIndexId()) {
-    property_value.ValueVectorIndexList() = decoder.indices->vector_index_.GetVectorPropertyFromIndex(
-        decoder.entity, decoder.name_id_mapper->IdToName(property_value.ValueVectorIndexIds()[0]));
-  }
+  decoder.DecodeProperty(property_value);
   return property_value;
 }
 
-template PropertyValue PropertyStore::GetProperty(PropertyId, const PropertyDecoder<Vertex> &) const;
+template PropertyValue PropertyStore::GetProperty(PropertyId, const IndexedPropertyDecoder<Vertex> &) const;
 
 ExtendedPropertyType PropertyStore::GetExtendedPropertyType(PropertyId property) const {
   auto get_property_type = [&](Reader &reader) -> ExtendedPropertyType {
@@ -2694,17 +2692,14 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
 }
 
 template <typename T>
-std::map<PropertyId, PropertyValue> PropertyStore::Properties(const PropertyDecoder<T> &decoder) const {
+std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<T> &decoder) const {
   auto get_properties = [&](Reader &reader) {
     std::map<PropertyId, PropertyValue> props;
     PropertyValue value;
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
       if (!prop) break;
-      if (value.IsVectorIndexId()) {
-        value.ValueVectorIndexList() = decoder.indices->vector_index_.GetVectorPropertyFromIndex(
-            decoder.entity, decoder.name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]));
-      }
+      decoder.DecodeProperty(value);
       props.emplace(*prop, std::move(value));
     }
     return props;
@@ -2712,7 +2707,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties(const PropertyDeco
   return WithReader(get_properties);
 }
 
-template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const PropertyDecoder<Vertex> &) const;
+template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Vertex> &) const;
 
 std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes() const {
   auto get_properties = [&](Reader &reader) {

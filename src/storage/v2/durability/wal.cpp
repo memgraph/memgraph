@@ -24,6 +24,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -829,7 +830,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       // entire WAL file writing logic.
       auto property_value = vertex->properties.GetProperty(
           delta.property.key,
-          PropertyDecoder<Vertex>{
+          IndexedPropertyDecoder<Vertex>{
               .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex});
       encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
       break;

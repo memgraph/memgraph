@@ -16,6 +16,7 @@
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -61,7 +62,9 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, N
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   text_index_.UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(
-      label, vertex, PropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
+      label,
+      vertex,
+      IndexedPropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
@@ -69,7 +72,9 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   text_index_.UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(
-      label, vertex, PropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
+      label,
+      vertex,
+      IndexedPropertyDecoder<Vertex>{.indices = this, .name_id_mapper = name_id_mapper, .entity = vertex});
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,

@@ -19,6 +19,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -387,7 +388,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
                                   &schema_acc]() {
     old_value = vertex->properties.GetProperty(
         property,
-        PropertyDecoder<Vertex>{
+        IndexedPropertyDecoder<Vertex>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
@@ -633,7 +634,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     delta = vertex_->delta;
     auto prop_value = vertex_->properties.GetProperty(
         property,
-        PropertyDecoder<Vertex>{
+        IndexedPropertyDecoder<Vertex>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
     return prop_value;
   });
@@ -702,7 +703,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    properties = vertex_->properties.Properties(PropertyDecoder<Vertex>{
+    properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
         .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
     delta = vertex_->delta;
   }

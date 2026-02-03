@@ -22,6 +22,9 @@
 
 namespace memgraph::storage {
 
+struct Indices;
+class NameIdMapper;
+
 using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 /// @struct VectorIndexInfo
@@ -193,13 +196,13 @@ class VectorIndex {
   /// @param label The label being added.
   /// @param vertex The vertex receiving the label.
   /// @param decoder Decoder for this vertex (decoder.entity must be vertex).
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const PropertyDecoder<Vertex> &decoder);
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
 
   /// @brief Updates the vector index when a label is removed from a vertex.
   /// @param label The label being removed.
   /// @param vertex The vertex losing the label.
   /// @param decoder Decoder for this vertex (decoder.entity must be vertex).
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const PropertyDecoder<Vertex> &decoder);
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
 
   /// @brief Aborts the entries in the vector index.
   /// @param indices Indices (for property decoding).
@@ -297,7 +300,7 @@ class VectorIndex {
   /// @param vertex The vertex to potentially add.
   /// @param decoder Decoder for this vertex (decoder.entity must be &vertex).
   /// @param thread_id Optional thread ID hint for usearch's internal optimizations.
-  void AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const PropertyDecoder<Vertex> &decoder,
+  void AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
   struct Impl;

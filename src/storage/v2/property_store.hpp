@@ -29,17 +29,9 @@ DECLARE_bool(storage_property_store_compression_enabled);
 
 namespace memgraph::storage {
 
-struct Indices;
 struct PropertyPath;
-struct Vertex;
-class NameIdMapper;
-
 template <typename T>
-struct PropertyDecoder {
-  Indices *indices;
-  NameIdMapper *name_id_mapper;
-  T *entity;
-};
+struct IndexedPropertyDecoder;
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -74,7 +66,7 @@ class PropertyStore {
   /// (ATM only vector index is handled this way)
   /// @throw std::bad_alloc
   template <typename T>
-  PropertyValue GetProperty(PropertyId property, const PropertyDecoder<T> &decoder) const;
+  PropertyValue GetProperty(PropertyId property, const IndexedPropertyDecoder<T> &decoder) const;
 
   ExtendedPropertyType GetExtendedPropertyType(PropertyId property) const;
 
@@ -129,7 +121,7 @@ class PropertyStore {
   /// (e.g. vector index IDs resolved). The time complexity of this function is O(n).
   /// @throw std::bad_alloc
   template <typename T>
-  std::map<PropertyId, PropertyValue> Properties(const PropertyDecoder<T> &decoder) const;
+  std::map<PropertyId, PropertyValue> Properties(const IndexedPropertyDecoder<T> &decoder) const;
 
   std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
 

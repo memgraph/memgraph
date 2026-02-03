@@ -13,6 +13,7 @@
 #include <range/v3/algorithm/contains.hpp>
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -62,10 +63,11 @@ bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Ac
   try {
     if (!SetupIndex(spec)) return false;
     PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
-      AddVertexToIndex(spec,
-                       vertex,
-                       PropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
-                       std::nullopt);
+      AddVertexToIndex(
+          spec,
+          vertex,
+          IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
+          std::nullopt);
       if (snapshot_info) {
         snapshot_info->Update(UpdateType::VECTOR_IDX);
       }
@@ -128,7 +130,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
             AddVertexToIndex(
                 spec,
                 vertex,
-                PropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
+                IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
                 thread_id);
           }
           if (snapshot_info) {
@@ -148,7 +150,7 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   }
 }
 
-void VectorIndex::AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const PropertyDecoder<Vertex> &decoder,
+void VectorIndex::AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                                    std::optional<std::size_t> thread_id) {
   if (!std::ranges::contains(vertex.labels, spec.label_id)) {
     return;
@@ -187,7 +189,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     if (locked_index->contains(&vertex)) {
       auto vector_property = vertex.properties.GetProperty(
           label_prop.property(),
-          PropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex});
+          IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex});
       if (ShouldUnregisterFromIndex(vector_property, index_id)) {
         locked_index->get(&vertex, vector.data());
         vertex.properties.SetProperty(label_prop.property(), PropertyValue(std::move(vector)));
@@ -207,7 +209,7 @@ void VectorIndex::Clear() {
   pimpl->index_.clear();
 }
 
-void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const PropertyDecoder<Vertex> &decoder) {
+void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
   auto matching_index_properties = GetIndicesByLabel(label);
   if (matching_index_properties.empty()) {
     return;
@@ -239,7 +241,7 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Property
   }
 }
 
-void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const PropertyDecoder<Vertex> &decoder) {
+void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
   auto matching_index_properties = GetIndicesByLabel(label);
   if (matching_index_properties.empty()) {
     return;
@@ -479,7 +481,8 @@ std::unordered_map<LabelId, std::string> VectorIndex::GetIndicesByProperty(Prope
 
 void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
   for (auto &[vertex, info] : cleanup_collection) {
-    const PropertyDecoder<Vertex> decoder{.indices = indices, .name_id_mapper = name_id_mapper, .entity = vertex};
+    const IndexedPropertyDecoder<Vertex> decoder{
+        .indices = indices, .name_id_mapper = name_id_mapper, .entity = vertex};
     const auto &[labels_to_add, labels_to_remove, property_to_abort] = info;
     for (auto label : labels_to_remove) {
       UpdateOnRemoveLabel(label, vertex, decoder);
