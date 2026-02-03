@@ -20,22 +20,22 @@
 namespace memgraph::utils {
 
 class QuotaCoordinator {
-  std::atomic<int64_t> remaining_quota_{0};
-  std::atomic<int> active_handlers_{0};
+  std::atomic<uint64_t> remaining_quota_{0};
+  std::atomic<uint64_t> active_handlers_{0};
   // Incremented whenever the state changes in a way waiters care about (quota returned or holders finished).
   std::atomic<uint32_t> epoch_{0};
   std::atomic<uint8_t> initialized_{false};
 
  public:
-  explicit QuotaCoordinator(int64_t total_limit);
+  explicit QuotaCoordinator(uint64_t total_limit);
   QuotaCoordinator() = default;
 
   class QuotaHandle {
     QuotaCoordinator *coord_;
-    int64_t amount_;
+    uint64_t amount_;
 
    public:
-    QuotaHandle(QuotaCoordinator *coord, int64_t amount);
+    QuotaHandle(QuotaCoordinator *coord, uint64_t amount);
 
     ~QuotaHandle() { ReturnUnused(); }
 
@@ -44,22 +44,21 @@ class QuotaCoordinator {
     QuotaHandle(QuotaHandle &&other) noexcept;
     QuotaHandle &operator=(QuotaHandle &&other) noexcept;
 
-    int64_t Count() const { return amount_; }
+    uint64_t Count() const { return amount_; }
 
     // Returns the amount that was actually consumed.
-    int64_t Consume(int64_t amount);
-    void Increment(int64_t amount);
+    uint64_t Consume(uint64_t amount);
+    void Increment(uint64_t amount);
 
    private:
     void ReturnUnused();
   };
 
-  void Initialize(int64_t limit);
-  std::optional<QuotaHandle> Acquire(int64_t desired_batch_size);
+  void Initialize(uint64_t limit);
+  std::optional<QuotaHandle> Acquire(uint64_t desired_batch_size);
 
  private:
   friend class QuotaHandle;
-  void ReturnQuota(int64_t amount);
   void NotifyWaiters();
 };
 
@@ -87,14 +86,14 @@ class QuotaCoordinator {
  */
 class SharedQuota {
   std::shared_ptr<QuotaCoordinator> coord_{nullptr};
-  int64_t desired_batch_size_{0};
+  uint64_t desired_batch_size_{0};
   std::optional<QuotaCoordinator::QuotaHandle> handle_{std::nullopt};
 
  public:
   constexpr static struct Preload {
   } preload;
 
-  explicit SharedQuota(int64_t limit, int64_t n_batches = 1);
+  explicit SharedQuota(uint64_t limit, uint64_t n_batches = 1);
   // Used to setup the objects, but not initialize the quota.
   explicit SharedQuota(Preload /*unused*/);
   ~SharedQuota() = default;
@@ -105,7 +104,7 @@ class SharedQuota {
   SharedQuota &operator=(SharedQuota &&other) noexcept;
 
   // Primary entry point for workers to consume quota.
-  int64_t Decrement(int64_t amount = 1);
+  uint64_t Decrement(uint64_t amount = 1);
   // Returns quota to the LOCAL handle (no atomic overhead).
   void Increment();
   // Manually refresh the local batch from the coordinator.
@@ -113,7 +112,13 @@ class SharedQuota {
   // Drops the current handle and returns unused quota to the coordinator.
   void Free();
   // Initialize the coordinator if it was created via Preload.
-  void Initialize(int64_t limit, int64_t n_batches = 1);
+  void Initialize(uint64_t limit, uint64_t n_batches = 1);
+
+  static uint64_t WorkersToBatch(uint64_t n_workers) {
+    // Used in multi-threaded execution to determine the number of batches for each worker.
+    // Generating 4x more batches to lower the possibility of one worker exhausting the quota.
+    return n_workers * 4;
+  }
 };
 
 }  // namespace memgraph::utils

@@ -222,6 +222,9 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // Use the generic parallel rewrite logic
     auto create_parallel = [this](auto op) {
+      if (auto *orderby = dynamic_cast<OrderBy *>(op.get())) {
+        orderby->set_parallel_execution(true);
+      }
       using OpType = std::decay_t<decltype(op)>;
       if constexpr (std::is_same_v<OpType, std::unique_ptr<LogicalOperator>>) {
         return std::make_unique<OrderByParallel>(std::shared_ptr<LogicalOperator>(std::move(op)), num_threads_);

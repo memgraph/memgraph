@@ -1104,17 +1104,17 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edge
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
 
-  int64_t expanded_count = 0;
+  uint64_t expanded_count = 0;
   if (hops_limit && hops_limit->IsUsed()) {
     expanded_count = hops_limit->IncrementHopsCount(edges.size());
     if (expanded_count > 0) {
       std::copy_n(edges.begin(), expanded_count, std::back_inserter(result_edges));
     }
   } else {
-    expanded_count = static_cast<int64_t>(edges.size());
+    expanded_count = edges.size();
     result_edges = edges;
   }
-  return expanded_count;
+  return static_cast<int64_t>(expanded_count);
 }
 
 int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
@@ -1124,7 +1124,7 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
 
-  int64_t expanded_count = 0;
+  uint64_t expanded_count = 0;
   for (const auto &[edge_type, vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
       auto available_hops = hops_limit->IncrementHopsCount();
@@ -1135,6 +1135,6 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
     if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type)) continue;
     result_edges.emplace_back(edge_type, vertex, edge);
   }
-  return expanded_count;
+  return static_cast<int64_t>(expanded_count);
 }
 }  // namespace memgraph::storage

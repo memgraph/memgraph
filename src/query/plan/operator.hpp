@@ -2464,10 +2464,13 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  void set_parallel_execution(bool value) { parallel_execution_ = value; }
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   TypedValueVectorCompare compare_;
   std::vector<Expression *> order_by_;
   std::vector<Symbol> output_symbols_;
+  bool parallel_execution_{false};  // When true, OrderByCursor keeps order_by_cache_ for OrderByParallel merge
 
   std::string ToString() const override;
 

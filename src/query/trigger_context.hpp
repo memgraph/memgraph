@@ -329,7 +329,7 @@ class TriggerContextCollector {
 
   // Merge another TriggerContextCollector into this one.
   // Used when unifying contexts from parallel execution branches.
-  void MergeFrom(const TriggerContextCollector &other);
+  void MergeFrom(TriggerContextCollector &&other);
 
   // Create an empty collector with the same configuration flags (what to track)
   // but no collected data. Used for parallel execution branches.

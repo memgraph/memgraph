@@ -275,7 +275,7 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   };
 
   /// Thread-local storage structure
-  struct alignas(64) ThreadLocalState {
+  struct ThreadLocalState {
     Block *current_block{nullptr};
     size_t current_size{0};         // Track size separately for thread-local block
     size_t next_buffer_size{1024};  // Track next buffer size for exponential growth (thread-local)
@@ -290,7 +290,8 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
   const size_t initial_buffer_size_{1024};  // Initial buffer size for new threads
   std::vector<ThreadLocalState *> states_;
   std::forward_list<Block *, Allocator<Block *>> blocks_;  // Global list of all blocks for cleanup
-  pthread_key_t thread_local_block_key_;                   // Instance-specific pthread key
+  // TODO: Move away from pthread specific implementation
+  pthread_key_t thread_local_block_key_;  // Instance-specific pthread key
   uint64_t id_;
 
   // Resource methods
@@ -380,7 +381,7 @@ class ThreadSafePool {
   // We need to store more state per thread now:
   // 1. The free list (recycled nodes)
   // 2. The bump pointer (for fresh, untouched memory)
-  struct alignas(64) ThreadLocalState {
+  struct ThreadLocalState {
     Node *free_list_head = nullptr;
     char *cursor = nullptr;  // Current position in the fresh chunk
     char *end = nullptr;     // End of the fresh chunk

@@ -19,10 +19,10 @@ namespace memgraph::utils {
 
 // --- QuotaCoordinator Implementation ---
 
-QuotaCoordinator::QuotaCoordinator(int64_t total_limit)
+QuotaCoordinator::QuotaCoordinator(uint64_t total_limit)
     : remaining_quota_(total_limit), active_handlers_(0), initialized_(true) {}
 
-void QuotaCoordinator::Initialize(int64_t limit) {
+void QuotaCoordinator::Initialize(uint64_t limit) {
   // Use acq_rel to establish a barrier so the store is not visible before the flag.
   const auto prev = initialized_.fetch_or(true, std::memory_order_acq_rel);
   if (prev) return;
@@ -30,15 +30,15 @@ void QuotaCoordinator::Initialize(int64_t limit) {
   remaining_quota_.store(limit, std::memory_order_release);
 }
 
-std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(int64_t desired_batch_size) {
+std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(uint64_t desired_batch_size) {
   while (true) {
-    int64_t current = remaining_quota_.load(std::memory_order_acquire);
+    uint64_t current = remaining_quota_.load(std::memory_order_acquire);
 
     if (current > 0) {
       // Adaptive batch sizing logic
-      int64_t actual_batch = desired_batch_size;
+      uint64_t actual_batch = desired_batch_size;
       if (current < desired_batch_size) {
-        actual_batch = std::max<int64_t>(1, current / 2);
+        actual_batch = std::max<uint64_t>(1, current / 2);
       }
       // Take from quota
       if (remaining_quota_.compare_exchange_weak(
@@ -66,15 +66,6 @@ std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(int64_t d
   }
 }
 
-void QuotaCoordinator::ReturnQuota(int64_t amount) {
-  if (amount > 0) remaining_quota_.fetch_add(amount, std::memory_order_release);
-  auto active_handlers = active_handlers_.fetch_sub(1, std::memory_order_acq_rel) - 1;
-  // State changed!
-  // 1. Quota increased (Waiters care about this)
-  // 2. Holders decreased (Waiters might care if it hit 0)
-  if (amount > 0 || active_handlers == 0) NotifyWaiters();
-}
-
 void QuotaCoordinator::NotifyWaiters() {
   epoch_.fetch_add(1, std::memory_order_release);
   epoch_.notify_all();
@@ -82,7 +73,7 @@ void QuotaCoordinator::NotifyWaiters() {
 
 // --- QuotaHandle Implementation ---
 
-QuotaCoordinator::QuotaHandle::QuotaHandle(QuotaCoordinator *coord, int64_t amount) : coord_(coord), amount_(amount) {
+QuotaCoordinator::QuotaHandle::QuotaHandle(QuotaCoordinator *coord, uint64_t amount) : coord_(coord), amount_(amount) {
   MG_ASSERT(coord_, "QuotaCoordinator cannot be nullptr");
   coord_->active_handlers_.fetch_add(1, std::memory_order_acq_rel);
 }
@@ -99,21 +90,30 @@ QuotaCoordinator::QuotaHandle &QuotaCoordinator::QuotaHandle::operator=(QuotaHan
   return *this;
 }
 
-int64_t QuotaCoordinator::QuotaHandle::Consume(int64_t amount) {
+uint64_t QuotaCoordinator::QuotaHandle::Consume(uint64_t amount) {
   // Consume from local batch
   auto consumed = std::min(amount, amount_);
   amount_ -= consumed;
   return consumed;
 }
 
-void QuotaCoordinator::QuotaHandle::Increment(int64_t amount) {
+void QuotaCoordinator::QuotaHandle::Increment(uint64_t amount) {
   // NOTE: Does not protect against over incrementing.
   amount_ += amount;
 }
 
 void QuotaCoordinator::QuotaHandle::ReturnUnused() {
   if (coord_) {
-    coord_->ReturnQuota(amount_);
+    // Return quota to coordinator
+    if (amount_ > 0) coord_->remaining_quota_.fetch_add(amount_, std::memory_order_release);
+    // Decrement active handlers
+    auto active_handlers = coord_->active_handlers_.fetch_sub(1, std::memory_order_acq_rel) - 1;
+    // State changed!
+    // 1. Quota increased (Waiters care about this)
+    // 2. Holders decreased (Waiters might care if it hit 0)
+    if (amount_ > 0 || active_handlers == 0) coord_->NotifyWaiters();
+
+    // Handle is now invalid
     coord_ = nullptr;
     amount_ = 0;
   }
@@ -121,15 +121,15 @@ void QuotaCoordinator::QuotaHandle::ReturnUnused() {
 
 // --- SharedQuota Implementation ---
 
-SharedQuota::SharedQuota(int64_t limit, int64_t n_batches)
+SharedQuota::SharedQuota(uint64_t limit, uint64_t n_batches)
     : coord_(std::make_shared<QuotaCoordinator>(limit)),
-      desired_batch_size_(std::max<int64_t>(1, limit / n_batches)),
+      desired_batch_size_(std::max<uint64_t>(1, limit / n_batches)),
       handle_(coord_->Acquire(desired_batch_size_)) {
   MG_ASSERT(n_batches > 0, "Number of batches has to be greater than 0");
 }
 
 SharedQuota::SharedQuota(Preload)
-    : coord_(std::make_shared<QuotaCoordinator>()), desired_batch_size_(-1), handle_(std::nullopt) {}
+    : coord_(std::make_shared<QuotaCoordinator>()), desired_batch_size_(0), handle_(std::nullopt) {}
 
 SharedQuota::SharedQuota(const SharedQuota &other) noexcept
     : coord_(other.coord_),
@@ -161,7 +161,7 @@ SharedQuota &SharedQuota::operator=(SharedQuota &&other) noexcept {
   return *this;
 }
 
-int64_t SharedQuota::Decrement(int64_t amount) {
+uint64_t SharedQuota::Decrement(uint64_t amount) {
   if (!coord_) return 0;
 
   if (!handle_) {
@@ -169,7 +169,7 @@ int64_t SharedQuota::Decrement(int64_t amount) {
     if (!handle_) return 0;
   }
 
-  int64_t total_consumed = 0;
+  uint64_t total_consumed = 0;
   while (amount > 0) {
     auto consumed = handle_->Consume(amount);
     total_consumed += consumed;
@@ -194,9 +194,9 @@ void SharedQuota::Reacquire() {
 
 void SharedQuota::Free() { handle_.reset(); }
 
-void SharedQuota::Initialize(int64_t limit, int64_t n_batches) {
-  if (desired_batch_size_ != -1) return;
-  desired_batch_size_ = std::max<int64_t>(1, limit / n_batches);
+void SharedQuota::Initialize(uint64_t limit, uint64_t n_batches) {
+  if (desired_batch_size_ != 0) return;
+  desired_batch_size_ = std::max<uint64_t>(1, limit / n_batches);
   if (coord_) coord_->Initialize(limit);
 }
 

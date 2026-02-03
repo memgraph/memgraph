@@ -583,32 +583,32 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
   return {std::move(set_vertex_labels), std::move(removed_vertex_labels)};
 }
 
-void TriggerContextCollector::MergeFrom(const TriggerContextCollector &other) {
+void TriggerContextCollector::MergeFrom(TriggerContextCollector &&other) {
   // Helper to merge a registry
-  auto merge_registry = [](auto &main_registry, const auto &other_registry) {
+  auto merge_registry = [](auto &main_registry, auto &other_registry) {
     // Merge created_objects: if GID exists in main, keep main; if only in other, add it
-    for (const auto &[gid, created_obj] : other_registry.created_objects) {
+    for (auto &&[gid, created_obj] : other_registry.created_objects) {
       if (!main_registry.created_objects.contains(gid)) {
-        main_registry.created_objects.emplace(gid, created_obj);
+        main_registry.created_objects.emplace(gid, std::move(created_obj));
       }
     }
 
     // Merge deleted_objects: append all from other, but skip if the object was created in main
-    for (const auto &deleted_obj : other_registry.deleted_objects) {
+    for (auto &&deleted_obj : other_registry.deleted_objects) {
       if (!main_registry.created_objects.contains(deleted_obj.object.Gid())) {
-        main_registry.deleted_objects.push_back(deleted_obj);
+        main_registry.deleted_objects.push_back(std::move(deleted_obj));
       }
     }
 
     // Merge property_changes: if same object+property exists, keep the one from other (latest change)
     // If only in other, add it (but skip if object was created in main)
-    for (const auto &[key, change_info] : other_registry.property_changes) {
+    for (auto &&[key, change_info] : other_registry.property_changes) {
       if (main_registry.created_objects.contains(key.first.Gid())) {
         // Object was created in main, skip property changes
         continue;
       }
       // If exists in main, replace with other (latest change); otherwise add it
-      main_registry.property_changes[key] = change_info;
+      main_registry.property_changes[key] = std::move(change_info);
     }
   };
 
@@ -619,7 +619,7 @@ void TriggerContextCollector::MergeFrom(const TriggerContextCollector &other) {
   merge_registry(edge_registry_, other.edge_registry_);
 
   // Merge label_changes_: combine the changes (clamp to -1, 1)
-  for (const auto &[key, label_state] : other.label_changes_) {
+  for (auto &&[key, label_state] : other.label_changes_) {
     if (vertex_registry_.created_objects.contains(key.first.Gid())) {
       // Vertex was created in main, skip label changes
       continue;

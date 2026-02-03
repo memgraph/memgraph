@@ -1449,7 +1449,7 @@ TYPED_TEST(TriggerContextTest, MergeFrom) {
     auto v_branch = dba.InsertVertex();
     branch_collector.RegisterCreatedObject(v_branch);
 
-    main_collector.MergeFrom(branch_collector);
+    main_collector.MergeFrom(std::move(branch_collector));
 
     dba.AdvanceCommand();
 
@@ -1475,7 +1475,7 @@ TYPED_TEST(TriggerContextTest, MergeFrom) {
     auto deleted2 = dba.RemoveVertex(&v_to_delete2).value().value();
     branch_collector.RegisterDeletedObject(deleted2);
 
-    main_collector.MergeFrom(branch_collector);
+    main_collector.MergeFrom(std::move(branch_collector));
 
     dba.AdvanceCommand();
 
@@ -1496,7 +1496,7 @@ TYPED_TEST(TriggerContextTest, MergeFrom) {
     branch_collector.RegisterSetObjectProperty(
         v2, dba.NameToProperty("PROP2"), memgraph::query::TypedValue("old2"), memgraph::query::TypedValue("new2"));
 
-    main_collector.MergeFrom(branch_collector);
+    main_collector.MergeFrom(std::move(branch_collector));
 
     dba.AdvanceCommand();
 
@@ -1514,7 +1514,7 @@ TYPED_TEST(TriggerContextTest, MergeFrom) {
     main_collector.RegisterSetVertexLabel(v1, dba.NameToLabel("LABEL1"));
     branch_collector.RegisterSetVertexLabel(v2, dba.NameToLabel("LABEL2"));
 
-    main_collector.MergeFrom(branch_collector);
+    main_collector.MergeFrom(std::move(branch_collector));
 
     dba.AdvanceCommand();
 
@@ -1535,7 +1535,7 @@ TYPED_TEST(TriggerContextTest, MergeFrom) {
     branch_collector.RegisterSetObjectProperty(
         edge34, dba.NameToProperty("EDGE_PROP"), memgraph::query::TypedValue(3), memgraph::query::TypedValue(4));
 
-    main_collector.MergeFrom(branch_collector);
+    main_collector.MergeFrom(std::move(branch_collector));
 
     dba.AdvanceCommand();
 
@@ -1557,7 +1557,7 @@ TYPED_TEST(TriggerContextTest, MergeFrom) {
     branch_collector.RegisterSetObjectProperty(
         v_created, dba.NameToProperty("PROP"), memgraph::query::TypedValue("old"), memgraph::query::TypedValue("new"));
 
-    main_collector.MergeFrom(branch_collector);
+    main_collector.MergeFrom(std::move(branch_collector));
 
     dba.AdvanceCommand();
 
@@ -1578,7 +1578,7 @@ TYPED_TEST(TriggerContextTest, MergeFrom) {
     // Branch removes the same label
     branch_collector.RegisterRemovedVertexLabel(v3, dba.NameToLabel("TEMP_LABEL"));
 
-    main_collector.MergeFrom(branch_collector);
+    main_collector.MergeFrom(std::move(branch_collector));
 
     dba.AdvanceCommand();
 

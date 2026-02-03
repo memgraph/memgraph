@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,7 +50,7 @@ TEST_F(FrameChangeCollectorTest, MergeFromInlistCache) {
   branch_cache3.SetValue(TypedValue(std::vector<TypedValue>{TypedValue(6)}));
 
   // Merge branch into main
-  main_collector.MergeFrom(branch_collector);
+  main_collector.MergeFrom(std::move(branch_collector));
 
   // Check that main has all keys
   EXPECT_TRUE(main_collector.IsInlistKeyTracked(key1));
@@ -98,7 +98,7 @@ TEST_F(FrameChangeCollectorTest, MergeFromRegexCache) {
   branch_collector.AddRegexKey(key3, std::regex("pattern3"));
 
   // Merge branch into main
-  main_collector.MergeFrom(branch_collector);
+  main_collector.MergeFrom(std::move(branch_collector));
 
   // Check that main has all keys
   EXPECT_TRUE(main_collector.IsRegexKeyTracked(key1));
@@ -144,7 +144,7 @@ TEST_F(FrameChangeCollectorTest, MergeFromInvalidators) {
   branch_cache2.SetValue(TypedValue(std::vector<TypedValue>{TypedValue(2)}));
 
   // Merge branch into main
-  main_collector.MergeFrom(branch_collector);
+  main_collector.MergeFrom(std::move(branch_collector));
 
   // Create a symbol with position symbol_pos1 to test invalidation
   Symbol sym1{"test_sym1", static_cast<int>(symbol_pos1), false};
@@ -167,7 +167,7 @@ TEST_F(FrameChangeCollectorTest, MergeFromEmptyCollectors) {
   FrameChangeCollector branch_collector{NewDeleteResource()};
 
   // Both are empty, merge should work without issues
-  main_collector.MergeFrom(branch_collector);
+  main_collector.MergeFrom(std::move(branch_collector));
 
   EXPECT_FALSE(main_collector.AnyCaches());
 }
@@ -187,7 +187,7 @@ TEST_F(FrameChangeCollectorTest, MergeFromPreservesMainValues) {
   branch_collector.AddRegexKey(key1, std::regex("branch_pattern"));
 
   // Merge branch into main
-  main_collector.MergeFrom(branch_collector);
+  main_collector.MergeFrom(std::move(branch_collector));
 
   // Main should keep its original regex (first one wins if both have values)
   auto cached = main_collector.TryGetRegexCachedValue(key1);
@@ -209,7 +209,7 @@ TEST_F(FrameChangeCollectorTest, AnyCachesAfterMerge) {
   branch_collector.AddInListKey(key1);
 
   // Merge
-  main_collector.MergeFrom(branch_collector);
+  main_collector.MergeFrom(std::move(branch_collector));
 
   // Main should now have caches
   EXPECT_TRUE(main_collector.AnyCaches());

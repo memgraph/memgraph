@@ -41,11 +41,11 @@
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "db_accessor.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "flags/bolt.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "flags/storage_access.hpp"
@@ -2705,7 +2705,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
-      ctx_.hops_limit = HopsLimit(*hops_limit, HopsLimit::WorkersToBatch(*parallel_execution));
+      ctx_.hops_limit = HopsLimit(*hops_limit, utils::SharedQuota::WorkersToBatch(*parallel_execution));
     } else {
       ctx_.hops_limit = HopsLimit(*hops_limit);
     }
@@ -2992,16 +2992,45 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 namespace {
 #ifdef MG_ENTERPRISE
 std::optional<size_t> EvaluateParallelExecution(CypherQuery *cypher_query,
-                                                PrimitiveLiteralExpressionEvaluator &evaluator) {
+                                                PrimitiveLiteralExpressionEvaluator &evaluator, uint64_t num_workers) {
   std::optional<size_t> parallel_execution = std::nullopt;
   if (cypher_query->pre_query_directives_.parallel_execution_) {
-    parallel_execution = FLAGS_bolt_num_workers;
+    parallel_execution = num_workers;
     if (cypher_query->pre_query_directives_.num_threads_) {
       parallel_execution =
           EvaluateUint(evaluator, cypher_query->pre_query_directives_.num_threads_, "Number of threads");
     }
   }
   return parallel_execution;
+}
+
+void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::LogicalOperator const &plan,
+                            InterpreterContext *interpreter_context, std::vector<Notification> *notifications,
+                            query::DbAccessor *dba) {
+  if (parallel_execution) {
+    plan::ParallelChecker parallel_checker;
+    parallel_checker.CheckParallelized(plan);
+    if (parallel_checker.is_parallelized_) {
+      if (interpreter_context->worker_pool != nullptr) {
+        dba->SetParallelExecution();  // Internal flag needed to disable delta cache for parallel queries
+      } else {
+        parallel_execution.reset();
+        spdlog::trace(
+            R"(Parallel execution is not supported while using "asio" scheduler. Please switch to "priority_queue" scheduler "
+            "and try again. Falling back to single threaded execution.)");
+        notifications->emplace_back(
+            SeverityLevel::INFO,
+            NotificationCode::PARALLEL_EXECUTION_FALLBACK,
+            R"(Parallel execution is not supported while using "asio" scheduler. Falling back to single threaded execution.)");
+      }
+    } else {
+      parallel_execution.reset();
+      spdlog::trace("Query was not parallelized. Falling back to single threaded execution.");
+      notifications->emplace_back(SeverityLevel::INFO,
+                                  NotificationCode::PARALLEL_EXECUTION_FALLBACK,
+                                  "Plan was not successfully parallelized. Falling back to single threaded execution.");
+    }
+  }
 }
 #endif
 
@@ -3033,7 +3062,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
 #ifdef MG_ENTERPRISE
-  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator);
+  const auto num_workers = interpreter_context->worker_pool ? interpreter_context->worker_pool->GetNumWorkers() : 1;
+  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator, num_workers);
 #endif
 
   auto clauses = cypher_query->single_query_->clauses_;
@@ -3084,27 +3114,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   const auto rw_type = plan->rw_type();
 
 #ifdef MG_ENTERPRISE
-  if (parallel_execution) {
-    plan::ParallelChecker parallel_checker;
-    parallel_checker.CheckParallelized(plan->plan());
-    if (parallel_checker.is_parallelized_) {
-      dba->SetParallelExecution();  // Internal flag needed to disable delta cache for parallel queries
-      if (interpreter_context->worker_pool == nullptr) {
-        spdlog::trace(
-            R"(Parallel execution is not supported while using "asio" scheduler. Please switch to "priority_queue" scheduler "
-            "and try again. Falling back to single threaded execution.)");
-        notifications->emplace_back(
-            SeverityLevel::INFO,
-            NotificationCode::PARALLEL_EXECUTION_FALLBACK,
-            R"(Parallel execution is not supported while using "asio" scheduler. Falling back to single threaded execution.)");
-      }
-    } else {
-      spdlog::trace("Query was not parallelized. Falling back to single threaded execution.");
-      notifications->emplace_back(SeverityLevel::INFO,
-                                  NotificationCode::PARALLEL_EXECUTION_FALLBACK,
-                                  "Plan was not successfully parallelized. Falling back to single threaded execution.");
-    }
-  }
+  CheckParallelExecution(parallel_execution, plan->plan(), interpreter_context, notifications, dba);
 #endif
 
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
@@ -3281,7 +3291,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
 
 #ifdef MG_ENTERPRISE
-  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator);
+  const auto num_workers = interpreter_context->worker_pool ? interpreter_context->worker_pool->GetNumWorkers() : 1;
+  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator, num_workers);
 #endif
 
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
@@ -3294,6 +3305,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                              parsed_inner_query.parameters,
                                              plan_cache,
                                              dba);
+
+#ifdef MG_ENTERPRISE
+  CheckParallelExecution(parallel_execution, cypher_query_plan->plan(), interpreter_context, notifications, dba);
+#endif
+
   PrepareCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());

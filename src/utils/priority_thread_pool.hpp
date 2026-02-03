@@ -145,6 +145,12 @@ class PriorityThreadPool {
     }
   }
 
+  uint64_t GetNumMixedWorkers() const { return workers_.size(); }
+
+  uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
+
+  uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
+
   // Single worker implementation
   class Worker {
    public:

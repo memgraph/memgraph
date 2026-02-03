@@ -169,35 +169,37 @@ class FrameChangeCollector {
   }
 
   // Merge data from another FrameChangeCollector into this one
-  void MergeFrom(const FrameChangeCollector &other) {
+  void MergeFrom(FrameChangeCollector &&other) {
     // Merge inlist_cache_: combine cached values (union of sets)
-    for (const auto &[key, cached_set] : other.inlist_cache_) {
+    for (auto &&[key, cached_set] : other.inlist_cache_) {
       auto [it, inserted] = inlist_cache_.emplace(key, CachedSet(get_allocator()));
       // Merge the cached values (union of sets) - works for both new and existing keys
-      for (const auto &value : cached_set.cache_) {
-        it->second.cache_.insert(value);
+      for (auto &&value : cached_set.cache_) {
+        it->second.cache_.emplace(value);
       }
     }
 
     // Merge regex_cache_: if key doesn't exist in main, insert it
     // If it exists and main doesn't have a value but branch does, use branch's value
-    for (const auto &[key, regex_opt] : other.regex_cache_) {
+    for (auto &[key, regex_opt] : other.regex_cache_) {
       auto [it, inserted] = regex_cache_.emplace(key, std::nullopt);
       if (!inserted) {
         // Key exists in both - if main doesn't have a value but branch does, use branch's value
         if (!it->second.has_value() && regex_opt.has_value()) {
-          it->second = regex_opt;
+          it->second = std::move(regex_opt);
         }
       } else {
         // Key didn't exist in main, copy from branch
-        it->second = regex_opt;
+        it->second = std::move(regex_opt);
       }
     }
 
     // Merge invalidators_: combine invalidator lists
-    for (const auto &[symbol_pos, invalidator_list] : other.invalidators_) {
+    for (auto &[symbol_pos, invalidator_list] : other.invalidators_) {
       auto &main_list = invalidators_[symbol_pos];
-      main_list.insert(main_list.end(), invalidator_list.begin(), invalidator_list.end());
+      main_list.insert(main_list.end(),
+                       std::make_move_iterator(invalidator_list.begin()),
+                       std::make_move_iterator(invalidator_list.end()));
     }
   }
 

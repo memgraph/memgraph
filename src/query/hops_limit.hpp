@@ -20,21 +20,22 @@
 namespace memgraph::query {
 
 struct HopsLimit {
-  std::optional<int64_t> limit{std::nullopt};
-  int64_t batch{0};
-  std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
+  std::optional<uint64_t> limit{std::nullopt};
+  uint64_t batch{0};
+  std::optional<utils::SharedQuota> shared_quota_{
+      std::nullopt};  // Supports both fast single-threaded and multi-threaded execution
   bool is_limit_reached{false};
 
   HopsLimit() = default;
 
   ~HopsLimit() { Free(); }
 
-  explicit HopsLimit(int64_t limit, int64_t batch = 1U)
-      : limit(limit), batch(batch), shared_quota_{std::in_place, limit, std::max(batch, 1L)} {}
+  explicit HopsLimit(uint64_t limit, uint64_t batch = 1U)
+      : limit(limit), batch(batch), shared_quota_{std::in_place, limit, std::max(batch, 1UL)} {}
 
   bool IsUsed() const { return limit.has_value(); }
 
-  int64_t GetLimit() const { return limit.value(); }
+  uint64_t GetLimit() const { return limit.value(); }
 
   bool IsLimitReached() const { return is_limit_reached; }
 
@@ -43,19 +44,13 @@ struct HopsLimit {
     if (shared_quota_) shared_quota_->Free();
   }
 
-  static int64_t WorkersToBatch(uint64_t n_workers) {
-    // Used in multi-threaded execution to determine the batch size for each worker.
-    // Generating 4x more batches to lower the possibility of one worker exhausting the quota.
-    return static_cast<int64_t>(n_workers) * 4;
-  }
-
   // Return the number of available hops (or consumed amount which behaves similarly for check > 0)
-  int64_t IncrementHopsCount(int64_t increment = 1) {
+  uint64_t IncrementHopsCount(uint64_t increment = 1) {
     if (IsUsed()) {
       if (is_limit_reached) return 0;
 
       if (!shared_quota_) {
-        shared_quota_.emplace(limit.value(), std::max(batch, 1L));
+        shared_quota_.emplace(limit.value(), std::max(batch, 1UL));
       }
 
       auto consumed = shared_quota_->Decrement(increment);
