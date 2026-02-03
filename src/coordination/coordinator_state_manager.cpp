@@ -129,6 +129,10 @@ void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   try {
     const auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
     from_json(cluster_config_json, cluster_config_);
+    auto const &servers = cluster_config_->get_servers();
+    auto const self = std::ranges::find_if(
+        servers, [this](auto const &srv_config) { return my_srv_config_->get_id() == srv_config->get_id(); });
+    MG_ASSERT(self != std::ranges::end(servers), "Couldn't find self srv_config in servers from disk");
   } catch (std::exception const &e) {
     LOG_FATAL("Error occurred while parsing cluster config {}", e.what());
   }

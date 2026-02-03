@@ -60,8 +60,6 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = delete;
   ~RaftState();
 
-  auto GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string;
-  auto GetMyCoordinatorEndpoint() const -> std::string;
   auto GetMyCoordinatorId() const -> int32_t;
   auto InstanceName() const -> std::string;
 

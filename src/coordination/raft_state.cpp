@@ -255,12 +255,6 @@ RaftState::~RaftState() {
   spdlog::trace("RaftState destruction complete for coordinator_{}", coordinator_id_);
 }
 
-auto RaftState::GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string {
-  return raft_server_->get_srv_config(coordinator_id)->get_endpoint();
-}
-
-auto RaftState::GetMyCoordinatorEndpoint() const -> std::string { return GetCoordinatorEndpoint(coordinator_id_); }
-
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
 auto RaftState::GetMyCoordinatorId() const -> int32_t { return coordinator_id_; }
