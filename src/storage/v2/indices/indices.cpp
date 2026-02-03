@@ -56,25 +56,27 @@ void Indices::DropGraphClearIndices() {
   text_edge_index_.Clear();
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, Storage *storage) {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   text_index_.UpdateOnAddLabel(label, vertex, tx);
-  vector_index_.UpdateOnAddLabel(label, vertex, name_id_mapper);
+  PropertyDecoder<Vertex> decoder{&storage->indices_, storage->name_id_mapper_.get(), vertex};
+  vector_index_.UpdateOnAddLabel(label, vertex, decoder);
 }
 
-void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) {
+void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, Storage *storage) {
   tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   text_index_.UpdateOnRemoveLabel(label, vertex, tx);
-  vector_index_.UpdateOnRemoveLabel(label, vertex, name_id_mapper);
+  PropertyDecoder<Vertex> decoder{&storage->indices_, storage->name_id_mapper_.get(), vertex};
+  vector_index_.UpdateOnRemoveLabel(label, vertex, decoder);
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
-                                  NameIdMapper *name_id_mapper) {
+                                  Storage *storage) {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   text_index_.UpdateOnSetProperty(vertex, tx, property);
-  vector_index_.UpdateOnSetProperty(property, value, vertex, name_id_mapper);
+  vector_index_.UpdateOnSetProperty(property, value, vertex, storage->name_id_mapper_.get());
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
@@ -171,6 +173,6 @@ void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_in
   active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
-  indices.vector_index_.AbortEntries(name_id_mapper, vector_.cleanup_collection);
+  indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
 }
 }  // namespace memgraph::storage

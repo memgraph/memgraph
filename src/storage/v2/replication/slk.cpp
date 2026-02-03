@@ -235,10 +235,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     }
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
       slk::Save(storage::ExternalPropertyValue::Type::VectorIndexId, builder);
-      slk::Save(value.ValueVectorIndexIds().size(), builder);
-      for (const auto &id : value.ValueVectorIndexIds()) {
-        slk::Save(id, builder);
-      }
+      slk::Save(value.ValueVectorIndexIds(), builder);
       slk::Save(value.ValueVectorIndexList(), builder);
       return;
     }
@@ -396,15 +393,12 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
-      uint32_t size{0};
-      slk::Load(&size, reader);
-      utils::small_vector<std::string> ids(size);
-      for (size_t i = 0; i < size; ++i) {
-        slk::Load(&ids[i], reader);
-      }
+      utils::small_vector<std::string> ids;
+      slk::Load(&ids, reader);
       utils::small_vector<float> list;
       slk::Load(&list, reader);
-      *value = storage::ExternalPropertyValue(std::move(ids), std::move(list));
+      *value = storage::ExternalPropertyValue(
+          storage::ExternalPropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = std::move(list)});
       return;
     }
   }

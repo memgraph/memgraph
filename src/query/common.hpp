@@ -184,7 +184,7 @@ inline void ProcessError(const storage::Error error) {
 
 template <typename T>
 concept AccessorWithSetProperty =
-    requires(T accessor, const storage::PropertyId key, const storage::PropertyValue new_value) {
+    requires(T accessor, const storage::PropertyId key, const storage::PropertyValue &new_value) {
       { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
     };
 
@@ -195,7 +195,8 @@ template <AccessorWithSetProperty T>
 storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
                                        storage::NameIdMapper *name_id_mapper) {
   try {
-    auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
+    auto new_value = value.ToPropertyValue(name_id_mapper);
+    auto maybe_old_value = record->SetProperty(key, new_value);
     if (!maybe_old_value) {
       ProcessError(maybe_old_value.error());
     }
@@ -207,7 +208,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 
 template <typename T>
 concept AccessorWithInitProperties =
-    requires(T accessor, const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    requires(T accessor, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
       { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
     };
 

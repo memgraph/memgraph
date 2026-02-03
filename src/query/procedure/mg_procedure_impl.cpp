@@ -836,7 +836,6 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
           "mgp_value for PropertyValue::Type::VectorIndexId doesn't exist. Contact Memgraph team under "
           "team@memgraph.com or "
           "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
-      break;
     }
   }
 }
@@ -2269,11 +2268,9 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, v->graph->impl);
 
-    const auto result = std::visit(
-        [prop_key, property_value, name_id_mapper = GetNameIdMapper(v->graph)](auto &impl) {
-          return impl.SetProperty(prop_key, ToPropertyValue(*property_value, name_id_mapper));
-        },
-        v->impl);
+    auto prop_value = ToPropertyValue(*property_value, GetNameIdMapper(v->graph));
+    const auto result =
+        std::visit([prop_key, &prop_value](auto &impl) { return impl.SetProperty(prop_key, prop_value); }, v->impl);
 
     if (!result) {
       switch (result.error()) {
@@ -2906,7 +2903,8 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, e->from.graph->impl);
-    const auto result = e->impl.SetProperty(prop_key, ToPropertyValue(*property_value, GetNameIdMapper(e->from.graph)));
+    auto prop_value = ToPropertyValue(*property_value, GetNameIdMapper(e->from.graph));
+    const auto result = e->impl.SetProperty(prop_key, prop_value);
 
     if (!result) {
       switch (result.error()) {

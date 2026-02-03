@@ -462,12 +462,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     }
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vector = value.ValueVectorIndexList();
-      std::vector<Value> vec;
-      vec.reserve(vector.size());
-      for (auto v : vector) {
-        vec.emplace_back(v);
-      }
-      return vec;
+      return vector | std::ranges::views::transform([](auto v) { return Value(v); }) | std::ranges::to<std::vector>();
     }
   }
 }

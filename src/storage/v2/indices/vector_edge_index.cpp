@@ -107,26 +107,26 @@ VectorEdgeIndex &VectorEdgeIndex::operator=(VectorEdgeIndex &&) noexcept = defau
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
-    SetupIndex(spec);
+    if (!SetupIndex(spec)) return false;
     auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
     PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
       TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);  // NOLINT(clang-analyzer-core.CallAndMessage)
     });
-  } catch (const utils::OutOfMemoryException &) {
-    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    CleanupFailedIndex(spec);
-    throw;
+    return true;
+  } catch (std::exception &e) {
+    DropIndex(spec.index_name);
+    throw e;
   }
-  return true;
 }
 
 void VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
-    SetupIndex(spec);
+    if (!SetupIndex(spec))
+      throw query::VectorSearchException(
+          "Given vector index already exists. Corrupted or invalid index recovery files.");
+
     auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
@@ -139,22 +139,14 @@ void VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipL
         TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);
       });
     }
-  } catch (const utils::OutOfMemoryException &) {
-    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    CleanupFailedIndex(spec);
-    throw;
+  } catch (std::exception &e) {
+    DropIndex(spec.index_name);
+    throw e;
   }
 }
 
-void VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
+bool VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
   const EdgeTypePropKey edge_type_prop{spec.edge_type_id, spec.property};
-
-  if (pimpl->index_name_to_edge_type_prop_.contains(spec.index_name)) {
-    throw query::VectorSearchException("Vector index with the given name already exists.");
-  }
-  if (pimpl->edge_index_.contains(edge_type_prop)) {
-    throw query::VectorSearchException("Vector index with the given edge type and property already exists.");
-  }
 
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
   auto mg_edge_index = mg_vector_edge_index_t::make(metric);
@@ -168,16 +160,17 @@ void VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &spec) {
     throw query::VectorSearchException(fmt::format("Failed to reserve memory for vector index {}", spec.index_name));
   }
 
-  pimpl->index_name_to_edge_type_prop_.emplace(spec.index_name, edge_type_prop);
-  pimpl->edge_index_.try_emplace(edge_type_prop, std::move(mg_edge_index), spec);
+  auto [name_it, name_inserted] = pimpl->index_name_to_edge_type_prop_.try_emplace(spec.index_name, edge_type_prop);
+  if (!name_inserted) {
+    return false;
+  }
 
-  spdlog::info("Created vector index {}", spec.index_name);
-}
-
-void VectorEdgeIndex::CleanupFailedIndex(const VectorEdgeIndexSpec &spec) {
-  const EdgeTypePropKey edge_type_prop{spec.edge_type_id, spec.property};
-  pimpl->index_name_to_edge_type_prop_.erase(spec.index_name);
-  pimpl->edge_index_.erase(edge_type_prop);
+  auto [edge_it, edge_inserted] = pimpl->edge_index_.try_emplace(edge_type_prop, std::move(mg_edge_index), spec);
+  if (!edge_inserted) {
+    pimpl->index_name_to_edge_type_prop_.erase(name_it);
+    return false;
+  }
+  return true;
 }
 
 bool VectorEdgeIndex::DropIndex(std::string_view index_name) {
@@ -188,7 +181,6 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name) {
   const auto &edge_type_prop = it->second;
   pimpl->edge_index_.erase(edge_type_prop);
   pimpl->index_name_to_edge_type_prop_.erase(it);
-  spdlog::info("Dropped vector index {}", index_name);
   return true;
 }
 

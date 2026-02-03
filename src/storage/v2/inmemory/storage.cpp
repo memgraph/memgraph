@@ -209,10 +209,22 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
     auto info = recovery_.RecoverData(
-      uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
-      &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
-      config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-      [this](Gid edge_gid) { return FindEdge(edge_gid); }, name(), &ttl_);
+        uuid(),
+        repl_storage_state_,
+        &vertices_,
+        &edges_,
+        &edges_metadata_,
+        &edge_count_,
+        name_id_mapper_.get(),
+        &indices_,
+        &constraints_,
+        config_,
+        &wal_seq_num_,
+        &enum_store_,
+        config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+        [this](Gid edge_gid) { return FindEdge(edge_gid); },
+        name(),
+        &ttl_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -1395,7 +1407,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     index_abort_processor.Process(storage_->indices_,
                                   transaction_.active_indices_,
                                   transaction_.start_timestamp,
-                                  storage_->name_id_mapper_.get());
+                                  mem_storage->name_id_mapper_.get());
     for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
       storage_->indices_.vector_edge_index_.RestoreEntries(edge_type_prop, prop_edges);
     }
@@ -1744,7 +1756,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector index on nodes with the same name as vector edge index
   if (vector_edge_index.IndexExists(spec.index_name) ||
-      !vector_index.CreateIndex(spec, vertices_acc, in_memory->name_id_mapper_.get())) {
+      !vector_index.CreateIndex(spec, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
@@ -1760,7 +1772,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
-  if (vector_index.DropIndex(index_name, vertices_acc, in_memory->name_id_mapper_.get())) {
+  if (vector_index.DropIndex(index_name, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
   } else if (vector_edge_index.DropIndex(index_name)) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);

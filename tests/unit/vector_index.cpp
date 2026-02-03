@@ -14,8 +14,10 @@
 #include <thread>
 
 #include "flags/general.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -45,12 +47,14 @@ class VectorIndexTest : public testing::Test {
   PropertyValue MakeVectorIndexProperty(Storage::Accessor *accessor,
                                         const memgraph::utils::small_vector<float> &vector) {
     const auto index_id = accessor->GetNameIdMapper()->NameToId(test_index.data());
-    return PropertyValue(memgraph::utils::small_vector<uint64_t>{index_id}, vector);
+    return PropertyValue(
+        PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{index_id}, .vector = vector});
   }
 
   PropertyValue MakeEmptyVectorIndexProperty(Storage::Accessor *accessor) {
     const auto index_id = accessor->GetNameIdMapper()->NameToId(test_index.data());
-    return PropertyValue(memgraph::utils::small_vector<uint64_t>{index_id}, memgraph::utils::small_vector<float>{});
+    return PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{index_id},
+                                                          .vector = memgraph::utils::small_vector<float>{}});
   }
 
   void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
@@ -405,6 +409,7 @@ class VectorIndexRecoveryTest : public testing::Test {
   static constexpr std::size_t kNumNodes = 100;
 
   void SetUp() override {
+    storage_ = std::make_unique<InMemoryStorage>();
     auto acc = vertices_.access();
     for (std::size_t i = 0; i < kNumNodes; i++) {
       auto [vertex_iter, inserted] = acc.insert(Vertex{Gid::FromUint(i), nullptr});
@@ -430,6 +435,7 @@ class VectorIndexRecoveryTest : public testing::Test {
                                    .index_entries = {}};
   }
 
+  std::unique_ptr<InMemoryStorage> storage_;
   memgraph::utils::SkipList<Vertex> vertices_;
   VectorIndex vector_index_;
 };
@@ -439,9 +445,9 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
 
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
-  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
+  EXPECT_NO_THROW(
+      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -455,9 +461,9 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
 
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo();
-  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
+  EXPECT_NO_THROW(
+      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -471,9 +477,9 @@ TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
 
   auto vertices_acc = vertices_.access();
   auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
-  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
+  EXPECT_NO_THROW(
+      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
@@ -487,10 +493,9 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
   auto vertices_acc = vertices_.access();
-  auto name_id_mapper = std::make_unique<NameIdMapper>();
 
   // Create recovery info with pre-computed index entries (simulating snapshot recovery)
-  std::unordered_map<Gid, memgraph::utils::small_vector<float>> index_entries;
+  absl::flat_hash_map<Gid, memgraph::utils::small_vector<float>> index_entries;
   for (auto i = 0; i < kNumNodes; i++) {
     index_entries.emplace(Gid::FromUint(i),
                           memgraph::utils::small_vector<float>{static_cast<float>(i), static_cast<float>(i + 1)});
@@ -506,7 +511,8 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
                                                                 .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
                                         .index_entries = std::move(index_entries)};
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper.get()));
+  EXPECT_NO_THROW(
+      vector_index_.RecoverIndex(recovery_info, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()));
 
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);

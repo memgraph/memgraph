@@ -633,7 +633,8 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
         if (!item) return std::nullopt;
         list.push_back(static_cast<float>(*item));
       }
-      return ExternalPropertyValue(std::move(vector_index_ids), std::move(list));
+      return ExternalPropertyValue(
+          ExternalPropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = std::move(list)});
     }
 
     case Marker::TYPE_PROPERTY_VALUE:

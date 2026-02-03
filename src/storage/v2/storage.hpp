@@ -196,6 +196,7 @@ using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
+  friend class VectorIndex;
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,

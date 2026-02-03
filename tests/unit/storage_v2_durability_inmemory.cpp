@@ -246,7 +246,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     const auto vector_index_id = store->name_id_mapper_->NameToId(vector_index_name);
     const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
-        memgraph::utils::small_vector<uint64_t>{vector_index_id}, memgraph::utils::small_vector<float>{1.0F, 1.0F});
+        memgraph::storage::PropertyValue::VectorIndexIdData{memgraph::utils::small_vector<uint64_t>{vector_index_id},
+                                                            memgraph::utils::small_vector<float>{1.0F, 1.0F}});
 
     // Edge vector index still uses regular list property (to be updated in future)
     const auto edge_vector_property_value =
@@ -607,7 +608,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     const auto vector_index_id = store->Access(memgraph::storage::READ)->GetNameIdMapper()->NameToId(vector_index_name);
     const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
-        memgraph::utils::small_vector<uint64_t>{vector_index_id}, memgraph::utils::small_vector<float>{1.0F, 1.0F});
+        memgraph::storage::PropertyValue::VectorIndexIdData{memgraph::utils::small_vector<uint64_t>{vector_index_id},
+                                                            memgraph::utils::small_vector<float>{1.0F, 1.0F}});
 
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").has_value());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").has_value());

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/compressor.hpp"
 
 #include <gflags/gflags.h>
 #include <array>
@@ -30,7 +29,17 @@ DECLARE_bool(storage_property_store_compression_enabled);
 
 namespace memgraph::storage {
 
+struct Indices;
 struct PropertyPath;
+struct Vertex;
+class NameIdMapper;
+
+template <typename T>
+struct PropertyDecoder {
+  Indices *indices;
+  NameIdMapper *name_id_mapper;
+  T *entity;
+};
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -57,6 +66,15 @@ class PropertyStore {
   /// this function is O(n).
   /// @throw std::bad_alloc
   PropertyValue GetProperty(PropertyId property) const;
+
+  /// Returns the currently stored value for property `property`. If the
+  /// property doesn't exist a Null value is returned. The time complexity of
+  /// this function is O(n).
+  /// The property value is decoded and if it's stored somewhere else (e.g. vector index) it's decoded and returned.
+  /// (ATM only vector index is handled this way)
+  /// @throw std::bad_alloc
+  template <typename T>
+  PropertyValue GetProperty(PropertyId property, const PropertyDecoder<T> &decoder) const;
 
   ExtendedPropertyType GetExtendedPropertyType(PropertyId property) const;
 

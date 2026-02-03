@@ -1142,8 +1142,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
-          auto ret =
-              vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
+          auto prop_value = ToPropertyValue(data.value, mapper);
+          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property), prop_value);
           if (!ret) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
@@ -1293,7 +1293,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           });
 
           auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
-          auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
+          auto prop_value = ToPropertyValue(data.value, mapper);
+          auto ret = ea.SetProperty(transaction->NameToProperty(data.property), prop_value);
           if (!ret) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }

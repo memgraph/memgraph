@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -1167,7 +1168,8 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         if (!id) return false;
         vector_index_ids.push_back(*id);
       }
-      value = PropertyValue(std::move(vector_index_ids), utils::small_vector<float>{});
+      value =
+          PropertyValue(PropertyValue::VectorIndexIdData{std::move(vector_index_ids), utils::small_vector<float>{}});
       return true;
     }
   }
@@ -1271,7 +1273,8 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         if (!id) return std::nullopt;
         vector_index_ids.push_back(*id);
       }
-      return std::optional<PropertyValue>{std::in_place, std::move(vector_index_ids), utils::small_vector<float>{}};
+      return std::optional<PropertyValue>{
+          std::in_place, PropertyValue::VectorIndexIdData{std::move(vector_index_ids), utils::small_vector<float>{}}};
     }
   }
 }
@@ -2170,7 +2173,7 @@ const uint8_t kUseCompressedBuffer = 0x02;
 static_assert(kUseLocalBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
 static_assert(kUseCompressedBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
 
-enum class StorageMode : uint8_t {
+enum class BufferMode : uint8_t {
   EMPTY,
   BUFFER,
   LOCAL,
@@ -2179,12 +2182,12 @@ enum class StorageMode : uint8_t {
 
 struct DecodedBufferConst {
   std::span<uint8_t const> view;
-  StorageMode storage_mode;
+  BufferMode storage_mode;
 };
 
 struct DecodedBuffer {
   std::span<uint8_t> view;
-  StorageMode storage_mode;
+  BufferMode storage_mode;
 
   // implicit conversion operator
   // NOLINTNEXTLINE( hicpp-explicit-conversions )
@@ -2198,12 +2201,12 @@ struct DecodedBuffer {
 
 void FreeMemory(DecodedBuffer const &buffer_info) {
   switch (buffer_info.storage_mode) {
-    case StorageMode::BUFFER:
-    case StorageMode::COMPRESSED:
+    case BufferMode::BUFFER:
+    case BufferMode::COMPRESSED:
       delete[] buffer_info.view.data();
       break;
-    case StorageMode::LOCAL:
-    case StorageMode::EMPTY:
+    case BufferMode::LOCAL:
+    case BufferMode::EMPTY:
       break;
   }
 }
@@ -2218,7 +2221,7 @@ DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
   buffer[0] = kUseLocalBuffer;
   return DecodedBuffer{
       .view = std::span{&buffer[1], sizeof(buffer) - 1},
-      .storage_mode = StorageMode::LOCAL,
+      .storage_mode = BufferMode::LOCAL,
   };
 }
 
@@ -2228,7 +2231,7 @@ DecodedBuffer SetupExternalBuffer(uint32_t size) {
 
   return DecodedBuffer{
       .view = std::span{alloc_data, alloc_size},
-      .storage_mode = StorageMode::BUFFER,
+      .storage_mode = BufferMode::BUFFER,
   };
 }
 
@@ -2238,7 +2241,7 @@ DecodedBuffer SetupBuffer(std::array<uint8_t, 12> &buffer, uint32_t const size) 
 }
 
 std::optional<utils::DecompressedBuffer> DecompressBuffer(DecodedBufferConst const &buffer_info) {
-  if (buffer_info.storage_mode != StorageMode::COMPRESSED) return std::nullopt;
+  if (buffer_info.storage_mode != BufferMode::COMPRESSED) return std::nullopt;
 
   // Memory (hex):
   // 00 00 00 00 00 00 00
@@ -2269,7 +2272,7 @@ std::optional<utils::DecompressedBuffer> DecompressBuffer(DecodedBufferConst con
 }
 
 void CompressBuffer(std::array<uint8_t, 12> &buffer, DecodedBuffer const &buffer_info) {
-  if (buffer_info.storage_mode != StorageMode::BUFFER) {
+  if (buffer_info.storage_mode != BufferMode::BUFFER) {
     return;
   }
   auto uncompressed_size = buffer_info.view.size_bytes();
@@ -2318,11 +2321,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
   memcpy(static_cast<void *>(&data), buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
 
   if (size == 0) {
-    return {std::span<uint8_t>{}, StorageMode::EMPTY};
+    return {std::span<uint8_t>{}, BufferMode::EMPTY};
   }
 
   if (size % 8 == 0) {
-    return {std::span{data, size}, StorageMode::BUFFER};
+    return {std::span{data, size}, BufferMode::BUFFER};
   }
 
   auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
@@ -2330,11 +2333,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
     case kUseLocalBuffer: {
       auto *local_start = &buffer[1];
       auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
-      return {std::span{local_start, local_size}, StorageMode::LOCAL};
+      return {std::span{local_start, local_size}, BufferMode::LOCAL};
     }
     case kUseCompressedBuffer: {
       auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
-      return {std::span{data, real_size}, StorageMode::COMPRESSED};
+      return {std::span{data, real_size}, BufferMode::COMPRESSED};
     }
     default: {
       MG_ASSERT(false, "Corrupt property storage");
@@ -2350,11 +2353,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
   memcpy(static_cast<void *>(&data), static_cast<const uint8_t *>(buffer.data() + sizeof(uint32_t)), sizeof(uint8_t *));
 
   if (size == 0) {
-    return {std::span<uint8_t>{}, StorageMode::EMPTY};
+    return {std::span<uint8_t>{}, BufferMode::EMPTY};
   }
 
   if (size % 8 == 0) {
-    return {std::span{data, size}, StorageMode::BUFFER};
+    return {std::span{data, size}, BufferMode::BUFFER};
   }
 
   auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
@@ -2362,11 +2365,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
     case kUseLocalBuffer: {
       auto const *local_start = &buffer[1];
       auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
-      return {std::span{local_start, local_size}, StorageMode::LOCAL};
+      return {std::span{local_start, local_size}, BufferMode::LOCAL};
     }
     case kUseCompressedBuffer: {
       auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
-      return {std::span{data, real_size}, StorageMode::COMPRESSED};
+      return {std::span{data, real_size}, BufferMode::COMPRESSED};
     }
     default: {
       MG_ASSERT(false, "Corrupt property storage");
@@ -2405,7 +2408,7 @@ PropertyStore::~PropertyStore() {
 template <typename Func>
 auto PropertyStore::WithReader(Func &&func) const {
   auto buffer_info = GetDecodedBuffer(buffer_);
-  if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+  if (buffer_info.storage_mode == BufferMode::COMPRESSED) {
     auto decompressed_buffer = DecompressBuffer(buffer_info);
     auto view = decompressed_buffer->view();
     Reader reader(view.data(), view.size_bytes());
@@ -2460,6 +2463,18 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   };
   return WithReader(get_property);
 }
+
+template <typename T>
+PropertyValue PropertyStore::GetProperty(PropertyId property, const PropertyDecoder<T> &decoder) const {
+  auto property_value = GetProperty(property);
+  if (property_value.IsVectorIndexId()) {
+    property_value.ValueVectorIndexList() = decoder.indices->vector_index_.GetVectorPropertyFromIndex(
+        decoder.entity, decoder.name_id_mapper->IdToName(property_value.ValueVectorIndexIds()[0]));
+  }
+  return property_value;
+}
+
+template PropertyValue PropertyStore::GetProperty(PropertyId, const PropertyDecoder<Vertex> &) const;
 
 ExtendedPropertyType PropertyStore::GetExtendedPropertyType(PropertyId property) const {
   auto get_property_type = [&](Reader &reader) -> ExtendedPropertyType {
@@ -2710,7 +2725,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   auto buffer_info = GetDecodedBuffer(buffer_);
 
   bool existed = false;
-  if (buffer_info.storage_mode == StorageMode::EMPTY) {
+  if (buffer_info.storage_mode == BufferMode::EMPTY) {
     if (!value.IsNull()) {
       // We don't have a data buffer. Setup on for writting
       auto new_buffer_info = SetupBuffer(buffer_, property_size);
@@ -2727,7 +2742,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       }
 
       // Make buffer perminant
-      if (new_buffer_info.storage_mode == StorageMode::BUFFER) {
+      if (new_buffer_info.storage_mode == BufferMode::BUFFER) {
         SetSizeData(buffer_, new_view.size_bytes(), new_view.data());
       }
 
@@ -2741,7 +2756,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     std::optional<utils::DecompressedBuffer> decompressed_buffer;
 
     auto current_view = std::invoke([&] {
-      if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+      if (buffer_info.storage_mode == BufferMode::COMPRESSED) {
         decompressed_buffer = DecompressBuffer(buffer_info);
         return decompressed_buffer->view();
       }
@@ -2775,7 +2790,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
               info.all_end - info.property_end);
 
       // Make buffer perminant
-      if (new_buffer_info.storage_mode == StorageMode::BUFFER) {
+      if (new_buffer_info.storage_mode == BufferMode::BUFFER) {
         SetSizeData(buffer_, new_view.size_bytes(), new_view.data());
       }
 
@@ -2796,7 +2811,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
     // If we still started with compressed buffer
     // take ownership of the decompressed buffer before writing
-    if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+    if (buffer_info.storage_mode == BufferMode::COMPRESSED) {
       // remove compressed buffer
       FreeMemory(buffer_info);
       // take ownership of decompressed buffer
@@ -2805,7 +2820,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       decompressed_buffer.reset();
       buffer_info = DecodedBuffer{
           .view = current_view,
-          .storage_mode = StorageMode::BUFFER,  // decompressed buffer is now a regular buffer
+          .storage_mode = BufferMode::BUFFER,  // decompressed buffer is now a regular buffer
       };
     }
 
@@ -2833,7 +2848,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties) {
   auto orig_buffer_info = GetDecodedBuffer(buffer_);
-  if (orig_buffer_info.storage_mode != StorageMode::EMPTY) {
+  if (orig_buffer_info.storage_mode != BufferMode::EMPTY) {
     return false;
   }
 
@@ -2870,7 +2885,7 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
   }
 
   // Make buffer perminant
-  if (buffer_info.storage_mode == StorageMode::BUFFER) {
+  if (buffer_info.storage_mode == BufferMode::BUFFER) {
     SetSizeData(buffer_, view.size_bytes(), view.data());
   }
 
@@ -2924,7 +2939,7 @@ bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, st
 bool PropertyStore::ClearProperties() {
   auto buffer_info = GetDecodedBuffer(buffer_);
 
-  if (buffer_info.storage_mode == StorageMode::EMPTY) return false;
+  if (buffer_info.storage_mode == BufferMode::EMPTY) return false;
   FreeMemory(buffer_info);
   SetSizeData(buffer_, 0, nullptr);
 
@@ -2950,7 +2965,7 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   }
 
   // Make buffer perminant
-  if (buffer_info.storage_mode == StorageMode::BUFFER) {
+  if (buffer_info.storage_mode == BufferMode::BUFFER) {
     SetSizeData(buffer_, view.size_bytes(), view.data());
   }
 }

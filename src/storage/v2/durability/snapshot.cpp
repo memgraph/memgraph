@@ -63,7 +63,6 @@ using namespace std::chrono_literals;
 
 namespace r = ranges;
 
-
 namespace {
 constexpr auto kCheckIfSnapshotAborted = 3s;
 }  // namespace
@@ -9504,7 +9503,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto entry_count = snapshot.ReadUint();
         if (!entry_count) throw RecoveryFailure("Couldn't read vector index entry count!");
 
-        std::unordered_map<Gid, utils::small_vector<float>> index_entries;
+        absl::flat_hash_map<Gid, utils::small_vector<float>> index_entries;
         index_entries.reserve(*entry_count);
         utils::small_vector<float> vector;
         vector.reserve(*dimension);

@@ -827,11 +827,10 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      auto property_value = vertex->properties.GetProperty(delta.property.key);
-      if (property_value.IsVectorIndexId()) {
-        property_value.ValueVectorIndexList() = storage->indices_.vector_index_.GetVectorPropertyFromIndex(
-            vertex, storage->name_id_mapper_->IdToName(property_value.ValueVectorIndexIds()[0]));
-      }
+      auto property_value = vertex->properties.GetProperty(
+          delta.property.key,
+          PropertyDecoder<Vertex>{
+              .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex});
       encoder->WriteExternalPropertyValue(ToExternalPropertyValue(property_value, storage->name_id_mapper_.get()));
       break;
     }
@@ -1416,7 +1415,7 @@ std::optional<RecoveryInfo> LoadWal(
                                     .capacity = data.capacity,
                                     .scalar_kind = scalar_kind};
         indices_constraints->indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{
-            .spec = spec, .index_entries = std::unordered_map<Gid, utils::small_vector<float>>{}});
+            .spec = spec, .index_entries = absl::flat_hash_map<Gid, utils::small_vector<float>>{}});
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));

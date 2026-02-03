@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <iosfwd>
+#include <iterator>
 #include <memory>
 #include <ranges>
 #include <string_view>
@@ -205,7 +206,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       }
       type_ = Type::List;
       alloc_trait::construct(alloc_, &list_v);
-      for (const auto &v : vec) {
+      for (auto v : vec) {
         list_v.emplace_back(static_cast<double>(v));
       }
       return;
@@ -357,7 +358,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       }
       type_ = Type::List;
       alloc_trait::construct(alloc_, &list_v);
-      for (const auto &v : vec) {
+      for (auto v : vec) {
         list_v.emplace_back(static_cast<double>(v));
       }
       break;
@@ -496,7 +497,7 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       }
       type_ = Type::List;
       alloc_trait::construct(alloc_, &list_v);
-      for (const auto &v : vec) {
+      for (auto v : vec) {
         list_v.emplace_back(static_cast<double>(v));
       }
       return;
@@ -631,15 +632,8 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
     }
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vec = other.ValueVectorIndexList();
-      if (vec.empty()) {
-        type_ = Type::Null;
-        break;
-      }
       type_ = Type::List;
-      alloc_trait::construct(alloc_, &list_v);
-      for (const auto &v : vec) {
-        list_v.emplace_back(static_cast<double>(v));
-      }
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
     }
   }

@@ -176,19 +176,14 @@ class VectorEdgeIndex {
  private:
   /// @brief Sets up a new vector edge index structure without populating it.
   /// @param spec The specification for the index to be created.
-  /// @throws query::VectorSearchException if index already exists or creation fails.
-  void SetupIndex(const VectorEdgeIndexSpec &spec);
-
-  /// @brief Cleans up index structures after a failed index creation.
-  /// @param spec The specification of the failed index.
-  void CleanupFailedIndex(const VectorEdgeIndexSpec &spec);
+  /// @return true if the index was created successfully, false otherwise.
+  bool SetupIndex(const VectorEdgeIndexSpec &spec);
 
   /// @brief Adds or updates an edge in the vector index.
   /// @param entry The edge entry to be added or updated.
   /// @param edge_type_prop The edge type and property key for the index.
   /// @param value The property value to be indexed. If nullptr, the value will be taken from the edge's properties.
   /// @return true if the index was updated successfully, false otherwise.
-  /// @throw query::VectorSearchException if the property is not a list or if the dimensions do not match.
   bool UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypePropKey &edge_type_prop,
                          const PropertyValue *value = nullptr);
 

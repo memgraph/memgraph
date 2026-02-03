@@ -117,7 +117,7 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key, VectorIndexId
       TPropertyValue{IntListTag{}, int_list},
       TPropertyValue{DoubleListTag{}, double_list},
       TPropertyValue{NumericListTag{}, numeric_list},
-      TPropertyValue{vector_index_ids, vector_data},
+      TPropertyValue{typename TPropertyValue::VectorIndexIdData{vector_index_ids, vector_data}},
   };
 }
 

@@ -249,13 +249,6 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
     column_families.emplace_back(kDefaultHandle, kvstore_->options_);
     column_families.emplace_back(kOutEdgesHandle, kvstore_->options_);
     column_families.emplace_back(kInEdgesHandle, kvstore_->options_);
-
-    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_,
-                                                              rocksdb::TransactionDBOptions(),
-                                                              config.disk.main_storage_directory,
-                                                              column_families,
-                                                              &column_handles,
-                                                              &kvstore_->db_));
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_,
                                                               rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory,

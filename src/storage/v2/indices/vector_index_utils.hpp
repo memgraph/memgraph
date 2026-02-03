@@ -11,13 +11,15 @@
 
 #pragma once
 
+#include <exception>
+
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "range/v3/algorithm/remove.hpp"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 // Suppress usearch library warnings
@@ -274,19 +276,11 @@ inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
   return vector;
 }
 
-/// @brief Restores a vector property on a vertex by setting it as a PropertyValue with double values.
-/// @param vertex The vertex to restore the property on.
-/// @param property_id The property ID to restore.
-/// @param vector The vector of float values to restore.
-inline void RestoreVectorOnVertex(Vertex *vertex, PropertyId property_id, const utils::small_vector<float> &vector) {
-  vertex->properties.SetProperty(property_id, PropertyValue(std::vector<double>(vector.begin(), vector.end())));
-}
-
 /// @brief Removes an index ID from a property's vector index ID list.
 /// @param property_value The property value to modify (must be a VectorIndexId).
 /// @param index_id The index ID to remove.
 /// @return true if the property should be restored (no more index IDs), false otherwise.
-inline bool UnregisterFromIndex(PropertyValue &property_value, uint64_t index_id) {
+inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t index_id) {
   if (!property_value.IsVectorIndexId()) {
     return true;  // Not a vector index ID, should restore
   }
@@ -301,8 +295,7 @@ inline bool UnregisterFromIndex(PropertyValue &property_value, uint64_t index_id
 /// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
 /// @param index The USearch index to retrieve the vector from.
 /// @param key The key to look up in the index.
-/// @return A PropertyValue containing the vector as a list of double values.
-/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
+/// @return A PropertyValue containing the vector as a list of double values, or empty if the key is not in the index.
 template <typename IndexType, typename KeyType>
 PropertyValue GetVectorAsPropertyValue(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
   auto locked_index = index.ReadLock();
@@ -320,8 +313,7 @@ PropertyValue GetVectorAsPropertyValue(utils::Synchronized<IndexType, std::share
 /// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
 /// @param index The USearch index to retrieve the vector from.
 /// @param key The key to look up in the index.
-/// @return A list of float values representing the vector.
-/// @throws query::VectorSearchException if the key is not found in the index or if retrieval fails.
+/// @return A list of float values representing the vector, or empty if the key is not in the index.
 template <typename IndexType, typename KeyType>
 utils::small_vector<float> GetVector(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
   auto locked_index = index.ReadLock();
@@ -389,7 +381,7 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
-/// @tparam ProcessFunc Callable that receives (Vertex&, Args..., thread_id).
+/// @tparam ProcessFunc Callable that receives (Vertex&, Args...).
 /// @tparam Args Additional argument types to forward to the process function.
 /// @param vertices The vertices accessor to iterate over.
 /// @param process The function to call for each vertex.
@@ -397,6 +389,7 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
 template <typename ProcessFunc, typename... Args>
 void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
                                        Args &&...args) {
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   for (auto &vertex : vertices) {
     process(vertex, std::forward<Args>(args)...);
   }
@@ -411,19 +404,31 @@ void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertic
 template <typename ProcessFunc, typename... Args>
 void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
                                       Args &...args) {
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
   const auto actual_chunk_count = vertices_chunks.size();
-  std::vector<std::jthread> threads;
-  threads.reserve(actual_chunk_count);
-
-  for (std::size_t i = 0; i < actual_chunk_count; ++i) {
-    threads.emplace_back([&vertices_chunks, &process, &args..., i]() {
-      auto &chunk = vertices_chunks[i];
-      for (auto &vertex : chunk) {
-        process(vertex, args..., i);
-      }
-    });
+  utils::Synchronized<std::exception_ptr, utils::SpinLock> first_exception{};
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(actual_chunk_count);
+    for (std::size_t i = 0; i < actual_chunk_count; ++i) {
+      threads.emplace_back([&vertices_chunks, &process, &args..., &first_exception, i]() {
+        try {
+          auto &chunk = vertices_chunks[i];
+          for (auto &vertex : chunk) {
+            process(vertex, args..., i);
+          }
+        } catch (...) {
+          first_exception.WithLock([captured = std::current_exception()](auto &ex) {
+            if (!ex) ex = captured;
+          });
+        }
+      });
+    }
   }
+  first_exception.WithLock([](auto &ex) {
+    if (ex) std::rethrow_exception(ex);
+  });
 }
 
 }  // namespace memgraph::storage
