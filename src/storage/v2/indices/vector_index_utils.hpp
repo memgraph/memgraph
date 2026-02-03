@@ -283,6 +283,10 @@ inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
   vector.reserve(list_size);
   for (std::size_t i = 0; i < list_size; i++) {
     auto numeric_value = GetNumericValueAt(value, i);
+    if (!numeric_value) {
+      throw query::VectorSearchException(
+          "Vector index property must be a list of floats or integers; found non-numeric value at index.");
+    }
     auto float_value = std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value);
     vector.push_back(float_value);
   }

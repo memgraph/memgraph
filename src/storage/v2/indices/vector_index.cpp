@@ -679,26 +679,30 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
-  auto type = value.type();
-  if (type != PropertyValue::Type::VectorIndexId && type != PropertyValue::Type::List &&
-      type != PropertyValue::Type::Null) {
-    return;
-  }
-  const auto vector = std::invoke([&]() {
-    switch (type) {
-      case PropertyValue::Type::VectorIndexId:
-        return value.ValueVectorIndexList();
-      case PropertyValue::Type::List:
-        return ListToVector(value);
-      default:
-        return utils::small_vector<float>{};
-    }
-  });
-
   auto matches = [&](const VectorIndexRecoveryInfo &ri) {
     return ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id);
   };
-  for (auto &ri : recovery_info_vec | rv::filter(matches)) {
+  auto matching_recovery_infos =
+      recovery_info_vec | rv::filter(matches) | r::to<std::vector<VectorIndexRecoveryInfo>>();
+  if (matching_recovery_infos.empty()) return;
+
+  const auto vector = std::invoke([&]() {
+    switch (value.type()) {
+      case PropertyValue::Type::VectorIndexId:
+        return value.ValueVectorIndexList();
+      case PropertyValue::Type::List:
+      case PropertyValue::Type::IntList:
+      case PropertyValue::Type::DoubleList:
+      case PropertyValue::Type::NumericList:
+        return ListToVector(value);
+      case PropertyValue::Type::Null:
+        return utils::small_vector<float>{};
+      default:
+        throw query::VectorSearchException("Unexpected property value type in set property processor of vector index.");
+    }
+  });
+
+  for (auto &ri : matching_recovery_infos) {
     ri.index_entries[vertex->gid] = vector;
   }
 }
