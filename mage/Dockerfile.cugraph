@@ -4,6 +4,45 @@ ARG CUDA_VERSION_MINOR=13.1.0
 ARG PY_VERSION_DEFAULT=3.12
 ARG MG_VERSION=3.7.2
 
+FROM ubuntu:24.04 AS python-base
+# This stage will create the python venv used for the runtime in `prod`
+ARG CUSTOM_MIRROR=false
+ARG TARGETARCH
+ARG CACHE_PRESENT=false
+ENV DEBIAN_FRONTEND=noninteractive
+
+USER root
+
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  apt-get update && apt-get install -y \
+  python3 libpython3.12 python3-pip adduser curl \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  groupadd -g 103 memgraph && \
+  useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
+
+COPY python/requirements-gpu.txt /tmp/requirements-gpu.txt
+COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
+
+USER memgraph
+COPY --chown=memgraph:memgraph install_python_requirements.sh /home/memgraph/install_python_requirements.sh
+COPY --chown=memgraph:memgraph ./wheels /tmp/wheels
+RUN cd $HOME && \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+      pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
+    fi && \
+    chmod +x /home/memgraph/install_python_requirements.sh && \
+    ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda true --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
+    rm /home/memgraph/install_python_requirements.sh && \
+    rm -rf /tmp/wheels
+
 FROM rapidsai/base:${RAPIDS_VERSION}-cuda${CUDA_VERSION}-py${PY_VERSION_DEFAULT} AS cugraph-dev
 
 FROM nvidia/cuda:${CUDA_VERSION_MINOR}-runtime-ubuntu24.04 AS prod
@@ -38,6 +77,7 @@ COPY --from=cugraph-dev /opt/conda/include /opt/conda/include
 # install custom openssl packages
 # copy custom openssl packages, runtime install script and install requirements
 COPY openssl/ /tmp/openssl/
+COPY memgraph.deb .
 COPY install_runtime_requirements.sh /install_runtime_requirements.sh
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
@@ -53,23 +93,21 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   if [ "$BUILD_TYPE" = "RelWithDebInfo" ]; then \
     apt-get install -y gdb libc6-dbg --no-install-recommends; \
   fi && \
+  apt-get install adduser -y && \
   chmod +x /install_runtime_requirements.sh && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
     --py-version ${PY_VERSION} --cuda true && \
+  groupadd -g 103 memgraph && \
+  useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
+  dpkg -i memgraph.deb && \
+  rm memgraph.deb && \
   rm /install_runtime_requirements.sh && \
+  apt remove adduser -y && \
+  apt autoremove -y && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
-
-# install memgraph
-COPY memgraph.deb .
-
-# fix `memgraph` UID and GID for compatibility with previous Debian releases
-RUN groupadd -g 103 memgraph && \
-    useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
-    dpkg -i memgraph.deb && \
-    rm memgraph.deb
-
 
 # Copy modules
 RUN mkdir -p /usr/lib/memgraph/query_modules/
@@ -78,23 +116,10 @@ RUN tar -xzvf /tmp/mage.tar.gz -C /usr/lib/memgraph/ && rm /tmp/mage.tar.gz
 
 # copy script to convert to dev container
 COPY make-dev-container.sh /make-dev-container.sh
-COPY python/requirements.txt /tmp/requirements.txt
-COPY python/requirements-gpu.txt /tmp/requirements-gpu.txt
-COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
 
 USER memgraph
-COPY --chown=memgraph:memgraph install_python_requirements.sh /home/memgraph/install_python_requirements.sh
-COPY --chown=memgraph:memgraph ./wheels /tmp/wheels
-RUN cd $HOME && \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-      pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
-    fi && \
-    chmod +x /home/memgraph/install_python_requirements.sh && \
-    ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda true --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
-    rm /home/memgraph/install_python_requirements.sh && \
-    rm -rf /tmp/wheels
+COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local/lib/python${PY_VERSION}/site-packages /home/memgraph/.local/lib/python${PY_VERSION}/site-packages
 
-USER memgraph
 EXPOSE 7687
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
