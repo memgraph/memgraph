@@ -678,12 +678,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  DeltaChainState const from_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
 
-  WriteResult to_result = WriteResult::SUCCESS;
+  // If to and from are the same we need to ensure to_result is the same as from_result
+  WriteResult to_result = from_result;
+  DeltaChainState to_state = from_state;
   if (to_vertex != from_vertex) {
     to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+    to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -709,11 +714,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-
-  DeltaChainState const from_state =
-      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
-  DeltaChainState const to_state =
-      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
 
   utils::AtomicMemoryBlock([this,
                             edge,
@@ -804,12 +804,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  DeltaChainState const from_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
 
-  WriteResult to_result = WriteResult::SUCCESS;
+  WriteResult to_result = from_result;
+  DeltaChainState to_state = from_state;
   if (to_vertex != from_vertex) {
     to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+    to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -843,11 +847,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-
-  DeltaChainState const from_state =
-      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
-  DeltaChainState const to_state =
-      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
 
   utils::AtomicMemoryBlock([this, edge, from_vertex, edge_type, to_vertex, &schema_acc, from_state, to_state]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
@@ -1128,8 +1127,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
         vertices_to_check.insert(prev.vertex);
       } else if (prev.type == PreviousPtr::Type::DELTA) {
         while (prev.type == PreviousPtr::Type::DELTA) {
-          if (prev.delta->timestamp == transaction_.commit_timestamp.get()) {
-            break;
+          if (prev.delta->timestamp != transaction_.commit_timestamp.get() &&
+              *prev.delta->timestamp < kTransactionInitialId) {
+            break;  // found a uncommitted non sequential so no need to update
+                    // `vertex->has_uncommitted_non_sequential_deltas`
           }
           prev = prev.delta->prev.Get();
         }
