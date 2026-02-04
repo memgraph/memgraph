@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ bool ParallelChecker::PreVisit(OrderByParallel & /*unused*/) {
   return false;
 }
 
-bool ParallelChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
+bool ParallelChecker::Visit(Once &) { return true; }  // NOLINT(hicpp-named-parameter)
 
 void ParallelChecker::CheckParallelized(const LogicalOperator &root) {
   is_parallelized_ = false;
