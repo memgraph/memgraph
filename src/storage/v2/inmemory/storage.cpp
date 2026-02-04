@@ -1577,7 +1577,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
       if (delta_chunk_attached_to_vertex) {
         vertex->delta = current;
-        if (current != nullptr) {
+        if (current) {
           current->prev.Set(vertex);
         }
       } else {
@@ -1585,36 +1585,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // non-sequential in the middle of the chain. We need to "snip out" our deltas
         // without disturbing the rest of the chain.
         // We handle four cases depending on what surrounds our delta subchain:
-
         auto prev = start->prev.Get();
-        Delta *prev_delta = prev.type == PreviousPtr::Type::DELTA ? prev.delta : nullptr;
-
-        // Case 1: Our deltas are sandwiched between other deltas
-        // Chain: ... -> prev_delta -> [our deltas] -> current -> ...
-        // Result: ... -> prev_delta -> current -> ...
-        if (prev_delta != nullptr && current != nullptr) {
-          prev_delta->next.store(current, std::memory_order_release);
-          current->prev.Set(prev_delta);
-        }
-        // Case 2: Our deltas are at the tail (no downstream deltas)
-        // Chain: ... -> prev_delta -> [our deltas] -> nullptr
-        // Result: ... -> prev_delta -> nullptr
-        else if (prev_delta != nullptr && current == nullptr) {
-          prev_delta->next.store(nullptr, std::memory_order_release);
-        }
-        // Case 3: Our deltas were at the head when created, but another transaction
-        // has since prepended non-sequential deltas, so we no longer own the head.
-        // Chain: vertex -> [our deltas] -> current -> ...
-        // Result: vertex -> current -> ...
-        else if (prev_delta == nullptr && current != nullptr) {
-          vertex->delta = current;
-          current->prev.Set(vertex);
-        }
-        // Case 4: All deltas in the chain were ours
-        // Chain: vertex -> [our deltas] -> nullptr
-        // Result: vertex -> nullptr
-        else {
-          vertex->delta = nullptr;
+        DMG_ASSERT(prev.type == PreviousPtr::Type::DELTA && prev.delta != nullptr);
+        prev.delta->next.store(current, std::memory_order_release);
+        if (current) {
+          current->prev.Set(prev.delta);
         }
       }
 
