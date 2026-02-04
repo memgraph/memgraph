@@ -23,6 +23,7 @@ This stress test validates the USING PARALLEL EXECUTION feature under load:
 """
 
 import argparse
+import math
 import multiprocessing
 import random
 import sys
@@ -158,11 +159,55 @@ def normalize_results(results: List[Dict[str, Any]], sort: bool = True) -> List[
     return normalized
 
 
-def results_match(serial: List[Dict], parallel: List[Dict], order_matters: bool = False) -> bool:
-    """Compare serial and parallel results."""
+# Query types that return floating-point aggregates; parallel execution can sum
+# in a different order, so we use tolerant comparison to avoid flaky failures.
+_FLOAT_TOLERANT_QUERY_TYPES = frozenset(
+    {
+        QueryType.AGGREGATION_SUM,
+        QueryType.AGGREGATION_GROUPED,
+        QueryType.CARTESIAN_JOIN_AGGREGATION,
+    }
+)
+
+
+def _values_equal_with_tolerance(a: Any, b: Any, rel_tol: float = 1e-6, abs_tol: float = 1e-6) -> bool:
+    """Compare two values; use math.isclose for numeric types to handle FP ordering."""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if isinstance(a, int) and isinstance(b, int):
+            return a == b
+        return math.isclose(float(a), float(b), rel_tol=rel_tol, abs_tol=abs_tol)
+    if isinstance(a, dict):
+        return len(a) == len(b) and all(
+            k in b and _values_equal_with_tolerance(v, b[k], rel_tol, abs_tol) for k, v in a.items()
+        )
+    if isinstance(a, list):
+        return len(a) == len(b) and all(_values_equal_with_tolerance(x, y, rel_tol, abs_tol) for x, y in zip(a, b))
+    return a == b
+
+
+def results_match(
+    serial: List[Dict],
+    parallel: List[Dict],
+    order_matters: bool = False,
+    float_tolerant: bool = False,
+) -> bool:
+    """Compare serial and parallel results. If float_tolerant, use isclose for numerics."""
+    if len(serial) != len(parallel):
+        return False
     norm_serial = normalize_results(serial, sort=not order_matters)
     norm_parallel = normalize_results(parallel, sort=not order_matters)
-    return norm_serial == norm_parallel
+    if not float_tolerant:
+        return norm_serial == norm_parallel
+    # Compare row by row with tolerance for numeric fields
+    for rs, rp in zip(norm_serial, norm_parallel):
+        if len(rs) != len(rp):
+            return False
+        for (ks, vs), (kp, vp) in zip(rs, rp):
+            if ks != kp or not _values_equal_with_tolerance(vs, vp):
+                return False
+    return True
 
 
 # =============================================================================
@@ -220,7 +265,20 @@ def verify_parallel_correctness(driver, query_type: QueryType) -> QueryResult:
         # Check if results match
         # ORDER BY, SKIP, LIMIT queries need order preserved
         order_matters = query_type in [QueryType.ORDER_BY, QueryType.SKIP, QueryType.LIMIT, QueryType.SKIP_LIMIT]
-        match = results_match(serial_result, parallel_result, order_matters)
+        float_tolerant = query_type in _FLOAT_TOLERANT_QUERY_TYPES
+        match = results_match(
+            serial_result, parallel_result, order_matters=order_matters, float_tolerant=float_tolerant
+        )
+
+        if match:
+            error_msg = None
+        elif len(serial_result) != len(parallel_result):
+            error_msg = f"Results mismatch: serial={len(serial_result)} rows, parallel={len(parallel_result)} rows"
+        else:
+            error_msg = (
+                f"Result values differ: serial={len(serial_result)} rows, parallel={len(parallel_result)} rows "
+                f"(serial={serial_result!r}, parallel={parallel_result!r})"
+            )
 
         return QueryResult(
             query_type=query_type,
@@ -229,9 +287,7 @@ def verify_parallel_correctness(driver, query_type: QueryType) -> QueryResult:
             serial_time_ms=serial_time,
             parallel_time_ms=parallel_time,
             match=match,
-            error=None
-            if match
-            else f"Results mismatch: serial={len(serial_result)} rows, parallel={len(parallel_result)} rows",
+            error=error_msg,
         )
     except Exception as e:
         return QueryResult(
