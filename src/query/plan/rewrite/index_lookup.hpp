@@ -390,15 +390,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               applies_to_destination = filter.id_filter && filter.id_filter->symbol_ == expand.common_.node_symbol;
               break;
             }
-            case FilterInfo::Type::Point: {
-              applies_to_destination =
-                  filter.point_filter && filter.point_filter->symbol_ == expand.common_.node_symbol;
-              break;
-            }
             case FilterInfo::Type::Label: {
               applies_to_destination = filter.used_symbols.contains(expand.common_.node_symbol);
               break;
             }
+            // TODO: think about point filter, exact match is not supported yet
             default: {
               break;
             }
@@ -408,7 +404,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
         }
 
-        // Save current state of filter_exprs_for_removal_ to track what gets added
         auto filter_exprs_before = filter_exprs_for_removal_;
 
         std::unique_ptr<LogicalOperator> indexed_scan = GenScanByIndex(dst_scan);
@@ -1420,7 +1415,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // Checks if the input operator uses an index (indicating we know the source cardinality).
   bool HasIndexedSource(std::shared_ptr<LogicalOperator> input_op) {
-    // TODO(ivan): check that operator is replaced by an indexed scan operator here already
     if (!input_op) {
       return false;
     }
