@@ -979,6 +979,9 @@ struct ExpandCommon {
   /// If the given node atom refer to a symbol
   /// that has already been expanded and should be just validated in the frame.
   bool existing_node;
+  /// True if bidirectional BFS (STShortestPath) should be used, false for single-source BFS.
+  /// Only meaningful when type_ is BREADTH_FIRST and existing_node is true.
+  bool use_bidirectional_bfs_;
 };
 
 struct ExpansionInfo {
