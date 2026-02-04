@@ -881,6 +881,14 @@ class FakeDbAccessor {
     return std::nullopt;
   }
 
+  int64_t EdgesCount() const {
+    int64_t count = 0;
+    for (const auto &index : edge_type_index_) {
+      count += index.second;
+    }
+    return count;
+  }
+
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type) const {
     auto found = edge_type_index_.find(edge_type);
     if (found != edge_type_index_.end()) return found->second;
