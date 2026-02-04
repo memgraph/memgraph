@@ -74,7 +74,15 @@ def connectable_port(port: int) -> bool:
 
 
 class MemgraphInstanceRunner:
-    def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False, data_directory=None, username=None, password=None):
+    def __init__(
+        self,
+        binary_path=MEMGRAPH_BINARY,
+        use_ssl=False,
+        data_directory=None,
+        username=None,
+        password=None,
+        gdb_port=None,
+    ):
         self.host = "127.0.0.1"
         self.bolt_port = None
         self.binary_path = binary_path
@@ -84,6 +92,7 @@ class MemgraphInstanceRunner:
         self.data_directory = data_directory
         self.username = username
         self.password = password
+        self.gdb_port = gdb_port  # If set, run under gdbserver on this port
 
     def _print_diagnostics(self):
         """Print diagnostic information when server fails to start or
@@ -225,9 +234,20 @@ class MemgraphInstanceRunner:
         else:
             self.bolt_port = extract_bolt_port(args_mg)
 
+        # If gdb_port is set, wrap with gdbserver
+        if self.gdb_port:
+            args_mg = ["gdbserver", f":{self.gdb_port}"] + args_mg
+            print("\n" + "=" * 80)
+            print(f"MEMGRAPH STARTED UNDER GDBSERVER ON PORT {self.gdb_port}")
+            print(f"Connect with: gdb {self.binary_path} -ex 'target remote :{self.gdb_port}'")
+            print("=" * 80)
+            print("Waiting for debugger to attach... (press Enter in gdb to continue)")
+            print("=" * 80 + "\n")
+
         self.proc_mg = subprocess.Popen(args_mg)
 
-        timeout = 15
+        # Use much longer timeout when debugging with gdb
+        timeout = 3600 if self.gdb_port else 15
         delay = 0.1
         elapsed = 0
         while connectable_port(bolt_port) is False and elapsed < timeout:

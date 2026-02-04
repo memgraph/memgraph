@@ -287,14 +287,30 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
+  bool PreVisit(ScanChunk & /*unused*/) override;
+  bool PreVisit(ScanChunkByEdge & /*unused*/) override;
+  bool PreVisit(ScanParallel & /*unused*/) override;
+  bool PreVisit(ScanParallelByLabel & /*unused*/) override;
+  bool PreVisit(ScanParallelByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdge & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeType & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ParallelMerge & /*unused*/) override;
 
   bool PreVisit(EmptyResult & /*unused*/) override;
   bool PreVisit(Produce & /*unused*/) override;
   bool PreVisit(Accumulate & /*unused*/) override;
   bool PreVisit(Aggregate & /*unused*/) override;
+  bool PreVisit(AggregateParallel & /*unused*/) override;
   bool PreVisit(Skip & /*unused*/) override;
   bool PreVisit(Limit & /*unused*/) override;
   bool PreVisit(OrderBy & /*unused*/) override;
+  bool PreVisit(OrderByParallel & /*unused*/) override;
   bool PreVisit(Distinct & /*unused*/) override;
   bool PreVisit(Union & /*unused*/) override;
 
@@ -325,140 +341,113 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
 
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
-#define PRE_VISIT(TOp)                                   \
-  bool PlanPrinter::PreVisit(TOp &) {                    \
-    WithPrintLn([](auto &out) { out << "* " << #TOp; }); \
-    return true;                                         \
+// NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
+#define PRE_VISIT(TOp)                                                       \
+  bool PlanPrinter::PreVisit(TOp &) {                                        \
+    WithPrintLn([this](auto &out) { out << StartSymbol() << " " << #TOp; }); \
+    return true;                                                             \
   }
 
+#define PRE_VISIT_TS(TOp)                                                                  \
+  bool PlanPrinter::PreVisit(TOp &op) {                                                    \
+    WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); }); \
+    return true;                                                                           \
+  }
+
+#define PRE_VISIT_DBA_TS(TOp)                                                              \
+  bool PlanPrinter::PreVisit(TOp &op) {                                                    \
+    op.dba_ = dba_;                                                                        \
+    WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); }); \
+    op.dba_ = nullptr;                                                                     \
+    return true;                                                                           \
+  }
+
+#define PRE_VISIT_IGNORE(TOp) \
+  bool PlanPrinter::PreVisit(TOp &) { return true; }
+// NOLINTEND(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
+
 PRE_VISIT(CreateNode);
-
-bool PlanPrinter::PreVisit(CreateExpand &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
+PRE_VISIT_DBA_TS(CreateExpand);
 PRE_VISIT(Delete);
 
-bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+PRE_VISIT_TS(ScanAll);
+PRE_VISIT_DBA_TS(ScanAllByLabel);
+PRE_VISIT_DBA_TS(ScanAllByLabelProperties);
+PRE_VISIT_TS(ScanAllById);
+PRE_VISIT_DBA_TS(ScanAllByEdge);
+PRE_VISIT_DBA_TS(ScanAllByEdgeType);
+PRE_VISIT_DBA_TS(ScanAllByEdgeTypeProperty);
+PRE_VISIT_DBA_TS(ScanAllByEdgeTypePropertyValue);
+PRE_VISIT_DBA_TS(ScanAllByEdgeTypePropertyRange);
+PRE_VISIT_DBA_TS(ScanAllByEdgeProperty);
+PRE_VISIT_DBA_TS(ScanAllByEdgePropertyValue);
+PRE_VISIT_DBA_TS(ScanAllByEdgePropertyRange);
+PRE_VISIT_DBA_TS(ScanAllByEdgeId);
+PRE_VISIT_DBA_TS(ScanAllByPointDistance);
+PRE_VISIT_DBA_TS(ScanAllByPointWithinbbox);
+
+namespace {
+std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
+  // ScanChunk is always connected to a ParallelMerge->ScanParallel variant. Combine the two and return the same plan
+  // that a single threaded query would produce.
+  auto *node = dynamic_cast<ScanParallel *>(op.input_->input().get());
+  if (!node) {
+    throw std::runtime_error("ScanChunk must be connected to a ScanParallel variant");
+  }
+  node->dba_ = dba;
+  auto name = node->ToString();
+  node->dba_ = nullptr;
+  name.replace(name.find("Parallel"), strlen("Parallel"), "All");
+  name.insert(name.find('(') + 1, op.output_symbol_.name() + ", ");
+  return name;
+}
+}  // namespace
+
+bool PlanPrinter::PreVisit(ScanChunk &op) {
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
   return true;
 }
 
-bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
+bool PlanPrinter::PreVisit(ScanChunkByEdge &op) {
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
   return true;
 }
 
-bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperties &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
+PRE_VISIT_IGNORE(ScanParallel);
+PRE_VISIT_IGNORE(ScanParallelByLabel);
+PRE_VISIT_IGNORE(ScanParallelByLabelProperties);
+PRE_VISIT_IGNORE(ScanParallelByEdge);
+PRE_VISIT_IGNORE(ScanParallelByEdgeType);
+PRE_VISIT_IGNORE(ScanParallelByEdgeTypeProperty);
+PRE_VISIT_IGNORE(ScanParallelByEdgeTypePropertyValue);
+PRE_VISIT_IGNORE(ScanParallelByEdgeTypePropertyRange);
+PRE_VISIT_IGNORE(ScanParallelByEdgeProperty);
+PRE_VISIT_IGNORE(ScanParallelByEdgePropertyValue);
+PRE_VISIT_IGNORE(ScanParallelByEdgePropertyRange);
+
+bool PlanPrinter::PreVisit(AggregateParallel & /*unused*/) {
+  // Hiding in the plan, since it is an implementation detail
+  // Next operator is always going to be Aggregate, so no information is lost
+  is_parallel_ = true;  // Start of parallel execution
   return true;
 }
 
-bool PlanPrinter::PreVisit(ScanAllById &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+bool PlanPrinter::PreVisit(OrderByParallel & /*unused*/) {
+  // Hiding in the plan, since it is an implementation detail
+  // Next operator is always going to be OrderBy, so no information is lost
+  is_parallel_ = true;  // Start of parallel execution
   return true;
 }
 
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdge &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
+bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
+  // Hiding in the plan, since it is a backend connector, not a logical operator
+  is_parallel_ = false;  // End of parallel execution
   return true;
 }
 
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeType &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypeProperty &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypePropertyValue &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypePropertyRange &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeProperty &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgePropertyValue &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgePropertyRange &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeId &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByPointDistance &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByPointWithinbbox &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::Expand &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::Produce &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_DBA_TS(Expand);
+PRE_VISIT_DBA_TS(ExpandVariable);
+PRE_VISIT_TS(Produce);
 
 PRE_VISIT(ConstructNamedPath);
 PRE_VISIT(SetProperty);
@@ -472,21 +461,15 @@ PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
 
-bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_TS(Aggregate);
 
 PRE_VISIT(Skip);
 PRE_VISIT(Limit);
 
-bool PlanPrinter::PreVisit(query::plan::OrderBy &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_TS(OrderBy);
 
 bool PlanPrinter::PreVisit(query::plan::Merge &op) {
-  WithPrintLn([](auto &out) { out << "* Merge"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " Merge"; });
   Branch(*op.merge_match_, "On Match");
   Branch(*op.merge_create_, "On Create");
   op.input_->Accept(*this);
@@ -494,7 +477,7 @@ bool PlanPrinter::PreVisit(query::plan::Merge &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Optional &op) {
-  WithPrintLn([](auto &out) { out << "* Optional"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " Optional"; });
   Branch(*op.optional_);
   op.input_->Accept(*this);
   return false;
@@ -504,38 +487,26 @@ PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   Branch(*op.list_collection_branch_);
   op.input_->Accept(*this);
   return false;
 }
 
-bool PlanPrinter::PreVisit(query::plan::PeriodicCommit &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_TS(PeriodicCommit);
 
-bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_TS(CallProcedure);
 
-bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_TS(LoadCsv);
 
-bool PlanPrinter::PreVisit(query::plan::LoadParquet &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_TS(LoadParquet);
 
 bool PlanPrinter::PreVisit(query::plan::LoadJsonl &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -543,13 +514,13 @@ bool PlanPrinter::PreVisit(query::plan::LoadJsonl &op) {
 }
 
 bool PlanPrinter::Visit(query::plan::Once & /*op*/) {
-  WithPrintLn([](auto &out) { out << "* Once"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " Once"; });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
-  WithPrintLn([&op](auto &out) {
-    out << "* Cartesian {";
+  WithPrintLn([this, &op](auto &out) {
+    out << StartSymbol() << " Cartesian {";
     utils::PrintIterable(out, op.left_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
     out << " : ";
     utils::PrintIterable(out, op.right_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
@@ -561,21 +532,21 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::HashJoin &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
-  WithPrintLn([](auto &out) { out << "* Foreach"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " Foreach"; });
   Branch(*op.update_clauses_);
   op.input_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(); });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
@@ -583,36 +554,36 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
   return false;
 }
 
-bool PlanPrinter::PreVisit(query::plan::EdgeUniquenessFilter &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
+PRE_VISIT_TS(EdgeUniquenessFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Apply &op) {
-  WithPrintLn([](auto &out) { out << "* Apply"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " Apply"; });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::PeriodicSubquery &op) {
-  WithPrintLn([](auto &out) { out << "* PeriodicSubquery"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " PeriodicSubquery"; });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
-  WithPrintLn([](auto &out) { out << "* IndexedJoin"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " IndexedJoin"; });
   Branch(*op.sub_branch_);
   op.main_branch_->Accept(*this);
   return false;
 }
 
 #undef PRE_VISIT
+#undef PRE_VISIT_TS
+#undef PRE_VISIT_DBA_TS
+#undef PRE_VISIT_IGNORE
 
 bool PlanPrinter::DefaultPreVisit() {
-  WithPrintLn([](auto &out) { out << "* Unknown operator!"; });
+  WithPrintLn([this](auto &out) { out << StartSymbol() << " Unknown operator!"; });
   return true;
 }
 
@@ -820,6 +791,220 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanChunk &op) {
+  json self;
+  self["name"] = "ScanChunk";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanChunkByEdge &op) {
+  json self;
+  self["name"] = "ScanChunkByEdge";
+  self["output_symbol"] = ToJson(op.common_.edge_symbol);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallel &op) {
+  json self;
+  self["name"] = "ScanParallel";
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByLabel &op) {
+  json self;
+  self["name"] = "ScanParallelByLabel";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByLabelProperties &op) {
+  json self;
+  self["name"] = "ScanParallelByLabelProperties";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["properties"] = ToJson(op.properties_, *dba_);
+  self["expression_ranges"] = ToJson(op.expression_ranges_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdge &op) {
+  json self;
+  self["name"] = "ScanParallelByEdge";
+  self["edge_symbol"] = ToJson(op.edge_symbol_);
+  self["node1_symbol"] = ToJson(op.node1_symbol_);
+  self["node2_symbol"] = ToJson(op.node2_symbol_);
+  self["direction"] = static_cast<int>(op.direction_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeType &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgeType";
+  self["edge_type"] = ToJson(op.edge_type_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypeProperty &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgeTypeProperty";
+  self["edge_type"] = ToJson(op.edge_type_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypePropertyValue &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgeTypePropertyValue";
+  self["edge_type"] = ToJson(op.edge_type_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["expression"] = ToJson(op.expression_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeTypePropertyRange &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgeTypePropertyRange";
+  self["edge_type"] = ToJson(op.edge_type_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgeProperty &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgeProperty";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyValue &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgePropertyValue";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["expression"] = ToJson(op.expression_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyRange &op) {
+  json self;
+  self["name"] = "ScanParallelByEdgePropertyRange";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ParallelMerge &op) {
+  json self;
+  self["name"] = "ParallelMerge";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(AggregateParallel &op) {
+  json self;
+  self["name"] = "AggregateParallel";
+  self["num_threads"] = op.num_threads_;
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
   output_ = std::move(self);
   return false;
 }
@@ -1143,6 +1328,18 @@ bool PlanToJsonVisitor::PreVisit(OrderBy &op) {
     self["order_by"].push_back(json);
   }
   self["output_symbols"] = ToJson(op.output_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(OrderByParallel &op) {
+  json self;
+  self["name"] = "OrderByParallel";
+  self["num_threads"] = op.num_threads_;
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

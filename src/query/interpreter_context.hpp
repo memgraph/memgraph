@@ -29,6 +29,7 @@
 #include "system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
@@ -78,6 +79,7 @@ struct InterpreterContext {
   AuthChecker *auth_checker;
   ReplicationQueryHandler *replication_handler_;
   system::System *system_;
+  utils::PriorityThreadPool *worker_pool;
 
   // Used to check active transactions
   // TODO: Have a way to read the current database
@@ -109,7 +111,8 @@ struct InterpreterContext {
                      utils::ResourceMonitoring *resource_monitoring,
 #endif
                      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
-                     ReplicationQueryHandler *replication_handler = nullptr);
+                     ReplicationQueryHandler *replication_handler = nullptr,
+                     utils::PriorityThreadPool *worker_pool = nullptr);
 };
 
 // singleton object that holds the interpreter context for the application
@@ -130,7 +133,8 @@ class InterpreterContextHolder {
                          utils::ResourceMonitoring *resource_monitoring,
 #endif
                          AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
-                         ReplicationQueryHandler *replication_handler = nullptr) {
+                         ReplicationQueryHandler *replication_handler = nullptr,
+                         utils::PriorityThreadPool *worker_pool = nullptr) {
     assert(!instance);
     instance.emplace(interpreter_config,
                      settings,
@@ -143,7 +147,8 @@ class InterpreterContextHolder {
 #endif
                      ah,
                      ac,
-                     replication_handler);
+                     replication_handler,
+                     worker_pool);
   }
 
   InterpreterContextHolder(const InterpreterContextHolder &) = delete;
@@ -166,8 +171,8 @@ struct InterpreterContextLifetimeControl {
       std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
       utils::ResourceMonitoring *resource_monitoring,
 #endif
-      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
-      ReplicationQueryHandler *replication_handler = nullptr) {
+      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr, ReplicationQueryHandler *replication_handler = nullptr,
+      utils::PriorityThreadPool *worker_pool = nullptr) {
     InterpreterContextHolder::Initialize(interpreter_config,
                                          settings,
                                          dbms_handler,
@@ -179,7 +184,8 @@ struct InterpreterContextLifetimeControl {
 #endif
                                          ah,
                                          ac,
-                                         replication_handler);
+                                         replication_handler,
+                                         worker_pool);
   }
 
   ~InterpreterContextLifetimeControl() { InterpreterContextHolder::destroy(); }

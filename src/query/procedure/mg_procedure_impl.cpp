@@ -4752,6 +4752,8 @@ int mgp_must_abort(mgp_graph *graph) {
       return 2;
     case memgraph::query::AbortReason::TIMEOUT:
       return 3;
+    case memgraph::query::AbortReason::EXCEPTION:
+      return 4;
     case memgraph::query::AbortReason::NO_ABORT:
       return 0;
   }

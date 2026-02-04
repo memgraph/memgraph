@@ -1901,16 +1901,9 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
   if (lhs.IsNull() && rhs.IsNull()) return true;
   TypedValue equality_result = lhs == rhs;
-  switch (equality_result.type()) {
-    case TypedValue::Type::Bool:
-      return equality_result.ValueBool();
-    case TypedValue::Type::Null:
-      return false;
-    default:
-      LOG_FATAL(
-          "Equality between two TypedValues resulted in something other "
-          "than Null or bool");
-  }
+  DMG_ASSERT(equality_result.type() == TypedValue::Type::Bool || equality_result.type() == TypedValue::Type::Null,
+             "Equality between two TypedValues must result in either Null or Bool");
+  return equality_result.type() == TypedValue::Type::Bool && equality_result.ValueBool();
 }
 
 size_t TypedValue::Hash::operator()(const TypedValue &value) const {
@@ -1920,12 +1913,17 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Bool:
       return std::hash<bool>{}(value.ValueBool());
     case TypedValue::Type::Int:
-      // we cast int to double for hashing purposes
-      // to be consistent with TypedValue equality
-      // in which (2.0 == 2) returns true
-      return std::hash<double>{}((double)value.ValueInt());
-    case TypedValue::Type::Double:
-      return std::hash<double>{}(value.ValueDouble());
+      return std::hash<int64_t>{}(value.ValueInt());
+    case TypedValue::Type::Double: {
+      // Store whole number doubles as int hashes to be consistent with
+      // TypedValue equality in which (2.0 == 2) returns true
+      const double double_value = std::trunc(value.ValueDouble());
+      double whole_value = 0.0;
+      if (std::modf(double_value, &whole_value) == 0.0) {
+        return std::hash<int64_t>{}(static_cast<int64_t>(whole_value));
+      }
+      return std::hash<double>{}(double_value);
+    }
     case TypedValue::Type::String:
       return std::hash<std::string_view>{}(value.ValueString());
     case TypedValue::Type::List: {

@@ -204,6 +204,9 @@ def main():
     argp = argparse.ArgumentParser()
     argp.add_argument("--build-directory", default=BUILD_DIR)
     argp.add_argument("--cluster-size", default=3, type=int)
+    argp.add_argument(
+        "--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to all queries"
+    )
     args = argp.parse_args()
 
     # Load tests from config file
@@ -250,6 +253,8 @@ def main():
             "--storage-mode",
             suite_storage_mode,
         ]
+        if args.parallel_execution:
+            cmd.append("--parallel-execution")
 
         # The exit code isn't checked here because the `behave` framework
         # returns a non-zero exit code when some tests fail.
