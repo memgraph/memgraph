@@ -94,7 +94,7 @@ jobs:
     secrets: inherit
 
   DailyPackageArtifact:
-    if: ${{ (github.event_name == 'schedule' && always() && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
+    if: ${{ (github.event_name == 'schedule' && (success() || failure())) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
@@ -154,7 +154,7 @@ jobs:
     secrets: inherit
 
   DailyDockerArtifact:
-    if: ${{ (github.event_name == 'schedule' && always() && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_docker_artifact)  }}
+    if: ${{ (github.event_name == 'schedule' && (success() || failure())) || (github.event_name == 'workflow_dispatch' && !inputs.skip_docker_artifact)  }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
@@ -177,7 +177,7 @@ jobs:
     secrets: inherit
 
   AggregateBuildTests:
-    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && always() && !cancelled() }}
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && (success() || failure()) }}
     needs: [CurrentDateJob,TestBuild,DailyPackageArtifact,DailyDockerArtifact]
     runs-on: [self-hosted]
     steps:
@@ -216,7 +216,7 @@ jobs:
             -d "$payload"
 
   BuildAndTestMAGE:
-    if: ${{ (github.event_name == 'schedule' && always() && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    if: ${{ (github.event_name == 'schedule' && (success() || failure())) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
     name: Build and Test MAGE
     needs: [CurrentDateJob]
     uses: ./.github/workflows/reusable_package_mage.yaml
@@ -269,7 +269,7 @@ jobs:
     secrets: inherit
 
   AggregateMAGEBuildTests:
-    if: always() && !cancelled()
+    if: ${{ success() || failure() }}
     needs: [CurrentDateJob,BuildAndTestMAGE]
     runs-on: [self-hosted]
     steps:
@@ -311,7 +311,7 @@ jobs:
   SetupDailyBuildImageOutputs:
     name: Setup Daily Build Image Outputs
     needs: [CurrentDateJob, DailyDockerArtifact]
-    if: ${{ (github.event_name == 'schedule' && always() && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
+    if: ${{ (github.event_name == 'schedule' && (success() || failure())) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
@@ -353,7 +353,7 @@ jobs:
   RunISSUTest:
     name: Run ISSU Tests
     needs: [SetupDailyBuildImageOutputs]
-    if: ${{ (github.event_name == 'schedule' && always() && !cancelled() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    if: ${{ (github.event_name == 'schedule' && (success() || failure()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
     strategy:
       fail-fast: false
@@ -381,7 +381,7 @@ jobs:
   StressTestsNativeStandalone:
     name: "Stress Tests Native Standalone"
     needs: [DailyPackageArtifact]
-    if: ${{ (github.event_name == 'schedule' && always() && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    if: ${{ (github.event_name == 'schedule' && (success() || failure())) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: native_standalone
@@ -390,7 +390,7 @@ jobs:
   StressTestsNativeHA:
     name: "Stress Tests Native HA"
     needs: [DailyPackageArtifact]
-    if: ${{ (github.event_name == 'schedule' && always() && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    if: ${{ (github.event_name == 'schedule' && (success() || failure())) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: native_ha
@@ -399,7 +399,7 @@ jobs:
   StressTestsDockerHA:
     name: "Stress Tests Docker HA"
     needs: [SetupDailyBuildImageOutputs]
-    if: ${{ ((github.event_name == 'schedule' && always() && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    if: ${{ ((github.event_name == 'schedule' && (success() || failure())) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: docker_ha
