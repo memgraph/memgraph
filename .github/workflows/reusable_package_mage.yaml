@@ -68,6 +68,10 @@ on:
         description: "Version to build"
         default: ''
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: true
+
 run-name: "Build and test MAGE"
 
 env:
