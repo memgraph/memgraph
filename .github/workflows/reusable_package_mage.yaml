@@ -42,6 +42,10 @@ on:
         type: boolean
         description: "Build the image for CUDA"
         default: false
+      cugraph:
+        type: boolean
+        description: "Build the image for CuGraph"
+        default: false
       run_tests:
         type: boolean
         description: "Run tests"
@@ -73,6 +77,7 @@ env:
   BUILD_TYPE: "${{ inputs.build_type }}"
   MALLOC: "${{ inputs.malloc }}"
   CUDA: "${{ inputs.cuda }}"
+  CUGRAPH: "${{ inputs.cugraph }}"  # This image cannot be tested in CI, needs an Nvidia GPU
   CONTAINER_NAME: "mgbuild"
   MAGE_CONTAINER: "mage"
   MEMGRAPH_PORT: 7687
@@ -95,7 +100,7 @@ env:
 jobs:
   BuildAndPush:
     name: "Build and Test MAGE"
-    runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'colossus' }}"]
+    runs-on: [self-hosted, DockerMgBuild, Linux, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 30
     outputs:
       s3_package_url: ${{ steps.output-url.outputs.s3_url }}
@@ -115,7 +120,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Pull e2e Docker images in background
-        if: ${{ inputs.run_tests == true }}
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         run: |
           ./tools/ci/pull-e2e-docker-images.sh &
 
@@ -143,10 +148,14 @@ jobs:
 
       - name: Check mgdeps-cache availability
         run: |
-          if [ "$ARCH" == "amd" ]; then
-            echo "mgdeps-cache is temporary disabled for amd64"
-            echo "CACHE_PRESENT=false" >> $GITHUB_ENV
-          elif curl --silent --fail "http://mgdeps-cache:8000/wheels/" -o /dev/null; then
+          WHEEL_PATH="${ARCH}64"
+          if [[ "$CUGRAPH" == true  || "$CUDA" == true ]]; then
+            echo "Using wheels build for CUDA"
+            WHEEL_PATH="cuda-13.0/${WHEEL_PATH}"
+          fi
+          echo "using wheel path: WHEEL_PATH=${WHEEL_PATH}"
+          echo "MAGE_WHEEL_PATH=${WHEEL_PATH}" >> $GITHUB_ENV
+          if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
             echo "mgdeps-cache is reachable :D"
             echo "CACHE_PRESENT=true" >> $GITHUB_ENV
           else
@@ -167,18 +176,19 @@ jobs:
 
       - name: Create wheels directory and fetch wheels if available
         run: |
-          mkdir -p mage/wheels
+          mkdir -p mage/wheels/${MAGE_WHEEL_PATH}
           if [ "$CACHE_PRESENT" = "true" ]; then
             echo "Cache is present. Fetching wheels..."
-            wget -nv -r -np -nH --cut-dirs=1 -P mage/wheels "http://mgdeps-cache:8000/wheels/"
+            wget -nv -r -np -nH --cut-dirs=1 -P mage/wheels "http://mgdeps-cache:8000/wheels/${MAGE_WHEEL_PATH}/"#
+            mv -v mage/wheels/$MAGE_WHEEL_PATH/* mage/wheels/
           else
             echo "Cache is not present. Skipping wheel fetch."
           fi
 
       - name: Set image tag and artifact name
         run: |
-          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA"
-          read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA")
+          echo "DEBUG: script inputs: MEMGRAPH_VERSION=$MEMGRAPH_VERSION, ARCH=$ARCH, BUILD_TYPE=$BUILD_TYPE, MALLOC=$MALLOC, CUDA=$CUDA, CUGRAPH=$CUGRAPH"
+          read IMAGE_TAG ARTIFACT_NAME < <(tools/ci/mage-artifact-name-tag.sh "$MEMGRAPH_VERSION" "$ARCH" "$BUILD_TYPE" "$MALLOC" "$CUDA" "$CUGRAPH")
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
@@ -237,6 +247,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: "Build Memgraph binaries"
@@ -247,6 +258,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
           build-memgraph $ADDITIONAL_BUILD_ARGS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -260,6 +272,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
           package-memgraph
 
       - name: "Copy package"
@@ -269,6 +282,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           copy \
           --package \
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
@@ -283,6 +297,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           copy \
           --sbom
 
@@ -293,6 +308,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           build-heaptrack
 
       - name: "Copy heaptrack"
@@ -303,6 +319,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           copy-heaptrack \
           --dest-dir "$(pwd)/mage"
 
@@ -317,6 +334,7 @@ jobs:
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
+            --cugraph $CUGRAPH \
             build-ssl \
             --version "3.5.4" \
             --conan-remote $CONAN_REMOTE \
@@ -334,6 +352,7 @@ jobs:
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
           build-mage
 
       - name: Build DEB package in MGBUILD container
@@ -345,6 +364,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             package-mage-deb \
             --version $MEMGRAPH_VERSION \
             $PACKAGE_ARGS
@@ -362,6 +382,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             build-pymgclient
           ls -la mage/wheels
 
@@ -374,6 +395,7 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             test-mage unit \
             --ci \
             $TEST_ARGS
@@ -387,6 +409,7 @@ jobs:
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
+            --cugraph $CUGRAPH \
             generate-memgraph-build-sbom \
             --conan-remote $CONAN_REMOTE
 
@@ -397,6 +420,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
+          --cugraph $CUGRAPH \
           stop --remove
 
       - name: Build image
@@ -406,12 +430,14 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             package-mage-docker \
             --docker-repository-name $DOCKER_REPOSITORY_NAME \
             --image-tag $IMAGE_TAG \
             --memgraph-ref $MEMGRAPH_REF \
             --cache-present $CACHE_PRESENT \
-            --custom-mirror true
+            --custom-mirror true \
+            --cuda $CUDA
 
       - name: Generate SBOM
         if: ${{ inputs.generate_sbom == true }}
@@ -431,7 +457,7 @@ jobs:
           path: "sbom/"
 
       - name: Start container for e2e tests
-        if: ${{ inputs.run_tests == true }}
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         run: |
           docker network create $MEMGRAPH_NETWORK || true
 
@@ -446,22 +472,23 @@ jobs:
             --telemetry-enabled=False
 
       - name: Run end-to-end tests
-        if: ${{ inputs.run_tests == true }}
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os "$OS" \
             --arch $ARCH \
             --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
             test-mage e2e
 
       - name: Wait for e2e Docker images to be available
-        if: ${{ inputs.run_tests == true }}
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         run: |
           ./tools/ci/wait-for-docker-images.sh
 
       - name: Run End-to-end correctness tests
-        if: ${{ inputs.run_tests == true }}
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/tests/e2e"
         run: |
@@ -478,7 +505,7 @@ jobs:
             --memgraph-network $MEMGRAPH_NETWORK
 
       - name: Run End-to-end migration tests
-        if: ${{ inputs.run_tests == true }}
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false }}
         env:
           PYTHONPATH: "$PWD/e2e"
         run: |
@@ -494,7 +521,7 @@ jobs:
             --clean-env
 
       - name: Stop container for e2e tests
-        if: ${{ inputs.run_tests == true && always() }}
+        if: ${{ inputs.run_tests == true && inputs.cugraph == false && always() }}
         run: |
           docker stop $MAGE_CONTAINER || true
 

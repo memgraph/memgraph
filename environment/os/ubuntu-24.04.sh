@@ -78,6 +78,7 @@ MEMGRAPH_BUILD_DEPS=(
     libopenblas-dev # required for building scipy
     # Pulsar dependencies
     # libnghttp2-dev libpsl-dev libkrb5-dev librtmp-dev libldap2-dev libidn2-dev libbrotli-dev libidn2-dev libssh-dev
+    fakeroot debhelper # for building deb packages
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"

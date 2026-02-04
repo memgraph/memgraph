@@ -227,38 +227,49 @@ jobs:
         build_arch: ["amd", "arm"]
         malloc: [false]
         cuda: [false]
+        cugraph: [false]
         include:
           - build_type: "Release"
             build_arch: "amd"
             malloc: true
             cuda: false
+            cugraph: false
           - build_type: "RelWithDebInfo"
             build_arch: "amd"
             cuda: true
             malloc: false
+            cugraph: false
           - build_type: "RelWithDebInfo"
             build_arch: "amd"
             cuda: false
             malloc: true
+            cugraph: false
           - build_type: "RelWithDebInfo"
             build_arch: "arm"
             cuda: false
             malloc: true
+            cugraph: false
+          - build_type: "RelWithDebInfo"
+            build_arch: "amd"
+            cuda: false
+            malloc: false
+            cugraph: true
     with:
       arch: ${{ matrix.build_arch }}
       build_type: ${{ matrix.build_type }}
       s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       cuda: ${{ matrix.cuda }}
+      cugraph: ${{ matrix.cugraph }}
       push_to_s3: true
       malloc: ${{ matrix.malloc }}
-      run_smoke_tests: ${{ !inputs.skip_smoke_tests }}
+      run_smoke_tests: ${{ !matrix.cugraph && !inputs.skip_smoke_tests }}
       run_tests: true
       package_deb: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
     secrets: inherit
 
   AggregateMAGEBuildTests:
-    if: always()
+    if: ${{ always() }}
     needs: [CurrentDateJob,BuildAndTestMAGE]
     runs-on: [self-hosted]
     steps:

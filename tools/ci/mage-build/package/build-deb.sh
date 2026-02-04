@@ -10,7 +10,8 @@ BUILD_TYPE=$2
 VERSION=$3
 MALLOC=$4
 CUDA=$5
-PACKAGE_DIR=${6:-$HOME/mage.tar.gz}
+CUGRAPH=$6
+PACKAGE_DIR=${7:-$HOME/mage.tar.gz}
 
 # replace illegal characters in version string for packager:
 CLEAN_VERSION=$(echo $VERSION | sed 's/_/+/g')
@@ -24,7 +25,10 @@ fi
 if [[ "$MALLOC" == true ]]; then
     PACKAGE_NAME="${PACKAGE_NAME}-malloc"
 fi
-if [[ "$CUDA" == true ]]; then
+if [[ "$CUGRAPH" == true ]]; then
+    PACKAGE_NAME="${PACKAGE_NAME}-cugraph"
+    CUDA=true
+elif [[ "$CUDA" == true ]]; then
     PACKAGE_NAME="${PACKAGE_NAME}-cuda"
 fi
 PACKAGE_NAME="${PACKAGE_NAME}.deb"
