@@ -148,16 +148,12 @@ jobs:
 
       - name: Check mgdeps-cache availability
         run: |
+          WHEEL_PATH="${ARCH}64"
           if [[ "$CUGRAPH" == true  || "$CUDA" == true ]]; then
             echo "Using wheels build for CUDA"
-            WHEEL_PATH="cuda-13.0"
-          elif [[ "$ARCH" == "arm" ]]; then
-            echo "Using wheels build for ARM"
-            WHEEL_PATH="arm64"
-          else
-            echo "Using wheels build for AMD"
-            WHEEL_PATH="amd64"
+            WHEEL_PATH="cuda-13.0/${WHEEL_PATH}"
           fi
+          echo "using wheel path: WHEEL_PATH=${WHEEL_PATH}"
           echo "MAGE_WHEEL_PATH=${WHEEL_PATH}" >> $GITHUB_ENV
           if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
             echo "mgdeps-cache is reachable :D"

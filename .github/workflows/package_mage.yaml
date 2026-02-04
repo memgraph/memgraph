@@ -145,7 +145,7 @@ jobs:
       push_to_s3: ${{ matrix.push_to_s3 == 'true' }}
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
-      run_tests: ${{ matrix.run_tests == 'true' && matrix.cugraph == 'false' }}
+      run_tests: ${{ matrix.run_tests == 'true' }}
       package_deb: ${{ matrix.package_deb }}
       generate_sbom: ${{ matrix.generate_sbom == 'true' }}
       ref: ${{ matrix.ref }}
