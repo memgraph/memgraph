@@ -3341,21 +3341,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
-      bool const is_subchain_start =
-          (prev.type == PreviousPtr::Type::VERTEX) ||
-          (prev.type == PreviousPtr::Type::DELTA &&
-           prev.delta->timestamp->load(std::memory_order_acquire) != current_commit_timestamp);
-      if (!is_subchain_start) {
-        continue;
-      }
-
-      Vertex *vertex = nullptr;
-      if (prev.type == PreviousPtr::Type::VERTEX) {
-        vertex = prev.vertex;
-      } else {
-        vertex = vertex_cache.GetVertexFromDelta(&delta);
-      }
-      find_and_apply_deltas(&delta, *vertex, [](auto action) {
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT:
@@ -3380,6 +3367,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
+      // Becasuse in this phase we handle `REMOVE_OUT_EDGE`, we MUST accomidate for NonSequential chunks
       bool const is_subchain_start =
           (prev.type == PreviousPtr::Type::VERTEX) ||
           (prev.type == PreviousPtr::Type::DELTA &&
@@ -3442,21 +3430,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
-      bool const is_subchain_start =
-          (prev.type == PreviousPtr::Type::VERTEX) ||
-          (prev.type == PreviousPtr::Type::DELTA &&
-           prev.delta->timestamp->load(std::memory_order_acquire) != current_commit_timestamp);
-      if (!is_subchain_start) {
-        continue;
-      }
-
-      Vertex *vertex = nullptr;
-      if (prev.type == PreviousPtr::Type::VERTEX) {
-        vertex = prev.vertex;
-      } else {
-        vertex = vertex_cache.GetVertexFromDelta(&delta);
-      }
-      find_and_apply_deltas(&delta, *vertex, [](auto action) {
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::ADD_OUT_EDGE:
             return true;
@@ -3480,21 +3455,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
-      bool const is_subchain_start =
-          (prev.type == PreviousPtr::Type::VERTEX) ||
-          (prev.type == PreviousPtr::Type::DELTA &&
-           prev.delta->timestamp->load(std::memory_order_acquire) != current_commit_timestamp);
-      if (!is_subchain_start) {
-        continue;
-      }
-
-      Vertex *vertex = nullptr;
-      if (prev.type == PreviousPtr::Type::VERTEX) {
-        vertex = prev.vertex;
-      } else {
-        vertex = vertex_cache.GetVertexFromDelta(&delta);
-      }
-      find_and_apply_deltas(&delta, *vertex, [](auto action) {
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::RECREATE_OBJECT:
             return true;
