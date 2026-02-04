@@ -2035,6 +2035,15 @@ TYPED_TEST(FunctionTest, ToBooleanList) {
   CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(false)), MakeTypedValueList(false));
   CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(false, true, false)),
               MakeTypedValueList(false, true, false));
+  // Test empty list
+  auto empty_list = TypedValue(std::vector<TypedValue>{});
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", empty_list), empty_list);
+  // Test non-list types
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEANLIST", TypedValue(std::map<std::string, TypedValue>{})),
+               QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEANLIST", TypedValue("string")), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEANLIST", TypedValue(42)), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEANLIST", TypedValue(true)), QueryRuntimeException);
 }
 
 TYPED_TEST(FunctionTest, ToFloatList) {
@@ -2049,6 +2058,14 @@ TYPED_TEST(FunctionTest, ToFloatList) {
   CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(-3)), MakeTypedValueList(-3.0));
   CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(-3, 3.5, 5.6)),
               MakeTypedValueList(-3.0, 3.5, 5.6));
+  // Test empty list
+  auto empty_list = TypedValue(std::vector<TypedValue>{});
+  CompareList(this->EvaluateFunction("TOFLOATLIST", empty_list), empty_list);
+  // Test non-list types
+  ASSERT_THROW(this->EvaluateFunction("TOFLOATLIST", TypedValue(std::map<std::string, TypedValue>{})),
+               QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOFLOATLIST", TypedValue("string")), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOFLOATLIST", TypedValue(42)), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("TOFLOATLIST", true), QueryRuntimeException);
 }
 
@@ -2064,6 +2081,15 @@ TYPED_TEST(FunctionTest, ToIntegerList) {
   CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(-3.5)), MakeTypedValueList(-3));
   CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(3.5)), MakeTypedValueList(3));
   CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(-3, 3.5, 5.6)), MakeTypedValueList(-3, 3, 5));
+  // Test empty list
+  auto empty_list = TypedValue(std::vector<TypedValue>{});
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", empty_list), empty_list);
+  // Test non-list types
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST", TypedValue(std::map<std::string, TypedValue>{})),
+               QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST", TypedValue("string")), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST", TypedValue(42)), QueryRuntimeException);
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST", TypedValue(true)), QueryRuntimeException);
 }
 
 TYPED_TEST(FunctionTest, Type) {
