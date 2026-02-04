@@ -647,7 +647,7 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, List>>("toBooleanist", args, nargs);
+  FType<Or<Null, List>>("toBooleanList", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
