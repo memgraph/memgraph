@@ -432,6 +432,56 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           // Set destination indexed scan input to Once() (remove source chain)
           indexed_scan->set_input(std::make_shared<Once>());
 
+          // Extract remaining destination filters that were not satisfied by the index
+          // These filters need to be applied after ScanAllByLabelProperties (before BFSExpand)
+          const auto &destination_symbol = expand.common_.node_symbol;
+          Expression *destination_filter_expr = nullptr;
+          std::vector<FilterInfo> destination_filter_infos;
+          std::vector<Expression *> destination_filter_expressions_to_remove;
+
+          // Collect remaining destination filters from filters_ state
+          for (auto filter_it = filters_.begin(); filter_it != filters_.end();) {
+            if (filter_it->used_symbols.contains(destination_symbol)) {
+              // This filter applies to the destination
+              if (destination_filter_expr) {
+                destination_filter_expr =
+                    ast_storage_->Create<AndOperator>(destination_filter_expr, filter_it->expression);
+              } else {
+                destination_filter_expr = filter_it->expression;
+              }
+              destination_filter_infos.push_back(*filter_it);
+              destination_filter_expressions_to_remove.push_back(filter_it->expression);
+              filter_it = filters_.erase(filter_it);
+            } else {
+              ++filter_it;
+            }
+          }
+
+          // Create Filters object from collected filter infos
+          Filters destination_filter_filters;
+          if (!destination_filter_infos.empty()) {
+            destination_filter_filters.SetFilters(std::move(destination_filter_infos));
+          }
+
+          // Mark destination filter expressions for removal so they don't get processed again
+          for (auto *expr : destination_filter_expressions_to_remove) {
+            filter_exprs_for_removal_.insert(expr);
+          }
+
+          // Wrap ScanAllByLabelProperties with Filter(destination) if destination filters exist
+          std::shared_ptr<LogicalOperator> bfs_input;
+          if (destination_filter_expr) {
+            // Convert unique_ptr to shared_ptr for Filter constructor
+            std::shared_ptr<LogicalOperator> indexed_scan_shared(std::move(indexed_scan));
+            bfs_input = std::make_shared<Filter>(indexed_scan_shared,
+                                                 std::vector<std::shared_ptr<LogicalOperator>>(),
+                                                 destination_filter_expr,
+                                                 destination_filter_filters);
+          } else {
+            // Convert unique_ptr to shared_ptr
+            bfs_input = std::shared_ptr<LogicalOperator>(std::move(indexed_scan));
+          }
+
           // reverse direction when expanding from destination
           switch (expand.common_.direction) {
             case EdgeAtom::Direction::IN:
@@ -443,12 +493,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             default:
               break;
           }
-          expand.set_input(std::move(indexed_scan));
+          expand.set_input(std::move(bfs_input));
           expand.common_.existing_node = true;
 
-          // Create Filter after BFSExpand if source filter exists
-          // We need to wrap expand with Filter, but expand is a reference
-          // So we'll use SetOnParent to replace expand with Filter(expand)
+          // Create Filter(source) after BFSExpand if source filter exists
+          // Execution order (bottom-up): ScanAllByLabelProperties -> Filter(destination) -> BFSExpand -> Filter(source)
+          // Display order (top-down): Filter(source) -> BFSExpand -> Filter(destination) -> ScanAllByLabelProperties
           if (source_filter_expr) {
             // Clone expand to create a shared_ptr
             auto bfs_expand_cloned = expand.Clone(ast_storage_);
