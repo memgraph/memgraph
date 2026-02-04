@@ -374,10 +374,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
-    // Check if we have indexes for both source and destination
-    // We only use STShortestPath if we know both cardinalities (both have indexes)
-    bool source_has_index = HasIndexedSource(expand.input());
-
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
       // For BFS: only try to create indexed scan for destination if we have source index
       // This prevents removing filters when we won't use STShortestPath
@@ -385,48 +381,38 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       bool destination_has_index = false;
       // Track expressions marked for removal by GenScanByIndex so we can unmark them
       // if we don't use the indexed scan
-      std::unordered_set<Expression *> marked_for_removal;
+      std::unordered_set<Expression *> newly_marked_for_removal;
 
+      bool source_has_index = HasIndexedSource(expand.input());
       if (source_has_index) {
-        // Save current state of filter_exprs_for_removal_ before calling GenScanByIndex
         std::unordered_set<Expression *> before_removal(filter_exprs_for_removal_);
-        // Only try to create indexed scan if we have source index
-        // This way filters are only removed if we might use STShortestPath
         indexed_scan = GenScanByIndex(dst_scan);
         destination_has_index = (indexed_scan != nullptr);
-        // Track what was marked for removal by this call
         if (destination_has_index) {
-          // Collect expressions that were newly marked for removal
           for (auto *expr : filter_exprs_for_removal_) {
             if (!before_removal.contains(expr)) {
-              marked_for_removal.insert(expr);
+              newly_marked_for_removal.insert(expr);
             }
           }
         }
       }
 
-      // Only use STShortestPath if we have indexes for both source and destination
+      // only use STShortestPath if we can infer cardinalities for both source and destination
       if (source_has_index && destination_has_index) {
-        // Estimate cardinalities
+        // can't cache plan due to estimating cardinalities
         double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
         double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
 
-        // Use cost-based decision with the formula
         if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
           expand.set_input(std::move(indexed_scan));
           expand.common_.existing_node = true;
         } else {
-          // If STShortestPath is not beneficial, don't use the indexed scan
-          // Unmark filters that were marked for removal so they remain in place
-          for (auto *expr : marked_for_removal) {
+          // Unmark filters that were marked for removal by GenScanByIndex
+          for (auto *expr : newly_marked_for_removal) {
             filter_exprs_for_removal_.erase(expr);
           }
-          // Note: We can't easily restore filters_ that were erased, but the expressions
-          // being unmarked should prevent Filter operators from being removed
         }
       }
-      // If we don't have indexes for both, don't use STShortestPath
-      // Filters remain intact since GenScanByIndex was never called
     } else {
       // For non-BFS: use indexed scan if available (existing behavior)
       std::unique_ptr<LogicalOperator> indexed_scan =
