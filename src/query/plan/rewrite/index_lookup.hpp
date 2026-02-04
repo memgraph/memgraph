@@ -411,7 +411,28 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
         } else {
           // use single source bfs but expand from destination via index
-          // reverse direction when expanding
+          // Extract source filter from the input chain and remove ScanAll
+          // The indexed_scan has source chain as input: Filter(n) -> ScanAll(n) -> Once
+          // We want: BFSExpand -> Filter(n) -> ScanAllByLabelProperties(m) -> Once
+          auto source_input = indexed_scan->input();
+          Expression *source_filter_expr = nullptr;
+          Filters source_filter_filters;
+          std::vector<std::shared_ptr<LogicalOperator>> source_pattern_filters;
+
+          // Extract Filter from source chain if it exists
+          if (source_input && source_input->GetTypeInfo() == Filter::kType) {
+            auto *source_filter = dynamic_cast<Filter *>(source_input.get());
+            source_filter_expr = source_filter->expression_;
+            source_filter_filters = source_filter->all_filters_;
+            source_pattern_filters = source_filter->pattern_filters_;
+            // The Filter's input is ScanAll(n), which we want to remove
+            // So we'll set indexed_scan's input to Once() and create a new Filter after BFSExpand
+          }
+
+          // Set destination indexed scan input to Once() (remove source chain)
+          indexed_scan->set_input(std::make_shared<Once>());
+
+          // reverse direction when expanding from destination
           switch (expand.common_.direction) {
             case EdgeAtom::Direction::IN:
               expand.common_.direction = EdgeAtom::Direction::OUT;
@@ -424,6 +445,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
           expand.set_input(std::move(indexed_scan));
           expand.common_.existing_node = true;
+
+          // Create Filter after BFSExpand if source filter exists
+          // We need to wrap expand with Filter, but expand is a reference
+          // So we'll use SetOnParent to replace expand with Filter(expand)
+          if (source_filter_expr) {
+            // Clone expand to create a shared_ptr
+            auto bfs_expand_cloned = expand.Clone(ast_storage_);
+            auto bfs_expand_shared = std::shared_ptr<LogicalOperator>(std::move(bfs_expand_cloned));
+            auto filter_after_bfs = std::make_shared<Filter>(
+                bfs_expand_shared, source_pattern_filters, source_filter_expr, source_filter_filters);
+            SetOnParent(filter_after_bfs);
+          }
         }
       }  // otherwise expand from source via index or scanall
     } else {
