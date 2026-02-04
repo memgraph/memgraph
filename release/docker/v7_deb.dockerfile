@@ -6,7 +6,7 @@ ARG CACHE_PRESENT=false
 ENV DEBIAN_FRONTEND=noninteractive
 
 USER root
-COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
+COPY auth-module-requirements.txt /tmp/auth-module-requirements.txt
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
@@ -15,7 +15,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   apt-get update && apt-get install -y \
   python3 libpython3.12 python3-pip adduser curl \
   --no-install-recommends && \
-  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+  rm -rf /var/lib/apt/lists/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
@@ -24,7 +24,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 
 USER memgraph
-RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/auth_module-requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
 
 FROM ubuntu:24.04
