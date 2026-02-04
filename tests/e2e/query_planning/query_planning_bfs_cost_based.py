@@ -121,6 +121,60 @@ def test_bfs_cost_based_selection(memgraph):
     actual_explain = [x[QUERY_PLAN] for x in results]
     assert expected_plan_6 == actual_explain, f"Expected plan 6, got: {actual_explain}"
 
+    # Test 7: Source has multiple labels and additional filter property, destination has index
+    # Expected: BFSExpand with Filter for destination, Filter for source's additional property, ScanAllByLabelProperties for source
+    expected_plan_7 = [
+        " * Produce {r}",
+        " * Filter (m :Node), {m.id}",
+        " * BFSExpand (n)-[r]-(m)",
+        " * Filter (n :Node1), {n.filler}",
+        " * ScanAllByLabelProperties (n :Node {id})",
+        " * Once",
+    ]
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (n:Node:Node1 {id: 1, filler:false})-[r *BFS]-(m:Node {id: 0}) RETURN r;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_plan_7 == actual_explain, f"Expected plan 7, got: {actual_explain}"
+
+    # Test 8: Source has index, destination has multiple labels and additional filter property
+    # Expected: BFSExpand with Filter for source, Filter for destination's additional property, ScanAllByLabelProperties for destination
+    expected_plan_8 = [
+        " * Produce {r}",
+        " * Filter (n :Node1), {n.id}",
+        " * BFSExpand (n)-[r]-(m)",
+        " * Filter (m :Node1), {n.filler}",
+        " * ScanAllByLabelProperties (m :Node {id})",
+        " * Once",
+    ]
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (n:Node1 {id: 1})-[r *BFS]-(m:Node:Node1 {id: 0, filler:false}) RETURN r;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_plan_8 == actual_explain, f"Expected plan 8, got: {actual_explain}"
+
+    # Test 9: Source has multiple labels and additional filter property with index, destination has no index
+    # Expected: BFSExpand with Filter for destination, Filter for source's additional property, ScanAllByLabelProperties for source
+    expected_plan_9 = [
+        " * Produce {r}",
+        " * Filter (m :Node1), {m.id}",
+        " * BFSExpand (n)-[r]-(m)",
+        " * Filter (n Node1), {n.filler}",
+        " * ScanAllByLabelProperties (n :Node {id})",
+        " * Once",
+    ]
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (n:Node:Node1 {id: 0, filler:false})-[r *BFS]-(m:Node1 {id: 1}) RETURN r;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_plan_9 == actual_explain, f"Expected plan 9, got: {actual_explain}"
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
