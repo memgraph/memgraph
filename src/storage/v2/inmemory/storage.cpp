@@ -1612,7 +1612,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto guard = std::unique_lock{vertex->lock};
 
           // Check if we're still at the head - another tx may have prepended
-          bool const we_own_head = (vertex->delta == &delta);
+          bool const we_own_head = vertex->delta == &delta;
           process_vertex_deltas(vertex, &delta, we_own_head);
 
           break;
@@ -1624,7 +1624,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id) {
             Vertex *vertex = delta_vertex_cache.GetVertexFromDelta(&delta);
             auto guard = std::unique_lock{vertex->lock};
-            process_vertex_deltas(vertex, &delta, false);
+            // Check if we're still at the head - another tx may have prepended
+            bool const we_own_head = vertex->delta == &delta;
+            process_vertex_deltas(vertex, &delta, we_own_head);
           }
           break;
         }
