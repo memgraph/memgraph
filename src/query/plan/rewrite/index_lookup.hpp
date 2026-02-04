@@ -411,6 +411,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
         } else {
           // use single source bfs but expand from destination via index
+          // reverse direction when expanding
+          switch (expand.common_.direction) {
+            case EdgeAtom::Direction::IN:
+              expand.common_.direction = EdgeAtom::Direction::OUT;
+              break;
+            case EdgeAtom::Direction::OUT:
+              expand.common_.direction = EdgeAtom::Direction::IN;
+              break;
+            default:
+              break;
+          }
           expand.set_input(std::move(indexed_scan));
           expand.common_.existing_node = true;
         }
