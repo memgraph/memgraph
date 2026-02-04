@@ -69,7 +69,7 @@ on:
         default: ''
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.run_id }}
+  group: ${{ github.workflow }}-${{ github.run_id }}-${{ inputs.arch }}-${{ inputs.build_type }}-${{ inputs.malloc }}-${{ inputs.cuda }}-${{ inputs.cugraph }}
   cancel-in-progress: true
 
 run-name: "Build and test MAGE"
