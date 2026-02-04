@@ -31,7 +31,8 @@ void QuotaCoordinator::Initialize(uint64_t limit) {
   remaining_quota_.store(limit, std::memory_order_release);
 }
 
-std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(uint64_t desired_batch_size) {
+std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(
+    uint64_t desired_batch_size, std::function<void()> release_other_plan_quotas) {
   while (true) {
     uint64_t current = remaining_quota_.load(std::memory_order_acquire);
 
@@ -62,6 +63,8 @@ std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(uint64_t 
       continue;
     }
 
+    // Avoids deadlock when multiple shared quotas are used.
+    if (release_other_plan_quotas) release_other_plan_quotas();
     // Wait for a NotifyWaiters call.
     epoch_.wait(epoch, std::memory_order_relaxed);
   }
@@ -214,9 +217,8 @@ void SharedQuota::Increment() {
 }
 
 void SharedQuota::Reacquire() {
-  handle_.reset();           // Returns existing unused quota before grabbing a new batch.
-  ReleaseOtherPlanQuotas();  // Avoids deadlock when multiple shared quotas are used.
-  if (coord_) handle_ = coord_->Acquire(desired_batch_size_);
+  handle_.reset();  // Returns existing unused quota before grabbing a new batch.
+  if (coord_) handle_ = coord_->Acquire(desired_batch_size_, [this]() { ReleaseOtherPlanQuotas(); });
 }
 
 void SharedQuota::Free() { handle_.reset(); }

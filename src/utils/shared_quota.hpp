@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -57,7 +58,7 @@ class QuotaCoordinator {
   };
 
   void Initialize(uint64_t limit);
-  std::optional<QuotaHandle> Acquire(uint64_t desired_batch_size);
+  std::optional<QuotaHandle> Acquire(uint64_t desired_batch_size, std::function<void()> release_other_plan_quotas = {});
 
  private:
   friend class QuotaHandle;
