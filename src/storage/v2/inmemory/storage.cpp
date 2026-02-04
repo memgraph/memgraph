@@ -2623,7 +2623,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         auto *current = &delta;
         while (current != nullptr && !visited.contains(current)) {
           // early exit if we find a sequential delta
-          if (!IsDeltaNonSequential(current)) break;
+          if (!IsDeltaNonSequential(*current)) break;
           visited.insert(current);
           auto ts = current->timestamp->load();
 
