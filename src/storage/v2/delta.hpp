@@ -165,45 +165,37 @@ static_assert(std::is_trivially_destructible_v<opt_str>,
  * whilst non-sequential deltas exist in the chains. */
 enum class DeltaSequencing : uint8_t { SEQUENTIAL, NON_SEQUENTIAL };
 
+enum class DeltaChainState : uint8_t {
+  SEQUENTIAL = 0,        // Normal MVCC delta which stop traversal at transaction boundaries
+  NON_SEQUENTIAL = 1,    // Can traverse past other transactions' uncommitted edge deltas
+  FORCED_SEQUENTIAL = 2  // Has blocking operations upstream, preventing non-sequential writes
+};
+
 /**
  * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
  * store flags without increasing the size of the overall `Delta`:
  *
- * is_non_sequential: Whether this `Delta` is non-sequential - a non-conflicting
- * `Delta` operation prepended by a different transaction. When reading
- * `Delta`s, we don't stop traversing the `Delta` chain on non-sequential operations
- * as there may be relevant `Deltas` downstream.
- *
- * has_non_sequential_blocker_upstream: Whether there exists a blocking operation
- * (non-edge-creation) uncommitted delta upstream in this transaction's delta chain.
- * This enables O(1) conflict detection in PrepareForNonSequentialWrite by avoiding
- * traversal of long delta chains (e.g., when a transaction adds a label then creates
- * many edges).
  */
 class TaggedVertexPtr {
  public:
   TaggedVertexPtr() : ptr_(nullptr) {}
 
-  TaggedVertexPtr(Vertex *vertex, DeltaSequencing sequencing = DeltaSequencing::SEQUENTIAL,
-                  bool has_non_sequential_blocker_upstream = false) {
-    Set(vertex, sequencing == DeltaSequencing::NON_SEQUENTIAL, has_non_sequential_blocker_upstream);
+  TaggedVertexPtr(Vertex *vertex, DeltaChainState state = DeltaChainState::SEQUENTIAL) { Set(vertex, state); }
+
+  Vertex *Get() const {
+    auto ptr_value = std::bit_cast<uintptr_t>(ptr_) & ~0x3UL;
+    return std::bit_cast<Vertex *>(ptr_value);
   }
 
-  Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x3UL); }
+  DeltaChainState GetState() const {
+    auto flags = std::bit_cast<uintptr_t>(ptr_) & 0x3UL;
+    return static_cast<DeltaChainState>(flags);
+  }
 
-  bool IsNonSequential() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
-
-  bool HasNonSequentialBlockerUpstream() const { return (std::bit_cast<uintptr_t>(ptr_) & 0x2UL) != 0; }
-
-  void Set(Vertex *vertex, bool is_non_sequential = false, bool has_non_sequential_blocker_upstream = false) {
-    uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
-    if (is_non_sequential) {
-      vertex_ptr |= 0x1UL;
-    }
-    if (has_non_sequential_blocker_upstream) {
-      vertex_ptr |= 0x2UL;
-    }
-    ptr_ = reinterpret_cast<Vertex *>(vertex_ptr);
+  void Set(Vertex *vertex, DeltaChainState state = DeltaChainState::SEQUENTIAL) {
+    auto vertex_ptr = std::bit_cast<uintptr_t>(vertex);
+    vertex_ptr |= static_cast<uintptr_t>(state);
+    ptr_ = std::bit_cast<Vertex *>(vertex_ptr);
   }
 
  private:
@@ -283,7 +275,9 @@ struct Delta {
         command_id(command_id),
         vertex_edge{.action = Action::ADD_IN_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, sequencing),
+                    .vertex = TaggedVertexPtr(vertex, sequencing == DeltaSequencing::NON_SEQUENTIAL
+                                                          ? DeltaChainState::NON_SEQUENTIAL
+                                                          : DeltaChainState::SEQUENTIAL),
                     .edge = edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
@@ -296,41 +290,35 @@ struct Delta {
         command_id(command_id),
         vertex_edge{.action = Action::ADD_OUT_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, sequencing),
+                    .vertex = TaggedVertexPtr(vertex, sequencing == DeltaSequencing::NON_SEQUENTIAL
+                                                          ? DeltaChainState::NON_SEQUENTIAL
+                                                          : DeltaChainState::SEQUENTIAL),
                     .edge = edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, false, timestamp, command_id) {}
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaChainState::SEQUENTIAL, timestamp, command_id) {}
 
-  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaChainState state,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, sequencing, false, timestamp, command_id) {}
-
-  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
-        bool has_non_sequential_blocker_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_IN_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, sequencing, has_non_sequential_blocker_upstream),
+                    .vertex = TaggedVertexPtr(vertex, state),
                     .edge = edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, false, timestamp, command_id) {}
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaChainState::SEQUENTIAL, timestamp, command_id) {}
 
-  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaChainState state,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, sequencing, false, timestamp, command_id) {}
-
-  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
-        bool has_non_sequential_blocker_upstream, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex, sequencing, has_non_sequential_blocker_upstream),
+                    .vertex = TaggedVertexPtr(vertex, state),
                     .edge = edge} {}
 
   Delta(const Delta &) = delete;
@@ -384,7 +372,8 @@ constexpr bool IsResultOfCommutativeOperation(Delta::Action action) noexcept {
 }
 
 inline bool IsDeltaNonSequential(Delta const &delta) {
-  return IsResultOfCommutativeOperation(delta.action) && delta.vertex_edge.vertex.IsNonSequential();
+  return IsResultOfCommutativeOperation(delta.action) &&
+         delta.vertex_edge.vertex.GetState() == DeltaChainState::NON_SEQUENTIAL;
 }
 
 // This is important, we want fast discard of unlinked deltas,

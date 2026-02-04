@@ -149,6 +149,12 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
                                                                  : to_vertex->InEdges(view, {edge_type}, from_vertex);
 }
 
+DeltaChainState ComputeDeltaChainState(bool has_blocker, WriteResult result) {
+  if (has_blocker) return DeltaChainState::FORCED_SEQUENTIAL;
+  if (result == WriteResult::NON_SEQUENTIAL) return DeltaChainState::NON_SEQUENTIAL;
+  return DeltaChainState::SEQUENTIAL;
+}
+
 class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
  public:
   explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
@@ -703,12 +709,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     }
   }
 
-  bool const from_non_sequential = (from_result == WriteResult::NON_SEQUENTIAL);
-  bool const to_non_sequential = (to_result == WriteResult::NON_SEQUENTIAL);
-  bool const from_has_non_sequential_blocker_upstream =
-      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex);
-  bool const to_has_non_sequential_blocker_upstream =
-      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex);
+  DeltaChainState const from_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
+  DeltaChainState const to_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
 
   utils::AtomicMemoryBlock([this,
                             edge,
@@ -716,28 +720,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                             edge_type = edge_type,
                             to_vertex = to_vertex,
                             &schema_acc,
-                            from_non_sequential,
-                            to_non_sequential,
-                            from_has_non_sequential_blocker_upstream,
-                            to_has_non_sequential_blocker_upstream]() {
-    CreateAndLinkDelta(&transaction_,
-                       from_vertex,
-                       Delta::RemoveOutEdgeTag(),
-                       edge_type,
-                       to_vertex,
-                       edge,
-                       from_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
-                       from_has_non_sequential_blocker_upstream);
+                            from_state,
+                            to_state]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_,
-                       to_vertex,
-                       Delta::RemoveInEdgeTag(),
-                       edge_type,
-                       from_vertex,
-                       edge,
-                       to_non_sequential ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL,
-                       to_has_non_sequential_blocker_upstream);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -855,43 +843,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   }
 
-  auto const from_non_sequential =
-      (from_result == WriteResult::NON_SEQUENTIAL) ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL;
-  auto const to_non_sequential =
-      (to_result == WriteResult::NON_SEQUENTIAL) ? DeltaSequencing::NON_SEQUENTIAL : DeltaSequencing::SEQUENTIAL;
-  bool const from_has_non_sequential_blocker_upstream =
-      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex);
-  bool const to_has_non_sequential_blocker_upstream =
-      ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex);
+  DeltaChainState const from_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
+  DeltaChainState const to_state =
+      ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
 
-  utils::AtomicMemoryBlock([this,
-                            edge,
-                            from_vertex,
-                            edge_type,
-                            to_vertex,
-                            &schema_acc,
-                            from_non_sequential,
-                            to_non_sequential,
-                            from_has_non_sequential_blocker_upstream,
-                            to_has_non_sequential_blocker_upstream]() {
-    CreateAndLinkDelta(&transaction_,
-                       from_vertex,
-                       Delta::RemoveOutEdgeTag(),
-                       edge_type,
-                       to_vertex,
-                       edge,
-                       from_non_sequential,
-                       from_has_non_sequential_blocker_upstream);
+  utils::AtomicMemoryBlock([this, edge, from_vertex, edge_type, to_vertex, &schema_acc, from_state, to_state]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_,
-                       to_vertex,
-                       Delta::RemoveInEdgeTag(),
-                       edge_type,
-                       from_vertex,
-                       edge,
-                       to_non_sequential,
-                       to_has_non_sequential_blocker_upstream);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);

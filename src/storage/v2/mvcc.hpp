@@ -184,7 +184,7 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     // there's a blocking delta upstream in that transaction's chain, and so
     // this would be a serialization error.
     if (IsResultOfCommutativeOperation(object->delta->action) &&
-        object->delta->vertex_edge.vertex.HasNonSequentialBlockerUpstream()) {
+        object->delta->vertex_edge.vertex.GetState() == DeltaChainState::FORCED_SEQUENTIAL) {
       return WriteResult::SERIALIZATION_ERROR;
     }
 
@@ -292,7 +292,7 @@ inline bool ShouldSetNonSequentialBlockerUpstreamFlag(Transaction *transaction, 
   // Same transaction. Check if head is blocking or has the flag
   if (IsResultOfCommutativeOperation(head->action)) {
     // Head is an edge delta (REMOVE_IN_EDGE/REMOVE_OUT_EDGE) so inherit its flag
-    return head->vertex_edge.vertex.HasNonSequentialBlockerUpstream();
+    return head->vertex_edge.vertex.GetState() == DeltaChainState::FORCED_SEQUENTIAL;
   }
 
   // Head is some other blocking operation (non-edge-creation)
