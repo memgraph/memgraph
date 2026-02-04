@@ -373,8 +373,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // For BFS: create indexed scan for destination if source has index.
       // The cost-based decision will be made at runtime in BFSCursor::CalculateBFSType.
       // We don't set existing_node=true here - that will be determined at runtime.
-      bool source_has_index = HasIndexedSource(expand.input());
-      if (source_has_index) {
+      expand.bfs_helper_.possible_bidirectional_bfs = HasIndexedSource(expand.input());
+      if (expand.bfs_helper_.possible_bidirectional_bfs) {
         // Collect all filter expressions for destination node symbol before GenScanByIndex
         // so we can track which ones get removed
         std::vector<Expression *> destination_maybe_removed_filters;
@@ -417,7 +417,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           // These will be used in SingleSourceBFS if that's chosen at runtime
           for (auto *expr : destination_maybe_removed_filters) {
             if (filter_exprs_for_removal_.contains(expr) && !filter_exprs_before.contains(expr)) {
-              expand.removed_destination_filters_.push_back(expr);
+              expand.bfs_helper_.removed_destination_filters_.push_back(expr);
             }
           }
         }

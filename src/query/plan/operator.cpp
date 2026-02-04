@@ -2407,13 +2407,18 @@ class BFSCursor : public query::plan::Cursor {
         processed_(mem),
         to_visit_next_(mem),
         to_visit_current_(mem) {
-    // Check if self_.input() is an indexed scan for destination
-    // If so, create a source cursor for SingleSourceBFS
+    if (!self_.bfs_helper_.possible_bidirectional_bfs) {
+      type_ = Type::SINGLE_SOURCE;
+      return;
+    }
+
+    // possible to use index at destination and source
+    // first cursor in chain is the destination scan
+    // second cursor in chain is the source scan (in case of indexing)
     std::shared_ptr<LogicalOperator> source_input = self_.input();
     const auto &input_type_info = source_input->GetTypeInfo();
     if (input_type_info == ScanAllByLabel::kType || input_type_info == ScanAllByLabelProperties::kType ||
         input_type_info == ScanAllById::kType) {
-      // self_.input() is an indexed scan for destination, create source cursor
       if (source_input->HasSingleInput()) {
         source_cursor_ = source_input->input()->MakeCursor(mem);
       }
@@ -2834,10 +2839,10 @@ class BFSCursor : public query::plan::Cursor {
       // not just the destination from the indexed scan.
       // We only apply them if we're NOT using bidirectional BFS (which handles them via CheckExistingNode).
       bool is_single_source = !type_.has_value() || *type_ != Type::BIDIRECTIONAL;
-      if (is_single_source && !self_.removed_destination_filters_.empty()) {
+      if (is_single_source && !self_.bfs_helper_.removed_destination_filters_.empty()) {
         // Evaluate filters exactly like Filter::FilterCursor does
         bool all_filters_passed = true;
-        for (auto *filter_expr : self_.removed_destination_filters_) {
+        for (auto *filter_expr : self_.bfs_helper_.removed_destination_filters_) {
           if (!EvaluateFilter(evaluator, filter_expr)) {
             all_filters_passed = false;
             break;
@@ -4505,9 +4510,9 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
   object->total_weight_ = total_weight_;
   object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
   // Clone removed destination filters
-  object->removed_destination_filters_.reserve(removed_destination_filters_.size());
-  for (auto *expr : removed_destination_filters_) {
-    object->removed_destination_filters_.push_back(expr ? expr->Clone(storage) : nullptr);
+  object->bfs_helper_.removed_destination_filters_.reserve(bfs_helper_.removed_destination_filters_.size());
+  for (auto *expr : bfs_helper_.removed_destination_filters_) {
+    object->bfs_helper_.removed_destination_filters_.push_back(expr ? expr->Clone(storage) : nullptr);
   }
   return object;
 }
