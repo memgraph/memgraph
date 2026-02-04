@@ -3062,7 +3062,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
 #ifdef MG_ENTERPRISE
-  const auto num_workers = interpreter_context->worker_pool ? interpreter_context->worker_pool->GetNumWorkers() : 1;
+  const auto num_workers =
+      interpreter_context->worker_pool ? interpreter_context->worker_pool->GetNumMixedWorkers() : 1;
   auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator, num_workers);
 #endif
 
