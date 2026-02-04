@@ -448,7 +448,7 @@ std::vector<TestCase> GetTestCases() {
         OpStart{0},
         OpAddLabel{0, V1, "Label1", OK},
         OpCreateEdge{0, V1, V2, "Edge1", OK},
-        // Tx1: Try CreateEdge - should fail due to has_non_sequential_blocker_upstream
+        // Tx1: Try CreateEdge - should fail due to FORCED_SEQUENTIAL state
         OpStart{1},
         OpCreateEdge{1, V1, V2, "Edge2", SERIALIZATION_ERROR},
         OpAbort{0},

@@ -182,24 +182,37 @@ class TaggedVertexPtr {
 
   TaggedVertexPtr(Vertex *vertex, DeltaChainState state = DeltaChainState::SEQUENTIAL) { Set(vertex, state); }
 
+  TaggedVertexPtr(TaggedVertexPtr const &) = delete;
+  TaggedVertexPtr(TaggedVertexPtr &&) = delete;
+  TaggedVertexPtr &operator=(TaggedVertexPtr const &) = delete;
+  TaggedVertexPtr &operator=(TaggedVertexPtr &&) = delete;
+
   Vertex *Get() const {
-    auto ptr_value = std::bit_cast<uintptr_t>(ptr_) & ~0x3UL;
+    auto ptr_value = std::bit_cast<uintptr_t>(ptr_.load(std::memory_order_acquire)) & ~0x3UL;
     return std::bit_cast<Vertex *>(ptr_value);
   }
 
   DeltaChainState GetState() const {
-    auto flags = std::bit_cast<uintptr_t>(ptr_) & 0x3UL;
+    auto flags = std::bit_cast<uintptr_t>(ptr_.load(std::memory_order_acquire)) & 0x3UL;
     return static_cast<DeltaChainState>(flags);
   }
 
   void Set(Vertex *vertex, DeltaChainState state = DeltaChainState::SEQUENTIAL) {
     auto vertex_ptr = std::bit_cast<uintptr_t>(vertex);
     vertex_ptr |= static_cast<uintptr_t>(state);
-    ptr_ = std::bit_cast<Vertex *>(vertex_ptr);
+    ptr_.store(std::bit_cast<Vertex *>(vertex_ptr), std::memory_order_release);
+  }
+
+  void SetState(DeltaChainState state) {
+    // Safe to perform updates non-atomically as this is only called with
+    // the vertex under lock.
+    auto old_value = std::bit_cast<uintptr_t>(ptr_.load(std::memory_order_acquire));
+    auto new_value = (old_value & ~0x3UL) | static_cast<uintptr_t>(state);
+    ptr_.store(std::bit_cast<Vertex *>(new_value), std::memory_order_release);
   }
 
  private:
-  Vertex *ptr_;
+  std::atomic<Vertex *> ptr_;
 };
 
 struct Delta {
@@ -363,17 +376,12 @@ struct Delta {
   };
 };
 
-constexpr bool IsActionCommutative(Delta::Action action) noexcept {
-  return action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE;
-}
-
-constexpr bool IsResultOfCommutativeOperation(Delta::Action action) noexcept {
+constexpr bool CanBeNonSequential(Delta::Action action) noexcept {
   return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
 }
 
 inline bool IsDeltaNonSequential(Delta const &delta) {
-  return IsResultOfCommutativeOperation(delta.action) &&
-         delta.vertex_edge.vertex.GetState() == DeltaChainState::NON_SEQUENTIAL;
+  return CanBeNonSequential(delta.action) && delta.vertex_edge.vertex.GetState() == DeltaChainState::NON_SEQUENTIAL;
 }
 
 // This is important, we want fast discard of unlinked deltas,

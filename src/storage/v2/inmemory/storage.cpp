@@ -218,6 +218,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
       case PreviousPtr::Type::VERTEX: {
         auto &vertex = *prev.vertex;
         vertex.delta = nullptr;
+        vertex.has_uncommitted_non_sequential_deltas = false;
         if (vertex.deleted) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
           current_deleted_vertices.push_back(vertex.gid);
@@ -2782,6 +2783,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               continue;
             }
             vertex->delta = nullptr;
+            vertex->has_uncommitted_non_sequential_deltas = false;
 
             if (vertex->has_uncommitted_non_sequential_deltas) {
               vertex->has_uncommitted_non_sequential_deltas = false;

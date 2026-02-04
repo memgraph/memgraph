@@ -148,7 +148,7 @@ enum class WriteResult : uint8_t { SUCCESS, NON_SEQUENTIAL, SERIALIZATION_ERROR 
 /// transaction provided that there are no uncommitted deltas other than CREATE_*_EDGE.
 template <typename TObj>
 inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *object, Delta::Action action) {
-  DMG_ASSERT(IsActionCommutative(action));
+  DMG_ASSERT(action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE);
 
   if (object->delta == nullptr) return WriteResult::SUCCESS;
 
@@ -179,11 +179,10 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
       return WriteResult::NON_SEQUENTIAL;
     }
 
-    // If the head delta is an add edge operation (REMOVE_IN/OUT_EDGE undo
-    // delta) with the `has_non_sequential_blocker_upstream` flag set, we know
-    // there's a blocking delta upstream in that transaction's chain, and so
-    // this would be a serialization error.
-    if (IsResultOfCommutativeOperation(object->delta->action) &&
+    // If the head delta is an edge creation delta with FORCED_SEQUENTIAL state,
+    // there's a blocking delta upstream in that transaction's chain, so this
+    // would be a serialization error.
+    if (CanBeNonSequential(object->delta->action) &&
         object->delta->vertex_edge.vertex.GetState() == DeltaChainState::FORCED_SEQUENTIAL) {
       return WriteResult::SERIALIZATION_ERROR;
     }
@@ -272,10 +271,9 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
   return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
 }
 
-/// Computes whether a new edge creation delta being added to an object should have
-/// the has_non_sequential_blocker_upstream flag set. This flag indicates whether
-/// there exists a blocking (non-edge-creation) uncommitted delta upstream in this
-/// transaction's chain.
+/// Computes whether a new edge creation delta should have FORCED_SEQUENTIAL state.
+/// Returns true if there exists a blocking (non-edge-creation) uncommitted delta
+/// upstream in this transaction's chain.
 template <typename TObj>
 inline bool ShouldSetNonSequentialBlockerUpstreamFlag(Transaction *transaction, TObj *object) {
   Delta *head = object->delta;
@@ -290,7 +288,7 @@ inline bool ShouldSetNonSequentialBlockerUpstreamFlag(Transaction *transaction, 
   }
 
   // Same transaction. Check if head is blocking or has the flag
-  if (IsResultOfCommutativeOperation(head->action)) {
+  if (CanBeNonSequential(head->action)) {
     // Head is an edge delta (REMOVE_IN_EDGE/REMOVE_OUT_EDGE) so inherit its flag
     return head->vertex_edge.vertex.GetState() == DeltaChainState::FORCED_SEQUENTIAL;
   }
@@ -326,6 +324,14 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // delta but won't modify it until we are done with all of our modifications.
   if (object->delta) {
     object->delta->prev.Set(delta);
+
+    // If the new delta is non-sequential and the previous delta is a
+    // sequential edge creation delta, propagate the non-sequential state to
+    // the head of the previous delta block.
+    if (IsDeltaNonSequential(*delta) && CanBeNonSequential(object->delta->action) &&
+        object->delta->vertex_edge.vertex.GetState() == DeltaChainState::SEQUENTIAL) {
+      object->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
+    }
   }
 
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
