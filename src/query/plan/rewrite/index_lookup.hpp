@@ -377,31 +377,34 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (source_has_index) {
         // Collect all filter expressions for destination node symbol before GenScanByIndex
         // so we can track which ones get removed
-        std::unordered_set<Expression *> destination_filter_expressions_before;
-        auto property_filters = filters_.PropertyFilters(expand.common_.node_symbol);
-        auto id_filters = filters_.IdFilters(expand.common_.node_symbol);
-        auto point_filters = filters_.PointFilters(expand.common_.node_symbol);
-
-        for (const auto &filter_info : property_filters) {
-          if (filter_info.expression) {
-            destination_filter_expressions_before.insert(filter_info.expression);
-          }
-        }
-        for (const auto &filter_info : id_filters) {
-          if (filter_info.expression) {
-            destination_filter_expressions_before.insert(filter_info.expression);
-          }
-        }
-        for (const auto &filter_info : point_filters) {
-          if (filter_info.expression) {
-            destination_filter_expressions_before.insert(filter_info.expression);
-          }
-        }
-        // Also collect label filter expressions
+        std::vector<Expression *> destination_maybe_removed_filters;
         for (const auto &filter : filters_) {
-          if (filter.type == FilterInfo::Type::Label && filter.used_symbols.contains(expand.common_.node_symbol) &&
-              filter.expression) {
-            destination_filter_expressions_before.insert(filter.expression);
+          bool applies_to_destination = false;
+          switch (filter.type) {
+            case FilterInfo::Type::Property: {
+              applies_to_destination =
+                  filter.property_filter && filter.property_filter->symbol_ == expand.common_.node_symbol;
+              break;
+            }
+            case FilterInfo::Type::Id: {
+              applies_to_destination = filter.id_filter && filter.id_filter->symbol_ == expand.common_.node_symbol;
+              break;
+            }
+            case FilterInfo::Type::Point: {
+              applies_to_destination =
+                  filter.point_filter && filter.point_filter->symbol_ == expand.common_.node_symbol;
+              break;
+            }
+            case FilterInfo::Type::Label: {
+              applies_to_destination = filter.used_symbols.contains(expand.common_.node_symbol);
+              break;
+            }
+            default: {
+              break;
+            }
+          }
+          if (applies_to_destination && filter.expression) {
+            destination_maybe_removed_filters.emplace_back(filter.expression);
           }
         }
 
@@ -417,7 +420,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
           // Collect filter expressions that were removed by GenScanByIndex
           // These will be used in SingleSourceBFS if that's chosen at runtime
-          for (auto *expr : destination_filter_expressions_before) {
+          for (auto *expr : destination_maybe_removed_filters) {
             if (filter_exprs_for_removal_.contains(expr) && !filter_exprs_before.contains(expr)) {
               expand.removed_destination_filters_.push_back(expr);
             }
