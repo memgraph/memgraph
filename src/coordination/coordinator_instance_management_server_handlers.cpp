@@ -24,6 +24,15 @@ namespace memgraph::coordination {
 
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
                                                            CoordinatorInstance const &coordinator_instance) {
+  server.Register<AddCoordinatorRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::AddCoordinatorHandler(
+            coordinator_instance, request_version, req_reader, res_builder);
+      });
+
   server.Register<ShowInstancesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                                         uint64_t const request_version,
                                         slk::Reader *req_reader,
@@ -40,6 +49,46 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
         CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
             coordinator_instance, request_version, req_reader, res_builder);
       });
+}
+
+void CoordinatorInstanceManagementServerHandlers::AddCoordinatorHandler(CoordinatorInstance const &coordinator_instance,
+                                                                        uint64_t request_version,
+                                                                        slk::Reader *req_reader,
+                                                                        slk::Builder *res_builder) {
+  AddCoordinatorReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  auto const res = coordinator_instance.AddCoordinatorInstance(req.config_);
+  if (res == AddCoordinatorInstanceStatus::SUCCESS) {
+    AddCoordinatorRes const rpc_res{true};
+    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+    return;
+  }
+
+  switch (res) {
+    using enum memgraph::coordination::AddCoordinatorInstanceStatus;
+    case ID_ALREADY_EXISTS: {
+      spdlog::error("Couldn't add coordinator since instance with such id already exists!");
+      break;
+    }
+    case MGMT_ENDPOINT_ALREADY_EXISTS: {
+      spdlog::error("Couldn't add coordinator since instance with such management endpoint already exists!");
+      break;
+    }
+    case COORDINATOR_ENDPOINT_ALREADY_EXISTS: {
+      spdlog::error("Couldn't add coordinator since instance with such coordinator server already exists!");
+      break;
+    }
+    case RAFT_LOG_ERROR: {
+      spdlog::error("Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
+      break;
+    }
+    default: {
+      std::unreachable();
+    }
+  }
+
+  AddCoordinatorRes const rpc_res{false};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 
 void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(CoordinatorInstance const &coordinator_instance,

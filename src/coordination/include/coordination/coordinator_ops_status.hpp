@@ -59,7 +59,9 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   ID_ALREADY_EXISTS,
   MGMT_ENDPOINT_ALREADY_EXISTS,
   COORDINATOR_ENDPOINT_ALREADY_EXISTS,
-  RAFT_LOG_ERROR
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
 };
 
 enum class RemoveCoordinatorInstanceStatus : uint8_t {

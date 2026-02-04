@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -155,6 +155,22 @@ inline void Save(const coordination::ReplicationLagInfo &obj, Builder *builder) 
 inline void Load(coordination::ReplicationLagInfo *obj, Reader *reader) {
   Load(&obj->dbs_main_committed_txns_, reader);
   Load(&obj->replicas_info_, reader);
+}
+
+inline void Save(coordination::CoordinatorInstanceConfig const &config, Builder *builder) {
+  Save(config.coordinator_hostname, builder);
+  Save(config.coordinator_id, builder);
+  Save(config.coordinator_server, builder);
+  Save(config.bolt_server, builder);
+  Save(config.management_server, builder);
+}
+
+inline void Load(coordination::CoordinatorInstanceConfig *obj, Reader *reader) {
+  Load(&obj->coordinator_hostname, reader);
+  Load(&obj->coordinator_id, reader);
+  Load(&obj->coordinator_server, reader);
+  Load(&obj->bolt_server, reader);
+  Load(&obj->management_server, reader);
 }
 
 }  // namespace memgraph::slk

@@ -35,6 +35,7 @@
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_ops_status.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
@@ -371,16 +372,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     return ShowInstancesStatusAsFollower();
   }
 
-  CoordinatorInstanceConnector *leader{nullptr};
-  {
-    auto connectors = coordinator_connectors_.Lock();
-
-    auto connector = std::ranges::find_if(
-        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
-    if (connector != connectors->end()) {
-      leader = &connector->second;
-    }
-  }
+  CoordinatorInstanceConnector *leader = FindClientConnector(leader_id);
 
   if (leader == nullptr) {
     spdlog::trace("Connection to leader not found, returning SHOW INSTANCES output as follower.");
@@ -905,9 +897,26 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
 
 auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
     -> AddCoordinatorInstanceStatus {
-  spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}",
-                config.coordinator_id,
-                raft_state_->InstanceName());
+  auto const leader_id = raft_state_->GetLeaderId();
+
+  spdlog::trace("Leader id {} my id {}", leader_id, raft_state_->GetMyCoordinatorId());
+
+  // TODO: (andi) This function can be abstracted
+  if (leader_id != raft_state_->GetMyCoordinatorId() ||
+      status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    auto *leader = FindClientConnector(leader_id);
+    if (leader == nullptr) {
+      spdlog::trace("Leader not found");
+      return AddCoordinatorInstanceStatus::LEADER_NOT_FOUND;
+    }
+
+    if (leader->SendAddCoordinatorInstance(config)) {
+      spdlog::trace("Request success");
+      return AddCoordinatorInstanceStatus::SUCCESS;
+    }
+    spdlog::trace("Request failed");
+    return AddCoordinatorInstanceStatus::LEADER_FAILED;
+  }
 
   auto const bolt_server_to_add = config.bolt_server.SocketAddress();
   auto const id_to_add = config.coordinator_id;
@@ -1569,6 +1578,19 @@ auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const 
     }
   }
   return UpdateConfigStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector * {
+  CoordinatorInstanceConnector *leader{nullptr};
+  {
+    auto connectors = coordinator_connectors_.Lock();
+    auto connector = std::ranges::find_if(
+        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
+    if (connector != connectors->end()) {
+      leader = &connector->second;
+    }
+  }
+  return leader;
 }
 
 }  // namespace memgraph::coordination

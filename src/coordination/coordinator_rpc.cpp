@@ -209,6 +209,15 @@ void RegisterReplicaOnMainRes::Save(const RegisterReplicaOnMainRes &self, memgra
   memgraph::slk::Save(self, builder);
 }
 
+// AddCoordinator
+void AddCoordinatorReq::Save(const AddCoordinatorReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.config_, builder);
+}
+
+void AddCoordinatorReq::Load(AddCoordinatorReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 }  // namespace coordination
 
 namespace slk {
@@ -377,6 +386,18 @@ void Load(coordination::ReplicationLagReq *self, slk::Reader *reader) { /*empty*
 void Save(const coordination::ReplicationLagRes &self, slk::Builder *builder) { slk::Save(self.lag_info_, builder); }
 
 void Load(coordination::ReplicationLagRes *self, slk::Reader *reader) { slk::Load(&self->lag_info_, reader); }
+
+void Save(const coordination::AddCoordinatorReq &self, slk::Builder *builder) {
+  memgraph::slk::Save(self.config_, builder);
+}
+
+void Load(coordination::AddCoordinatorReq *self, slk::Reader *reader) { memgraph::slk::Load(&self->config_, reader); }
+
+void Save(const coordination::AddCoordinatorRes &self, slk::Builder *builder) {
+  memgraph::slk::Save(self.success_, builder);
+}
+
+void Load(coordination::AddCoordinatorRes *self, slk::Reader *reader) { memgraph::slk::Load(&self->success_, reader); }
 
 }  // namespace slk
 

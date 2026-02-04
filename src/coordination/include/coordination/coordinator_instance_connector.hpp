@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #pragma once
 
 #include "coordination/coordinator_instance_client.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/utils.hpp"
 
@@ -27,6 +26,8 @@ class CoordinatorInstanceConnector {
   auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
   auto SendGetRoutingTable(std::string_view db_name) const -> std::optional<RoutingTable>;
+
+  auto SendAddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> bool;
 
  private:
   mutable CoordinatorInstanceClient client_;

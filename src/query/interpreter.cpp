@@ -786,6 +786,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException(
             "Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException("Request forwarded to the leader but leader failed with request processing!");
       case SUCCESS:
         break;
     }

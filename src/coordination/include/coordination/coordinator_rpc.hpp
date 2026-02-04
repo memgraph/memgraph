@@ -20,10 +20,39 @@
 #include "coordination/utils.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
+#include "utils/fixed_string.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
+#define DECLARE_SLK_SERIALIZATION(Type)                                \
+  static void Save(const Type &self, memgraph::slk::Builder *builder); \
+  static void Load(Type *self, memgraph::slk::Reader *reader);
+
+#define DECLARE_SLK_FREE_FUNCTIONS(Type)                        \
+  void Save(Type::Response const &self, slk::Builder *builder); \
+  void Load(Type::Response *self, slk::Reader *reader);         \
+  void Save(Type::Request const &self, slk::Builder *builder);  \
+  void Load(Type::Request *self, slk::Reader *reader);
+
 namespace memgraph::coordination {
+
+template <utils::TypeId Id, FixedString Name, uint64_t Version = 1>
+struct BoolResponse {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  static void Save(const BoolResponse &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.success_, builder);
+  }
+
+  static void Load(BoolResponse *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->success_, reader); }
+
+  explicit BoolResponse(bool success) : success_(success) {}
+
+  BoolResponse() = default;
+
+  bool success_;
+};
 
 struct PromoteToMainReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
@@ -413,12 +442,12 @@ struct AddCoordinatorReq {
 
   AddCoordinatorReq() = default;
 
-  explicit AddCoordinatorReq(std::string db_name) : db_name_(std::move(db_name)) {}
+  explicit AddCoordinatorReq(CoordinatorInstanceConfig config) : config_(std::move(config)) {}
 
-  std::string db_name_;
+  CoordinatorInstanceConfig config_;
 };
 
-using AddCoordinatorRes = rpc::BoolResponse<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1>;
+using AddCoordinatorRes = BoolResponse<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1>;
 using AddCoordinatorRpc = rpc::RequestResponse<AddCoordinatorReq, AddCoordinatorRes>;
 
 }  // namespace memgraph::coordination
@@ -487,6 +516,8 @@ void Save(coordination::ReplicationLagRes const &self, slk::Builder *builder);
 void Load(coordination::ReplicationLagRes *self, slk::Reader *reader);
 void Save(coordination::ReplicationLagReq const &self, slk::Builder *builder);
 void Load(coordination::ReplicationLagReq *self, slk::Reader *reader);
+
+DECLARE_SLK_FREE_FUNCTIONS(coordination::AddCoordinatorRpc)
 
 }  // namespace memgraph::slk
 
