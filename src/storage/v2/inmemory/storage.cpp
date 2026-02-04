@@ -1453,7 +1453,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     // Applies each undo delta in the chain, and optionally unlinks the deltas
     // from the vertex head.
-    auto process_vertex_deltas = [&](Vertex *vertex, Delta *start, bool should_unlink) {
+    auto process_vertex_deltas = [&](Vertex *vertex, Delta *start, bool delta_chunk_attached_to_vertex) {
       auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
       auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
 
@@ -1574,7 +1574,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         vertex->out_edges.shrink_to_fit();
       }
 
-      if (should_unlink) {
+      if (delta_chunk_attached_to_vertex) {
         vertex->delta = current;
         if (current != nullptr) {
           current->prev.Set(vertex);

@@ -98,11 +98,13 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
 
   for (auto const &[edge_type, to_vertex, edge_ref] : edges) {
     PropertyValue property_value;
-    auto guard = std::shared_lock{edge_ref.ptr->lock};
-    exists = true;
-    deleted = false;
-    delta = edge_ref.ptr->delta;
-    property_value = edge_ref.ptr->properties.GetProperty(property);
+    {
+      auto guard = std::shared_lock{edge_ref.ptr->lock};
+      exists = true;
+      deleted = false;
+      delta = edge_ref.ptr->delta;
+      property_value = edge_ref.ptr->properties.GetProperty(property);
+    }
 
     if (delta) {
       // Edge type is immutable so we don't need to check it

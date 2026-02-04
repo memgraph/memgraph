@@ -192,6 +192,8 @@ class TaggedVertexPtr {
     return std::bit_cast<Vertex *>(ptr_value);
   }
 
+  Vertex *operator->() const { return Get(); }
+
   DeltaChainState GetState() const {
     auto flags = std::bit_cast<uintptr_t>(ptr_.load(std::memory_order_acquire)) & 0x3UL;
     return static_cast<DeltaChainState>(flags);

@@ -130,6 +130,11 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
       // clang-format on
     });
 
+    // If vertex has non-sequential deltas, we have now processed the delta and can unlock now
+    if (vertex.has_uncommitted_non_sequential_deltas) {
+      guard.unlock();
+    }
+
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction->manyDeltasCache;
       cache.StoreExists(view, &vertex, exists);

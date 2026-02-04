@@ -155,15 +155,17 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
   auto const ts = object->delta->timestamp->load(std::memory_order_acquire);
 
   if (ts != transaction->transaction_id) {
-    // Standard MVCC visibility rules: if the head delta was committed before
-    // this transaction started, any delta action can be prepended.
     if (ts < transaction->start_timestamp) {
+      // Its possible that the commited delta we are looking at is part of a NonSequential block
+      // Use the has_uncommitted_non_sequential_deltas flag as our indicator
       if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
         if (object->has_uncommitted_non_sequential_deltas) {
           transaction->has_non_sequential_deltas = true;
           return WriteResult::NON_SEQUENTIAL;
         }
       }
+      // Standard MVCC visibility rules: if the head delta was committed before
+      // this transaction started, any delta action can be prepended.
       return WriteResult::SUCCESS;
     }
 
