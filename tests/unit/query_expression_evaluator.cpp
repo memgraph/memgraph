@@ -392,9 +392,10 @@ TYPED_TEST(ExpressionEvaluatorTest, GreaterOperatorIncompatibleOperands) {
     EXPECT_TRUE(val6.IsNull());
   }
   {
-    auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
-        this->storage.template Create<PrimitiveLiteral>(1), this->storage.template Create<PrimitiveLiteral>(2),
-        this->storage.template Create<PrimitiveLiteral>("a")});
+    auto *list_literal = this->storage.template Create<ListLiteral>(
+        std::vector<Expression *>{this->storage.template Create<PrimitiveLiteral>(1),
+                                  this->storage.template Create<PrimitiveLiteral>(2),
+                                  this->storage.template Create<PrimitiveLiteral>("a")});
 
     auto *op = this->storage.template Create<GreaterOperator>(this->storage.template Create<PrimitiveLiteral>("three"),
                                                               list_literal);

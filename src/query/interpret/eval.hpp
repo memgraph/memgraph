@@ -232,17 +232,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }                                                                                                          \
   }
 
-#define BINARY_COMPARISON_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                         \
-  TypedValue Visit(OP_NODE &op) override {                                                                     \
-    auto val1 = op.expression1_->Accept(*this);                                                                \
-    auto val2 = op.expression2_->Accept(*this);                                                                \
-    try {                                                                                                      \
-      return val1 CPP_OP val2;                                                                                 \
-    } catch (const TypedValueException &) {                                                                    \
-      throw QueryRuntimeException("Invalid types: {} and {} for '{}'.", val1.type(), val2.type(), #CYPHER_OP); \
-    }                                                                                                          \
-  }
-
 #define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                              \
   TypedValue Visit(OP_NODE &op) override {                                              \
     auto val = op.expression_->Accept(*this);                                           \
@@ -272,7 +261,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -, -);
 
 #undef BINARY_OPERATOR_VISITOR
-#undef BINARY_COMPARISON_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
   TypedValue Visit(RangeOperator &op) override {

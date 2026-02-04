@@ -1465,7 +1465,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
-      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      return {};
     } else {
       return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
     }
@@ -1473,7 +1473,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
     if (a.type() != b.type()) {
-      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      return {};
     }
 
     switch (a.type()) {
