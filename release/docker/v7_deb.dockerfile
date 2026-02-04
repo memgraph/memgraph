@@ -24,8 +24,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 
 USER memgraph
-RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt && \
+    pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
 
 FROM ubuntu:24.04
 # NOTE: If you change the base distro update release/package as well.
@@ -35,16 +35,16 @@ ARG EXTENSION
 ARG TARGETARCH
 ARG CUSTOM_MIRROR
 
-COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
-COPY openssl/* /tmp/openssl/
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source="./${BINARY_NAME}${TARGETARCH}.${EXTENSION}",target=/${BINARY_NAME}${TARGETARCH}.${EXTENSION},ro \
+  --mount=type=bind,source="./openssl",target=/openssl,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
   apt-get update && apt-get install -y \
-    /tmp/openssl/openssl*.deb \
-    /tmp/openssl/libssl3t64*.deb \
+    /openssl/openssl*.deb \
+    /openssl/libssl3t64*.deb \
     --no-install-recommends && \
   apt-get install -y \
     libcurl4 libseccomp2 python3 libpython3.12 libatomic1 adduser \
@@ -52,7 +52,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     apt install -y libxmlsec1 && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
-  dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && rm "${BINARY_NAME}${TARGETARCH}.deb" && \
+  dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
   apt remove adduser -y && \
   apt autoremove -y && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
