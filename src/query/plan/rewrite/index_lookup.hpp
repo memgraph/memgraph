@@ -151,13 +151,8 @@ struct HashPair {
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
-                      const Parameters &parameters)
-      : symbol_table_(symbol_table),
-        ast_storage_(ast_storage),
-        db_(db),
-        index_hints_(std::move(index_hints)),
-        parameters_(parameters) {}
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -905,7 +900,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
   IndexHints index_hints_;
-  const Parameters &parameters_;
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
@@ -967,7 +961,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_, parameters_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -1700,9 +1694,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db, IndexHints index_hints,
-                                                        const Parameters &parameters) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
+                                                        TDbAccessor *db, IndexHints index_hints) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter

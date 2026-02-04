@@ -72,9 +72,7 @@ class PostProcessor final {
     auto &db = context->db;
 
     return std::move(plan) | [&](auto p) { return RewriteEnumAccess(std::move(p), symbol_table, ast, db); } |
-           [&](auto p) {
-             return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_, parameters_);
-           } |
+           [&](auto p) { return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_); } |
            [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); }
@@ -82,8 +80,8 @@ class PostProcessor final {
            |
            // Keep at the end
            [&](auto p) {
-             return RewriteParallelExecution(std::move(p), symbol_table, ast, db, context->query->pre_query_directives_,
-                                             parameters_);
+             return RewriteParallelExecution(
+                 std::move(p), symbol_table, ast, db, context->query->pre_query_directives_, parameters_);
            }
 #endif
     ;
