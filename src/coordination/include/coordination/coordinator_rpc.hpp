@@ -405,6 +405,22 @@ struct ReplicationLagRes {
 
 using ReplicationLagRpc = rpc::RequestResponse<ReplicationLagReq, ReplicationLagRes>;
 
+struct AddCoordinatorReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ADD_COORD_REQ, .name = "AddCoordinatorReq"};
+  static constexpr uint64_t kVersion{1};
+
+  DECLARE_SLK_SERIALIZATION(AddCoordinatorReq)
+
+  AddCoordinatorReq() = default;
+
+  explicit AddCoordinatorReq(std::string db_name) : db_name_(std::move(db_name)) {}
+
+  std::string db_name_;
+};
+
+using AddCoordinatorRes = rpc::BoolResponse<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1>;
+using AddCoordinatorRpc = rpc::RequestResponse<AddCoordinatorReq, AddCoordinatorRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations

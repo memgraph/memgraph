@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,9 @@
 #pragma once
 
 #include <concepts>
-#include <memory>
-#include <type_traits>
 
-#include "storage/v2/property_constants.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "utils/fixed_string.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::storage::replication {
@@ -31,6 +29,10 @@ class Builder;
 namespace memgraph::rpc {
 
 using MessageSize = uint32_t;
+
+#define DECLARE_SLK_SERIALIZATION(Type)                                \
+  static void Save(const Type &self, memgraph::slk::Builder *builder); \
+  static void Load(Type *self, memgraph::slk::Reader *reader);
 
 template <typename T>
 concept RpcMessage = requires {
@@ -60,4 +62,17 @@ concept IsRpc = requires {
   typename T::Response;
 };
 
+template <utils::TypeId Id, FixedString Name, uint64_t Version = 1>
+struct BoolResponse {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  DECLARE_SLK_SERIALIZATION(BoolResponse)
+
+  explicit BoolResponse(bool success) : success_(success) {}
+
+  BoolResponse() = default;
+
+  bool success_;
+};
 }  // namespace memgraph::rpc
