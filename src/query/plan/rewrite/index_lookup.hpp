@@ -375,46 +375,47 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // For BFS: only try to create indexed scan for destination if we have source index
-      // This prevents removing filters when we won't use STShortestPath
-      std::unique_ptr<LogicalOperator> indexed_scan = nullptr;
-      bool destination_has_index = false;
-      // Track expressions marked for removal by GenScanByIndex so we can unmark them
+      // try to do indexed scan for destination
+      // track expressions marked for removal by GenScanByIndex so we can unmark them
       // if we don't use the indexed scan
+      std::unordered_set<Expression *> before_removal(filter_exprs_for_removal_);
+      std::unique_ptr<LogicalOperator> indexed_scan = GenScanByIndex(dst_scan);
+      bool destination_has_index = (indexed_scan != nullptr);
       std::unordered_set<Expression *> newly_marked_for_removal;
+      expand.common_.use_bidirectional_bfs_ = false;
+
+      if (destination_has_index) {
+        for (auto *expr : filter_exprs_for_removal_) {
+          if (!before_removal.contains(expr)) {
+            newly_marked_for_removal.insert(expr);
+          }
+        }
+      }
 
       bool source_has_index = HasIndexedSource(expand.input());
-      if (source_has_index) {
-        std::unordered_set<Expression *> before_removal(filter_exprs_for_removal_);
-        indexed_scan = GenScanByIndex(dst_scan);
-        destination_has_index = (indexed_scan != nullptr);
-        if (destination_has_index) {
-          for (auto *expr : filter_exprs_for_removal_) {
-            if (!before_removal.contains(expr)) {
-              newly_marked_for_removal.insert(expr);
+
+      if (destination_has_index) {
+        if (source_has_index) {
+          double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
+          double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
+
+          if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
+            // Use bidirectional BFS (STShortestPath)
+            expand.set_input(std::move(indexed_scan));
+            expand.common_.existing_node = true;
+            expand.common_.use_bidirectional_bfs_ = true;
+          } else {
+            for (auto *expr : newly_marked_for_removal) {
+              filter_exprs_for_removal_.erase(expr);
             }
           }
-        }
-      }
-
-      // only use STShortestPath if we can infer cardinalities for both source and destination
-      if (source_has_index && destination_has_index) {
-        // can't cache plan due to estimating cardinalities
-        double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
-        double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
-
-        if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
+        } else {
+          // use single source bfs but expand from destination via index
           expand.set_input(std::move(indexed_scan));
           expand.common_.existing_node = true;
-        } else {
-          // Unmark filters that were marked for removal by GenScanByIndex
-          for (auto *expr : newly_marked_for_removal) {
-            filter_exprs_for_removal_.erase(expr);
-          }
         }
-      }
+      }  // otherwise expand from source via index or scanall
     } else {
-      // For non-BFS: use indexed scan if available (existing behavior)
       std::unique_ptr<LogicalOperator> indexed_scan =
           GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
       if (indexed_scan) {

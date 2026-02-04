@@ -1797,7 +1797,7 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
                bool existing_node, storage::View view)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      common_{node_symbol, edge_symbol, direction, edge_types, existing_node, false},
       view_(view) {}
 
 ACCEPT_WITH_INPUT(Expand)
@@ -2061,7 +2061,12 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                                std::optional<Symbol> total_weight, Expression *limit)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      common_{.node_symbol = node_symbol,
+              .edge_symbol = edge_symbol,
+              .direction = direction,
+              .edge_types = edge_types,
+              .existing_node = existing_node,
+              .use_bidirectional_bfs_ = false},
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
@@ -2689,11 +2694,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         processed_(mem),
         to_visit_next_(mem),
         to_visit_current_(mem) {
-    MG_ASSERT(!self_.common_.existing_node,
-              "Single source shortest path algorithm "
-              "should not be used when `existing_node` "
-              "flag is set, s-t shortest path algorithm "
-              "should be used instead!");
+    // When existing_node is true, we expand from destination (node_symbol) instead of source (input_symbol_)
+    // This happens when only destination index exists (single-source BFS from destination)
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -2808,7 +2810,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         to_visit_next_.clear();
         processed_.clear();
 
-        const auto &vertex_value = frame[self_.input_symbol_];
+        // When existing_node is true, we expand from destination (node_symbol) instead of source (input_symbol_)
+        // This happens when only destination index exists (single-source BFS from destination)
+        const auto &vertex_value =
+            self_.common_.existing_node ? frame[self_.common_.node_symbol] : frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
         lower_bound_ =
@@ -4221,11 +4226,8 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
 
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
-      if (common_.existing_node) {
-        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem);
-      } else {
-        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-      }
+      return common_.use_bidirectional_bfs_ ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem)
+                                            : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
     case EdgeAtom::Type::DEPTH_FIRST:
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
@@ -4270,6 +4272,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
     object->weight_lambda_ = std::nullopt;
   }
   object->total_weight_ = total_weight_;
+  object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
   return object;
 }
 
@@ -4280,7 +4283,7 @@ std::string_view ExpandVariable::OperatorName() const {
     case Type::DEPTH_FIRST:
       return "ExpandVariable"sv;
     case Type::BREADTH_FIRST:
-      return (common_.existing_node ? "STShortestPath"sv : "BFSExpand"sv);
+      return (common_.use_bidirectional_bfs_ ? "STShortestPath"sv : "BFSExpand"sv);
     case Type::WEIGHTED_SHORTEST_PATH:
       return "WeightedShortestPath"sv;
     case Type::ALL_SHORTEST_PATHS:
