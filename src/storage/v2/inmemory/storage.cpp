@@ -1593,6 +1593,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         }
       }
 
+      // NOTE TO COLIN: as we snip out aborted chunks of interleaved NonSeq, we may hit this many times
+      //                it would do upto full walks of remaining delta chain
+      //                maybe another justification for a sinlge lock + pass (caching wont help the walks)
       if (vertex->has_uncommitted_non_sequential_deltas) {
         vertex->has_uncommitted_non_sequential_deltas =
             HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id);
@@ -2619,13 +2622,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
         auto *current = &delta;
         while (current != nullptr && !visited.contains(current)) {
+          // early exit if we find a sequential delta
+          if (!IsDeltaNonSequential(current)) break;
           visited.insert(current);
           auto ts = current->timestamp->load();
 
           if (ts >= kTransactionInitialId) {
+            // Found an uncommitted NonSeq, we can't unlink these deltas
             all_contributors_committed = false;
-            current = current->next.load(std::memory_order_acquire);
-            continue;
+            break;
           }
 
           // Track highest commit timestamp among all contributors. We can only
@@ -2636,15 +2641,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           }
           current = current->next.load(std::memory_order_acquire);
         }
+        if (!all_contributors_committed) break;
       }
 
       // All contributors finished - safe to move to normal GC processing
       if (all_contributors_committed) {
-        // If highest_commit_ts is still our_commit_ts and no other contributors were
-        // found (or all aborted), use the commit timestamp. If all aborted (ts=0),
-        // conservatively use oldest_active_start_timestamp as the safe horizon.
-        it->unlinkable_timestamp_ = highest_commit_ts > 0 ? highest_commit_ts : oldest_active_start_timestamp;
-
+        it->unlinkable_timestamp_ = highest_commit_ts;
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(*it)); });
         it = waiting_list.erase(it);
@@ -2760,10 +2762,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             vertex->delta = nullptr;
             vertex->has_uncommitted_non_sequential_deltas = false;
-
-            if (vertex->has_uncommitted_non_sequential_deltas) {
-              vertex->has_uncommitted_non_sequential_deltas = false;
-            }
 
             if (vertex->deleted) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
@@ -2919,10 +2917,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         guard.unlock();
         // correct the markers, and defer until next GC run
         for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
-          // Use unlinkable_timestamp as mark_timestamp for non-sequential deltas.
-          // This ensures they aren't freed until all transactions that could
-          // see them have finished.
-          unlinked_undo_buffer.mark_timestamp_ = unlinked_undo_buffer.unlinkable_timestamp_;
+          unlinked_undo_buffer.mark_timestamp_ = mark_timestamp;
         }
         // ensure insert at end to preserve the order
         garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
