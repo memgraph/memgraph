@@ -241,6 +241,8 @@ jobs:
           test-memgraph stress-docker-ha
         env:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
+          S3_AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          S3_AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
 
       - name: Clean up Docker
         if: always()
