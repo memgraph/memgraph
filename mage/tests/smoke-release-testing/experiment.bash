@@ -12,14 +12,6 @@ echo "Memgraph is up and running!"
 
 source ./mgconsole/load_xyz.bash
 test_load_parquet $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_NEXT_DATA_BOLT_PORT
-test_load_csv $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_NEXT_DATA_BOLT_PORT
-test_load_jsonl $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_NEXT_DATA_BOLT_PORT
-
-source ./mgconsole/parallel_runtime.bash
-test_parallel_runtime
-# TODO: Call below in the context with the users and roles already created.
-source ./mgconsole/user_role_functions.bash
-test_user_role_functions
 
 # NOTE: Test what's the exit status of the script by using `echo $?`:
 #   * if it's == 0 -> all good

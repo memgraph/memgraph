@@ -66,6 +66,7 @@ test_show_database_settings
 test_auth_roles
 test_impersonate_user
 test_user_profiles
+test_user_role_functions
 
 # End timing and calculate execution time
 END_TIME=$(date +%s)
