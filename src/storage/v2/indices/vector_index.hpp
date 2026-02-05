@@ -307,15 +307,15 @@ class VectorIndex {
   /// @brief Sets up a new vector index structure without populating it.
   /// @param spec The specification for the index to be created.
   /// @param name_id_mapper Mapper for name/ID conversions (used to get index id from spec.index_name).
-  /// @return true if the index was created successfully, false otherwise.
-  bool SetupIndex(VectorIndexSpec &spec, NameIdMapper *name_id_mapper);
+  /// @return The index ID if the index was created successfully.
+  std::optional<uint64_t> SetupIndex(const VectorIndexSpec &spec, NameIdMapper *name_id_mapper);
 
   /// @brief Attempts to add a vertex to the vector index if it matches the spec criteria.
-  /// @param spec The index specification (may be modified if resize occurs).
+  /// @param index_id The index ID of the index to add the vertex to.
   /// @param vertex The vertex to potentially add.
   /// @param decoder Decoder for this vertex (decoder.entity must be &vertex).
   /// @param thread_id Optional thread ID hint for usearch's internal optimizations.
-  void AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
+  void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);
 
   struct Impl;

@@ -55,13 +55,14 @@ VectorIndex::~VectorIndex() = default;
 bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
                               NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
-    if (!SetupIndex(spec, name_id_mapper)) return false;
-    PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+    auto index_id = SetupIndex(spec, name_id_mapper);
+    if (!index_id.has_value()) return false;
+    PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
       AddVertexToIndex(
-          spec,
+          *index_id,
           vertex,
           IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
-          std::nullopt);
+          thread_id);
       if (snapshot_info) {
         snapshot_info->Update(UpdateType::VECTOR_IDX);
       }
@@ -73,14 +74,14 @@ bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipList<Vertex>::Ac
   }
 }
 
-bool VectorIndex::SetupIndex(VectorIndexSpec &spec, NameIdMapper *name_id_mapper) {
+std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, NameIdMapper *name_id_mapper) {
   const auto index_id = name_id_mapper->NameToId(spec.index_name);
   if (pimpl->index_by_id_.contains(index_id)) {
-    return false;
+    return std::nullopt;
   }
   for (const auto &[_, item] : pimpl->index_by_id_) {
     if (item.spec.label_id == spec.label_id && item.spec.property == spec.property) {
-      return false;
+      return std::nullopt;
     }
   }
 
@@ -99,7 +100,7 @@ bool VectorIndex::SetupIndex(VectorIndexSpec &spec, NameIdMapper *name_id_mapper
   }
 
   const auto [_, inserted] = pimpl->index_by_id_.try_emplace(index_id, std::move(mg_vector_index.index), spec);
-  return inserted;
+  return inserted ? std::optional<uint64_t>{index_id} : std::nullopt;
 }
 
 void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::SkipList<Vertex>::Accessor &vertices,
@@ -108,36 +109,33 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   auto &spec = recovery_info.spec;
   try {
     auto &recovery_entries = recovery_info.index_entries;
-    if (!SetupIndex(spec, name_id_mapper)) {
+    const auto index_id = SetupIndex(spec, name_id_mapper);
+    if (!index_id.has_value()) {
       throw query::VectorSearchException(
           "Given vector index already exists. Corrupted or invalid index recovery files.");
     }
-
-    const auto index_id = name_id_mapper->NameToId(spec.index_name);
-    auto &index_item = pimpl->index_by_id_.at(index_id);
+    auto &index_item = pimpl->index_by_id_.at(*index_id);
     auto &mg_index = index_item.mg_index;
-    auto process_vertex_for_recovery =
-        [&](Vertex &vertex, VectorIndexSpec &spec, std::optional<std::size_t> thread_id) {
-          if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
-            // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-            UpdateVectorIndex(mg_index, spec, &vertex, std::move(it->second), thread_id);
-          } else {
-            AddVertexToIndex(
-                spec,
-                vertex,
-                IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
-                thread_id);
-          }
-          if (snapshot_info) {
-            snapshot_info->Update(UpdateType::VECTOR_IDX);
-          }
-        };
+    auto process_vertex_for_recovery = [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
+      if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
+        // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+        UpdateVectorIndex(mg_index, spec, &vertex, std::move(it->second), thread_id);
+      } else {
+        AddVertexToIndex(
+            *index_id,
+            vertex,
+            IndexedPropertyDecoder<Vertex>{.indices = indices, .name_id_mapper = name_id_mapper, .entity = &vertex},
+            thread_id);
+      }
+      if (snapshot_info) {
+        snapshot_info->Update(UpdateType::VECTOR_IDX);
+      }
+    };
 
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
-      PopulateVectorIndexMultiThreaded(vertices, process_vertex_for_recovery, spec);
+      PopulateVectorIndexMultiThreaded(vertices, process_vertex_for_recovery);
     } else {
-      PopulateVectorIndexSingleThreaded(
-          vertices, [&](Vertex &vertex) { process_vertex_for_recovery(vertex, spec, std::nullopt); });
+      PopulateVectorIndexSingleThreaded(vertices, process_vertex_for_recovery);
     }
   } catch (const std::exception &) {
     DropIndex(spec.index_name, vertices, indices, name_id_mapper);
@@ -145,8 +143,14 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
   }
 }
 
-void VectorIndex::AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
+void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                                    std::optional<std::size_t> thread_id) {
+  auto it = pimpl->index_by_id_.find(index_id);
+  if (it == pimpl->index_by_id_.end()) {
+    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_id));
+  }
+  auto &index_item = it->second;
+  auto &spec = index_item.spec;
   if (!std::ranges::contains(vertex.labels, spec.label_id)) {
     return;
   }
@@ -155,18 +159,14 @@ void VectorIndex::AddVertexToIndex(VectorIndexSpec &spec, Vertex &vertex, const 
 
   if (property.IsVectorIndexId()) {
     // If property is a vector index id already, we add the index id to the list of already stored index ids.
-    property.ValueVectorIndexIds().push_back(decoder.name_id_mapper->NameToId(spec.index_name));
+    property.ValueVectorIndexIds().push_back(index_id);
   } else {
     // If property is not a vector index id, we create a new vector index id and set it in the property store.
-    property = PropertyValue(PropertyValue::VectorIndexIdData{
-        .ids = utils::small_vector<uint64_t>{decoder.name_id_mapper->NameToId(spec.index_name)},
-        .vector = ListToVector(property)});
+    property = PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id},
+                                                              .vector = ListToVector(property)});
   }
   vertex.properties.SetProperty(spec.property, property);
-  const auto index_id = decoder.name_id_mapper->NameToId(spec.index_name);
-  auto &index_item = pimpl->index_by_id_.at(index_id);
-  UpdateVectorIndex(
-      index_item.mg_index, index_item.spec, &vertex, std::move(property.ValueVectorIndexList()), thread_id);
+  UpdateVectorIndex(index_item.mg_index, spec, &vertex, std::move(property.ValueVectorIndexList()), thread_id);
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,

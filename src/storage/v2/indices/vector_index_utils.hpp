@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <optional>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
@@ -364,29 +365,23 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
-/// @tparam ProcessFunc Callable that receives (Vertex&, Args...).
-/// @tparam Args Additional argument types to forward to the process function.
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
 /// @param vertices The vertices accessor to iterate over.
-/// @param process The function to call for each vertex.
-/// @param args Arguments to forward to the process function.
-template <typename ProcessFunc, typename... Args>
-void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
-                                       Args &&...args) {
+/// @param process The function to call for each vertex (thread_id is std::nullopt).
+template <typename ProcessFunc>
+void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   for (auto &vertex : vertices) {
-    process(vertex, std::forward<Args>(args)...);
+    std::forward<ProcessFunc>(process)(vertex, std::nullopt);
   }
 }
 
 /// @brief Populates a vector index by iterating over vertices using multiple threads.
-/// @tparam ProcessFunc Callable that receives (Vertex&, Args..., thread_id).
-/// @tparam Args Additional argument types to forward to the process function.
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
 /// @param vertices The vertices accessor to iterate over.
-/// @param process The function to call for each vertex.
-/// @param args Arguments to forward to the process function (before thread_id).
-template <typename ProcessFunc, typename... Args>
-void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
-                                      Args &...args) {
+/// @param process The function to call for each vertex (thread_id is the chunk index).
+template <typename ProcessFunc>
+void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
   const auto actual_chunk_count = vertices_chunks.size();
@@ -395,11 +390,11 @@ void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertice
     std::vector<std::jthread> threads;
     threads.reserve(actual_chunk_count);
     for (std::size_t i = 0; i < actual_chunk_count; ++i) {
-      threads.emplace_back([&vertices_chunks, &process, &args..., &first_exception, i]() {
+      threads.emplace_back([&vertices_chunks, &process, &first_exception, i]() {
         try {
           auto &chunk = vertices_chunks[i];
           for (auto &vertex : chunk) {
-            process(vertex, args..., i);
+            std::forward<ProcessFunc>(process)(vertex, std::optional<std::size_t>(i));
           }
         } catch (...) {
           first_exception.WithLock([captured = std::current_exception()](auto &ex) {
