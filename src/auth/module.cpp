@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -374,7 +374,7 @@ bool Module::Startup() {
   return true;
 }
 
-nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) {
+nlohmann::json Module::Call(nlohmann::json params, int timeout_millisec) {
   auto guard = std::lock_guard{lock_};
 
   if (!params.is_object()) return {};
@@ -382,23 +382,37 @@ nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) 
   // Ensure that the module is up and running.
   if (!Startup()) return {};
 
+  static constexpr auto kMemgraphCallIdKey = "memgraph_call_id";
+  const auto call_id = ++call_id_;
+  params[kMemgraphCallIdKey] = call_id;
+
   // Put the request to the module process.
   if (!PutData(pipe_to_module_[kPipeWriteEnd], params, timeout_millisec)) {
     spdlog::error("Couldn't send data to the auth module process!");
     return {};
   }
 
-  // Get the response from the module process.
-  auto ret = GetData(pipe_from_module_[kPipeReadEnd], timeout_millisec);
-  if (ret.is_null()) {
-    spdlog::error("Couldn't receive data from the auth module process!");
-    return {};
+  // Read responses until we get one with matching memgraph_call_id (skip stale).
+  const int kMaxResponses = 1000;
+  for (int i = 0; i < kMaxResponses; ++i) {
+    auto ret = GetData(pipe_from_module_[kPipeReadEnd], timeout_millisec);
+    if (ret.is_null()) {
+      spdlog::error("Couldn't receive data from the auth module process!");
+      return {};
+    }
+    if (!ret.is_object()) {
+      spdlog::error("Data received from the auth module is of wrong type!");
+      continue;
+    }
+    if (ret.contains(kMemgraphCallIdKey) && ret[kMemgraphCallIdKey].is_number_integer() &&
+        ret[kMemgraphCallIdKey].get<uint64_t>() == call_id) {
+      return ret;
+    }
+    // Stale or wrong call_id, skip and read next response
+    spdlog::trace("Auth module response had wrong memgraph_call_id, reading next.");
   }
-  if (!ret.is_object()) {
-    spdlog::error("Data received from the auth module is of wrong type!");
-    return {};
-  }
-  return ret;
+  spdlog::error("Auth module did not return response with matching memgraph_call_id after {} attempts.", kMaxResponses);
+  return {};
 }
 
 void Module::Shutdown() {
