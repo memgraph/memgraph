@@ -293,6 +293,8 @@ nlohmann::json GetData(int fd, int timeout_millisec) {
       return {};
     }
     char ch;
+    // Because of the poll call above, this is not a blocking read.
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
     int ret = read(fd, &ch, 1);
     if (ret > 0) {
       data += ch;
