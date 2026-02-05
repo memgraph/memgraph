@@ -75,7 +75,7 @@ void CoordinatorInstanceManagementServerHandlers::AddCoordinatorHandler(Coordina
                                                                         slk::Builder *res_builder) {
   AddCoordinatorReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto const res = coordinator_instance.AddCoordinatorInstance(req.config_);
+  auto const res = coordinator_instance.AddCoordinatorInstance(req.arg_);
   AddCoordinatorRes const rpc_res{res == AddCoordinatorInstanceStatus::SUCCESS};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
@@ -85,7 +85,7 @@ void CoordinatorInstanceManagementServerHandlers::RemoveCoordinatorHandler(
     slk::Builder *res_builder) {
   RemoveCoordinatorReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto const res = coordinator_instance.RemoveCoordinatorInstance(req.coordinator_id_);
+  auto const res = coordinator_instance.RemoveCoordinatorInstance(req.arg_);
   RemoveCoordinatorRes const rpc_res{res == RemoveCoordinatorInstanceStatus::SUCCESS};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
@@ -96,7 +96,7 @@ void CoordinatorInstanceManagementServerHandlers::RegisterInstanceHandler(Coordi
                                                                           slk::Builder *res_builder) {
   RegisterInstanceReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto const res = coordinator_instance.RegisterReplicationInstance(req.config_);
+  auto const res = coordinator_instance.RegisterReplicationInstance(req.arg_);
   RegisterInstanceRes const rpc_res{res == RegisterInstanceCoordinatorStatus::SUCCESS};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
