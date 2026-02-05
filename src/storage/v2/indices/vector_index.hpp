@@ -37,7 +37,7 @@ namespace memgraph::storage {
 struct Indices;
 class NameIdMapper;
 
-using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, uint32_t>;
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.
