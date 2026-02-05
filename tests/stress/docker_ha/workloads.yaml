@@ -4,9 +4,12 @@
 
 workloads:
   - config: workloads/concurrent_write/workload.yaml
-    enabled: true
+    enabled: false
 
   - config: workloads/rag/workload.yaml
+    enabled: false
+
+  - config: workloads/publications_import/workload.yaml
     enabled: true
 
   # Add new workloads here:
