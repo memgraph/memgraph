@@ -1222,6 +1222,45 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && export PYTHONPATH=$MGBUILD_ROOT_DIR/mage/python:\$PYTHONPATH && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
     ;;
+    smoke)
+      shift 1
+      next_image=""
+      last_image=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --next-image)
+            next_image=$2
+            shift 2
+          ;;
+          --last-image)
+            last_image=$2
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      export MEMGRAPH_NEXT_DOCKERHUB_IMAGE=$next_image
+      export MEMGRAPH_LAST_DOCKERHUB_IMAGE=$last_image
+      cleanup() {
+        local status=$?
+        rm -rf env || true
+        rm -rf "$HOME/go-install" || true
+        docker rmi -f $next_image || true
+        docker rmi -f $last_image || true
+        exit $status
+      }
+      trap cleanup EXIT INT TERM
+      cd "$PROJECT_ROOT/mage/tests/smoke-release-testing"
+      ./init_workflow.bash
+      python3 -m venv env
+      source env/bin/activate
+      pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
+      ./test_single_memgraph.bash
+    ;;
     *)
       echo "Error: Unknown test '$1'"
       print_help
