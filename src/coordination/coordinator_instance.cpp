@@ -1014,12 +1014,13 @@ auto CoordinatorInstance::AddSelfCoordinator(
   // I am adding myself
   auto const my_aux = raft_state_->GetMyCoordinatorInstanceAux();
   if (config.coordinator_server.SocketAddress() != my_aux.coordinator_server) {
-    throw RaftAddServerException(
-        "Failed to add server since NuRaft server has been started with different network configuration!");
+    spdlog::error("Failed to add server since NuRaft server has been started with different network configuration!");
+    return AddCoordinatorInstanceStatus::DIFF_NETWORK_CONFIG;
   }
   if (config.management_server.SocketAddress() != my_aux.management_server) {
-    throw RaftAddServerException(
+    spdlog::error(
         "Failed to add server since management server has been started with different network configuration!");
+    return AddCoordinatorInstanceStatus::DIFF_NETWORK_CONFIG;
   }
 
   // NOLINTNEXTLINE

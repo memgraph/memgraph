@@ -63,6 +63,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   LOCAL_TIMEOUT,
+  DIFF_NETWORK_CONFIG,
   RAFT_CANCELLED,
   RAFT_TIMEOUT,
   RAFT_NOT_LEADER,
