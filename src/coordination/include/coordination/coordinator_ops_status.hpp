@@ -30,6 +30,8 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   RAFT_LOG_ERROR,
   SUCCESS,
   STRICT_SYNC_AND_SYNC_FORBIDDEN,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {

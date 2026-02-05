@@ -147,7 +147,44 @@ def setup_cluster(test_name, setup_queries, coord_port):
     return inner_instances_description
 
 
-# @pytest.mark.skip(reason="works")
+def test_register_instance_fwd(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    leader_cursor = connect(host="localhost", port=7690).cursor()
+    # Add itself and coordinator 2. Coordinator 1 is therefore the leader at the beginning
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+    )
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+    )
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+    )
+    follower_cursor = connect(host="localhost", port=7691).cursor()
+
+    # Follower can register the instance
+    execute_and_fetch_all(
+        follower_cursor,
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'}",
+    )
+
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+    ]
+    mg_sleep_and_assert(data, partial(show_instances, leader_cursor))
+    follower_cursor = connect(host="localhost", port=7691).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, follower_cursor))
+    follower2_cursor = connect(host="localhost", port=7692).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, follower2_cursor))
+
+
 def test_add_coordinator_fwd(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)

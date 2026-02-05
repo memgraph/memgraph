@@ -27,9 +27,16 @@ class CoordinatorInstanceConnector {
 
   auto SendGetRoutingTable(std::string_view db_name) const -> std::optional<RoutingTable>;
 
-  auto SendAddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> bool;
-
-  auto SendRemoveCoordinatorInstance(int coordinator_id) -> bool;
+  template <rpc::IsRpc Rpc, typename... Args>
+  auto SendBoolRpc(Args &&...args) -> bool {
+    try {
+      auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
+      return stream.SendAndWait().success_;
+    } catch (std::exception const &e) {
+      spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, e.what());
+      return false;
+    }
+  }
 
  private:
   mutable CoordinatorInstanceClient client_;

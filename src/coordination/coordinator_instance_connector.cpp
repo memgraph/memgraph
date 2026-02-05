@@ -41,25 +41,5 @@ auto CoordinatorInstanceConnector::SendGetRoutingTable(std::string_view const db
   }
 }
 
-auto CoordinatorInstanceConnector::SendAddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> bool {
-  try {
-    auto stream{client_.RpcClient().Stream<AddCoordinatorRpc>(config)};
-    return stream.SendAndWait().success_;
-  } catch (std::exception const &e) {
-    spdlog::error("Failed to receive response to AddCoordinatorRpc: {}", e.what());
-    return false;
-  }
-}
-
-auto CoordinatorInstanceConnector::SendRemoveCoordinatorInstance(int coordinator_id) -> bool {
-  try {
-    auto stream{client_.RpcClient().Stream<RemoveCoordinatorRpc>(coordinator_id)};
-    return stream.SendAndWait().success_;
-  } catch (std::exception const &e) {
-    spdlog::error("Failed to receive response to RemoveCoordinatorRpc: {}", e.what());
-    return false;
-  }
-}
-
 }  // namespace memgraph::coordination
 #endif

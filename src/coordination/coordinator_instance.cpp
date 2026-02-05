@@ -708,6 +708,15 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   // TODO: (andi) Can I move further down this lock
   auto lock = std::lock_guard{coord_instance_lock_};
 
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (ShouldForward(leader_id)) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendBoolRpc<RegisterInstanceRpc>(config) ? RegisterInstanceCoordinatorStatus::SUCCESS
+                                                              : RegisterInstanceCoordinatorStatus::LEADER_FAILED;
+    }
+    return RegisterInstanceCoordinatorStatus::LEADER_NOT_FOUND;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
@@ -868,8 +877,8 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   auto const leader_id = raft_state_->GetLeaderId();
   if (ShouldForward(leader_id)) {
     if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendRemoveCoordinatorInstance(coordinator_id) ? RemoveCoordinatorInstanceStatus::SUCCESS
-                                                                   : RemoveCoordinatorInstanceStatus::LEADER_FAILED;
+      return leader->SendBoolRpc<RemoveCoordinatorRpc>(coordinator_id) ? RemoveCoordinatorInstanceStatus::SUCCESS
+                                                                       : RemoveCoordinatorInstanceStatus::LEADER_FAILED;
     }
     return RemoveCoordinatorInstanceStatus::LEADER_NOT_FOUND;
   }
@@ -920,8 +929,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 
   if (ShouldForward(leader_id)) {
     if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendAddCoordinatorInstance(config) ? AddCoordinatorInstanceStatus::SUCCESS
-                                                        : AddCoordinatorInstanceStatus::LEADER_NOT_FOUND;
+      return leader->SendBoolRpc<AddCoordinatorRpc>(config) ? AddCoordinatorInstanceStatus::SUCCESS
+                                                            : AddCoordinatorInstanceStatus::LEADER_NOT_FOUND;
     }
 
     return AddCoordinatorInstanceStatus::LEADER_FAILED;

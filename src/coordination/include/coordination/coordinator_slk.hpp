@@ -173,5 +173,19 @@ inline void Load(coordination::CoordinatorInstanceConfig *obj, Reader *reader) {
   Load(&obj->management_server, reader);
 }
 
+inline void Save(coordination::DataInstanceConfig const &config, Builder *builder) {
+  Save(config.instance_name, builder);
+  Save(config.replication_client_info, builder);
+  Save(config.bolt_server, builder);
+  Save(config.mgt_server, builder);
+}
+
+inline void Load(coordination::DataInstanceConfig *obj, Reader *reader) {
+  Load(&obj->instance_name, reader);
+  Load(&obj->replication_client_info, reader);
+  Load(&obj->bolt_server, reader);
+  Load(&obj->mgt_server, reader);
+}
+
 }  // namespace memgraph::slk
 #endif

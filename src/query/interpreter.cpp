@@ -714,6 +714,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -835,7 +842,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Tried to forward the request to the current leader but the leader couldn't be found!");
       case LEADER_FAILED:
-        throw QueryRuntimeException("Request forwarded to the leader but leader failed with request processing!");
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case LOCAL_TIMEOUT:
         throw QueryRuntimeException("Request for adding coordinator {} reached a timeout!", coordinator_id);
       case DIFF_NETWORK_CONFIG:

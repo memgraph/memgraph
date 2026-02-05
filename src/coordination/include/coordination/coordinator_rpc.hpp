@@ -24,7 +24,7 @@
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
-#define DECLARE_SLK_SERIALIZATION(Type)                                \
+#define DECLARE_SLK_SERIALIZATION_FUNCTIONS(Type)                      \
   static void Save(const Type &self, memgraph::slk::Builder *builder); \
   static void Load(Type *self, memgraph::slk::Reader *reader);
 
@@ -438,7 +438,7 @@ struct AddCoordinatorReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ADD_COORD_REQ, .name = "AddCoordinatorReq"};
   static constexpr uint64_t kVersion{1};
 
-  DECLARE_SLK_SERIALIZATION(AddCoordinatorReq)
+  DECLARE_SLK_SERIALIZATION_FUNCTIONS(AddCoordinatorReq)
 
   AddCoordinatorReq() = default;
 
@@ -454,7 +454,7 @@ struct RemoveCoordinatorReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REMOVE_COORD_REQ, .name = "RemoveCoordinatorReq"};
   static constexpr uint64_t kVersion{1};
 
-  DECLARE_SLK_SERIALIZATION(RemoveCoordinatorReq)
+  DECLARE_SLK_SERIALIZATION_FUNCTIONS(RemoveCoordinatorReq)
 
   RemoveCoordinatorReq() = default;
 
@@ -465,6 +465,23 @@ struct RemoveCoordinatorReq {
 
 using RemoveCoordinatorRes = BoolResponse<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1>;
 using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCoordinatorRes>;
+
+struct RegisterInstanceReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REGISTER_INSTANCE_REQ,
+                                         .name = "RegisterInstanceReq"};
+  static constexpr uint64_t kVersion{1};
+
+  DECLARE_SLK_SERIALIZATION_FUNCTIONS(RegisterInstanceReq)
+
+  RegisterInstanceReq() = default;
+
+  explicit RegisterInstanceReq(DataInstanceConfig config) : config_(std::move(config)) {}
+
+  DataInstanceConfig config_;
+};
+
+using RegisterInstanceRes = BoolResponse<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1>;
+using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
 
 }  // namespace memgraph::coordination
 
@@ -535,6 +552,7 @@ void Load(coordination::ReplicationLagReq *self, slk::Reader *reader);
 
 DECLARE_SLK_FREE_FUNCTIONS(coordination::AddCoordinatorRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RemoveCoordinatorRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::RegisterInstanceRpc)
 
 }  // namespace memgraph::slk
 
