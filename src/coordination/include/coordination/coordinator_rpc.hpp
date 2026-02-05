@@ -450,6 +450,22 @@ struct AddCoordinatorReq {
 using AddCoordinatorRes = BoolResponse<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1>;
 using AddCoordinatorRpc = rpc::RequestResponse<AddCoordinatorReq, AddCoordinatorRes>;
 
+struct RemoveCoordinatorReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REMOVE_COORD_REQ, .name = "RemoveCoordinatorReq"};
+  static constexpr uint64_t kVersion{1};
+
+  DECLARE_SLK_SERIALIZATION(RemoveCoordinatorReq)
+
+  RemoveCoordinatorReq() = default;
+
+  explicit RemoveCoordinatorReq(int coordinator_id) : coordinator_id_(coordinator_id) {}
+
+  int coordinator_id_;
+};
+
+using RemoveCoordinatorRes = BoolResponse<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1>;
+using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCoordinatorRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -518,6 +534,7 @@ void Save(coordination::ReplicationLagReq const &self, slk::Builder *builder);
 void Load(coordination::ReplicationLagReq *self, slk::Reader *reader);
 
 DECLARE_SLK_FREE_FUNCTIONS(coordination::AddCoordinatorRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::RemoveCoordinatorRpc)
 
 }  // namespace memgraph::slk
 

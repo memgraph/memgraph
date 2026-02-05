@@ -29,6 +29,8 @@ class CoordinatorInstanceConnector {
 
   auto SendAddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> bool;
 
+  auto SendRemoveCoordinatorInstance(int coordinator_id) -> bool;
+
  private:
   mutable CoordinatorInstanceClient client_;
 };

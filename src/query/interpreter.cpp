@@ -742,6 +742,51 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_SUCH_ID:
         throw QueryRuntimeException(
             "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a timeout!", coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for removing coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the coordinator isn't a leader anymore!",
+            coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when removing coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when removing coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -791,6 +836,43 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Tried to forward the request to the current leader but the leader couldn't be found!");
       case LEADER_FAILED:
         throw QueryRuntimeException("Request forwarded to the leader but leader failed with request processing!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a timeout!", coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for adding coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator isn't a leader anymore!", coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when adding coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when adding coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }

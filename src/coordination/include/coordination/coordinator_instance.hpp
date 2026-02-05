@@ -156,6 +156,8 @@ class CoordinatorInstance {
 
   auto FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector *;
 
+  auto ShouldForward(int32_t leader_id) const -> bool;
+
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
   // StateCheckRpc call which is only used on the leader
   std::map<std::string, uint64_t> main_num_txns_cache_;

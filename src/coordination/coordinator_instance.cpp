@@ -857,7 +857,15 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   metrics::IncrementCounter(metrics::RemoveCoordInstance);
-  spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (ShouldForward(leader_id)) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendRemoveCoordinatorInstance(coordinator_id) ? RemoveCoordinatorInstanceStatus::SUCCESS
+                                                                   : RemoveCoordinatorInstanceStatus::LEADER_FAILED;
+    }
+    return RemoveCoordinatorInstanceStatus::LEADER_NOT_FOUND;
+  }
+
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
   auto const existing_coord = std::ranges::find_if(
@@ -867,7 +875,10 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
     return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
   }
 
-  raft_state_->RemoveCoordinatorInstance(coordinator_id);
+  if (auto const res = raft_state_->RemoveCoordinatorInstance(coordinator_id);
+      res != RemoveCoordinatorInstanceStatus::SUCCESS) {
+    return res;
+  }
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
 
@@ -899,22 +910,12 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
     -> AddCoordinatorInstanceStatus {
   auto const leader_id = raft_state_->GetLeaderId();
 
-  spdlog::trace("Leader id {} my id {}", leader_id, raft_state_->GetMyCoordinatorId());
-
-  // TODO: (andi) This function can be abstracted
-  if (leader_id != raft_state_->GetMyCoordinatorId() ||
-      status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    auto *leader = FindClientConnector(leader_id);
-    if (leader == nullptr) {
-      spdlog::trace("Leader not found");
-      return AddCoordinatorInstanceStatus::LEADER_NOT_FOUND;
+  if (ShouldForward(leader_id)) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendAddCoordinatorInstance(config) ? AddCoordinatorInstanceStatus::SUCCESS
+                                                        : AddCoordinatorInstanceStatus::LEADER_NOT_FOUND;
     }
 
-    if (leader->SendAddCoordinatorInstance(config)) {
-      spdlog::trace("Request success");
-      return AddCoordinatorInstanceStatus::SUCCESS;
-    }
-    spdlog::trace("Request failed");
     return AddCoordinatorInstanceStatus::LEADER_FAILED;
   }
 
@@ -988,7 +989,9 @@ auto CoordinatorInstance::AddNewCoordinator(
   }
 
   // We only need to add coordinator instance on Raft level if it's some new instance
-  raft_state_->AddCoordinatorInstance(config);
+  if (auto const res = raft_state_->AddCoordinatorInstance(config); res != AddCoordinatorInstanceStatus::SUCCESS) {
+    return res;
+  }
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = coordinator_instances_context};
 
@@ -1591,6 +1594,11 @@ auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const -> Coordi
     }
   }
   return leader;
+}
+
+auto CoordinatorInstance::ShouldForward(int32_t const leader_id) const -> bool {
+  return leader_id != raft_state_->GetMyCoordinatorId() ||
+         status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY;
 }
 
 }  // namespace memgraph::coordination

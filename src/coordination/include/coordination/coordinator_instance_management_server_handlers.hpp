@@ -30,6 +30,9 @@ class CoordinatorInstanceManagementServerHandlers {
 
   static void AddCoordinatorHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
                                     slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void RemoveCoordinatorHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
+                                       slk::Reader *req_reader, slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::coordination

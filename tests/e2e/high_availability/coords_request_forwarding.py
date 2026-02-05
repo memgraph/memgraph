@@ -168,7 +168,71 @@ def test_add_coordinator_fwd(test_name):
         "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
     )
 
-    # TODO: (andi) Test you cannot add coordinator from the follower which doesn't have a leader
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
+    mg_sleep_and_assert(leader_data, partial(show_instances, follower_cursor))
+    follower2_cursor = connect(host="localhost", port=7692).cursor()
+    mg_sleep_and_assert(leader_data, partial(show_instances, follower2_cursor))
+
+
+def test_remove_coordinator_fwd(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    leader_cursor = connect(host="localhost", port=7690).cursor()
+    # Add itself and coordinator 2. Coordinator 1 is therefore the leader at the beginning
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+    )
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+    )
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+    )
+
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
+
+    follower_cursor = connect(host="localhost", port=7691).cursor()
+
+    # Follower can remove follower
+    execute_and_fetch_all(follower_cursor, "remove coordinator 3")
+
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
+
+    # Follower cannot remove the current leader
+    try:
+        execute_and_fetch_all(follower_cursor, "remove coordinator 1")
+        assert False
+    except:
+        pass
+
+    # Follower can send the request to remove itself
+    execute_and_fetch_all(follower_cursor, "remove coordinator 2")
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
+
+    follower_data = [
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, follower_cursor))
 
 
 if __name__ == "__main__":
