@@ -10,7 +10,7 @@ test_parallel_runtime() {
   create_graph_query="
     UNWIND range(1, 100) AS i
     CREATE (n:Node {id: i, value: i * 10, category: i % 5})
-    WITH n
+    WITH n, i
     WHERE i > 1
     MATCH (m:Node {id: i - 1})
     CREATE (m)-[:CONNECTED_TO {weight: i}]->(n);
@@ -24,7 +24,7 @@ test_parallel_runtime() {
   run_next "USING PARALLEL EXECUTION 4 MATCH (n:Node) RETURN count(n);"
 
   echo "SUBFEATURE: Parallel execution with aggregation"
-  run_next "USING PARALLEL EXECUTION MATCH (n:Node) RETURN n.category, sum(n.value) AS total ORDER BY n.category;"
+  run_next "USING PARALLEL EXECUTION MATCH (n:Node) RETURN n.category AS category, sum(n.value) AS total ORDER BY category;"
 
   echo "SUBFEATURE: Parallel execution with filtering"
   run_next "USING PARALLEL EXECUTION MATCH (n:Node) WHERE n.value > 500 RETURN n.id, n.value ORDER BY n.value;"
