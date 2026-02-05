@@ -13,7 +13,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
   apt-get update && apt-get install -y \
-  python3 libpython3.12 python3-pip adduser curl \
+  python3 libpython3.12 python3-pip adduser curl binutils \
   --no-install-recommends && \
   rm -rf /var/lib/apt/lists/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
@@ -25,7 +25,11 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 USER memgraph
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt && \
-    pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
+    pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16 && \
+    find /home/memgraph/.local/lib/python3.12/site-packages -type f -name "*.so" -exec strip --strip-unneeded {} + || true && \
+    find /home/memgraph/.local/lib/python3.12/site-packages -type f -name "*.so.*" -exec strip --strip-unneeded {} + || true && \
+    find /home/memgraph/.local/lib/python3.12/site-packages -type d \( -name "tests" -o -name "test" -o -name "__pycache__" \) -prune -exec rm -rf {} + && \
+    find /home/memgraph/.local/lib/python3.12/site-packages -type f -name "*.pyi" -delete
 
 FROM ubuntu:24.04
 # NOTE: If you change the base distro update release/package as well.
