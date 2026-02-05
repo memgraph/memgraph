@@ -323,7 +323,7 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (will be updated if resize occurs).
 /// @param key The key to add/update in the index.
-/// @param vector Const ref or rvalue ref to the float vector data. If empty, entry is only removed. Never copied.
+/// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
 template <typename Index, typename Key, typename Spec, typename Vector>

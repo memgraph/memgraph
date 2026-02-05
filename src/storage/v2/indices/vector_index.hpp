@@ -37,7 +37,7 @@ namespace memgraph::storage {
 struct Indices;
 class NameIdMapper;
 
-using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, uint32_t>;
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.
@@ -280,17 +280,17 @@ class VectorIndex {
   /// @brief Checks if the property is in the vector index.
   /// @param vertex The vertex to check.
   /// @param property The property to check.
-  /// @return Vector of index IDs (from NameIdMapper) for indices that contain this vertex and property.
+  /// @return Vector of index IDs.
   utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) const;
 
   /// @brief Gets all properties that have vector indices for the given label.
   /// @param label The label to get the properties for.
-  /// @return A map of property ids to index IDs (from NameIdMapper).
+  /// @return A map of property ids to index IDs.
   std::unordered_map<PropertyId, uint64_t> GetIndicesByLabel(LabelId label) const;
 
   /// @brief Gets all labels that have vector indices for the given property.
   /// @param property The property to get the labels for.
-  /// @return A map of label ids to index IDs (from NameIdMapper).
+  /// @return A map of label ids to index IDs.
   std::unordered_map<LabelId, uint64_t> GetIndicesByProperty(PropertyId property) const;
 
   /// @brief Serializes all vector indices to a durability encoder in one pass.
@@ -301,19 +301,19 @@ class VectorIndex {
  private:
   /// @brief Removes a vertex from a vector index.
   /// @param vertex The vertex to remove.
-  /// @param index_id The index ID (from NameIdMapper) of the index to remove the vertex from.
+  /// @param index_id The index ID of the index to remove the vertex from.
   void RemoveVertexFromIndex(Vertex *vertex, uint64_t index_id);
 
   /// @brief Sets up a new vector index structure without populating it.
   /// @param spec The specification for the index to be created.
-  /// @param name_id_mapper Mapper for name/ID conversions (used to get index id from spec.index_name).
+  /// @param name_id_mapper Mapper for name/ID conversions.
   /// @return The index ID if the index was created successfully.
   std::optional<uint64_t> SetupIndex(const VectorIndexSpec &spec, NameIdMapper *name_id_mapper);
 
   /// @brief Attempts to add a vertex to the vector index if it matches the spec criteria.
   /// @param index_id The index ID of the index to add the vertex to.
   /// @param vertex The vertex to potentially add.
-  /// @param decoder Decoder for this vertex (decoder.entity must be &vertex).
+  /// @param decoder Decoder for this vertex.
   /// @param thread_id Optional thread ID hint for usearch's internal optimizations.
   void AddVertexToIndex(uint64_t index_id, Vertex &vertex, const IndexedPropertyDecoder<Vertex> &decoder,
                         std::optional<std::size_t> thread_id = std::nullopt);

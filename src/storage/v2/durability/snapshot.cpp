@@ -10671,7 +10671,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
     }
 
-    // Write vector indices (single pass over index map, no per-index lookup).
+    // Write vector indices
     {
       storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {

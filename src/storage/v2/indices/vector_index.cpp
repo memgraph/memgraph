@@ -458,6 +458,7 @@ bool VectorIndex::Empty() const { return pimpl->index_by_id_.empty(); }
 
 utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) const {
   utils::small_vector<uint64_t> result;
+  result.reserve(static_cast<uint32_t>(pimpl->index_by_id_.size()));
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
     if (index_item.spec.property != property) continue;
     if (!std::ranges::contains(vertex->labels, index_item.spec.label_id)) continue;
@@ -468,6 +469,7 @@ utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *ve
 
 std::unordered_map<PropertyId, uint64_t> VectorIndex::GetIndicesByLabel(LabelId label) const {
   std::unordered_map<PropertyId, uint64_t> result;
+  result.reserve(pimpl->index_by_id_.size());
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
     if (index_item.spec.label_id == label) {
       result.emplace(index_item.spec.property, index_id);
@@ -478,6 +480,7 @@ std::unordered_map<PropertyId, uint64_t> VectorIndex::GetIndicesByLabel(LabelId 
 
 std::unordered_map<LabelId, uint64_t> VectorIndex::GetIndicesByProperty(PropertyId property) const {
   std::unordered_map<LabelId, uint64_t> result;
+  result.reserve(pimpl->index_by_id_.size());
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
     if (index_item.spec.property == property) {
       result.emplace(index_item.spec.label_id, index_id);
