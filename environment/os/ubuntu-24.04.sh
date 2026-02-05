@@ -68,7 +68,6 @@ MEMGRAPH_BUILD_DEPS=(
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
-    doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
     dotnet-sdk-8.0 golang custom-golang custom-node # for driver tests
     autoconf # for jemalloc code generation
