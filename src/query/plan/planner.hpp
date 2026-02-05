@@ -32,6 +32,7 @@
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rewrite/parallel_rewrite.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
+#include "query/plan/rewrite/plan_cachable.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
@@ -82,8 +83,8 @@ class PostProcessor final {
            |
            // Keep at the end
            [&](auto p) {
-             return RewriteParallelExecution(std::move(p), symbol_table, ast, db, context->query->pre_query_directives_,
-                                             parameters_);
+             return RewriteParallelExecution(
+                 std::move(p), symbol_table, ast, db, context->query->pre_query_directives_, parameters_);
            }
 #endif
     ;
@@ -118,6 +119,12 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
   return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(query_parts);
 }
 
+struct MakeLogicalPlanResult {
+  PostProcessor::ProcessedPlan plan;
+  double cost;
+  bool is_cachable;
+};
+
 /// Generates the LogicalOperator tree and returns the resulting plan.
 ///
 /// @tparam TPlanningContext Type of the context used.
@@ -130,19 +137,21 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
 /// @return pair consisting of the final `TPlanPostProcess::ProcessedPlan` and
 /// the estimated cost of that plan as a `double`.
 template <class TPlanningContext, class TPlanPostProcess>
-auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner) {
+auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner)
+    -> MakeLogicalPlanResult {
   // AST (query::CypherQuery) -> plan::QueryParts
   auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query, false);
   auto &vertex_counts = *context->db;
-  double total_cost = std::numeric_limits<double>::max();
+
   bool curr_uses_index_hint = false;
   auto logger = spdlog::default_logger();
   auto should_log_query_plans = flags::run_time::GetDebugQueryPlans() && logger->should_log(spdlog::level::debug);
 
-  using ProcessedPlan = typename TPlanPostProcess::ProcessedPlan;
-  ProcessedPlan plan_with_least_cost;
+  using ProcessedPlan = TPlanPostProcess::ProcessedPlan;
 
-  std::optional<ProcessedPlan> curr_plan;
+  auto curr_plan = std::optional<ProcessedPlan>{};
+  auto total_cost = std::numeric_limits<double>::max();
+
   if (use_variable_planner) {
     auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
     bool valid_plan_found = false;
@@ -195,13 +204,17 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
     curr_plan.emplace(std::move(rewritten_plan));
   }
 
-  plan_with_least_cost = std::move(*curr_plan);
-
-  return std::make_pair(std::move(plan_with_least_cost), total_cost);
+  auto is_cachable = IsPlanCachable(**curr_plan);
+  return MakeLogicalPlanResult{
+      .plan = std::move(*curr_plan),
+      .cost = total_cost,
+      .is_cachable = is_cachable,
+  };
 }
 
 template <class TPlanningContext>
-auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
+auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner)
+    -> MakeLogicalPlanResult {
   PostProcessor post_processor(parameters, context->query->pre_query_directives_.index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
