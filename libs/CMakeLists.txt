@@ -355,5 +355,5 @@ add_library(tantivy_text_search ALIAS mgcxx_text_search)
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
