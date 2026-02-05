@@ -1119,21 +1119,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // `has_uncommitted_non_sequential_deltas` flag on any vertices we've touched
   if (transaction_.has_non_sequential_deltas) {
     std::unordered_set<Vertex *> vertices_to_check;
+    DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
     for (Delta const &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       if (prev.type == PreviousPtr::Type::VERTEX) {
         vertices_to_check.insert(prev.vertex);
-      } else if (prev.type == PreviousPtr::Type::DELTA) {
-        while (prev.type == PreviousPtr::Type::DELTA) {
-          if (prev.delta->timestamp != transaction_.commit_timestamp.get() &&
-              *prev.delta->timestamp < kTransactionInitialId) {
-            break;  // found a uncommitted non sequential so no need to update
-                    // `vertex->has_uncommitted_non_sequential_deltas`
-          }
-          prev = prev.delta->prev.Get();
-        }
-        if (prev.type == PreviousPtr::Type::VERTEX) {
-          vertices_to_check.insert(prev.vertex);
+      } else if (prev.type == PreviousPtr::Type::DELTA && IsDeltaNonSequential(delta)) {
+        Vertex *vertex = delta_vertex_cache.GetVertexFromDelta(&delta);
+        if (vertex != nullptr) {
+          vertices_to_check.insert(vertex);
         }
       }
     }
