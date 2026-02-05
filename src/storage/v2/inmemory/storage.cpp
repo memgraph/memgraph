@@ -1486,7 +1486,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             // For property label index
             //  check if we care about the property, this will return all the labels and then get current property
             //  value
-            index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
+            index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
             // Setting the correct value
             vertex->properties.SetProperty(current->property.key, *current->property.value);
             break;
@@ -3344,7 +3344,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT:
@@ -3384,7 +3384,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       } else {
         vertex = vertex_cache.GetVertexFromDelta(&delta);
       }
-      find_and_apply_deltas(&delta, *vertex, [](auto action) {
+      find_and_apply_deltas(&delta, vertex, [](auto action) {
         switch (action) {
           case Delta::Action::REMOVE_OUT_EDGE:
             return true;
@@ -3433,7 +3433,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::ADD_OUT_EDGE:
             return true;
@@ -3458,7 +3458,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
         switch (action) {
           case Delta::Action::RECREATE_OBJECT:
             return true;

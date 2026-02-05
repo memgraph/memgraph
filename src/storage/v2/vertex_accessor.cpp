@@ -91,16 +91,6 @@ std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, V
       PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = ListToVector(value)});
 }
 
-std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
-                                                             const PropertyValue &value) {
-  if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
-  auto vector_index_ids =
-      storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property, storage->name_id_mapper_.get());
-  if (vector_index_ids.empty()) return std::nullopt;
-  return PropertyValue(
-      PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = ListToVector(value)});
-}
-
 // Manages lock lifetime based on whether vertex currently has uncommitted
 // non-sequential deltas. Any transaction that has created non-sequential deltas may
 // abort and have to remove deltas from the middle of the delta chain. When a
