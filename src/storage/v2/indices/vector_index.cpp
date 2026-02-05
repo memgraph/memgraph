@@ -314,7 +314,7 @@ utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *verte
   auto &index_item = it->second;
   auto locked_index = index_item.mg_index.ReadLock();
   utils::small_vector<float> vector(locked_index->dimensions());
-  locked_index->get(vertex, vector.data());
+  if (!locked_index->get(vertex, vector.data())) return {};
   return vector;
 }
 
