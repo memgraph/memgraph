@@ -131,7 +131,7 @@ class Auth final {
    *
    * @return username + role if the module authenticated successfully and provided a valid response, nullopt otherwise
    */
-  std::optional<UserOrRole> CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
+  std::optional<UserOrRole> CallExternalModule(const std::string &scheme, nlohmann::json module_params,
                                                std::optional<std::string> provided_username = std::nullopt);
 
   /**

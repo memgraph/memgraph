@@ -10,6 +10,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <mutex>
@@ -44,7 +45,7 @@ class Module final {
   /// @param timeout_millisec timeout in ms used for communication with the
   ///                         module
   /// @return dict retuned by module function
-  nlohmann::json Call(const nlohmann::json &params, int timeout_millisec);
+  nlohmann::json Call(nlohmann::json params, int timeout_millisec);
 
   ~Module();
 
@@ -54,6 +55,7 @@ class Module final {
 
   std::filesystem::path module_executable_path_;
   std::mutex lock_;
+  uint64_t call_id_{0};
   pid_t pid_{-1};
   int status_{0};
   // The stack used for the `clone` system call must be heap allocated.
