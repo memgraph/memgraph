@@ -1502,7 +1502,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // Checks if the input operator uses an index (indicating we know the source cardinality).
   bool HasIndexedSource(std::shared_ptr<LogicalOperator> input_op) {
-    // TODO(ivan): check that operator is replaced by an indexed scan operator here already
     if (!input_op) {
       return false;
     }
@@ -1518,7 +1517,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
   // compared to SingleSourceShortestPath (multi-source BFS).
-  // assumes STShortestPaths is source*destination complexity
   bool ShouldUseSTShortestPath(double source_cnt, double target_cnt, EdgeAtom::Direction direction) {
     if (source_cnt == 0 || target_cnt == 0) return false;
 
