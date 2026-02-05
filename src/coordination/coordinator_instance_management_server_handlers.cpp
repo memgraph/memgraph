@@ -51,6 +51,24 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             coordinator_instance, request_version, req_reader, res_builder);
       });
 
+  server.Register<UnregisterInstanceRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::UnregisterInstanceHandler(
+            coordinator_instance, request_version, req_reader, res_builder);
+      });
+
+  server.Register<SetInstanceToMainRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::SetInstanceToMainHandler(
+            coordinator_instance, request_version, req_reader, res_builder);
+      });
+
   server.Register<ShowInstancesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                                         uint64_t const request_version,
                                         slk::Reader *req_reader,
@@ -98,6 +116,28 @@ void CoordinatorInstanceManagementServerHandlers::RegisterInstanceHandler(Coordi
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto const res = coordinator_instance.RegisterReplicationInstance(req.arg_);
   RegisterInstanceRes const rpc_res{res == RegisterInstanceCoordinatorStatus::SUCCESS};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+void CoordinatorInstanceManagementServerHandlers::UnregisterInstanceHandler(CoordinatorInstance &coordinator_instance,
+                                                                            uint64_t request_version,
+                                                                            slk::Reader *req_reader,
+                                                                            slk::Builder *res_builder) {
+  UnregisterInstanceReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  auto const res = coordinator_instance.UnregisterReplicationInstance(req.arg_);
+  UnregisterInstanceRes const rpc_res{res == UnregisterInstanceCoordinatorStatus::SUCCESS};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+void CoordinatorInstanceManagementServerHandlers::SetInstanceToMainHandler(CoordinatorInstance &coordinator_instance,
+                                                                           uint64_t request_version,
+                                                                           slk::Reader *req_reader,
+                                                                           slk::Builder *res_builder) {
+  SetInstanceToMainReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  auto const res = coordinator_instance.SetReplicationInstanceToMain(req.arg_);
+  SetInstanceToMainRes const rpc_res{res == SetInstanceToMainCoordinatorStatus::SUCCESS};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 

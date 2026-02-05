@@ -467,6 +467,16 @@ using RegisterInstanceReq =
 using RegisterInstanceRes = BoolResponse<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1>;
 using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
 
+using UnregisterInstanceReq =
+    SingleArgReq<utils::TypeId::COORD_UNREGISTER_INSTANCE_REQ, "UnregisterInstanceReq", 1, std::string>;
+using UnregisterInstanceRes = BoolResponse<utils::TypeId::COORD_UNREGISTER_INSTANCE_RES, "UnregisterInstanceRes", 1>;
+using UnregisterInstanceRpc = rpc::RequestResponse<UnregisterInstanceReq, UnregisterInstanceRes>;
+
+using SetInstanceToMainReq =
+    SingleArgReq<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_REQ, "SetInstanceToMainReq", 1, std::string>;
+using SetInstanceToMainRes = BoolResponse<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_RES, "SetInstanceToMainRes", 1>;
+using SetInstanceToMainRpc = rpc::RequestResponse<SetInstanceToMainReq, SetInstanceToMainRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -537,6 +547,8 @@ void Load(coordination::ReplicationLagReq *self, slk::Reader *reader);
 DECLARE_SLK_FREE_FUNCTIONS(coordination::AddCoordinatorRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RemoveCoordinatorRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RegisterInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
 
 }  // namespace memgraph::slk
 

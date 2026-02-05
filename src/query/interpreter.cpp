@@ -553,6 +553,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -924,6 +931,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }

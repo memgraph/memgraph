@@ -172,11 +172,33 @@ def test_register_instance_fwd(test_name):
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'}",
     )
 
+    # Follower can register the instance
+    execute_and_fetch_all(
+        follower_cursor,
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'}",
+    )
+
+    execute_and_fetch_all(follower_cursor, "SET INSTANCE instance_1 TO MAIN")
+
     data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+    ]
+    mg_sleep_and_assert(data, partial(show_instances, leader_cursor))
+    follower_cursor = connect(host="localhost", port=7691).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, follower_cursor))
+    follower2_cursor = connect(host="localhost", port=7692).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, follower2_cursor))
+
+    execute_and_fetch_all(follower_cursor, "unregister instance instance_2")
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
     ]
     mg_sleep_and_assert(data, partial(show_instances, leader_cursor))
     follower_cursor = connect(host="localhost", port=7691).cursor()

@@ -591,6 +591,17 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main_name)
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (ShouldForward(leader_id)) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendBoolRpc<SetInstanceToMainRpc>(std::string{new_main_name})
+                 ? SetInstanceToMainCoordinatorStatus::SUCCESS
+                 : SetInstanceToMainCoordinatorStatus::LEADER_FAILED;
+    }
+    return SetInstanceToMainCoordinatorStatus::LEADER_NOT_FOUND;
+  }
+
   spdlog::trace("Acquired lock to set replication instance to main in thread {}.", std::this_thread::get_id());
 
   // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called
@@ -804,6 +815,17 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
   metrics::IncrementCounter(metrics::UnregisterReplInstance);
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (ShouldForward(leader_id)) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendBoolRpc<UnregisterInstanceRpc>(std::string{instance_name})
+                 ? UnregisterInstanceCoordinatorStatus::SUCCESS
+                 : UnregisterInstanceCoordinatorStatus::LEADER_FAILED;
+    }
+    return UnregisterInstanceCoordinatorStatus::LEADER_NOT_FOUND;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }

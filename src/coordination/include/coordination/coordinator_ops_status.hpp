@@ -42,6 +42,8 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   RPC_FAILED,
   NOT_LEADER,
   RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED,
   SUCCESS,
 };
 
@@ -54,6 +56,8 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   COULD_NOT_PROMOTE_TO_MAIN,
   SUCCESS,
   ENABLE_WRITING_FAILED,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED,
 };
 
 enum class AddCoordinatorInstanceStatus : uint8_t {
