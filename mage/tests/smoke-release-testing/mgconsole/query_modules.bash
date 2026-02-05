@@ -3,10 +3,10 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../utils.bash"
 
 test_query_modules() {
-  IMAGE_TYPE=${1:-'mage'}
-  if [ "$IMAGE_TYPE" == 'mage' ]; then
+  IMAGE_TYPE=${1:-"mage"}
+  if [ "$IMAGE_TYPE" == "mage" ]; then
     expected_module_count=322
-  elif [ "$IMAGE_TYPE" == 'memgraph' ]; then
+  elif [ "$IMAGE_TYPE" == "memgraph" ]; then
     expected_module_count=135
   else
     echo "Invalid image type: $IMAGE_TYPE"
@@ -14,8 +14,10 @@ test_query_modules() {
   fi
   echo "FEATURE: All MAGE query modules"
   run_next_csv "CALL mg.procedures() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e $expected_module_count
-  run_next "CREATE (a), (b), (c), (d), (a)-[:ET]->(b), (c)-[:ET]->(d);"
-  run_next "CALL leiden_community_detection.get() YIELD * RETURN communities, community_id, node;"
+  if [ "$IMAGE_TYPE" == "mage" ]; then
+    run_next "CREATE (a), (b), (c), (d), (a)-[:ET]->(b), (c)-[:ET]->(d);"
+    run_next "CALL leiden_community_detection.get() YIELD * RETURN communities, community_id, node;"
+  fi
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
