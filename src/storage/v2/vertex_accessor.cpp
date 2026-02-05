@@ -51,8 +51,7 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
 std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
                                                              const PropertyValue &value) {
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
-  auto vector_index_ids =
-      storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property, storage->name_id_mapper_.get());
+  auto vector_index_ids = storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property);
   if (vector_index_ids.empty()) return std::nullopt;
   return PropertyValue(
       PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = ListToVector(value)});
@@ -432,7 +431,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_, storage_->name_id_mapper_.get());
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
   transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
   return std::move(old_value);
@@ -470,8 +469,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
         for (const auto &[property, new_value] : properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
           // TODO: defer until once all properties have been set, to make fewer entries ?
-          storage->indices_.UpdateOnSetProperty(
-              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
           if (transaction->constraint_verification_info) {
             if (!new_value.IsNull()) {
@@ -548,7 +546,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
-      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -601,8 +599,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-          storage->indices_.UpdateOnSetProperty(
-              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {
             std::visit(utils::Overloaded{

@@ -10686,7 +10686,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
         snapshot.WriteUint(resize_coefficient);
         snapshot.WriteUint(capacity);
         snapshot.WriteUint(static_cast<uint64_t>(scalar_kind));
-        storage->indices_.vector_index_.SerializeVectorIndex(&snapshot, index_name);
+        storage->indices_.vector_index_.SerializeVectorIndex(&snapshot, index_name, storage->name_id_mapper_.get());
       }
       if (snapshot_aborted()) {
         return std::nullopt;

@@ -214,14 +214,15 @@ class VectorIndex {
   /// @param property The property that was modified.
   /// @param value The VectorIndexId property value containing index references.
   /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           NameIdMapper *name_id_mapper);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
 
   /// @brief Retrieves the vector of a vertex as a list of float values.
   /// @param vertex The vertex to retrieve the vector from.
   /// @param index_name The name of the index to retrieve the vector from.
+  /// @param name_id_mapper Mapper for name/ID conversions.
   /// @return The vector of the vertex as a list of float values.
-  utils::small_vector<float> GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name) const;
+  utils::small_vector<float> GetVectorPropertyFromIndex(Vertex *vertex, std::string_view index_name,
+                                                        NameIdMapper *name_id_mapper) const;
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -241,9 +242,10 @@ class VectorIndex {
   /// @param index_name The name of the index to search.
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
+  /// @param name_id_mapper Mapper for name/ID conversions.
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
-                                      const std::vector<float> &query_vector) const;
+                                      const std::vector<float> &query_vector, NameIdMapper *name_id_mapper) const;
 
   /// @brief Removes obsolete entries from the index.
   /// @param token A stop token to allow for cancellation of the operation.
@@ -255,8 +257,9 @@ class VectorIndex {
 
   /// @brief Checks if a vector index exists for the given name.
   /// @param index_name The name of the index to check.
+  /// @param name_id_mapper Mapper for name/ID conversions.
   /// @return true if the index exists, false otherwise.
-  bool IndexExists(std::string_view index_name) const;
+  bool IndexExists(std::string_view index_name, NameIdMapper *name_id_mapper) const;
 
   /// @brief Checks if any vector index exists.
   /// @return true if no vector indices exist, false otherwise.
@@ -265,35 +268,37 @@ class VectorIndex {
   /// @brief Checks if the property is in the vector index.
   /// @param vertex The vertex to check.
   /// @param property The property to check.
-  /// @return true if the property is in the vector index, false otherwise.
-  utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property,
-                                                           NameIdMapper *name_id_mapper) const;
+  /// @return Vector of index IDs (from NameIdMapper) for indices that contain this vertex and property.
+  utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) const;
 
   /// @brief Gets all properties that have vector indices for the given label.
   /// @param label The label to get the properties for.
-  /// @return A map of property ids to index names.
-  std::unordered_map<PropertyId, std::string> GetIndicesByLabel(LabelId label) const;
+  /// @return A map of property ids to index IDs (from NameIdMapper).
+  std::unordered_map<PropertyId, uint64_t> GetIndicesByLabel(LabelId label) const;
 
   /// @brief Gets all labels that have vector indices for the given property.
   /// @param property The property to get the labels for.
-  /// @return A map of label ids to index names.
-  std::unordered_map<LabelId, std::string> GetIndicesByProperty(PropertyId property) const;
+  /// @return A map of label ids to index IDs (from NameIdMapper).
+  std::unordered_map<LabelId, uint64_t> GetIndicesByProperty(PropertyId property) const;
 
   /// @brief Serializes a vector index to a durability encoder.
   /// @param encoder The durability encoder to serialize to.
   /// @param index_name The name of the index to serialize.
-  void SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name) const;
+  /// @param name_id_mapper Mapper for name/ID conversions.
+  void SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name,
+                            NameIdMapper *name_id_mapper) const;
 
  private:
   /// @brief Removes a vertex from a vector index.
   /// @param vertex The vertex to remove.
-  /// @param index_name The name of the index to remove the vertex from.
-  void RemoveVertexFromIndex(Vertex *vertex, std::string_view index_name);
+  /// @param index_id The index ID (from NameIdMapper) of the index to remove the vertex from.
+  void RemoveVertexFromIndex(Vertex *vertex, uint64_t index_id);
 
   /// @brief Sets up a new vector index structure without populating it.
   /// @param spec The specification for the index to be created.
+  /// @param name_id_mapper Mapper for name/ID conversions (used to get index id from spec.index_name).
   /// @return true if the index was created successfully, false otherwise.
-  bool SetupIndex(VectorIndexSpec &spec);
+  bool SetupIndex(VectorIndexSpec &spec, NameIdMapper *name_id_mapper);
 
   /// @brief Attempts to add a vertex to the vector index if it matches the spec criteria.
   /// @param spec The index specification (may be modified if resize occurs).
