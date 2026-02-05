@@ -22,39 +22,6 @@
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
-
-namespace {
-// Helper class to manage vertex lock during delta reads.
-// Acquires shared lock in constructor.
-// For non-sequential deltas: holds lock until destructor (through ApplyDeltasForRead).
-// For non-non-sequential: call unlock_if_not_non_sequential() after copying snapshot.
-template <typename T>
-class ReadGuard {
- public:
-  explicit ReadGuard(T const *obj) : guard_(obj->lock) {
-    if constexpr (requires { obj->has_non_sequential_deltas; }) {
-      has_non_sequential_ = obj->has_non_sequential_deltas;
-    }
-  }
-
-  // Call this after copying snapshot (vertex state + delta pointer)
-  // Unlocks immediately if not non-sequential, keeps locked if non-sequential
-  void unlock_if_not_non_sequential() {
-    if (!has_non_sequential_ && guard_.owns_lock()) {
-      guard_.unlock();
-    }
-  }
-
-  bool has_non_sequential() const { return has_non_sequential_; }
-
- private:
-  std::shared_lock<memgraph::utils::RWSpinLock> guard_;
-  bool has_non_sequential_{false};
-};
-
-using VertexReadGuard = ReadGuard<memgraph::storage::Vertex>;
-}  // namespace
-
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"

@@ -276,7 +276,7 @@ class DeltaVertexCache {
         return current_prev.vertex;
       }
 
-      MG_ASSERT(current_prev.type == PreviousPtr::Type::DELTA, "Expected DELTA in vertex delta chain");
+      DMG_ASSERT(current_prev.type == PreviousPtr::Type::DELTA, "Expected DELTA in vertex delta chain");
 
       auto const prev_ts = current_prev.delta->timestamp->load(std::memory_order_acquire);
       // If the ts for the previous delta is different than this one's, we know
