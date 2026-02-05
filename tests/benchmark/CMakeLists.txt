@@ -79,3 +79,23 @@ target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
 
 add_benchmark(stack_erase_if.cpp)
 target_link_libraries(${test_prefix}stack_erase_if mg-utils)
+
+# USearch index_dense benchmark: same source, two configs (builtin vs simsimd) to compare metric path.
+# Commented out so it is not part of CI/CD; uncomment to build and run locally.
+# usearch_builtin and usearch are defined in libs/CMakeLists.txt.
+#[[
+set(usearch_bench_src usearch_index_add.cpp)
+add_executable(${test_prefix}usearch_index_add_builtin ${usearch_bench_src})
+set_target_properties(${test_prefix}usearch_index_add_builtin PROPERTIES OUTPUT_NAME usearch_index_add_builtin)
+target_link_libraries(${test_prefix}usearch_index_add_builtin benchmark::benchmark gflags mg-memory usearch_builtin)
+add_test(NAME ${test_prefix}usearch_index_add_builtin COMMAND $<TARGET_FILE:${test_prefix}usearch_index_add_builtin>)
+set_tests_properties(${test_prefix}usearch_index_add_builtin PROPERTIES LABELS "benchmark")
+add_dependencies(memgraph__benchmark ${test_prefix}usearch_index_add_builtin)
+
+add_executable(${test_prefix}usearch_index_add_simsimd ${usearch_bench_src})
+set_target_properties(${test_prefix}usearch_index_add_simsimd PROPERTIES OUTPUT_NAME usearch_index_add_simsimd)
+target_link_libraries(${test_prefix}usearch_index_add_simsimd benchmark::benchmark gflags mg-memory usearch)
+add_test(NAME ${test_prefix}usearch_index_add_simsimd COMMAND $<TARGET_FILE:${test_prefix}usearch_index_add_simsimd>)
+set_tests_properties(${test_prefix}usearch_index_add_simsimd PROPERTIES LABELS "benchmark")
+add_dependencies(memgraph__benchmark ${test_prefix}usearch_index_add_simsimd)
+]]

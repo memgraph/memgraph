@@ -361,3 +361,13 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 target_compile_definitions(usearch INTERFACE
   USEARCH_USE_FP16LIB=1
   USEARCH_USE_SIMSIMD=1)
+
+# usearch_builtin: same headers as usearch but SimSIMD/FP16 off (builtin L2 path).
+# Used by tests/benchmark usearch_index_add_builtin to compare against usearch_index_add_simsimd.
+add_library(usearch_builtin INTERFACE)
+target_include_directories(usearch_builtin INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/simsimd/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+target_compile_definitions(usearch_builtin INTERFACE USEARCH_USE_FP16LIB=0 USEARCH_USE_SIMSIMD=0)
