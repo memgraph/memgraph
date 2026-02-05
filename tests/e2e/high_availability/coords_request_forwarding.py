@@ -206,6 +206,19 @@ def test_register_instance_fwd(test_name):
     follower2_cursor = connect(host="localhost", port=7692).cursor()
     mg_sleep_and_assert(data, partial(show_instances, follower2_cursor))
 
+    execute_and_fetch_all(follower_cursor, "demote instance instance_1")
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+    ]
+    mg_sleep_and_assert(data, partial(show_instances, leader_cursor))
+    follower_cursor = connect(host="localhost", port=7691).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, follower_cursor))
+    follower2_cursor = connect(host="localhost", port=7692).cursor()
+    mg_sleep_and_assert(data, partial(show_instances, follower2_cursor))
+
 
 def test_add_coordinator_fwd(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)

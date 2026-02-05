@@ -477,6 +477,10 @@ using SetInstanceToMainReq =
 using SetInstanceToMainRes = BoolResponse<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_RES, "SetInstanceToMainRes", 1>;
 using SetInstanceToMainRpc = rpc::RequestResponse<SetInstanceToMainReq, SetInstanceToMainRes>;
 
+using DemoteInstanceReq = SingleArgReq<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
+using DemoteInstanceRes = BoolResponse<utils::TypeId::COORD_DEMOTE_INSTANCE_RES, "DemoteInstanceRes", 1>;
+using DemoteInstanceRpc = rpc::RequestResponse<DemoteInstanceReq, DemoteInstanceRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -549,6 +553,7 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::RemoveCoordinatorRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RegisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 
 }  // namespace memgraph::slk
 

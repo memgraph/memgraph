@@ -595,6 +595,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }

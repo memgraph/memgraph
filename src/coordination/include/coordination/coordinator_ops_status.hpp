@@ -114,7 +114,9 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
   RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
-  NOT_COORDINATOR
+  NOT_COORDINATOR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED,
 };
 
 enum class ReconcileClusterStateStatus : uint8_t { SUCCESS = 0, FAIL, SHUTTING_DOWN, NOT_LEADER_ANYMORE };

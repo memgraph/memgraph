@@ -398,6 +398,8 @@ SLK_SINGLE_ARG_REQ(coordination::UnregisterInstanceReq)
 SLK_BOOL_RES(coordination::UnregisterInstanceRes)
 SLK_SINGLE_ARG_REQ(coordination::SetInstanceToMainReq)
 SLK_BOOL_RES(coordination::SetInstanceToMainRes)
+SLK_SINGLE_ARG_REQ(coordination::DemoteInstanceReq)
+SLK_BOOL_RES(coordination::DemoteInstanceRes)
 }  // namespace slk
 
 }  // namespace memgraph

@@ -69,6 +69,15 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             coordinator_instance, request_version, req_reader, res_builder);
       });
 
+  server.Register<DemoteInstanceRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::DemoteInstanceHandler(
+            coordinator_instance, request_version, req_reader, res_builder);
+      });
+
   server.Register<ShowInstancesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                                         uint64_t const request_version,
                                         slk::Reader *req_reader,
@@ -138,6 +147,17 @@ void CoordinatorInstanceManagementServerHandlers::SetInstanceToMainHandler(Coord
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto const res = coordinator_instance.SetReplicationInstanceToMain(req.arg_);
   SetInstanceToMainRes const rpc_res{res == SetInstanceToMainCoordinatorStatus::SUCCESS};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+void CoordinatorInstanceManagementServerHandlers::DemoteInstanceHandler(CoordinatorInstance &coordinator_instance,
+                                                                        uint64_t request_version,
+                                                                        slk::Reader *req_reader,
+                                                                        slk::Builder *res_builder) {
+  DemoteInstanceReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  auto const res = coordinator_instance.DemoteInstanceToReplica(req.arg_);
+  DemoteInstanceRes const rpc_res{res == DemoteInstanceCoordinatorStatus::SUCCESS};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 

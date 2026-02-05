@@ -682,6 +682,16 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   metrics::IncrementCounter(metrics::DemoteInstance);
   auto lock = std::lock_guard{coord_instance_lock_};
 
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (ShouldForward(leader_id)) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendBoolRpc<DemoteInstanceRpc>(std::string{instance_name})
+                 ? DemoteInstanceCoordinatorStatus::SUCCESS
+                 : DemoteInstanceCoordinatorStatus::LEADER_FAILED;
+    }
+    return DemoteInstanceCoordinatorStatus::LEADER_NOT_FOUND;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return DemoteInstanceCoordinatorStatus::NOT_LEADER;
   }
