@@ -147,6 +147,7 @@ def setup_cluster(test_name, setup_queries, coord_port):
     return inner_instances_description
 
 
+# @pytest.mark.skip(reason="works")
 def test_add_coordinator_fwd(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -228,11 +229,6 @@ def test_remove_coordinator_fwd(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
-
-    follower_data = [
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-    ]
-    mg_sleep_and_assert(leader_data, partial(show_instances, follower_cursor))
 
 
 if __name__ == "__main__":

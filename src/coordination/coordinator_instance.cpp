@@ -216,15 +216,23 @@ auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
 void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
   auto connectors = coordinator_connectors_.Lock();
 
+  std::erase_if(*connectors, [&coord_instances_aux](auto const &connector) {
+    return std::ranges::none_of(coord_instances_aux, [coord_id = connector.first](auto const &instance_aux) {
+      return instance_aux.id == coord_id;
+    });
+  });
+
   for (auto const &coordinator : coord_instances_aux) {
     if (coordinator.id == raft_state_->GetMyCoordinatorId()) {
       continue;
     }
-    auto const coord_connector = std::ranges::find_if(
-        *connectors, [coordinator_id = coordinator.id](auto &&connector) { return connector.first == coordinator_id; });
-    if (coord_connector != connectors->end()) {
+
+    if (std::ranges::any_of(*connectors, [coordinator_id = coordinator.id](auto const &connector) {
+          return connector.first == coordinator_id;
+        })) {
       continue;
     }
+
     spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.",
                   coordinator.id,
                   coordinator.management_server);
