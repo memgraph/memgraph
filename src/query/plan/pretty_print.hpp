@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,6 +69,20 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByPointDistance & /*unused*/) override;
   bool PreVisit(ScanAllByPointWithinbbox & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
+  bool PreVisit(ScanChunk & /*unused*/) override;
+  bool PreVisit(ScanChunkByEdge & /*unused*/) override;
+  bool PreVisit(ScanParallel & /*unused*/) override;
+  bool PreVisit(ScanParallelByLabel & /*unused*/) override;
+  bool PreVisit(ScanParallelByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdge & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeType & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ParallelMerge & /*unused*/) override;
 
   bool PreVisit(Expand & /*unused*/) override;
   bool PreVisit(ExpandVariable & /*unused*/) override;
@@ -88,9 +102,11 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Produce & /*unused*/) override;
   bool PreVisit(Accumulate & /*unused*/) override;
   bool PreVisit(Aggregate & /*unused*/) override;
+  bool PreVisit(AggregateParallel & /*unused*/) override;
   bool PreVisit(Skip & /*unused*/) override;
   bool PreVisit(Limit & /*unused*/) override;
   bool PreVisit(OrderBy & /*unused*/) override;
+  bool PreVisit(OrderByParallel & /*unused*/) override;
   bool PreVisit(Distinct & /*unused*/) override;
   bool PreVisit(Union & /*unused*/) override;
   bool PreVisit(RollUpApply & /*unused*/) override;
@@ -126,9 +142,12 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   /// and printing the branch name.
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
+  char StartSymbol() const { return is_parallel_ ? 'P' : '*'; }
+
   int64_t depth_{0};
   const DbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
+  bool is_parallel_{false};
 };
 
 }  // namespace plan

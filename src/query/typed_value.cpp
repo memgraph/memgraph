@@ -197,6 +197,12 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
       return;
     }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = value.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      return;
+    }
   }
   LOG_FATAL("Unsupported type");
 }
@@ -336,6 +342,12 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
       break;
     }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = other.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      break;
+    }
   }
 
   other = storage::PropertyValue();
@@ -460,6 +472,12 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
       alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
+      return;
+    }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = value.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
   }
@@ -588,6 +606,12 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
       alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
+      break;
+    }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vec = other.ValueVectorIndexList();
+      type_ = Type::List;
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
     }
   }
@@ -1422,6 +1446,7 @@ bool IsTemporalType(const TypedValue::Type type) {
                                              TypedValue::Type::Duration};
   return std::ranges::any_of(temporal_types, [type](const auto temporal_type) { return temporal_type == type; });
 };
+
 }  // namespace
 
 // TODO: make it faster
@@ -1454,6 +1479,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
     }
   };
   if (!is_legal(a.type()) || !is_legal(b.type())) {
+    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type())) return {};
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
   }
 
@@ -1463,7 +1489,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      return {};
     } else {
       return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
     }
@@ -1471,7 +1497,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      return {};
     }
 
     switch (a.type()) {
@@ -1857,16 +1883,9 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
   if (lhs.IsNull() && rhs.IsNull()) return true;
   TypedValue equality_result = lhs == rhs;
-  switch (equality_result.type()) {
-    case TypedValue::Type::Bool:
-      return equality_result.ValueBool();
-    case TypedValue::Type::Null:
-      return false;
-    default:
-      LOG_FATAL(
-          "Equality between two TypedValues resulted in something other "
-          "than Null or bool");
-  }
+  DMG_ASSERT(equality_result.type() == TypedValue::Type::Bool || equality_result.type() == TypedValue::Type::Null,
+             "Equality between two TypedValues must result in either Null or Bool");
+  return equality_result.type() == TypedValue::Type::Bool && equality_result.ValueBool();
 }
 
 size_t TypedValue::Hash::operator()(const TypedValue &value) const {
@@ -1876,12 +1895,17 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Bool:
       return std::hash<bool>{}(value.ValueBool());
     case TypedValue::Type::Int:
-      // we cast int to double for hashing purposes
-      // to be consistent with TypedValue equality
-      // in which (2.0 == 2) returns true
-      return std::hash<double>{}((double)value.ValueInt());
-    case TypedValue::Type::Double:
-      return std::hash<double>{}(value.ValueDouble());
+      return std::hash<int64_t>{}(value.ValueInt());
+    case TypedValue::Type::Double: {
+      // Store whole number doubles as int hashes to be consistent with
+      // TypedValue equality in which (2.0 == 2) returns true
+      const double double_value = std::trunc(value.ValueDouble());
+      double whole_value = 0.0;
+      if (std::modf(double_value, &whole_value) == 0.0) {
+        return std::hash<int64_t>{}(static_cast<int64_t>(whole_value));
+      }
+      return std::hash<double>{}(double_value);
+    }
     case TypedValue::Type::String:
       return std::hash<std::string_view>{}(value.ValueString());
     case TypedValue::Type::List: {

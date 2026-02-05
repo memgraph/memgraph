@@ -163,7 +163,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
     current_value.emplace(edge_.ptr->properties.GetProperty(property));
-    if (skip_duplicate_write && current_value == value) {
+    if (skip_duplicate_write && *current_value == value) {
       return;
     }
     // We could skip setting the value if the previous one is the same to the new
@@ -196,7 +196,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   return std::move(*current_value);
 }
 
-Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 

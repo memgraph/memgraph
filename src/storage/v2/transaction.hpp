@@ -164,6 +164,10 @@ struct Transaction {
     manyDeltasCache.Invalidate(vertex);
   }
 
+  void SetParallelExecution() { parallel_execution_ = true; }
+
+  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   std::optional<uint64_t> original_start_timestamp{};
@@ -232,6 +236,8 @@ struct Transaction {
 
   /// Auto indexing infomation gathering
   AsyncIndexHelper async_index_helper_;
+
+  bool parallel_execution_{false};  // For now just disable for the whole query
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

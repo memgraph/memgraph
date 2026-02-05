@@ -100,7 +100,7 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 // to ensure that the indices consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
+void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
@@ -118,8 +118,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,
-                                       RecoveredIndicesAndConstraints const &indices_constraints,
-                                       bool properties_on_edges,
+                                       RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,

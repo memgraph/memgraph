@@ -369,10 +369,12 @@ TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
 
 TYPED_TEST(AllTypesFixture, Less) {
   // 'Less' is legal only between numerics, Null and strings.
+  using memgraph::query::is_canonical;
   auto is_string_compatible = [](const TypedValue &v) { return v.IsNull() || v.type() == TypedValue::Type::String; };
   auto is_numeric_compatible = [](const TypedValue &v) { return v.IsNull() || v.IsNumeric(); };
   for (TypedValue &a : this->values_) {
     for (TypedValue &b : this->values_) {
+      if (is_canonical(a.type()) || is_canonical(b.type())) continue;
       if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
       if (is_string_compatible(a) && is_string_compatible(b)) continue;
       // Comparison should raise an exception. Cast to (void) so the compiler

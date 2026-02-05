@@ -10,13 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertex_accessor.hpp"
-
-#include <algorithm>
-#include <cstdint>
-#include <memory>
-#include <tuple>
-#include <utility>
-
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -26,6 +19,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -53,6 +47,16 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
                               storage->LabelToName(violation.label),
                               storage->PropertyToName(*violation.properties.begin()));
 }
+
+std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, Vertex *vertex, PropertyId property,
+                                                             const PropertyValue &value) {
+  if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
+  auto vector_index_ids =
+      storage->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property, storage->name_id_mapper_.get());
+  if (vector_index_ids.empty()) return std::nullopt;
+  return PropertyValue(
+      PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = ListToVector(value)});
+}
 }  // namespace
 
 namespace detail {
@@ -71,8 +75,7 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    // TODO Disable for parallel execution v1
-    auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction->UseCache();
 
     if (useCache) {
       auto const &cache = transaction->manyDeltasCache;
@@ -178,7 +181,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   /// TODO: some by pointers, some by reference => not good, make it better
   transaction_->active_constraints_.unique_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
-  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
+  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
@@ -227,7 +230,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     }
   }
 
-  auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
+  auto it = r::find(vertex_->labels, label);
   if (it == vertex_->labels.end()) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, &it]() {
@@ -240,7 +243,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   transaction_->active_constraints_.unique_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
+  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
@@ -273,7 +276,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -320,7 +323,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -350,12 +353,20 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &new_value) const {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  // Use converted value for vector index when applicable; otherwise use the input as-is.
+  std::optional<PropertyValue> converted;
+  if (!storage_->indices_.vector_index_.Empty()) {
+    converted = TryConvertToVectorIndexProperty(storage_, vertex_, property, value);
+  }
+  const auto &new_value = converted.value_or(value);
+
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -374,17 +385,17 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
                                   &old_value,
                                   skip_duplicate_write,
                                   &schema_acc]() {
-    old_value = vertex->properties.GetProperty(property);
+    old_value = vertex->properties.GetProperty(
+        property,
+        IndexedPropertyDecoder<Vertex>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
     // avoid copying the value. The reason we are not doing that is because the
     // current code always follows the logical pattern of "create a delta" and
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
-    if (skip_duplicate_write && old_value == new_value) {
-      return true;
-    }
-
+    if (skip_duplicate_write && old_value == new_value) return true;
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     vertex->properties.SetProperty(property, new_value);
     if (schema_acc) {
@@ -421,18 +432,27 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
   return std::move(old_value);
 }
 
-Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  if (!storage_->indices_.vector_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
+
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -450,7 +470,8 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         for (const auto &[property, new_value] : properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
           // TODO: defer until once all properties have been set, to make fewer entries ?
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          storage->indices_.UpdateOnSetProperty(
+              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
           transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
           if (transaction->constraint_verification_info) {
             if (!new_value.IsNull()) {
@@ -492,6 +513,16 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  // If there is a vector index, we might need to convert list type properties to vector index property value types.
+  if (!storage_->indices_.vector_index_.Empty()) {
+    r::for_each(properties, [&](auto &pair) {
+      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
+        pair.second = std::move(*converted);
+      }
+    });
+  }
+
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -514,11 +545,10 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     if (!id_old_new_change) {
       return;
     }
-
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
-      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage->name_id_mapper_.get());
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -571,7 +601,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          storage->indices_.UpdateOnSetProperty(
+              property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {
             std::visit(utils::Overloaded{
@@ -595,11 +626,16 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
+
   auto value = std::invoke([&]() -> PropertyValue {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
     delta = vertex_->delta;
-    return vertex_->properties.GetProperty(property);
+    auto prop_value = vertex_->properties.GetProperty(
+        property,
+        IndexedPropertyDecoder<Vertex>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+    return prop_value;
   });
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -607,7 +643,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) [[unlikely]] {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -666,7 +702,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    properties = vertex_->properties.Properties();
+    properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
     delta = vertex_->delta;
   }
 
@@ -675,7 +712,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -733,7 +770,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -858,7 +895,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -947,7 +984,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -1013,7 +1050,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -1069,7 +1106,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -1105,20 +1142,17 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edge
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
 
-  int64_t expanded_count = 0;
+  uint64_t expanded_count = 0;
   if (hops_limit && hops_limit->IsUsed()) {
-    if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(edges.size()) > 0) {
-      hops_limit->limit_reached = true;
-    } else {
-      expanded_count = std::min(hops_limit->LeftHops(), static_cast<int64_t>(edges.size()));
-      hops_limit->IncrementHopsCount(expanded_count);
+    expanded_count = hops_limit->IncrementHopsCount(edges.size());
+    if (expanded_count > 0) {
       std::copy_n(edges.begin(), expanded_count, std::back_inserter(result_edges));
     }
   } else {
-    expanded_count = static_cast<int64_t>(edges.size());
+    expanded_count = edges.size();
     result_edges = edges;
   }
-  return expanded_count;
+  return static_cast<int64_t>(expanded_count);
 }
 
 int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
@@ -1128,17 +1162,17 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   if (edges.empty()) return 0;
 
-  int64_t expanded_count = 0;
+  uint64_t expanded_count = 0;
   for (const auto &[edge_type, vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
     }
     expanded_count++;
     if (destination && vertex != destination->vertex_) continue;
     if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type)) continue;
     result_edges.emplace_back(edge_type, vertex, edge);
   }
-  return expanded_count;
+  return static_cast<int64_t>(expanded_count);
 }
 }  // namespace memgraph::storage

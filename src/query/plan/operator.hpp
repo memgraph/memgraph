@@ -29,6 +29,7 @@
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/shared_quota.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/visitor.hpp"
 
@@ -163,6 +164,22 @@ class PeriodicCommit;
 class PeriodicSubquery;
 class SetNestedProperty;
 class RemoveNestedProperty;
+class AggregateParallel;
+class OrderByParallel;
+class ParallelMerge;
+class ScanParallel;
+class ScanParallelByLabel;
+class ScanParallelByLabelProperties;
+class ScanParallelByEdge;
+class ScanParallelByEdgeType;
+class ScanParallelByEdgeTypeProperty;
+class ScanParallelByEdgeTypePropertyValue;
+class ScanParallelByEdgeTypePropertyRange;
+class ScanParallelByEdgeProperty;
+class ScanParallelByEdgePropertyValue;
+class ScanParallelByEdgePropertyRange;
+class ScanChunk;
+class ScanChunkByEdge;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -172,7 +189,11 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
-    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl>;
+    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel,
+    OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
+    ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
+    ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
+    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1827,7 +1848,7 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
 /// elements are in an undefined state after aggregation.
 class Aggregate : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::AGGREGATE, "Aggregate", &query::plan::LogicalOperator::kType};
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
@@ -1872,6 +1893,398 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
+class ParallelMerge : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ParallelMerge() = default;
+  explicit ParallelMerge(const std::shared_ptr<LogicalOperator> &input);
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  std::shared_ptr<LogicalOperator> input_;
+};
+
+class AggregateParallel : public memgraph::query::plan::LogicalOperator {
+ public:
+  static constexpr utils::TypeInfo kType{
+      utils::TypeId::AGGREGATE_PARALLEL, "AggregateParallel", &query::plan::ParallelMerge::kType};
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AggregateParallel() = default;
+  AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads);
+
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem) const override;
+
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  size_t num_threads_;
+
+  std::string ToString() const override { return "AggregateParallel"; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<AggregateParallel>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->num_threads_ = num_threads_;
+    return object;
+  }
+};
+
+class OrderByParallel : public memgraph::query::plan::LogicalOperator {
+ public:
+  static constexpr utils::TypeInfo kType{
+      utils::TypeId::ORDERBY_PARALLEL, "OrderByParallel", &query::plan::LogicalOperator::kType};
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  OrderByParallel() = default;
+  OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby_input, size_t num_threads);
+
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *mem) const override;
+
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override;
+
+  std::vector<Symbol> OutputSymbols(const SymbolTable &symbol_table) const override;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  size_t num_threads_;
+
+  std::string ToString() const override { return "OrderByParallel"; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<OrderByParallel>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->num_threads_ = num_threads_;
+    return object;
+  }
+};
+
+class ScanParallel : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallel() = default;
+  ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+               Symbol state_symbol);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &table) const override {
+#ifdef MG_ENTERPRISE
+    return input_->ModifiedSymbols(table);
+#else
+    return {};
+#endif
+  }
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  std::shared_ptr<LogicalOperator> input_;
+  storage::View view_;
+  size_t num_threads_;
+  Symbol state_symbol_;
+};
+
+/// Parallel scan variant for vertices with a specific label.
+class ScanParallelByLabel : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByLabel() = default;
+  ScanParallelByLabel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                      Symbol state_symbol, storage::LabelId label);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::LabelId label_;
+};
+
+/// Parallel scan variant for edges with a specific edge type.
+class ScanParallelByEdgeType : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdgeType() = default;
+  ScanParallelByEdgeType(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                         Symbol state_symbol, storage::EdgeTypeId edge_type);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::EdgeTypeId edge_type_;
+};
+
+/// Parallel scan variant for vertices with label and property ranges.
+class ScanParallelByLabelProperties : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByLabelProperties() = default;
+  ScanParallelByLabelProperties(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                                Symbol state_symbol, storage::LabelId label,
+                                std::vector<storage::PropertyPath> properties,
+                                std::vector<ExpressionRange> expression_ranges);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::LabelId label_;
+  std::vector<storage::PropertyPath> properties_;
+  std::vector<ExpressionRange> expression_ranges_;
+};
+
+/// Parallel scan variant for edges with edge type and property.
+class ScanParallelByEdgeTypeProperty : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdgeTypeProperty() = default;
+  ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                                 Symbol state_symbol, storage::EdgeTypeId edge_type, storage::PropertyId property);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::EdgeTypeId edge_type_;
+  storage::PropertyId property_;
+};
+
+/// Parallel scan variant for edges with edge type, property, and range.
+class ScanParallelByEdgeTypePropertyRange : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  using Bound = utils::Bound<Expression *>;
+  ScanParallelByEdgeTypePropertyRange() = default;
+  ScanParallelByEdgeTypePropertyRange(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                      size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type,
+                                      storage::PropertyId property, std::optional<Bound> lower_bound,
+                                      std::optional<Bound> upper_bound);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::EdgeTypeId edge_type_;
+  storage::PropertyId property_;
+  std::optional<Bound> lower_bound_;
+  std::optional<Bound> upper_bound_;
+};
+
+/// Parallel scan variant for edges with property only.
+class ScanParallelByEdgeProperty : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdgeProperty() = default;
+  ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                             Symbol state_symbol, storage::PropertyId property);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::PropertyId property_;
+};
+
+/// Parallel scan variant for edges with property and value.
+class ScanParallelByEdgePropertyValue : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdgePropertyValue() = default;
+  ScanParallelByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                                  Symbol state_symbol, storage::PropertyId property, Expression *expression);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::PropertyId property_;
+  Expression *expression_;
+};
+
+/// Parallel scan variant for edges with property and range.
+class ScanParallelByEdgePropertyRange : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  using Bound = utils::Bound<Expression *>;
+  ScanParallelByEdgePropertyRange() = default;
+  ScanParallelByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                                  Symbol state_symbol, storage::PropertyId property, std::optional<Bound> lower_bound,
+                                  std::optional<Bound> upper_bound);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::PropertyId property_;
+  std::optional<Bound> lower_bound_;
+  std::optional<Bound> upper_bound_;
+};
+
+/// Parallel scan variant for edges (base edge scan).
+class ScanParallelByEdge : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdge() = default;
+  ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                     Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
+                     EdgeAtom::Direction direction);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  Symbol edge_symbol_;
+  Symbol node1_symbol_;
+  Symbol node2_symbol_;
+  EdgeAtom::Direction direction_;
+};
+
+/// Parallel scan variant for edges by edge type, property, and value.
+class ScanParallelByEdgeTypePropertyValue : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByEdgeTypePropertyValue() = default;
+  ScanParallelByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                      size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type,
+                                      storage::PropertyId property, Expression *expression);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::EdgeTypeId edge_type_;
+  storage::PropertyId property_;
+  Expression *expression_;
+};
+
+class ScanChunk : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanChunk() = default;
+  ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
+            Symbol state_symbol);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  Symbol state_symbol_;
+};
+
+class ScanChunkByEdge : public memgraph::query::plan::ScanAllByEdge {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanChunkByEdge() = default;
+  ScanChunkByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                  Symbol node2_symbol, EdgeAtom::Direction direction,
+                  const std::vector<storage::EdgeTypeId> &edge_types, storage::View view, Symbol state_symbol);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  Symbol state_symbol_;
+};
+
 /// Skips a number of Pulls from the input op.
 ///
 /// The given expression determines how many Pulls from the input
@@ -1885,7 +2298,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
 /// operator's implementation does not expect this.
 class Skip : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::SKIP, "Skip", &query::plan::LogicalOperator::kType};
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
@@ -1905,6 +2318,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *expression_;
+  std::optional<size_t> parallel_execution_{std::nullopt};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1922,7 +2336,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
     // init to_skip_ to -1, indicating
     // that it's still unknown (input has not been Pulled yet)
     int64_t to_skip_{-1};
-    int64_t skipped_{0};
+    std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
   };
 };
 
@@ -1981,7 +2395,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
 /// input should be performed).
 class Limit : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::LIMIT, "Limit", &query::plan::LogicalOperator::kType};
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
@@ -2001,6 +2415,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *expression_;
+  std::optional<size_t> parallel_execution_{std::nullopt};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -2018,7 +2433,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
     // init limit_ to -1, indicating
     // that it's still unknown (Cursor has not been Pulled yet)
     int64_t limit_{-1};
-    int64_t pulled_{0};
+    std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
   };
 };
 
@@ -2034,7 +2449,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
 /// are valid for usage after the OrderBy operator.
 class OrderBy : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::ORDERBY, "OrderBy", &query::plan::LogicalOperator::kType};
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
@@ -2053,10 +2468,13 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
+  void set_parallel_execution(bool value) { parallel_execution_ = value; }
+
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   TypedValueVectorCompare compare_;
   std::vector<Expression *> order_by_;
   std::vector<Symbol> output_symbols_;
+  bool parallel_execution_{false};  // When true, OrderByCursor keeps order_by_cache_ for OrderByParallel merge
 
   std::string ToString() const override;
 
@@ -2216,7 +2634,7 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
 /// This implementation maintains input ordering.
 class Distinct : public memgraph::query::plan::LogicalOperator {
  public:
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{utils::TypeId::DISTINCT, "Distinct", &query::plan::LogicalOperator::kType};
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
@@ -2236,6 +2654,7 @@ class Distinct : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<Symbol> value_symbols_;
+  std::optional<size_t> parallel_execution_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };

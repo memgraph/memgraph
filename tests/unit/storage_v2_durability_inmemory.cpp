@@ -130,9 +130,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     // Pre-create commonly used PropertyValue objects to reduce allocation overhead
     const auto text_property_value = memgraph::storage::PropertyValue("text_value");
     // Note: enum_property_value will be created after the enum is registered
-    // Pre-create vector property for edge optimization
-    const auto vector_property_value = memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
 
     const auto property_vector = store->NameToProperty("vector");
     const auto vector_index_name = "vector_index"s;
@@ -141,14 +138,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{vector_index_name,
-                                                                      label_indexed,
-                                                                      property_vector,
-                                                                      vector_index_metric,
-                                                                      vector_index_dim,
-                                                                      vector_index_resize_coefficient,
-                                                                      vector_index_capacity,
-                                                                      vector_index_scalar_kind};
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
+                                           .label_id = label_indexed,
+                                           .property = property_vector,
+                                           .metric_kind = vector_index_metric,
+                                           .dimension = vector_index_dim,
+                                           .resize_coefficient = vector_index_resize_coefficient,
+                                           .capacity = vector_index_capacity,
+                                           .scalar_kind = vector_index_scalar_kind};
 
     {
       // Create enum.
@@ -246,6 +244,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(unique_acc->CreateVectorIndex(vector_index_spec).has_value());
       ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
+    const auto vector_index_id = store->name_id_mapper_->NameToId(vector_index_name);
+    const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
+        memgraph::storage::PropertyValue::VectorIndexIdData{memgraph::utils::small_vector<uint64_t>{vector_index_id},
+                                                            memgraph::utils::small_vector<float>{1.0F, 1.0F}});
+
+    // Edge vector index still uses regular list property (to be updated in future)
+    const auto edge_vector_property_value =
+        memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+            memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
 
     {
       // Create text index.
@@ -319,7 +326,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // first 5 have vector values
       if (i < 5) {
-        ASSERT_TRUE(vertex.SetProperty(property_vector, vector_property_value).has_value());
+        ASSERT_TRUE(vertex.SetProperty(property_vector, vertex_vector_property_value).has_value());
       }
 
       // lower 1/3 and top 1/2 have ids
@@ -373,7 +380,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).has_value());
         // For the first 5 edges of et1, set a vector property for the vector edge index
         if (i < 5) {
-          ASSERT_TRUE(edge.SetProperty(property_vector, vector_property_value).has_value());
+          ASSERT_TRUE(edge.SetProperty(property_vector, edge_vector_property_value).has_value());
         }
         if (i == 5) {
           // one edge will have property text
@@ -512,14 +519,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{vector_edge_index_name,
-                                                                               edge_type,
-                                                                               prop,
-                                                                               vector_index_metric,
-                                                                               vector_index_dim,
-                                                                               vector_index_resize_coefficient,
-                                                                               vector_index_capacity,
-                                                                               vector_index_scalar_kind};
+    const auto vector_edge_index_spec =
+        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
+                                               .edge_type_id = edge_type,
+                                               .property = prop,
+                                               .metric_kind = vector_index_metric,
+                                               .dimension = vector_index_dim,
+                                               .resize_coefficient = vector_index_resize_coefficient,
+                                               .capacity = vector_index_capacity,
+                                               .scalar_kind = vector_index_scalar_kind};
     {
       // Create edge-type vector index.
       auto unique_acc = store->UniqueAccess();
@@ -566,10 +574,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     const auto text_index_name = "text_index"s;
     const auto text_edge_index_name = "text_edge_index"s;
-    const auto text_index_spec =
-        memgraph::storage::TextIndexSpec{text_index_name, base_label_indexed, std::vector{property_text}};
-    const auto text_edge_index_spec =
-        memgraph::storage::TextEdgeIndexSpec{text_edge_index_name, et1, std::vector{property_text}};
+    const auto text_index_spec = memgraph::storage::TextIndexSpec{
+        .index_name = text_index_name, .label = base_label_indexed, .properties = std::vector{property_text}};
+    const auto text_edge_index_spec = memgraph::storage::TextEdgeIndexSpec{
+        .index_name = text_edge_index_name, .edge_type = et1, .properties = std::vector{property_text}};
 
     const auto property_vector = store->NameToProperty("vector");
     const auto vector_index_name = "vector_index"s;
@@ -579,22 +587,29 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{vector_index_name,
-                                                                      base_label_indexed,
-                                                                      property_vector,
-                                                                      vector_index_metric,
-                                                                      vector_index_dim,
-                                                                      vector_index_resize_coefficient,
-                                                                      vector_index_capacity,
-                                                                      vector_index_scalar_kind};
-    const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{vector_edge_index_name,
-                                                                               et1,
-                                                                               property_vector,
-                                                                               vector_index_metric,
-                                                                               vector_index_dim,
-                                                                               vector_index_resize_coefficient,
-                                                                               vector_index_capacity,
-                                                                               vector_index_scalar_kind};
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
+                                           .label_id = base_label_indexed,
+                                           .property = property_vector,
+                                           .metric_kind = vector_index_metric,
+                                           .dimension = vector_index_dim,
+                                           .resize_coefficient = vector_index_resize_coefficient,
+                                           .capacity = vector_index_capacity,
+                                           .scalar_kind = vector_index_scalar_kind};
+    const auto vector_edge_index_spec =
+        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
+                                               .edge_type_id = et1,
+                                               .property = property_vector,
+                                               .metric_kind = vector_index_metric,
+                                               .dimension = vector_index_dim,
+                                               .resize_coefficient = vector_index_resize_coefficient,
+                                               .capacity = vector_index_capacity,
+                                               .scalar_kind = vector_index_scalar_kind};
+
+    const auto vector_index_id = store->Access(memgraph::storage::READ)->GetNameIdMapper()->NameToId(vector_index_name);
+    const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
+        memgraph::storage::PropertyValue::VectorIndexIdData{memgraph::utils::small_vector<uint64_t>{vector_index_id},
+                                                            memgraph::utils::small_vector<float>{1.0F, 1.0F}});
 
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").has_value());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").has_value());
@@ -889,9 +904,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
         const auto has_property_vector = i < 5;
         if (has_property_vector) {
-          memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
-              memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
-          ASSERT_EQ((*properties)[property_vector], property_value);
+          auto property_result = vertex->GetProperty(property_vector, memgraph::storage::View::OLD);
+          ASSERT_TRUE(property_result.has_value());
+          ASSERT_EQ(*property_result, vertex_vector_property_value);
         }
 
         auto has_property_nested = i < 10;

@@ -646,6 +646,45 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 }
 
+TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toBooleanList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  for (const auto &element : list) values.emplace_back(ToBoolean(&element, 1, ctx));
+  return TypedValue(std::move(values));
+}
+
+TypedValue ToFloatList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toFloatList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  for (const auto &element : list) values.emplace_back(ToFloat(&element, 1, ctx));
+  return TypedValue(std::move(values));
+}
+
+TypedValue ToIntegerList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toIntegerList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  for (const auto &element : list) values.emplace_back(ToInteger(&element, 1, ctx));
+  return TypedValue(std::move(values));
+}
+
 TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
@@ -1903,6 +1942,9 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
     {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
     {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
+    {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
+    {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
+    {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
     {"TYPE", func_info{.func_ = Type, .is_pure_ = true}},
     {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 

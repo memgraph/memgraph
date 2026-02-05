@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,8 +14,10 @@
 #include <tuple>
 #include <vector>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"

@@ -249,7 +249,6 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
     column_families.emplace_back(kDefaultHandle, kvstore_->options_);
     column_families.emplace_back(kOutEdgesHandle, kvstore_->options_);
     column_families.emplace_back(kInEdgesHandle, kvstore_->options_);
-
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_,
                                                               rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory,
@@ -1547,7 +1546,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     edge.ptr->properties.SetBuffer(properties);
   }
 
-  ModifiedEdgeInfo const modified_edge(
+  const ModifiedEdgeInfo modified_edge(
       Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
   if (transaction->AddModifiedEdge(gid, modified_edge)) {
     spdlog::trace("Edge {} added to out edges of vertex with gid {}", gid.ToString(), from_vertex->gid.AsUint());
@@ -1587,8 +1586,8 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
   auto out_edges = utils::Split(out_edges_str, ",");
   for (auto const &edge_gid_str : out_edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
     }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
@@ -1674,8 +1673,8 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   std::vector<EdgeAccessor> result;
   for (auto const &edge_gid_str : in_edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
     }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
@@ -2293,6 +2292,17 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropVectorIndex(
     std::string_view /*index_name*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+utils::small_vector<uint64_t> DiskStorage::DiskAccessor::GetVectorIndexIdsForVertex(Vertex * /*vertex*/,
+                                                                                    PropertyId /*property*/) {
+  return {};
+}
+
+utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(Vertex * /*vertex*/,
+                                                                               std::string_view /*index_name*/) const {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }

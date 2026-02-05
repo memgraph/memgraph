@@ -48,6 +48,20 @@ def load_args():
     parser.add_argument("--debug", default=False, required=False)
     parser.add_argument("--save-data-dir", default=False, required=False, action="store_true")
     parser.add_argument("--clean-logs-dir", default=False, required=False, action="store_true")
+    parser.add_argument(
+        "--gdb",
+        default=False,
+        required=False,
+        action="store_true",
+        help="Start Memgraph under gdbserver for debugging",
+    )
+    parser.add_argument(
+        "--gdb-port",
+        default=1234,
+        type=int,
+        required=False,
+        help="Port for gdbserver (default: 1234)",
+    )
     return parser.parse_args()
 
 
@@ -109,7 +123,8 @@ def run(args):
                 procdir = ""
                 if "proc" in workload:
                     procdir = os.path.join(BUILD_DIR, workload["proc"])
-                interactive_mg_runner.start_all(workload["cluster"], procdir, keep_directories=False)
+                gdb_port = args.gdb_port if args.gdb else None
+                interactive_mg_runner.start_all(workload["cluster"], procdir, keep_directories=False, gdb_port=gdb_port)
 
             if args.debug:
                 hosts = subprocess.check_output("pgrep memgraph", shell=True)

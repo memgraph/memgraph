@@ -839,10 +839,35 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
 
 print("All ok!")
 
-# Cleanup
+# Cleanup: list and drop all users and roles, then drop all non-default databases
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
-        session.run("DROP USER admin;").consume()
-        session.run("DROP USER user;").consume()
-        session.run("DROP USER user2;").consume()
-        session.run("DROP USER user3;").consume()
+        # Drop all roles
+        roles = session.run("SHOW ROLES;").values()
+        role_names = [row[0] for row in roles] if roles else []
+        for role_name in role_names:
+            try:
+                session.run(f"DROP ROLE {role_name};").consume()
+            except Exception:
+                pass
+
+        # Drop all non-default databases (everything except memgraph)
+        databases = session.run("SHOW DATABASES;").values()
+        db_names = [row[0] for row in databases] if databases else []
+        for db_name in db_names:
+            if db_name != "memgraph":
+                try:
+                    session.run(f"DROP DATABASE {db_name};").consume()
+                except Exception:
+                    pass
+
+        # Drop all users (drop admin last so we stay connected)
+        users = session.run("SHOW USERS;").values()
+        usernames = [row[0] for row in users] if users else []
+        for username in sorted(usernames, key=lambda x: (x == "admin", x)):
+            try:
+                session.run(f"DROP USER {username};").consume()
+            except Exception:
+                pass
+
+print("Cleanup complete!")
