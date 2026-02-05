@@ -86,10 +86,27 @@ jobs:
     secrets: inherit
 
 
-  smoke-release-all:
-    name: "Smoke Testing Docker Images (All)"
+  smoke-release-all-memgraph:
+    name: "Smoke Testing Memgraph Docker Images (All)"
     needs: smoke-release-tests-setup
-    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' }}
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' && inputs.image_type == 'memgraph' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["amd", "arm"]
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
+    with:
+      arch: "${{ matrix.arch }}"
+      next_version: "${{ inputs.next_version }}"
+      last_version: "${{ inputs.last_version }}"
+      image_type: "memgraph"
+    secrets: inherit
+
+
+  smoke-release-all-mage:
+    name: "Smoke Testing MAGE Docker Images (All)"
+    needs: smoke-release-tests-setup
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' && inputs.image_type == 'mage' }}
     strategy:
       fail-fast: false
       matrix:
@@ -104,5 +121,5 @@ jobs:
       next_version: "${{ inputs.next_version }}"
       last_version: "${{ inputs.last_version }}"
       malloc: ${{ matrix.malloc }}
-      image_type: "${{ inputs.image_type }}"
+      image_type: "mage"
     secrets: inherit
