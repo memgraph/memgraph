@@ -682,10 +682,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
 
   // If to and from are the same we need to ensure to_result is the same as from_result
-  WriteResult to_result = from_result;
   DeltaChainState to_state = from_state;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
@@ -807,10 +806,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   DeltaChainState const from_state =
       ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
 
-  WriteResult to_result = from_result;
   DeltaChainState to_state = from_state;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
@@ -1494,16 +1492,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           case Delta::Action::ADD_IN_EDGE: {
             auto link = std::tuple{
                 current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(), current->vertex_edge.edge};
-            DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
-                       "Invalid database state!");
+            DMG_ASSERT(r::find(vertex->in_edges, link) == vertex->in_edges.end(), "Invalid database state!");
             vertex->in_edges.push_back(link);
             break;
           }
           case Delta::Action::ADD_OUT_EDGE: {
             auto link = std::tuple{
                 current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(), current->vertex_edge.edge};
-            DMG_ASSERT(std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
-                       "Invalid database state!");
+            DMG_ASSERT(r::find(vertex->out_edges, link) == vertex->out_edges.end(), "Invalid database state!");
             vertex->out_edges.push_back(link);
             // Increment edge count. We only increment the count here because
             // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is

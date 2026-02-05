@@ -187,28 +187,32 @@ class TaggedVertexPtr {
   TaggedVertexPtr &operator=(TaggedVertexPtr const &) = delete;
   TaggedVertexPtr &operator=(TaggedVertexPtr &&) = delete;
 
+  // TODO(colinbarry) These member functions should use bit_cast, but
+  // the v7 toolchain's version of clang-tidy crashes when we use that. For
+  // now, we stick with reinterpret_casts.
+
   Vertex *Get() const {
-    auto ptr_value = std::bit_cast<uintptr_t>(ptr_.load(std::memory_order_acquire)) & ~0x3UL;
+    auto ptr_value = reinterpret_cast<uintptr_t>(ptr_.load(std::memory_order_acquire)) & ~0x3UL;
     return std::bit_cast<Vertex *>(ptr_value);
   }
 
   Vertex *operator->() const { return Get(); }
 
   DeltaChainState GetState() const {
-    auto flags = std::bit_cast<uintptr_t>(ptr_.load(std::memory_order_acquire)) & 0x3UL;
+    auto flags = reinterpret_cast<uintptr_t>(ptr_.load(std::memory_order_acquire)) & 0x3UL;
     return static_cast<DeltaChainState>(flags);
   }
 
   void Set(Vertex *vertex, DeltaChainState state = DeltaChainState::SEQUENTIAL) {
     auto vertex_ptr = std::bit_cast<uintptr_t>(vertex);
     vertex_ptr |= static_cast<uintptr_t>(state);
-    ptr_.store(std::bit_cast<Vertex *>(vertex_ptr), std::memory_order_release);
+    ptr_.store(reinterpret_cast<Vertex *>(vertex_ptr), std::memory_order_release);
   }
 
   void SetState(DeltaChainState state) {
     // Safe to perform updates non-atomically as this is only called with
     // the vertex under lock.
-    auto old_value = std::bit_cast<uintptr_t>(ptr_.load(std::memory_order_acquire));
+    auto old_value = reinterpret_cast<uintptr_t>(ptr_.load(std::memory_order_acquire));
     auto new_value = (old_value & ~0x3UL) | static_cast<uintptr_t>(state);
     ptr_.store(std::bit_cast<Vertex *>(new_value), std::memory_order_release);
   }
