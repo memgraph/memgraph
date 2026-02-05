@@ -43,7 +43,6 @@ struct IndexItem {
 ///
 /// The `Impl` structure follows the PIMPL (Pointer to Implementation) idiom to separate
 /// the interface of `VectorIndex` from its implementation.
-/// Indices are keyed by index ID (from NameIdMapper) to avoid repeated name lookups and multiple maps.
 struct VectorIndex::Impl {
   /// Map from index ID to IndexItem.
   std::unordered_map<uint64_t, IndexItem> index_by_id_;
@@ -312,7 +311,11 @@ utils::small_vector<float> VectorIndex::GetVectorPropertyFromIndex(Vertex *verte
   if (it == pimpl->index_by_id_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
-  return GetVector(it->second.mg_index, vertex);
+  auto &index_item = it->second;
+  auto locked_index = index_item.mg_index.ReadLock();
+  utils::small_vector<float> vector(locked_index->dimensions());
+  locked_index->get(vertex, vector.data());
+  return vector;
 }
 
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
@@ -342,41 +345,45 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   return result;
 }
 
-void VectorIndex::SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name,
-                                       NameIdMapper *name_id_mapper) const {
-  auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
-  if (!maybe_id.has_value()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
-  }
-  auto it = pimpl->index_by_id_.find(*maybe_id);
-  if (it == pimpl->index_by_id_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
-  }
-  auto &[mg_index, spec] = it->second;
-  auto locked_index = mg_index.ReadLock();
-  const auto index_size = locked_index->size();
-  const auto dimension = locked_index->dimensions();
+void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
+                                            std::unordered_set<uint64_t> &mapped_ids) const {
+  auto write_mapping = [&](auto mapping) {
+    mapped_ids.insert(mapping.AsUint());
+    encoder->WriteUint(mapping.AsUint());
+  };
+  encoder->WriteUint(pimpl->index_by_id_.size());
+  for (const auto &[_, index_item] : pimpl->index_by_id_) {
+    const auto &[mg_index, spec] = index_item;
+    encoder->WriteString(spec.index_name);
+    write_mapping(spec.label_id);
+    write_mapping(spec.property);
+    encoder->WriteString(NameFromMetric(spec.metric_kind));
+    encoder->WriteUint(spec.dimension);
+    encoder->WriteUint(spec.resize_coefficient);
+    encoder->WriteUint(spec.capacity);
+    encoder->WriteUint(static_cast<uint64_t>(spec.scalar_kind));
 
-  if (index_size == 0) {
-    encoder->WriteUint(0);
-    return;
-  }
+    auto locked_index = mg_index.ReadLock();
+    const auto index_size = locked_index->size();
+    const auto dimension = locked_index->dimensions();
 
-  std::vector<Vertex *> vertices(index_size);
-  locked_index->export_keys(vertices.data(), 0, index_size);
+    if (index_size == 0) {
+      encoder->WriteUint(0);
+      continue;
+    }
 
-  auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) {
-    // This is safe because even if the vertex->deleted gets aborted, recovery process is going through vertices skip
-    // list and it will restore the vertex.
-    return !vertex->deleted;
-  });
-  encoder->WriteUint(valid_count);
+    std::vector<Vertex *> vertices(index_size);
+    locked_index->export_keys(vertices.data(), 0, index_size);
 
-  std::vector<float> buffer(dimension);
-  for (auto *vertex : vertices) {
-    encoder->WriteUint(vertex->gid.AsUint());
-    locked_index->get(vertex, buffer.data());
-    std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(value); });
+    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted; });
+    encoder->WriteUint(valid_count);
+
+    std::vector<float> buffer(dimension);
+    for (auto *vertex : vertices) {
+      encoder->WriteUint(vertex->gid.AsUint());
+      locked_index->get(vertex, buffer.data());
+      std::ranges::for_each(buffer, [&](auto value) { encoder->WriteDouble(value); });
+    }
   }
 }
 

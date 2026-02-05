@@ -25,7 +25,6 @@
 #include <string>
 #include <thread>
 
-#include "flags/experimental.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -10672,22 +10671,9 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
     }
 
-    // Write vector indices.
+    // Write vector indices (single pass over index map, no per-index lookup).
     {
-      auto vector_indices = storage->indices_.vector_index_.ListIndices();
-      snapshot.WriteUint(vector_indices.size());
-      for (const auto &[index_name, label_id, property, metric, dimension, resize_coefficient, capacity, scalar_kind] :
-           vector_indices) {
-        snapshot.WriteString(index_name);
-        write_mapping(label_id);
-        write_mapping(property);
-        snapshot.WriteString(NameFromMetric(metric));
-        snapshot.WriteUint(dimension);
-        snapshot.WriteUint(resize_coefficient);
-        snapshot.WriteUint(capacity);
-        snapshot.WriteUint(static_cast<uint64_t>(scalar_kind));
-        storage->indices_.vector_index_.SerializeVectorIndex(&snapshot, index_name, storage->name_id_mapper_.get());
-      }
+      storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
         return std::nullopt;
       }

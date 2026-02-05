@@ -17,7 +17,19 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
+
+// Suppress usearch library warnings
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-W#warnings"
+#endif
+
 #include "usearch/index_dense.hpp"
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -281,12 +293,10 @@ class VectorIndex {
   /// @return A map of label ids to index IDs (from NameIdMapper).
   std::unordered_map<LabelId, uint64_t> GetIndicesByProperty(PropertyId property) const;
 
-  /// @brief Serializes a vector index to a durability encoder.
+  /// @brief Serializes all vector indices to a durability encoder in one pass.
   /// @param encoder The durability encoder to serialize to.
-  /// @param index_name The name of the index to serialize.
-  /// @param name_id_mapper Mapper for name/ID conversions.
-  void SerializeVectorIndex(durability::BaseEncoder *encoder, std::string_view index_name,
-                            NameIdMapper *name_id_mapper) const;
+  /// @param mapped_ids Set of mapped IDs.
+  void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
 
  private:
   /// @brief Removes a vertex from a vector index.

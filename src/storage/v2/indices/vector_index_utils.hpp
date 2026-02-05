@@ -306,22 +306,6 @@ inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t in
   return ids.empty();  // Return true if should restore (no more IDs)
 }
 
-/// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
-/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
-/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
-/// @param index The USearch index to retrieve the vector from.
-/// @param key The key to look up in the index.
-/// @return A list of float values representing the vector, or empty if the key is not in the index.
-template <typename IndexType, typename KeyType>
-utils::small_vector<float> GetVector(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
-  auto locked_index = index.ReadLock();
-  utils::small_vector<float> vector(locked_index->dimensions());
-  if (!locked_index->get(key, vector.data())) {
-    return {};
-  }
-  return vector;
-}
-
 /// @brief Returns the maximum number of concurrent threads for vector index operations.
 inline std::size_t GetVectorIndexThreadCount() {
   return std::max(static_cast<std::size_t>(FLAGS_bolt_num_workers),
