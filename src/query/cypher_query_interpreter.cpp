@@ -158,16 +158,16 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   };
 }
 
-std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor,
-                                             const std::vector<Identifier *> &predefined_identifiers) {
+auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
+                     const std::vector<Identifier *> &predefined_identifiers)
+    -> std::pair<std::unique_ptr<LogicalPlan>, bool> {
   // TODO: we need to make sure we decouple symbol position from frame position
   //       symbols are needed for debugging (a semantic name)
   //       during evaluation frame slots are dumping ground for temporary evaluation results
   //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
 
-  auto [root, cost, used_ast_storage] = std::invoke([&] {
+  auto [root, cost, used_ast_storage, plan_is_cachable] = std::invoke([&] {
     // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
     auto vertex_counts = plan::VertexCountCache(db_accessor);
 
@@ -179,17 +179,20 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
       // TODO: rewrite
       // TODO: new ast_storage + symbol_table
       auto [plan, cost, new_ast_storage] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
-      return std::tuple{std::move(plan), cost, std::move(new_ast_storage)};
+      return std::tuple{std::move(plan), cost, std::move(new_ast_storage), false};
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-    auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-    return std::tuple{std::move(plan), cost, std::move(ast_storage)};
+    auto [plan, cost, plan_is_cachable] =
+        plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+    return std::tuple{std::move(plan), cost, std::move(ast_storage), plan_is_cachable};
   });
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(*root);
-  return std::make_unique<SingleNodeLogicalPlan>(
-      std::move(root), cost, std::move(used_ast_storage), std::move(symbol_table), rw_type_checker.type);
+  return std::pair{
+      std::make_unique<SingleNodeLogicalPlan>(
+          std::move(root), cost, std::move(used_ast_storage), std::move(symbol_table), rw_type_checker.type),
+      plan_is_cachable};
 }
 
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
@@ -224,10 +227,11 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     }
   }
 
-  auto plan = std::make_shared<PlanWrapper>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
+  auto [logical_plan, plan_is_cachable] =
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers);
+  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan));
 
-  if (use_plan_cache) {
+  if (use_plan_cache && plan_is_cachable) {
     plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 

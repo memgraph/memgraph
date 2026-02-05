@@ -3080,11 +3080,9 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
   DMG_ASSERT(ctx->expression().size() <= 2U, "Expected 0, 1 or 2 bounds in range literal.");
 
   EdgeAtom::Type edge_type = EdgeAtom::Type::DEPTH_FIRST;
-  if (!ctx->getTokens(MemgraphCypher::BFS).empty()) {
+  if (!ctx->getTokens(MemgraphCypher::BFS).empty())
     edge_type = EdgeAtom::Type::BREADTH_FIRST;
-    // can't cache BFS queries due to doing range based index lookup at plan time
-    query_info_.is_cacheable = false;
-  } else if (!ctx->getTokens(MemgraphCypher::WSHORTEST).empty())
+  else if (!ctx->getTokens(MemgraphCypher::WSHORTEST).empty())
     edge_type = EdgeAtom::Type::WEIGHTED_SHORTEST_PATH;
   else if (!ctx->getTokens(MemgraphCypher::ALLSHORTEST).empty())
     edge_type = EdgeAtom::Type::ALL_SHORTEST_PATHS;
