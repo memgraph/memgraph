@@ -1259,7 +1259,7 @@ test_memgraph() {
       python3 -m venv env
       source env/bin/activate
       pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
-      ./test_single_memgraph.bash
+      ./test_single.bash "memgraph"
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -1736,7 +1736,7 @@ test_mage() {
       python3 -m venv env
       source env/bin/activate
       pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
-      ./test_single_mage.bash
+      ./test_single.bash "mage"
     ;;
     *)
       echo "Error: Unknown test '$1'"
