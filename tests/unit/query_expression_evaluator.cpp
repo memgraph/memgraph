@@ -2056,7 +2056,8 @@ TYPED_TEST(FunctionTest, ToFloat) {
   ASSERT_TRUE(this->EvaluateFunction("TOFLOAT", "\n\t3.4e-3X ").IsNull());
   ASSERT_EQ(this->EvaluateFunction("TOFLOAT", -3.5).ValueDouble(), -3.5);
   ASSERT_EQ(this->EvaluateFunction("TOFLOAT", -3).ValueDouble(), -3.0);
-  ASSERT_THROW(this->EvaluateFunction("TOFLOAT", true), QueryRuntimeException);
+  ASSERT_EQ(this->EvaluateFunction("TOFLOAT", true).ValueDouble(), 1.0);
+  ASSERT_EQ(this->EvaluateFunction("TOFLOAT", false).ValueDouble(), 0.0);
 }
 
 TYPED_TEST(FunctionTest, ToInteger) {
@@ -2109,6 +2110,8 @@ TYPED_TEST(FunctionTest, ToFloatList) {
   CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(-3)), MakeTypedValueList(-3.0));
   CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(-3, 3.5, 5.6)),
               MakeTypedValueList(-3.0, 3.5, 5.6));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(true)), MakeTypedValueList(1.0));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(false)), MakeTypedValueList(0.0));
   // Test empty list
   auto empty_list = TypedValue(std::vector<TypedValue>{});
   CompareList(this->EvaluateFunction("TOFLOATLIST", empty_list), empty_list);
