@@ -719,6 +719,374 @@ std::vector<TestCase> GetTestCases() {
       }
     },
 
+
+    // =========================================================================
+    // SECTION 8: Commit/Abort ordering
+    // =========================================================================
+
+
+    {
+      "TransactionOrdering_2Commits1Commits",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpCommit{2},
+        OpCommit{1},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    {
+      "TransactionOrdering_2Commits1Aborts",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpCommit{2},
+        OpAbort{1},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    {
+      "TransactionOrdering_2Aborts1Commits",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpAbort{2},
+        OpCommit{1},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    {
+      "TransactionOrdering_2Aborts1Aborts",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpAbort{2},
+        OpAbort{1},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    {
+      "TransactionOrdering_1Commits2Commits",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpCommit{1},
+        OpCommit{2},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    {
+      "TransactionOrdering_1Commits2Aborts",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpCommit{1},
+        OpAbort{2},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    {
+      "TransactionOrdering_1Aborts2Commits",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpAbort{1},
+        OpCommit{2},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    {
+      "TransactionOrdering_1Aborts2Aborts",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpAbort{1},
+        OpAbort{2},
+
+        // Should succeed as has_uncommitted_non_sequential_deltas flag is cleared
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", OK},
+        OpCommit{3}
+      }
+    },
+
+    // =========================================================================
+    // SECTION 9: Propagated (upgraded) delta flag persistence
+    // =========================================================================
+
+    {
+      "PropagatedDelta_UpstreamCommitsFirst_FlagRemains",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpCommit{2},
+
+        // Flag should remain
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", SERIALIZATION_ERROR},
+
+        // Flag should finally be cleared
+        OpCommit{1},
+
+        OpStart{4},
+        OpAddLabel{4, V1, "Label3", OK},
+        OpCommit{4}
+      }
+    },
+
+    {
+      "PropagatedDelta_UpstreamAbortsFirst_FlagRemains",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpAbort{2},
+
+        // Flag should remain
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", SERIALIZATION_ERROR},
+
+        // Flag should finally be cleared
+        OpCommit{1},
+
+        OpStart{4},
+        OpAddLabel{4, V1, "Label3", OK},
+        OpCommit{4}
+      }
+    },
+
+    {
+      "PropagatedDelta_UpstreamCommitsFirst_DownstreamAborts",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpCommit{2},
+
+        // Flag should remain
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", SERIALIZATION_ERROR},
+
+        /// Flag should finally be cleared
+        OpAbort{1},
+
+        OpStart{4},
+        OpAddLabel{4, V1, "Label3", OK},
+        OpCommit{4}
+      }
+    },
+
+    {
+      "PropagatedDelta_UpstreamAbortsFirst_DownstreamAborts",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpAbort{2},
+
+        // Flag should remain
+        OpStart{3},
+        OpAddLabel{3, V1, "Label2", SERIALIZATION_ERROR},
+
+         // Flag should finally be cleared
+        OpAbort{1},
+
+        OpStart{4},
+        OpAddLabel{4, V1, "Label3", OK},
+        OpCommit{4}
+      }
+    },
+
+    {
+      "PropagatedDelta_ThreeTransactions_MiddleCommitsFirst",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpAddLabel{0, V1, "Label1", OK},
+        OpCommit{0},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge1", OK},
+
+        OpStart{2},
+        OpCreateEdge{2, V1, V2, "Edge2", OK},
+
+        OpStart{3},
+        OpCreateEdge{3, V1, V2, "Edge3", OK},
+
+        OpCommit{2},
+
+        OpStart{4},
+        OpAddLabel{4, V1, "Label2", SERIALIZATION_ERROR},
+
+        // Flag should remain
+        OpCommit{3},
+
+        OpStart{5},
+        OpAddLabel{5, V1, "Label3", SERIALIZATION_ERROR},
+
+        // Flag should finally be cleared
+        OpCommit{1},
+
+        OpStart{6},
+        OpAddLabel{6, V1, "Label4", OK},
+        OpCommit{6}
+      }
+    },
+
   };
 }
 

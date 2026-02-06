@@ -1250,7 +1250,7 @@ TEST(StorageV2Gc, AbortsTwoTransactions) {
   }
 }
 
-TEST(StorageV2Gc, HasNonSequentialDeltasFlagReaminsAfterAbort) {
+TEST(StorageV2Gc, HasNonSequentialDeltasFlagRemainsAfterAbort) {
   auto storage = std::make_unique<ms::InMemoryStorage>(
       ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
@@ -1290,6 +1290,14 @@ TEST(StorageV2Gc, HasNonSequentialDeltasFlagReaminsAfterAbort) {
     }
 
     ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto const guard = std::shared_lock{v1->vertex_->lock};
+    ASSERT_FALSE(v1->vertex_->has_uncommitted_non_sequential_deltas);
   }
 }
 
