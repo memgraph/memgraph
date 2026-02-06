@@ -3219,8 +3219,25 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
   } else if (s3_matcher(uri_str)) {
     DMG_ASSERT(s3_config.has_value(), "S3Config doesn't have a value");
-    if (!utils::GetS3Object(uri, *s3_config, local_path.string())) {
-      spdlog::error("Failed to download file {}", uri.string());
+    if (auto const res = s3_config->Validate(); res.has_value()) {
+      switch (*res) {
+        using enum utils::AwsValidationError;
+        case AWS_REGION: {
+          return std::unexpected{InMemoryStorage::RecoverSnapshotError::S3MissingAwsRegion};
+        }
+        case AWS_ACCESS_KEY: {
+          return std::unexpected{InMemoryStorage::RecoverSnapshotError::S3MissingAwsAccessKey};
+        }
+        case AWS_SECRET_KEY: {
+          return std::unexpected{InMemoryStorage::RecoverSnapshotError::S3MissingAwsSecretKey};
+        }
+        default: {
+          std::unreachable();
+        }
+      }
+    }
+    if (auto const res = utils::GetS3Object(uri, *s3_config, local_path.string()); !res.has_value()) {
+      spdlog::error(res.error().message);
       return std::unexpected{InMemoryStorage::RecoverSnapshotError::S3GetFailure};
     }
 

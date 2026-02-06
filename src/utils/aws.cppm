@@ -11,6 +11,7 @@
 
 module;
 
+#include <expected>
 #include <map>
 #include <optional>
 #include <ostream>
@@ -173,28 +174,36 @@ auto BuildGetObjectRequest(std::string_view bucket_name, std::string_view object
   return request;
 }
 
-auto ExtractBucketAndObjectKey(std::string_view uri) -> std::optional<std::pair<std::string_view, std::string_view>> {
+enum class S3ErrorCode : uint8_t { S3_PREFIX_MISSING, BUCKET_OBJECT_KEY_MISSING, S3_API_ERROR };
+
+struct S3Error {
+  S3ErrorCode status_code;
+  std::string message;
+};
+
+auto ExtractBucketAndObjectKey(std::string_view uri)
+    -> std::expected<std::pair<std::string_view, std::string_view>, S3Error> {
   constexpr std::string_view s3_prefix = "s3://";
 
   // Validate and remove prefix
   if (!uri.starts_with(s3_prefix)) {
-    spdlog::error("URI must start with s3://");
-    return {};
+    return std::unexpected{
+        S3Error{.status_code = S3ErrorCode::S3_PREFIX_MISSING, .message = "URI must start with s3://"}};
   }
   uri.remove_prefix(s3_prefix.size());
 
   // Find first slash separating bucket from the object key
   auto const slash_pos = uri.find('/');
   if (slash_pos == std::string_view::npos || slash_pos == uri.size() - 1) {
-    spdlog::error("URI must contain bucket and object key");
-    return {};
+    return std::unexpected{S3Error{.status_code = S3ErrorCode::BUCKET_OBJECT_KEY_MISSING,
+                                   .message = "URI must contain bucket and object key"}};
   }
 
   return std::make_pair(uri.substr(0, slash_pos), uri.substr(slash_pos + 1));
 }
 
 auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
-    -> std::optional<Aws::S3::Model::GetObjectOutcome> {
+    -> std::expected<Aws::S3::Model::GetObjectOutcome, S3Error> {
   Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   // Use path-style for S3-compatible services (4th param = false)
   Aws::S3::S3Client const s3_client(credentials,
@@ -210,35 +219,29 @@ auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
 }
 
 // Writes the content of the S3 object from the uri into ostream
-auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) -> bool {
-  if (auto const res = s3_config.Validate(); res.has_value()) {
-    // TODO: (andi) Handle error
-    // return std::unexpected{arrow::Status::UnknownError, utils::AwsValidationErrorToStr(*res)};
-    return false;
-  }
+// returns nullopt is all good, value of the error if something wrong
+auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) -> std::expected<void, S3Error> {
   GlobalS3APIManager::GetInstance();
   auto const outcome = GetS3ObjectOutcome(uri, s3_config);
 
-  auto const res = outcome.transform([&](auto const &outcome) -> bool {
-    if (!outcome.IsSuccess()) {
-      spdlog::error("Failed to get object from S3 {}. Error: {}", uri, outcome.GetError().GetMessage());
-      return false;
-    }
+  if (!outcome.has_value()) {
+    return std::unexpected{outcome.error()};
+  }
 
-    spdlog::trace("File {} successfully downloaded. ", uri);
-    ostream << outcome.GetResult().GetBody().rdbuf();
-    return true;
-  });
-  return res.value_or(false);
+  if (!outcome.value().IsSuccess()) {
+    return std::unexpected{S3Error{
+        .status_code = S3ErrorCode::S3_API_ERROR,
+        .message =
+            fmt::format("Failed to get object from S3 {}. Error: {}", uri, outcome.value().GetError().GetMessage())}};
+  }
+
+  ostream << outcome.value().GetResult().GetBody().rdbuf();
+  return {};
 }
 
 // Writes the content of the S3 object from the uri into a file on the local disk
-auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_file_path) -> bool {
-  if (auto const res = s3_config.Validate(); res.has_value()) {
-    // TODO: (andi) Handle error
-    // return std::unexpected{arrow::Status::UnknownError, utils::AwsValidationErrorToStr(*res)};
-    return false;
-  }
+auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_file_path)
+    -> std::expected<void, S3Error> {
   GlobalS3APIManager::GetInstance();
 
   Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
@@ -263,23 +266,21 @@ auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
   config.s3Client = s3_client;
 
   auto const transfer_manager = Aws::Transfer::TransferManager::Create(config);
-  auto const result =
-      ExtractBucketAndObjectKey(uri).transform([&](std::pair<std::string_view, std::string_view> const &bucket_info) {
-        auto const transfer_handle = transfer_manager->DownloadFile(
-            Aws::String{bucket_info.first}, Aws::String{bucket_info.second}, Aws::String{local_file_path});
-        transfer_handle->WaitUntilFinished();
+  auto const bucket_info = ExtractBucketAndObjectKey(uri);
+  if (!bucket_info.has_value()) {
+    return std::unexpected{bucket_info.error()};
+  }
 
-        if (transfer_handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED) {
-          spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
-          return true;
-        }
+  auto const transfer_handle = transfer_manager->DownloadFile(
+      Aws::String{bucket_info->first}, Aws::String{bucket_info->second}, Aws::String{std::move(local_file_path)});
+  transfer_handle->WaitUntilFinished();
 
-        spdlog::error(
-            "Error occurred while downloading file {}. Error: {}", uri, transfer_handle->GetLastError().GetMessage());
-        return false;
-      });
-
-  return result.value_or(false);
+  if (transfer_handle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
+    return std::unexpected{
+        S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = transfer_handle->GetLastError().GetMessage()}};
+  }
+  spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
+  return {};
 }
 
 }  // namespace memgraph::utils

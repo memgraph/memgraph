@@ -105,7 +105,6 @@ auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S
     -> std::expected<std::unique_ptr<parquet::arrow::FileReader>, arrow::Status> {
   GlobalS3APIManager::GetInstance();
   if (auto const res = s3_config.Validate(); res.has_value()) {
-    spdlog::error("Validate failed");
     return std::unexpected{
         arrow::Status{arrow::StatusCode::UnknownError, memgraph::utils::AwsValidationErrorToStr(*res)}};
   }
