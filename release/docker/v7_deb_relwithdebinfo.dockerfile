@@ -28,7 +28,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 # NOTE: The following are required to run built-in Python modules. For the full
 # list, please visit query_modules/CMakeLists.txt.
-RUN pip3 install --break-system-packages --no-cache-dir numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
+RUN pip3 install --break-system-packages --no-cache-dir numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16 litellm>=1.0.0
 
 # fix `memgraph` UID and GID for compatibility with previous Debian releases
 RUN groupadd -g 103 memgraph && \

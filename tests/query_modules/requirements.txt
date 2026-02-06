@@ -8,3 +8,4 @@ gensim==4.3.3
 gqlalchemy==1.8.0
 pyyaml==6.0.1
 pytz==2023.3
+litellm>=1.0.0

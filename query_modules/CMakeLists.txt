@@ -96,6 +96,7 @@ set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/wcc.py
     ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
     ${CMAKE_CURRENT_SOURCE_DIR}/date.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/llm.py
 )
 add_custom_target(copy_python_query_modules ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
@@ -127,6 +128,7 @@ install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
 install(FILES date.py DESTINATION lib/memgraph/query_modules)
+install(FILES llm.py DESTINATION lib/memgraph/query_modules)
 
 install(FILES ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py DESTINATION lib/memgraph/query_modules/mage)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/mage/python/mage/date DESTINATION lib/memgraph/query_modules/mage)
