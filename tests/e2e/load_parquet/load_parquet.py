@@ -199,5 +199,12 @@ def test_complex_collection_types():
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
+def test_small_file_nodes_with_limit():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_100.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}}) RETURN n LIMIT 1"
+    execute_and_fetch_all(cursor, load_query)
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

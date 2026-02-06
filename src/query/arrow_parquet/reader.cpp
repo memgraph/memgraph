@@ -536,8 +536,8 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
       rows_(resource),
       work_queue_(2),
       header_(std::move(header)),
-      prefetcher_thread_{[this]() {
-        while (true) {
+      prefetcher_thread_{[this](std::stop_token stop_token) {
+        while (!stop_token.stop_requested()) {
           auto const batch_ref = row_it_.Next();
           // No more data
           if (batch_ref.empty()) {
@@ -579,7 +579,10 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
   }
 }
 
-ParquetReader::impl::~impl() { prefetcher_thread_.request_stop(); }
+ParquetReader::impl::~impl() {
+  prefetcher_thread_.request_stop();
+  work_queue_.finish();
+}
 
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
