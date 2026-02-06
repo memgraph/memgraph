@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <concepts>
+#include <optional>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
@@ -306,22 +308,6 @@ inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t in
   return ids.empty();  // Return true if should restore (no more IDs)
 }
 
-/// @brief Retrieves a vector from a USearch index using the get method and returns it as a list of float values.
-/// @tparam IndexType The type of the USearch index (e.g., mg_vector_index_t or mg_vector_edge_index_t).
-/// @tparam KeyType The type of the key used in the index (e.g., Vertex* or EdgeIndexEntry).
-/// @param index The USearch index to retrieve the vector from.
-/// @param key The key to look up in the index.
-/// @return A list of float values representing the vector, or empty if the key is not in the index.
-template <typename IndexType, typename KeyType>
-utils::small_vector<float> GetVector(utils::Synchronized<IndexType, std::shared_mutex> &index, KeyType key) {
-  auto locked_index = index.ReadLock();
-  utils::small_vector<float> vector(locked_index->dimensions());
-  if (!locked_index->get(key, vector.data())) {
-    return {};
-  }
-  return vector;
-}
-
 /// @brief Returns the maximum number of concurrent threads for vector index operations.
 inline std::size_t GetVectorIndexThreadCount() {
   return std::max(static_cast<std::size_t>(FLAGS_bolt_num_workers),
@@ -337,12 +323,12 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (will be updated if resize occurs).
 /// @param key The key to add/update in the index.
-/// @param vector The float vector data (taken by value to enable move semantics). If empty, entry is only removed.
+/// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
 template <typename Index, typename Key, typename Spec>
 void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                       utils::small_vector<float> vector, std::optional<std::size_t> thread_id = std::nullopt) {
+                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
   if (!vector.empty() && vector.size() != spec.dimension) {
     throw query::VectorSearchException(
         "Vector index property must have the same number of dimensions as specified in the index.");
@@ -379,29 +365,25 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
-/// @tparam ProcessFunc Callable that receives (Vertex&, Args...).
-/// @tparam Args Additional argument types to forward to the process function.
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
 /// @param vertices The vertices accessor to iterate over.
-/// @param process The function to call for each vertex.
-/// @param args Arguments to forward to the process function.
-template <typename ProcessFunc, typename... Args>
-void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
-                                       Args &&...args) {
+/// @param process The function to call for each vertex (thread_id is std::nullopt).
+template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
+void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   for (auto &vertex : vertices) {
-    process(vertex, std::forward<Args>(args)...);
+    std::forward<ProcessFunc>(process)(vertex, std::nullopt);
   }
 }
 
 /// @brief Populates a vector index by iterating over vertices using multiple threads.
-/// @tparam ProcessFunc Callable that receives (Vertex&, Args..., thread_id).
-/// @tparam Args Additional argument types to forward to the process function.
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
 /// @param vertices The vertices accessor to iterate over.
-/// @param process The function to call for each vertex.
-/// @param args Arguments to forward to the process function (before thread_id).
-template <typename ProcessFunc, typename... Args>
-void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, const ProcessFunc &process,
-                                      Args &...args) {
+/// @param process The function to call for each vertex (thread_id is the chunk index).
+template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
+void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
   const auto actual_chunk_count = vertices_chunks.size();
@@ -410,11 +392,11 @@ void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertice
     std::vector<std::jthread> threads;
     threads.reserve(actual_chunk_count);
     for (std::size_t i = 0; i < actual_chunk_count; ++i) {
-      threads.emplace_back([&vertices_chunks, &process, &args..., &first_exception, i]() {
+      threads.emplace_back([&vertices_chunks, &process, &first_exception, i]() {
         try {
           auto &chunk = vertices_chunks[i];
           for (auto &vertex : chunk) {
-            process(vertex, args..., i);
+            std::forward<ProcessFunc>(process)(vertex, std::optional<std::size_t>(i));
           }
         } catch (...) {
           first_exception.WithLock([captured = std::current_exception()](auto &ex) {

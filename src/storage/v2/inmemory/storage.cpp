@@ -1787,14 +1787,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 utils::small_vector<uint64_t> InMemoryStorage::InMemoryAccessor::GetVectorIndexIdsForVertex(Vertex *vertex,
                                                                                             PropertyId property) {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  return in_memory->indices_.vector_index_.GetVectorIndexIdsForVertex(
-      vertex, property, in_memory->name_id_mapper_.get());
+  return in_memory->indices_.vector_index_.GetVectorIndexIdsForVertex(vertex, property);
 }
 
 utils::small_vector<float> InMemoryStorage::InMemoryAccessor::GetVectorFromVectorIndex(
     Vertex *vertex, std::string_view index_name) const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  return in_memory->indices_.vector_index_.GetVectorPropertyFromIndex(vertex, index_name);
+  return in_memory->indices_.vector_index_.GetVectorPropertyFromIndex(
+      vertex, index_name, in_memory->name_id_mapper_.get());
 }
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
@@ -1805,7 +1805,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
   // We don't allow creating vector edge index with the same name as vector index on nodes
-  if (vector_index.IndexExists(spec.index_name) || !vector_edge_index.CreateIndex(spec, vertices_acc)) {
+  if (vector_index.IndexExists(spec.index_name, in_memory->name_id_mapper_.get()) ||
+      !vector_edge_index.CreateIndex(spec, vertices_acc)) {
     return std::unexpected{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
@@ -3828,7 +3829,8 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
 
   // we have to take vertices accessor to be sure no vertex is deleted while we are searching
   auto acc = mem_storage->vertices_.access();
-  const auto search_results = storage_->indices_.vector_index_.SearchNodes(index_name, number_of_results, vector);
+  const auto search_results = storage_->indices_.vector_index_.SearchNodes(
+      index_name, number_of_results, vector, mem_storage->name_id_mapper_.get());
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
     auto &[vertex, distance, score] = item;
     return std::make_tuple(VertexAccessor{vertex, storage_, &transaction_}, distance, score);
