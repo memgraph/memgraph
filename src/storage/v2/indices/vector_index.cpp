@@ -79,10 +79,10 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   if (pimpl->index_by_id_.contains(index_id)) {
     return std::nullopt;
   }
-  if (r::find_if(pimpl->index_by_id_, [&](const auto &id_index_item) {
-        const auto &spec = id_index_item.second.spec;
-        return spec.label_id == spec.label_id && spec.property == spec.property;
-      }) != pimpl->index_by_id_.end()) {
+  if (r::any_of(pimpl->index_by_id_, [&](const auto &id_index_item) {
+        auto &index_spec = id_index_item.second.spec;
+        return spec.label_id == index_spec.label_id && spec.property == index_spec.property;
+      })) {
     return std::nullopt;
   }
 

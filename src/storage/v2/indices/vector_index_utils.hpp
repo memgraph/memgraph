@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <optional>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
@@ -368,6 +369,7 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
 /// @param vertices The vertices accessor to iterate over.
 /// @param process The function to call for each vertex (thread_id is std::nullopt).
 template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
 void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   for (auto &vertex : vertices) {
@@ -380,6 +382,7 @@ void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertic
 /// @param vertices The vertices accessor to iterate over.
 /// @param process The function to call for each vertex (thread_id is the chunk index).
 template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
 void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
