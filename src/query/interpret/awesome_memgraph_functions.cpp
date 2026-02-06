@@ -614,7 +614,7 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
   } else if (value.IsInt()) {
     return TypedValue(static_cast<double>(value.ValueInt()), ctx.memory);
   } else if (value.IsBool()) {
-    return TypedValue(static_cast<double>(value.ValueBool() ? 1.0 : 0.0), ctx.memory);
+    return TypedValue(value.ValueBool() ? 1.0 : 0.0, ctx.memory);
   } else if (value.IsDouble()) {
     return TypedValue(value, ctx.memory);
   } else {
