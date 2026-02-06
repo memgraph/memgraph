@@ -607,12 +607,14 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Number, String>>("toFloat", args, nargs);
+  FType<Or<Null, Bool, Number, String>>("toFloat", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (value.IsInt()) {
     return TypedValue(static_cast<double>(value.ValueInt()), ctx.memory);
+  } else if (value.IsBool()) {
+    return TypedValue(static_cast<double>(value.ValueBool() ? 1.0 : 0.0), ctx.memory);
   } else if (value.IsDouble()) {
     return TypedValue(value, ctx.memory);
   } else {
