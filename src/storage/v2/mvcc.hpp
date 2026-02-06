@@ -186,6 +186,7 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     // would be a serialization error.
     if (CanBeNonSequential(object->delta->action) &&
         object->delta->vertex_edge.vertex.GetState() == DeltaChainState::FORCED_SEQUENTIAL) {
+      transaction->has_serialization_error = true;
       return WriteResult::SERIALIZATION_ERROR;
     }
 
@@ -204,6 +205,7 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
       }
 
       if (delta->action != Delta::Action::REMOVE_IN_EDGE && delta->action != Delta::Action::REMOVE_OUT_EDGE) {
+        transaction->has_serialization_error = true;
         return WriteResult::SERIALIZATION_ERROR;
       }
     }
