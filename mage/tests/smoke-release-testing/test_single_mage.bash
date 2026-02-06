@@ -48,7 +48,10 @@ test_or_expression_for_labels
 test_shortest_paths
 test_text_search
 test_durability
+test_load_csv
+test_load_jsonl
 test_load_parquet
+test_parallel_runtime
 
 # NOTE: If the testing container is NOT restarted (each test having their own
 # container), all the auth test have to come after all tests that assume there
@@ -64,6 +67,7 @@ test_show_database_settings
 test_auth_roles
 test_impersonate_user
 test_user_profiles
+test_user_role_functions
 
 # End timing and calculate execution time
 END_TIME=$(date +%s)
