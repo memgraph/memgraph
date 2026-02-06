@@ -14,6 +14,9 @@
  * Two binary variants: usearch_index_add_builtin (SimSIMD=0, FP16=0) and usearch_index_add_simsimd
  * (SimSIMD=1, FP16=1). Run via ctest -R memgraph__benchmark__usearch_index_add or run the binaries
  * to compare; builtin is typically ~30–40% faster for L2 f32.
+ *
+ * All benchmarks use float vectors; the index scalar type (f32/f16) is set by the metric. For f16
+ * indices, usearch converts f32 -> f16 on add internally.
  */
 
 #include <benchmark/benchmark.h>
@@ -41,6 +44,7 @@ std::vector<float> MakeRandomVector(std::size_t dim, unsigned seed) {
   return v;
 }
 
+// All metrics use float vectors; index scalar (f32/f16) is from metric.
 void BM_IndexAdd(benchmark::State &state, unum_usearch::metric_kind_t metric_kind,
                  unum_usearch::scalar_kind_t scalar_kind) {
   const std::size_t n = static_cast<std::size_t>(state.range(0));
@@ -113,6 +117,27 @@ BENCHMARK_CAPTURE(BM_IndexAdd, Cos_F32, unum_usearch::metric_kind_t::cos_k, unum
 
 // Inner product (dot) + f32
 BENCHMARK_CAPTURE(BM_IndexAdd, IP_F32, unum_usearch::metric_kind_t::ip_k, unum_usearch::scalar_kind_t::f32_k)
+    ->Arg(1000)
+    ->Arg(5000)
+    ->Arg(10000)
+    ->Unit(benchmark::kMillisecond);
+
+// L2 squared + f16 (index stores f16; we add floats, usearch converts)
+BENCHMARK_CAPTURE(BM_IndexAdd, L2_F16, unum_usearch::metric_kind_t::l2sq_k, unum_usearch::scalar_kind_t::f16_k)
+    ->Arg(1000)
+    ->Arg(5000)
+    ->Arg(10000)
+    ->Unit(benchmark::kMillisecond);
+
+// Cosine + f16
+BENCHMARK_CAPTURE(BM_IndexAdd, Cos_F16, unum_usearch::metric_kind_t::cos_k, unum_usearch::scalar_kind_t::f16_k)
+    ->Arg(1000)
+    ->Arg(5000)
+    ->Arg(10000)
+    ->Unit(benchmark::kMillisecond);
+
+// Inner product + f16
+BENCHMARK_CAPTURE(BM_IndexAdd, IP_F16, unum_usearch::metric_kind_t::ip_k, unum_usearch::scalar_kind_t::f16_k)
     ->Arg(1000)
     ->Arg(5000)
     ->Arg(10000)
