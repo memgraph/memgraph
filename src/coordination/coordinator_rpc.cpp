@@ -20,6 +20,10 @@
   void Save(const Type &self, slk::Builder *builder) { memgraph::slk::Save(self.arg_, builder); } \
   void Load(Type *self, slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
 
+#define SLK_EMPTY_REQ(Type)                                       \
+  void Save(const Type & /*self*/, slk::Builder * /*builder*/) {} \
+  void Load(Type * /*self*/, slk::Reader * /*reader*/) {}
+
 #define SLK_BOOL_RES(Type)                                                                            \
   void Save(const Type &self, slk::Builder *builder) { memgraph::slk::Save(self.success_, builder); } \
   void Load(Type *self, slk::Reader *reader) { memgraph::slk::Load(&self->success_, reader); }
@@ -400,6 +404,8 @@ SLK_SINGLE_ARG_REQ(coordination::SetInstanceToMainReq)
 SLK_BOOL_RES(coordination::SetInstanceToMainRes)
 SLK_SINGLE_ARG_REQ(coordination::DemoteInstanceReq)
 SLK_BOOL_RES(coordination::DemoteInstanceRes)
+SLK_EMPTY_REQ(coordination::ForceResetReq)
+SLK_BOOL_RES(coordination::ForceResetRes)
 }  // namespace slk
 
 }  // namespace memgraph

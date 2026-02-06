@@ -147,6 +147,41 @@ def setup_cluster(test_name, setup_queries, coord_port):
     return inner_instances_description
 
 
+def test_force_reset_fwd(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    leader_cursor = connect(host="localhost", port=7690).cursor()
+    # Add itself and coordinator 2. Coordinator 1 is therefore the leader at the beginning
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+    )
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+    )
+    execute_and_fetch_all(
+        leader_cursor,
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+    )
+    follower_cursor = connect(host="localhost", port=7691).cursor()
+
+    # Follower can register the instance
+    execute_and_fetch_all(
+        follower_cursor,
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'}",
+    )
+
+    # Follower can register the instance
+    execute_and_fetch_all(
+        follower_cursor,
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'}",
+    )
+
+    execute_and_fetch_all(follower_cursor, "SET INSTANCE instance_1 TO MAIN")
+    execute_and_fetch_all(follower_cursor, "FORCE RESET CLUSTER STATE")
+
+
 def test_register_instance_fwd(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)

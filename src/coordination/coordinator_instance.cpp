@@ -30,7 +30,6 @@
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
@@ -407,7 +406,8 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
     spdlog::trace("Trying to ensure cluster's healthy state. The coordinator is considered a leader. Attempt: {}.",
                   attempt_cnt++);
     switch (auto const result = ReconcileClusterState_()) {
-      case (ReconcileClusterStateStatus::SUCCESS): {
+      using enum ReconcileClusterStateStatus;
+      case SUCCESS: {
         auto expected = CoordinatorStatus::LEADER_NOT_READY;
         if (!status.compare_exchange_strong(
                 expected, CoordinatorStatus::LEADER_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
@@ -425,15 +425,19 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
         metrics::IncrementCounter(metrics::BecomeLeaderSuccess);
         return result;
       }
-      case ReconcileClusterStateStatus::FAIL:
+      case FAIL:
         spdlog::trace("ReconcileClusterState_ failed!");
         metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         break;
-      case ReconcileClusterStateStatus::SHUTTING_DOWN:
+      case SHUTTING_DOWN:
         spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
         metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         return result;
-      case ReconcileClusterStateStatus::NOT_LEADER_ANYMORE: {
+      case NOT_LEADER_ANYMORE:
+        [[fallthrough]];
+      case LEADER_FAILED:
+        [[fallthrough]];
+      case LEADER_NOT_FOUND: {
         metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         MG_ASSERT(false, "Invalid status handling. Crashing the database.");
       }
@@ -534,9 +538,17 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus {
   // Follows nomenclature from replication handler where Try<> means doing action from the
   // user query.
+  auto const leader_id = raft_state_->GetLeaderId();
   auto expected = CoordinatorStatus::LEADER_READY;
   if (!status.compare_exchange_strong(
           expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendBoolRpc<ForceResetRpc>() ? ReconcileClusterStateStatus::SUCCESS
+                                                  : ReconcileClusterStateStatus::LEADER_NOT_FOUND;
+    }
+
+    return ReconcileClusterStateStatus::LEADER_FAILED;
+
     return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
   }
   return ReconcileClusterState();

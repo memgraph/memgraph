@@ -45,6 +45,9 @@ class CoordinatorInstanceManagementServerHandlers {
 
   static void DemoteInstanceHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
                                     slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void ForceResetHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
+                                slk::Reader *req_reader, slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::coordination

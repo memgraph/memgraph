@@ -56,6 +56,18 @@ struct SingleArgReq {
 };
 
 template <utils::TypeId Id, FixedString Name, uint64_t Version>
+struct EmptyReq {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  static void Save(EmptyReq const &self, memgraph::slk::Builder *builder) {}
+
+  static void Load(EmptyReq *self, memgraph::slk::Reader *reader) {}
+
+  EmptyReq() = default;
+};
+
+template <utils::TypeId Id, FixedString Name, uint64_t Version>
 struct BoolResponse {
   static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
   static constexpr uint64_t kVersion{Version};
@@ -481,6 +493,10 @@ using DemoteInstanceReq = SingleArgReq<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ,
 using DemoteInstanceRes = BoolResponse<utils::TypeId::COORD_DEMOTE_INSTANCE_RES, "DemoteInstanceRes", 1>;
 using DemoteInstanceRpc = rpc::RequestResponse<DemoteInstanceReq, DemoteInstanceRes>;
 
+using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceResetReq", 1>;
+using ForceResetRes = BoolResponse<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1>;
+using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -554,6 +570,7 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::RegisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
 
 }  // namespace memgraph::slk
 
