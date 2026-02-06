@@ -15,6 +15,15 @@ import pytest
 from common import connect, execute_and_fetch_all, get_file_path
 
 
+def test_non_existing_file_err_ms():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = "load parquet from 'nonexisting' as row return row limit 1"
+    try:
+        execute_and_fetch_all(cursor, load_query)
+    except Exception as e:
+        assert str(e) == "Failed to open local file 'nonexisting'. [errno 2] No such file or directory."
+
+
 def test_aws_settings():
     cursor = connect(host="localhost", port=7687).cursor()
     aws_region_key = "aws.region"

@@ -41,39 +41,51 @@ constexpr auto kAwsRegionEnv = "AWS_REGION";
 constexpr auto kAwsSecretKeyEnv = "AWS_SECRET_KEY";
 constexpr auto kAwsEndpointUrlEnv = "AWS_ENDPOINT_URL";
 
+enum class AwsValidationError : uint8_t { AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_KEY };
+
+auto AwsValidationErrorToStr(AwsValidationError err) -> std::string {
+  switch (err) {
+    using enum AwsValidationError;
+    case AWS_REGION:
+      return fmt::format(
+          "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} "
+          "or env variable {}",
+          kAwsRegionQuerySetting,
+          kAwsRegionEnv);
+    case AWS_ACCESS_KEY:
+      return fmt::format(
+          "AWS access key configuration parameter not provided. Please provide it through the query, run-time "
+          "setting {} or env variable {}",
+          kAwsAccessKeyQuerySetting,
+          kAwsAccessKeyEnv);
+    case AWS_SECRET_KEY:
+      return fmt::format(
+          "AWS secret key configuration parameter not provided. Please provide it through the query, run-time "
+          "setting {} or env variable {}",
+          kAwsSecretKeyQuerySetting,
+          kAwsSecretKeyEnv);
+  }
+}
+
 struct S3Config {
   std::optional<std::string> aws_region;
   std::optional<std::string> aws_access_key;
   std::optional<std::string> aws_secret_key;
   std::optional<std::string> aws_endpoint_url;
 
-  auto Validate() const -> bool {
+  // ValidationError if there is a mistake, nullopt if all good
+  [[nodiscard]] auto Validate() const -> std::optional<AwsValidationError> {
     if (!aws_region.has_value()) {
-      spdlog::error(
-          "AWS region configuration parameter not provided. Please provide it through the query, run-time setting {} "
-          "or "
-          "env variable {}",
-          kAwsRegionQuerySetting, kAwsRegionEnv);
-      return false;
+      return AwsValidationError::AWS_REGION;
     }
     if (!aws_access_key.has_value()) {
-      spdlog::error(
-          "AWS access key configuration parameter not provided. Please provide it through the query, run-time setting "
-          "{} "
-          "or env variable {}",
-          kAwsAccessKeyQuerySetting, kAwsAccessKeyEnv);
-      return false;
+      return AwsValidationError::AWS_ACCESS_KEY;
     }
 
     if (!aws_secret_key.has_value()) {
-      spdlog::error(
-          "AWS secret key configuration parameter not provided. Please provide it through the query, run-time setting "
-          "{} "
-          "or env variable {}",
-          kAwsSecretKeyQuerySetting, kAwsSecretKeyEnv);
-      return false;
+      return AwsValidationError::AWS_SECRET_KEY;
     }
-    return true;
+    return std::nullopt;
   }
 
   // Query settings -> run_time flags -> env variables
@@ -136,6 +148,7 @@ class GlobalS3APIManager {
 
  private:
   GlobalS3APIManager() { Aws::InitAPI(options); }
+
   ~GlobalS3APIManager() { Aws::ShutdownAPI(options); }
 
   Aws::SDKOptions options;
@@ -186,7 +199,8 @@ auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
   // Use path-style for S3-compatible services (4th param = false)
   Aws::S3::S3Client const s3_client(credentials,
                                     BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
-                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                                    false);
 
   return ExtractBucketAndObjectKey(uri).transform(
       [&s3_client](
@@ -197,7 +211,9 @@ auto GetS3ObjectOutcome(std::string_view uri, S3Config const &s3_config)
 
 // Writes the content of the S3 object from the uri into ostream
 auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostream) -> bool {
-  if (!s3_config.Validate()) {
+  if (auto const res = s3_config.Validate(); res.has_value()) {
+    // TODO: (andi) Handle error
+    // return std::unexpected{arrow::Status::UnknownError, utils::AwsValidationErrorToStr(*res)};
     return false;
   }
   GlobalS3APIManager::GetInstance();
@@ -218,13 +234,19 @@ auto GetS3Object(std::string uri, S3Config const &s3_config, std::ostream &ostre
 
 // Writes the content of the S3 object from the uri into a file on the local disk
 auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_file_path) -> bool {
-  s3_config.Validate();
+  if (auto const res = s3_config.Validate(); res.has_value()) {
+    // TODO: (andi) Handle error
+    // return std::unexpected{arrow::Status::UnknownError, utils::AwsValidationErrorToStr(*res)};
+    return false;
+  }
   GlobalS3APIManager::GetInstance();
 
   Aws::Auth::AWSCredentials const credentials(*s3_config.aws_access_key, *s3_config.aws_secret_key);
-  auto const s3_client = std::make_shared<Aws::S3::S3Client>(
-      credentials, BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
-      Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+  auto const s3_client =
+      std::make_shared<Aws::S3::S3Client>(credentials,
+                                          BuildClientConfiguration(*s3_config.aws_region, s3_config.aws_endpoint_url),
+                                          Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                                          false);
 
   Aws::Utils::Threading::DefaultExecutor executor;
   Aws::Transfer::TransferManagerConfiguration config(&executor);
@@ -252,8 +274,8 @@ auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
           return true;
         }
 
-        spdlog::error("Error occurred while downloading file {}. Error: {}", uri,
-                      transfer_handle->GetLastError().GetMessage());
+        spdlog::error(
+            "Error occurred while downloading file {}. Error: {}", uri, transfer_handle->GetLastError().GetMessage());
         return false;
       });
 
