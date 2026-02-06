@@ -357,6 +357,8 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+# Suppress the guarded #warning in usearch/index_plugins.hpp.
+target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
 
 # SimSIMD variant (USEARCH_USE_SIMSIMD=1) for usearch_index_add_simsimd benchmark; uncomment with benchmark block.
 #[[

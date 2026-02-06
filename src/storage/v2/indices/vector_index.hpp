@@ -17,27 +17,13 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-
-// Suppress usearch library warnings
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-W#warnings"
-#endif
-
-#include "usearch/index_dense.hpp"
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
-
+#include "usearch/index_plugins.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
 struct Indices;
 class NameIdMapper;
-
-using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.

@@ -319,16 +319,15 @@ inline std::size_t GetVectorIndexThreadCount() {
 /// @tparam Index The usearch index type (e.g., index_dense_gt<Key, ...>).
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
-/// @tparam Vector to insert into the index.
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (will be updated if resize occurs).
 /// @param key The key to add/update in the index.
 /// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
 /// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
-template <typename Index, typename Key, typename Spec, typename Vector>
+template <typename Index, typename Key, typename Spec>
 void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                       Vector &&vector, std::optional<std::size_t> thread_id = std::nullopt) {
+                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
   if (!vector.empty() && vector.size() != spec.dimension) {
     throw query::VectorSearchException(
         "Vector index property must have the same number of dimensions as specified in the index.");

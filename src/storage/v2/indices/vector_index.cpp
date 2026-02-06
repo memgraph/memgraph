@@ -17,6 +17,7 @@
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "usearch/index_dense.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/synchronized.hpp"
 
@@ -25,8 +26,7 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
-// unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
-// operations.
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 using synchronized_mg_vector_index_t = utils::Synchronized<mg_vector_index_t, std::shared_mutex>;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -79,10 +79,11 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   if (pimpl->index_by_id_.contains(index_id)) {
     return std::nullopt;
   }
-  for (const auto &[_, item] : pimpl->index_by_id_) {
-    if (item.spec.label_id == spec.label_id && item.spec.property == spec.property) {
-      return std::nullopt;
-    }
+  if (r::find_if(pimpl->index_by_id_, [&](const auto &id_index_item) {
+        const auto &spec = id_index_item.second.spec;
+        return spec.label_id == spec.label_id && spec.property == spec.property;
+      }) != pimpl->index_by_id_.end()) {
+    return std::nullopt;
   }
 
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
@@ -119,7 +120,11 @@ void VectorIndex::RecoverIndex(VectorIndexRecoveryInfo &recovery_info, utils::Sk
     auto process_vertex_for_recovery = [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
       if (auto it = recovery_entries.find(vertex.gid); it != recovery_entries.end()) {
         // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-        UpdateVectorIndex(mg_index, spec, &vertex, std::move(it->second), thread_id);
+        auto &vector = it->second;
+        UpdateVectorIndex(mg_index, spec, &vertex, vector, thread_id);
+        // release vector resources to prevent memory growth while doing recovery
+        vector.clear();
+        vector.shrink_to_fit();
       } else {
         AddVertexToIndex(
             *index_id,
@@ -166,7 +171,7 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
                                                               .vector = ListToVector(property)});
   }
   vertex.properties.SetProperty(spec.property, property);
-  UpdateVectorIndex(index_item.mg_index, spec, &vertex, std::move(property.ValueVectorIndexList()), thread_id);
+  UpdateVectorIndex(index_item.mg_index, spec, &vertex, property.ValueVectorIndexList(), thread_id);
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>::Accessor &vertices, Indices *indices,
@@ -388,11 +393,13 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
 }
 
 std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, PropertyId property) const {
-  for (const auto &[_, index_item] : pimpl->index_by_id_) {
-    if (index_item.spec.label_id == label && index_item.spec.property == property) {
-      auto locked_index = index_item.mg_index.ReadLock();
-      return locked_index->size();
-    }
+  auto it = r::find_if(pimpl->index_by_id_, [&](const auto &id_index_item) {
+    const auto &spec = id_index_item.second.spec;
+    return spec.label_id == label && spec.property == property;
+  });
+  if (it != pimpl->index_by_id_.end()) {
+    auto locked_index = it->second.mg_index.ReadLock();
+    return locked_index->size();
   }
   return std::nullopt;
 }
