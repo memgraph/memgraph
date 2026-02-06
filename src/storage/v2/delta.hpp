@@ -20,6 +20,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/logging.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -27,6 +28,24 @@ namespace memgraph::storage {
 struct Vertex;
 struct Edge;
 struct Delta;
+
+// Communicate across transactions when a transaction has marked another's
+// deltas as non-sequential. When PENDING, a transaction knows that it must
+// participate in resetting the vertex's `has_uncommitted_non_sequential_deltas`
+// flag. When HANDLED, other transactions know that transaction has begun
+// cleaning-up and there is no point propagating the flag to existing deltas.
+enum class NonSeqPropagationState : uint8_t { NONE, PENDING, HANDLED };
+
+struct CommitInfo {
+  explicit CommitInfo(uint64_t ts) : timestamp(ts) {}
+
+  std::atomic<uint64_t> timestamp;
+
+  // Checked by the owning transition during finalization to see if another
+  // transaction has set upgraded one of ours deltas to non-sequential.
+  utils::SpinLock lock;
+  NonSeqPropagationState non_seq_propagation{NonSeqPropagationState::NONE};
+};
 
 // This class stores one of three pointers (`Delta`, `Vertex` and `Edge`)
 // without using additional memory for storing the type. The type is stored in
@@ -251,46 +270,46 @@ struct Delta {
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
   Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string_view> old_disk_key,
         utils::PageSlabMemoryResource *res)
-      : timestamp(std::pmr::polymorphic_allocator<Delta>{res}.new_object<std::atomic<uint64_t>>(ts)),
+      : commit_info(std::pmr::polymorphic_allocator<Delta>{res}.new_object<CommitInfo>(ts)),
         command_id(0),
         old_disk_key{.value = opt_str{old_disk_key, res}} {}
 
-  Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
+  Delta(DeleteObjectTag /*tag*/, CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info), command_id(command_id), action(Action::DELETE_OBJECT) {}
 
-  Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp), command_id(command_id), action(Action::RECREATE_OBJECT) {}
+  Delta(RecreateObjectTag /*tag*/, CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info), command_id(command_id), action(Action::RECREATE_OBJECT) {}
 
-  Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp), command_id(command_id), label{.action = Action::ADD_LABEL, .value = label} {}
+  Delta(AddLabelTag /*tag*/, LabelId label, CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info), command_id(command_id), label{.action = Action::ADD_LABEL, .value = label} {}
 
-  Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
+  Delta(RemoveLabelTag /*tag*/, LabelId label, CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
 
-  Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue const &value, std::atomic<uint64_t> *timestamp,
+  Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue const &value, CommitInfo *commit_info,
         uint64_t command_id, utils::PageSlabMemoryResource *res)
-      : timestamp(timestamp),
+      : commit_info(commit_info),
         command_id(command_id),
         property{.action = Action::SET_PROPERTY,
                  .key = key,
                  .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(value)} {}
 
-  Delta(SetPropertyTag /*tag*/, Vertex *out_vertex, PropertyId key, PropertyValue value,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id, utils::PageSlabMemoryResource *res)
-      : timestamp(timestamp),
+  Delta(SetPropertyTag /*tag*/, Vertex *out_vertex, PropertyId key, PropertyValue value, CommitInfo *commit_info,
+        uint64_t command_id, utils::PageSlabMemoryResource *res)
+      : commit_info(commit_info),
         command_id(command_id),
         property{.action = Action::SET_PROPERTY,
                  .key = key,
                  .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value)),
                  .out_vertex = out_vertex} {}
 
-  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, CommitInfo *commit_info,
         uint64_t command_id)
-      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, timestamp, command_id) {}
+      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, commit_info, command_id) {}
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp),
+        CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_IN_EDGE,
                     .edge_type = edge_type,
@@ -299,13 +318,13 @@ struct Delta {
                                                           : DeltaChainState::SEQUENTIAL),
                     .edge = edge} {}
 
-  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, CommitInfo *commit_info,
         uint64_t command_id)
-      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, timestamp, command_id) {}
+      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaSequencing::SEQUENTIAL, commit_info, command_id) {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaSequencing sequencing,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp),
+        CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_OUT_EDGE,
                     .edge_type = edge_type,
@@ -314,26 +333,26 @@ struct Delta {
                                                           : DeltaChainState::SEQUENTIAL),
                     .edge = edge} {}
 
-  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, CommitInfo *commit_info,
         uint64_t command_id)
-      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaChainState::SEQUENTIAL, timestamp, command_id) {}
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaChainState::SEQUENTIAL, commit_info, command_id) {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaChainState state,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp),
+        CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_IN_EDGE,
                     .edge_type = edge_type,
                     .vertex = TaggedVertexPtr(vertex, state),
                     .edge = edge} {}
 
-  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, CommitInfo *commit_info,
         uint64_t command_id)
-      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaChainState::SEQUENTIAL, timestamp, command_id) {}
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaChainState::SEQUENTIAL, commit_info, command_id) {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaChainState state,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : timestamp(timestamp),
+        CommitInfo *commit_info, uint64_t command_id)
+      : commit_info(commit_info),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE,
                     .edge_type = edge_type,
@@ -348,7 +367,7 @@ struct Delta {
   ~Delta() = default;
 
   // TODO: optimize with in-place copy
-  std::atomic<uint64_t> *timestamp;
+  CommitInfo *commit_info;
   uint64_t command_id;
   PreviousPtr prev;
   std::atomic<Delta *> next{nullptr};

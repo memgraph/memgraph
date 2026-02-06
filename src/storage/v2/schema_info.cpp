@@ -68,7 +68,7 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
   if (!delta) return;
 
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
 
     if (ts < start_timestamp) {
@@ -94,7 +94,7 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
   // This tx is running, so no deltas means there are no changes made after the tx started
   if (delta == nullptr) return State::NO_CHANGE;
 
-  const auto head_ts = delta->timestamp->load(std::memory_order_acquire);
+  const auto head_ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
 
   // Fast path: During transaction execution, we only need to check the head
   // delta. The head delta is sufficient because this transaction's deltas are
@@ -115,7 +115,7 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
   bool found_another_tx = false;
 
   for (const Delta *current = delta; current != nullptr; current = current->next.load(std::memory_order_acquire)) {
-    const auto ts = current->timestamp->load(std::memory_order_acquire);
+    const auto ts = current->commit_info->timestamp.load(std::memory_order_acquire);
 
     if (ts < start_timestamp) break;
 

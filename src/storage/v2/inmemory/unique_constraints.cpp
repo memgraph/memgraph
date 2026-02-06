@@ -132,7 +132,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     }
 
     while (delta != nullptr) {
-      const auto ts = delta->timestamp->load(std::memory_order_acquire);
+      const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
       if (ts < commit_timestamp || ts == transaction.transaction_id) {
         break;
       }
@@ -245,7 +245,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
     }
 
     while (delta != nullptr) {
-      auto ts = delta->timestamp->load(std::memory_order_acquire);
+      auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
       if (ts < timestamp) {
         break;
       }

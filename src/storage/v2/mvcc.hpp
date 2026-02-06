@@ -39,8 +39,8 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
   // its commit timestamp set.
   // This allows the transaction to see its changes even though it's committed.
-  const auto commit_timestamp = transaction->commit_timestamp
-                                    ? transaction->commit_timestamp->load(std::memory_order_acquire)
+  auto const commit_timestamp = transaction->commit_info
+                                    ? transaction->commit_info->timestamp.load(std::memory_order_acquire)
                                     : transaction->transaction_id;
 
   std::size_t n_processed = 0;
@@ -54,7 +54,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     // id value, that the change is committed.
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
 
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
@@ -111,7 +111,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
 template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
-  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+  auto ts = object->delta->commit_info->timestamp.load(std::memory_order_acquire);
 
   if (ts == transaction->transaction_id) {
     // If head delta from same transaction is non-sequential, cannot add blocking operation
@@ -152,7 +152,7 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
 
   if (object->delta == nullptr) return WriteResult::SUCCESS;
 
-  auto const ts = object->delta->timestamp->load(std::memory_order_acquire);
+  auto const ts = object->delta->commit_info->timestamp.load(std::memory_order_acquire);
 
   if (ts != transaction->transaction_id) {
     if (ts < transaction->start_timestamp) {
@@ -191,7 +191,7 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     }
 
     for (const Delta *delta = object->delta; delta != nullptr; delta = delta->next.load(std::memory_order_acquire)) {
-      const auto delta_ts = delta->timestamp->load(std::memory_order_acquire);
+      const auto delta_ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
 
       if (delta_ts == transaction->transaction_id) continue;
 
@@ -236,17 +236,17 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return nullptr;
   }
-  transaction->EnsureCommitTimestampExists();
+  transaction->EnsureCommitInfoExists();
 
   return &transaction->deltas.emplace(
-      Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
+      Delta::DeleteObjectTag(), transaction->commit_info.get(), transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
 
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction,
                                                   std::optional<std::string_view> old_disk_key, std::string &&ts) {
-  transaction->EnsureCommitTimestampExists();
+  transaction->EnsureCommitInfoExists();
 
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
@@ -285,7 +285,7 @@ inline bool ShouldSetNonSequentialBlockerUpstreamFlag(Transaction *transaction, 
     return false;
   }
 
-  auto const head_ts = head->timestamp->load(std::memory_order_acquire);
+  auto const head_ts = head->commit_info->timestamp.load(std::memory_order_acquire);
   if (head_ts != transaction->transaction_id) {
     // Different transaction - we're non-sequential, so no upstream in our transaction
     return false;
@@ -310,9 +310,9 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     return;
   }
 
-  transaction->EnsureCommitTimestampExists();
+  transaction->EnsureCommitInfoExists();
   auto delta = &transaction->deltas.emplace(
-      std::forward<Args>(args)..., transaction->commit_timestamp.get(), transaction->command_id);
+      std::forward<Args>(args)..., transaction->commit_info.get(), transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times
@@ -334,7 +334,13 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     // the head of the previous delta block.
     if (IsDeltaNonSequential(*delta) && CanBeNonSequential(object->delta->action) &&
         object->delta->vertex_edge.vertex.GetState() == DeltaChainState::SEQUENTIAL) {
-      object->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
+      {
+        auto guard = std::lock_guard{object->delta->commit_info->lock};
+        if (object->delta->commit_info->non_seq_propagation == NonSeqPropagationState::NONE) {
+          object->delta->commit_info->non_seq_propagation = NonSeqPropagationState::PENDING;
+          object->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
+        }
+      }
     }
   }
 

@@ -173,7 +173,7 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   DMG_ASSERT(vertex->lock.is_locked(), "HasUncommittedNonSequentialDeltas must be called with vertex lock held");
   Delta *delta = vertex->delta;
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
 
     if (ts == skip_transaction_id) {
       // don't include our own deltas they will soon been committed
@@ -201,7 +201,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
         [&delta]() {
           Delta *next = delta.next.load(std::memory_order_acquire);
           if (next == nullptr) return true;
-          auto next_ts = next->timestamp->load(std::memory_order_acquire);
+          auto next_ts = next->commit_info->timestamp.load(std::memory_order_acquire);
           return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
         }(),
         "downstream active non-sequential delta found during rapid cleanup");
@@ -211,7 +211,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
       case PreviousPtr::Type::NULL_PTR:
         break;
       case PreviousPtr::Type::DELTA:
-        if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_id) {
+        if (prev.delta->commit_info->timestamp.load(std::memory_order_acquire) != transaction_id) {
           prev.delta->next.store(nullptr, std::memory_order_release);
         }
         break;
@@ -268,7 +268,7 @@ class DeltaVertexCache {
     };
 
     delta = prev.delta;
-    auto delta_ts = delta->timestamp->load(std::memory_order_acquire);
+    auto delta_ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     while (true) {
       auto current_prev = delta->prev.Get();
       if (current_prev.type == PreviousPtr::Type::VERTEX) {
@@ -278,7 +278,7 @@ class DeltaVertexCache {
 
       DMG_ASSERT(current_prev.type == PreviousPtr::Type::DELTA, "Expected DELTA in vertex delta chain");
 
-      auto const prev_ts = current_prev.delta->timestamp->load(std::memory_order_acquire);
+      auto const prev_ts = current_prev.delta->commit_info->timestamp.load(std::memory_order_acquire);
       // If the ts for the previous delta is different than this one's, we know
       // that they are from different transactions and so this delta is the
       // head of a non-sequential subchain.
@@ -972,7 +972,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   }
 
   // This is usually done by the MVCC, but it does not handle the metadata deltas
-  transaction_.EnsureCommitTimestampExists();
+  transaction_.EnsureCommitInfoExists();
 
   // On REPLICA, user transactions shouldn't commit anything
   if (!commit_args.durability_allowed()) [[unlikely]] {
@@ -1115,9 +1115,19 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
   }
 
-  // If the transaction had non-sequential deltas, we should re-establish the
-  // `has_uncommitted_non_sequential_deltas` flag on any vertices we've touched
-  if (transaction_.has_non_sequential_deltas) {
+  MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
+  transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
+
+  // If the transaction had non-sequential deltas (or another transaction propagated
+  // the flag to us), we should re-establish the `has_uncommitted_non_sequential_deltas`
+  // flag on any vertices we've touched
+  bool const needs_vertex_flag_cleanup = std::invoke([&] -> bool {
+    auto guard = std::lock_guard{transaction_.commit_info->lock};
+    auto prior_state = std::exchange(transaction_.commit_info->non_seq_propagation, NonSeqPropagationState::HANDLED);
+    return transaction_.has_non_sequential_deltas || prior_state == NonSeqPropagationState::PENDING;
+  });
+
+  if (needs_vertex_flag_cleanup) {
     std::unordered_set<Vertex *> vertices_to_check;
     DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
     for (Delta const &delta : transaction_.deltas) {
@@ -1141,9 +1151,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
       }
     }
   }
-
-  MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-  transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
 #ifndef NDEBUG
   auto const prev = mem_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
@@ -1210,7 +1217,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
-  transaction_.commit_timestamp.reset();
+  transaction_.commit_info.reset();
   transaction_.original_start_timestamp = original_start_timestamp;
 
   is_transaction_active_ = true;
@@ -1304,6 +1311,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  if (transaction_.commit_info != nullptr) {
+    auto guard = std::lock_guard{transaction_.commit_info->lock};
+    transaction_.commit_info->non_seq_propagation = NonSeqPropagationState::HANDLED;
+  }
+
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
@@ -1354,7 +1366,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto guard = std::lock_guard{edge->lock};
           Delta *current = edge->delta;
           while (current != nullptr &&
-                 current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+                 current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_.transaction_id) {
             switch (current->action) {
               case Delta::Action::SET_PROPERTY: {
                 DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
@@ -1451,7 +1463,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
 
       Delta *current = start;
-      while (current != nullptr && current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+      while (current != nullptr &&
+             current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_.transaction_id) {
         switch (current->action) {
           case Delta::Action::REMOVE_LABEL: {
             auto it = r::find(vertex->labels, current->label.value);
@@ -1611,7 +1624,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           // If prev delta belongs to another transaction, our deltas are downstream
           // and must wait in `waiting_gc_deltas_` until all contributor transactions
           // are finished.
-          if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id) {
+          if (prev.delta->commit_info->timestamp.load(std::memory_order_acquire) != transaction_.transaction_id) {
             Vertex *vertex = delta_vertex_cache.GetVertexFromDelta(&delta);
             auto guard = std::unique_lock{vertex->lock};
             // Check if we're still at the head - another tx may have prepended
@@ -1640,7 +1653,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
         garbage_undo_buffers.emplace_back(mark_timestamp,
                                           std::move(transaction_.deltas),
-                                          std::move(transaction_.commit_timestamp),
+                                          std::move(transaction_.commit_info),
                                           transaction_.transaction_id);
       });
     }
@@ -1695,15 +1708,13 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0,
-                                                              std::move(transaction_.deltas),
-                                                              std::move(transaction_.commit_timestamp),
-                                                              transaction_.transaction_id));
+          waiting_list.emplace_back(InMemoryStorage::GCDeltas(
+              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
           committed_transactions.emplace_back(
-              0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp), transaction_.transaction_id);
+              0, std::move(transaction_.deltas), std::move(transaction_.commit_info), transaction_.transaction_id);
         });
       }
     }
@@ -2603,7 +2614,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto it = waiting_list.begin();
     while (it != waiting_list.end()) {
       bool all_contributors_committed = true;
-      auto const our_commit_ts = it->commit_timestamp_->load(std::memory_order_acquire);
+      auto const our_commit_ts = it->commit_info_->timestamp.load(std::memory_order_acquire);
 
       uint64_t highest_commit_ts = our_commit_ts;
       std::unordered_set<const Delta *> visited;
@@ -2617,7 +2628,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           // early exit if we find a sequential delta
           if (!IsDeltaNonSequential(*current)) break;
           visited.insert(current);
-          auto ts = current->timestamp->load();
+          auto ts = current->commit_info->timestamp.load();
 
           if (ts >= kTransactionInitialId) {
             // Found an uncommitted NonSeq, we can't unlink these deltas
@@ -2697,7 +2708,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
-    auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
+    auto const *const commit_info_ptr = linked_entry->commit_info_.get();
 
     // Use unlinkable_timestamp to determine if safe to unlink
     auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
@@ -2789,14 +2800,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             //            │
             //  oldest_active_start_timestamp
 
-            if (prev.delta->timestamp == commit_timestamp_ptr) {
+            if (prev.delta->commit_info == commit_info_ptr) {
               // The delta that is newer than this one is also a delta from this
               // transaction. We skip the current delta and will remove it as a
               // part of the suffix later.
               break;
             }
 
-            if (prev.delta->timestamp->load() < oldest_active_start_timestamp) {
+            if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
               // If previous is from another inactive transaction, no need to
               // lock the edge/vertex, nothing will read this far or relink to
               // us directly
@@ -3284,7 +3295,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     }
   }
   // A single transaction will always be fully-contained in a single WAL file.
-  auto current_commit_timestamp = transaction_.commit_timestamp->load(std::memory_order_acquire);
+  auto current_commit_timestamp = transaction_.commit_info->timestamp.load(std::memory_order_acquire);
   DeltaVertexCache vertex_cache(current_commit_timestamp);
 
   auto append_deltas = [&](auto callback) {
@@ -3293,11 +3304,13 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
       while (true) {
         auto *older = delta->next.load(std::memory_order_acquire);
-        if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
+        if (older == nullptr ||
+            older->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp)
+          break;
         delta = older;
       }
       while (true) {
-        auto ts = delta->timestamp->load(std::memory_order_acquire);
+        auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
         // Only encode if this delta belongs to our transaction and matches filter
         if (ts == current_commit_timestamp && filter(delta->action)) {
           callback(*delta, parent, durability_commit_timestamp);
@@ -3363,7 +3376,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       bool const is_subchain_start =
           (prev.type == PreviousPtr::Type::VERTEX) ||
           (prev.type == PreviousPtr::Type::DELTA &&
-           prev.delta->timestamp->load(std::memory_order_acquire) != current_commit_timestamp);
+           prev.delta->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp);
       if (!is_subchain_start) {
         continue;
       }
