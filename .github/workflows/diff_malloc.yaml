@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package-${{ inputs.run_id }}"
+          name: "Enterprise DEB package-${{ inputs.run_id }} (malloc)"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Stop mgbuild container
