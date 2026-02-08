@@ -392,23 +392,33 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else if (destination_has_index && !source_has_index) {
         // Only destination has index - use single source BFS from destination
         ApplyScanByIndex(destination_result->metadata_);
+        // this is ScanAllByIndex on destination symbol but the input is the chain: Filter(n) -> ScanAll(n) -> Once
+        // from the source
         auto indexed_scan = std::move(destination_result->operator_);
 
         // Extract source filter before removing the chain
         // The source chain is: Filter(n) -> ScanAll(n) -> Once
+        // TODO: can something else be after scanall?
         Expression *source_filter_expr = nullptr;
         Filters source_filter_filters;
         std::vector<std::shared_ptr<LogicalOperator>> source_filter_pattern_filters;
+        std::shared_ptr<LogicalOperator> scanall_operator = nullptr;
         if (indexed_scan->input() && indexed_scan->input()->GetTypeInfo() == Filter::kType) {
           auto *source_filter = dynamic_cast<Filter *>(indexed_scan->input().get());
           source_filter_expr = source_filter->expression_;
           source_filter_filters = source_filter->all_filters_;
           source_filter_pattern_filters = source_filter->pattern_filters_;
+          // filter -> scanall: get ScanAll(n) -> Once chain
+          scanall_operator = source_filter->input();
+        } else {
+          // scanall: keep ScanAll(n) -> Once chain
+          scanall_operator = indexed_scan->input();
         }
+        // TODO: is move ok here?
+        indexed_scan->set_input(std::move(scanall_operator->input()));
 
-        indexed_scan->set_input(std::make_shared<Once>());
-
-        // PostVisit(Filter) will automatically remove filters satisfied by the index
+        // ApplyScanByIndex removed filters satisfied by the index
+        // keep the remaining filters
         const auto &destination_symbol = expand.common_.node_symbol;
         auto bfs_input = WrapWithRemainingFilters(std::move(indexed_scan), destination_symbol);
 
@@ -426,8 +436,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         expand.set_input(std::move(bfs_input));
         expand.common_.existing_node = true;
 
-        // Modify the filter above BFSExpand to filter on source instead
+        // Modify the filter above BFSExpand to filter on source instead of destination
         // After popping BFSExpand, prev_ops_.back() is the filter above it
+        // A filter should always exist because if we managed to use index, we must have had a filter above it
+        // TODO: does this hold true for point filters?
         if (source_filter_expr && !prev_ops_.empty() && prev_ops_.back()->GetTypeInfo() == Filter::kType) {
           auto *filter_to_modify = dynamic_cast<Filter *>(prev_ops_.back());
           filter_to_modify->expression_ = source_filter_expr;
@@ -1464,6 +1476,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (!filter_expr) {
+      // TODO: why can't make_shared?
       return std::shared_ptr<LogicalOperator>(std::move(op));
     }
 
@@ -1572,6 +1585,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.
   // Returns the operator and metadata about what needs to be erased.
+  // This works because all filters are stored globally during the Previsit(Filter)
   std::optional<ScanByIndexResult> FindBestScanByIndex(const ScanAll &scan,
                                                        const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     auto input = scan.input();
