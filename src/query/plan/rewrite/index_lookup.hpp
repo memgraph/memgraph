@@ -36,7 +36,8 @@
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
-#include "storage/v2/inmemory/label_property_index.hpp"
+
+import memgraph.utils.fnv;
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -369,146 +370,84 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST && expand.filter_lambda_.accumulated_path_symbol) {
       // When accumulated path is used, we cannot use ST shortest path algorithm.
+      // TODO: change because now STShortestPath doesn't always happen
       return false;
     }
 
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // try to do indexed scan for destination
-      // track expressions marked for removal by GenScanByIndex so we can unmark them
-      // if we don't use the indexed scan
-      std::unordered_set<Expression *> before_removal(filter_exprs_for_removal_);
-      std::unique_ptr<LogicalOperator> indexed_scan = GenScanByIndex(dst_scan);
-      bool destination_has_index = (indexed_scan != nullptr);
-      std::unordered_set<Expression *> newly_marked_for_removal;
       expand.common_.use_bidirectional_bfs_ = false;
-
-      if (destination_has_index) {
-        for (auto *expr : filter_exprs_for_removal_) {
-          if (!before_removal.contains(expr)) {
-            newly_marked_for_removal.insert(expr);
-          }
-        }
-      }
-
+      auto destination_result = FindBestScanByIndex(dst_scan);
+      bool destination_has_index = destination_result.has_value();
       bool source_has_index = HasIndexedSource(expand.input());
 
-      if (destination_has_index) {
-        if (source_has_index) {
-          double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
-          double destination_cardinality = EstimateIndexedScanCardinality(indexed_scan.get());
+      if (destination_has_index && source_has_index) {
+        // Both source and destination have indices - check if STShortestPath is beneficial
+        // Estimate cardinalities: source from existing operator, destination from FindBestScanByIndex result
+        double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
+        double destination_cardinality = EstimateIndexedScanCardinality(destination_result->operator_.get());
 
-          if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
-            // Use bidirectional BFS (STShortestPath)
-            expand.set_input(std::move(indexed_scan));
-            expand.common_.existing_node = true;
-            expand.common_.use_bidirectional_bfs_ = true;
-          } else {
-            for (auto *expr : newly_marked_for_removal) {
-              filter_exprs_for_removal_.erase(expr);
-            }
-          }
-        } else {
-          // use single source bfs but expand from destination via index
-          // Extract source filter from the input chain and remove ScanAll
-          // The indexed_scan has source chain as input: Filter(n) -> ScanAll(n) -> Once
-          // We want: BFSExpand -> Filter(n) -> ScanAllByLabelProperties(m) -> Once
-          auto source_input = indexed_scan->input();
-          Expression *source_filter_expr = nullptr;
-          Filters source_filter_filters;
-          std::vector<std::shared_ptr<LogicalOperator>> source_pattern_filters;
-
-          // Extract Filter from source chain if it exists
-          if (source_input && source_input->GetTypeInfo() == Filter::kType) {
-            auto *source_filter = dynamic_cast<Filter *>(source_input.get());
-            source_filter_expr = source_filter->expression_;
-            source_filter_filters = source_filter->all_filters_;
-            source_pattern_filters = source_filter->pattern_filters_;
-            // The Filter's input is ScanAll(n), which we want to remove
-            // So we'll set indexed_scan's input to Once() and create a new Filter after BFSExpand
-          }
-
-          // Set destination indexed scan input to Once() (remove source chain)
-          indexed_scan->set_input(std::make_shared<Once>());
-
-          // Extract remaining destination filters that were not satisfied by the index
-          // These filters need to be applied after ScanAllByLabelProperties (before BFSExpand)
-          const auto &destination_symbol = expand.common_.node_symbol;
-          Expression *destination_filter_expr = nullptr;
-          std::vector<FilterInfo> destination_filter_infos;
-          std::vector<Expression *> destination_filter_expressions_to_remove;
-
-          // Collect remaining destination filters from filters_ state
-          for (auto filter_it = filters_.begin(); filter_it != filters_.end();) {
-            if (filter_it->used_symbols.contains(destination_symbol)) {
-              // This filter applies to the destination
-              if (destination_filter_expr) {
-                destination_filter_expr =
-                    ast_storage_->Create<AndOperator>(destination_filter_expr, filter_it->expression);
-              } else {
-                destination_filter_expr = filter_it->expression;
-              }
-              destination_filter_infos.push_back(*filter_it);
-              destination_filter_expressions_to_remove.push_back(filter_it->expression);
-              filter_it = filters_.erase(filter_it);
-            } else {
-              ++filter_it;
-            }
-          }
-
-          // Create Filters object from collected filter infos
-          Filters destination_filter_filters;
-          if (!destination_filter_infos.empty()) {
-            destination_filter_filters.SetFilters(std::move(destination_filter_infos));
-          }
-
-          // Mark destination filter expressions for removal so they don't get processed again
-          for (auto *expr : destination_filter_expressions_to_remove) {
-            filter_exprs_for_removal_.insert(expr);
-          }
-
-          // Wrap ScanAllByLabelProperties with Filter(destination) if destination filters exist
-          std::shared_ptr<LogicalOperator> bfs_input;
-          if (destination_filter_expr) {
-            // Convert unique_ptr to shared_ptr for Filter constructor
-            std::shared_ptr<LogicalOperator> indexed_scan_shared(std::move(indexed_scan));
-            bfs_input = std::make_shared<Filter>(indexed_scan_shared,
-                                                 std::vector<std::shared_ptr<LogicalOperator>>(),
-                                                 destination_filter_expr,
-                                                 destination_filter_filters);
-          } else {
-            // Convert unique_ptr to shared_ptr
-            bfs_input = std::shared_ptr<LogicalOperator>(std::move(indexed_scan));
-          }
-
-          // reverse direction when expanding from destination
-          switch (expand.common_.direction) {
-            case EdgeAtom::Direction::IN:
-              expand.common_.direction = EdgeAtom::Direction::OUT;
-              break;
-            case EdgeAtom::Direction::OUT:
-              expand.common_.direction = EdgeAtom::Direction::IN;
-              break;
-            default:
-              break;
-          }
-          expand.set_input(std::move(bfs_input));
+        if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
+          // Use bidirectional BFS (STShortestPath) - apply side effects and use the indexed scan
+          ApplyScanByIndex(destination_result->metadata_);
+          expand.set_input(std::move(destination_result->operator_));
           expand.common_.existing_node = true;
-
-          // Create Filter(source) after BFSExpand if source filter exists
-          // Execution order (bottom-up): ScanAllByLabelProperties -> Filter(destination) -> BFSExpand -> Filter(source)
-          // Display order (top-down): Filter(source) -> BFSExpand -> Filter(destination) -> ScanAllByLabelProperties
-          if (source_filter_expr) {
-            // Clone expand to create a shared_ptr
-            auto bfs_expand_cloned = expand.Clone(ast_storage_);
-            auto bfs_expand_shared = std::shared_ptr<LogicalOperator>(std::move(bfs_expand_cloned));
-            auto filter_after_bfs = std::make_shared<Filter>(
-                bfs_expand_shared, source_pattern_filters, source_filter_expr, source_filter_filters);
-            SetOnParent(filter_after_bfs);
-          }
+          expand.common_.use_bidirectional_bfs_ = true;
         }
-      }  // otherwise expand from source via index or scanall
+      } else if (destination_has_index && !source_has_index) {
+        // Only destination has index - use single source BFS from destination
+        ApplyScanByIndex(destination_result->metadata_);
+        auto indexed_scan = std::move(destination_result->operator_);
+
+        // Extract source filter (Filter 4: n) before removing the source chain
+        // The source chain is: Filter(n) -> ScanAll(n) -> Once
+        Expression *source_filter_expr = nullptr;
+        Filters source_filters;
+        std::vector<std::shared_ptr<LogicalOperator>> source_pattern_filters;
+        if (indexed_scan->input() && indexed_scan->input()->GetTypeInfo() == Filter::kType) {
+          auto *source_filter = dynamic_cast<Filter *>(indexed_scan->input().get());
+          source_filter_expr = source_filter->expression_;
+          source_filters = source_filter->all_filters_;
+          source_pattern_filters = source_filter->pattern_filters_;
+        }
+
+        // Remove source chain (ScanAll 5) - set indexed scan input to Once()
+        indexed_scan->set_input(std::make_shared<Once>());
+
+        // Wrap indexed scan with remaining destination filters (Filter 2: m)
+        // PostVisit(Filter) will automatically remove filters satisfied by the index
+        const auto &destination_symbol = expand.common_.node_symbol;
+        auto bfs_input = WrapWithRemainingFilters(std::move(indexed_scan), destination_symbol);
+
+        // Reverse direction when expanding from destination
+        switch (expand.common_.direction) {
+          case EdgeAtom::Direction::IN:
+            expand.common_.direction = EdgeAtom::Direction::OUT;
+            break;
+          case EdgeAtom::Direction::OUT:
+            expand.common_.direction = EdgeAtom::Direction::IN;
+            break;
+          default:
+            break;
+        }
+        expand.set_input(std::move(bfs_input));
+        expand.common_.existing_node = true;
+
+        // Create Filter(source) after BFSExpand if source filter exists
+        // Final plan: Filter(source n) -> BFSExpand -> Filter(destination m) -> ScanAllByLabelProperties(m)
+        if (source_filter_expr) {
+          auto bfs_expand_cloned = expand.Clone(ast_storage_);
+          auto filter_after_bfs =
+              std::make_shared<Filter>(std::shared_ptr<LogicalOperator>(std::move(bfs_expand_cloned)),
+                                       source_pattern_filters,
+                                       source_filter_expr,
+                                       source_filters);
+          SetOnParent(filter_after_bfs);
+        }
+      }
+      // If destination_has_index is false, or if source_has_index is true but STShortestPath wasn't beneficial,
+      // we fall through and expand from source via index or scanall (handled by the else branch below for non-BFS)
     } else {
       std::unique_ptr<LogicalOperator> indexed_scan =
           GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
@@ -1515,6 +1454,42 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
            type_info == ScanAllById::kType;
   }
 
+  // Extracts filters for a symbol from filters_ and creates a Filter operator if needed.
+  // Returns the operator wrapped in Filter if filters exist, otherwise returns the operator as-is.
+  std::shared_ptr<LogicalOperator> WrapWithRemainingFilters(std::unique_ptr<LogicalOperator> op, const Symbol &symbol) {
+    Expression *filter_expr = nullptr;
+    std::vector<FilterInfo> filter_infos;
+
+    // Collect remaining filters for this symbol
+    for (auto filter_it = filters_.begin(); filter_it != filters_.end();) {
+      if (filter_it->used_symbols.contains(symbol)) {
+        if (filter_expr) {
+          filter_expr = ast_storage_->Create<AndOperator>(filter_expr, filter_it->expression);
+        } else {
+          filter_expr = filter_it->expression;
+        }
+        filter_infos.push_back(*filter_it);
+        filter_exprs_for_removal_.insert(filter_it->expression);
+        filter_it = filters_.erase(filter_it);
+      } else {
+        ++filter_it;
+      }
+    }
+
+    if (!filter_expr) {
+      return std::shared_ptr<LogicalOperator>(std::move(op));
+    }
+
+    Filters filter_filters;
+    if (!filter_infos.empty()) {
+      filter_filters.SetFilters(std::move(filter_infos));
+    }
+
+    std::shared_ptr<LogicalOperator> op_shared(std::move(op));
+    return std::make_shared<Filter>(
+        op_shared, std::vector<std::shared_ptr<LogicalOperator>>(), filter_expr, filter_filters);
+  }
+
   // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
   // compared to SingleSourceShortestPath (multi-source BFS).
   bool ShouldUseSTShortestPath(double source_cnt, double target_cnt, EdgeAtom::Direction direction) {
@@ -1591,17 +1566,27 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     MG_ASSERT(false, "Unknown indexed scan operator type");
   }
 
-  // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
-  // does not have at least a label, no indexed lookup can be created and
-  // `nullptr` is returned. The operator is chained after `input`. Optional
-  // `max_vertex_count` controls, whether no operator should be created if the
-  // vertex count in the best index exceeds this number. In such a case,
-  // `nullptr` is returned and `input` is not chained.
-  // In case of a "or" expression on labels the Distinct operator will be returned with the
-  // Union operator as input. Union will have as input the ScanAll operator.
-  // TODO: Add new operator instead of Distinct + Union
-  std::unique_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
-                                                  const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+  // Metadata about what needs to be erased when applying an indexed scan.
+  struct ScanByIndexMetadata {
+    std::vector<FilterInfo> filters_to_erase;
+    std::vector<Expression *> expressions_to_mark_for_removal;
+    std::vector<LabelIx> labels_to_erase;   // For EraseLabelFilter or EraseOrLabelFilter
+    bool is_or_label_filter = false;        // If true, use EraseOrLabelFilter instead of EraseLabelFilter
+    bool all_property_filters_same = true;  // For OR labels: whether all filters are the same
+    Symbol node_symbol;                     // Needed for EraseLabelFilter/EraseOrLabelFilter
+  };
+
+  // Finds the best indexed scan operator for the given ScanAll without applying side effects.
+  // Returns the operator and metadata about what needs to be erased.
+  struct ScanByIndexResult {
+    std::unique_ptr<LogicalOperator> operator_;
+    ScanByIndexMetadata metadata_;
+  };
+
+  // Finds the best indexed scan operator for the given ScanAll without applying side effects.
+  // Returns the operator and metadata about what needs to be erased.
+  std::optional<ScanByIndexResult> FindBestScanByIndex(const ScanAll &scan,
+                                                       const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     auto input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
@@ -1659,14 +1644,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return filter_info;
     };
 
+    ScanByIndexMetadata metadata;
+    metadata.node_symbol = node_symbol;
+
     // First, try to see if we can find a vertex by ID.
     if (!max_vertex_count || *max_vertex_count >= 1) {
       for (const auto &filter : filters_.IdFilters(node_symbol)) {
         if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
         auto *value = filter.id_filter->value_;
-        filter_exprs_for_removal_.insert(filter.expression);
-        filters_.EraseFilter(filter);
-        return std::make_unique<ScanAllById>(input, node_symbol, value, view);
+        metadata.filters_to_erase.push_back(filter);
+        metadata.expressions_to_mark_for_removal.push_back(filter.expression);
+        return ScanByIndexResult{std::make_unique<ScanAllById>(input, node_symbol, value, view), std::move(metadata)};
       }
     }
     // Now try to see if we can use label+property index. If not, try to use
@@ -1675,7 +1663,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto or_labels = filters_.FilteredOrLabels(node_symbol);
     if (labels.empty() && or_labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
-      return nullptr;
+      return std::nullopt;
     }
 
     // Point index prefered over regular label+property index
@@ -1687,23 +1675,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         FilterInfo const &filter = found_index->filter;
         auto const &point_filter = filter.point_filter.value();
 
-        filters_.EraseFilter(filter);
-        std::vector<Expression *> removed_expressions;  // out parameter
-        filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
-        filter_exprs_for_removal_.insert(filter.expression);
-        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+        metadata.filters_to_erase.push_back(filter);
+        metadata.labels_to_erase.push_back(found_index->label);
+        metadata.expressions_to_mark_for_removal.push_back(filter.expression);
 
+        std::unique_ptr<LogicalOperator> op;
         switch (point_filter.function_) {
           using enum PointFilter::Function;
           case DISTANCE: {
-            return std::make_unique<ScanAllByPointDistance>(
-                input,
-                node_symbol,
-                GetLabel(found_index->label),
-                GetProperty(point_filter.property_),
-                point_filter.distance_.cmp_value_,  // uses the CRS from here
-                point_filter.distance_.boundary_value_,
-                point_filter.distance_.boundary_condition_);
+            op = std::make_unique<ScanAllByPointDistance>(input,
+                                                          node_symbol,
+                                                          GetLabel(found_index->label),
+                                                          GetProperty(point_filter.property_),
+                                                          point_filter.distance_.cmp_value_,  // uses the CRS from here
+                                                          point_filter.distance_.boundary_value_,
+                                                          point_filter.distance_.boundary_condition_);
+            break;
           }
           case WITHINBBOX: {
             auto *expr = std::invoke([&]() -> Expression * {
@@ -1718,22 +1705,24 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               // else use provided evaluation time expression
               return point_filter.withinbbox_.boundary_value_;
             });
-            return std::make_unique<ScanAllByPointWithinbbox>(input,
-                                                              node_symbol,
-                                                              GetLabel(found_index->label),
-                                                              GetProperty(point_filter.property_),
-                                                              point_filter.withinbbox_.bottom_left_,
-                                                              point_filter.withinbbox_.top_right_,
-                                                              expr);
+            op = std::make_unique<ScanAllByPointWithinbbox>(input,
+                                                            node_symbol,
+                                                            GetLabel(found_index->label),
+                                                            GetProperty(point_filter.property_),
+                                                            point_filter.withinbbox_.bottom_left_,
+                                                            point_filter.withinbbox_.top_right_,
+                                                            expr);
+            break;
           }
         }
+        return ScanByIndexResult{std::move(op), std::move(metadata)};
       }
     }
     std::optional<LabelPropertyIndex> found_index = FindBestLabelPropertiesIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count) && or_labels.empty()) {
-      // Filter cleanup, track which expressions to remove
+      // Collect metadata for filter cleanup
       for (auto const &filter_info : found_index->filters) {
         const PropertyFilter prop_filter = *filter_info.property_filter;
 
@@ -1741,34 +1730,32 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           // Remove the original expression from Filter operation only if it's not
           // a regex match. In such a case we need to perform the matching even
           // after we've scanned the index.
-          filter_exprs_for_removal_.insert(filter_info.expression);
+          metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
         }
 
-        filters_.EraseFilter(filter_info);
-        std::vector<Expression *> removed_expressions;
-        filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
-        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+        metadata.filters_to_erase.push_back(filter_info);
       }
+      metadata.labels_to_erase.push_back(found_index->label);
 
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
       auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
 
-      return std::make_unique<ScanAllByLabelProperties>(input,
-                                                        node_symbol,
-                                                        GetLabel(found_index->label),
-                                                        std::move(found_index->properties),
-                                                        std::move(expr_ranges),
-                                                        view);
+      auto op = std::make_unique<ScanAllByLabelProperties>(input,
+                                                           node_symbol,
+                                                           GetLabel(found_index->label),
+                                                           std::move(found_index->properties),
+                                                           std::move(expr_ranges),
+                                                           view);
+      return ScanByIndexResult{std::move(op), std::move(metadata)};
     }
     if (!labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
       if (maybe_label) {
         const auto &label = *maybe_label;
         if (!max_vertex_count || db_->VerticesCount(GetLabel(label)) <= *max_vertex_count) {
-          std::vector<Expression *> removed_expressions;
-          filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
-          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-          return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+          metadata.labels_to_erase.push_back(label);
+          auto op = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+          return ScanByIndexResult{std::move(op), std::move(metadata)};
         }
       }
     }
@@ -1778,17 +1765,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // it in unions
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
         std::unique_ptr<LogicalOperator> prev;
-        std::vector<LabelIx> labels_to_erase;
-        labels_to_erase.reserve(best_group.indices.size());
-        std::vector<Expression *> removed_expressions;
+        metadata.labels_to_erase.reserve(best_group.indices.size());
         std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
-        bool all_property_filters_same =
-            true;  // Used to check if all indices uses the same filter -> if yes we can remove the filter
+        metadata.all_property_filters_same = true;
         for (const auto &index : best_group.indices) {
           if (std::holds_alternative<LabelIx>(index)) {
-            all_property_filters_same = false;
-            labels_to_erase.push_back(std::get<LabelIx>(index));
+            metadata.all_property_filters_same = false;
+            metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
             auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
             if (prev) {
               auto union_op = std::make_unique<Union>(std::move(prev),
@@ -1802,9 +1786,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
           } else {
             auto &label_property_index = std::get<LabelPropertyIndex>(index);
-            labels_to_erase.push_back(label_property_index.label);
+            metadata.labels_to_erase.push_back(label_property_index.label);
             if (filtered_property_ids && *filtered_property_ids != label_property_index.properties) {
-              all_property_filters_same = false;
+              metadata.all_property_filters_same = false;
             }
             filtered_property_ids = label_property_index.properties;
             // Filter cleanup, track which expressions to remove
@@ -1814,7 +1798,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 // Remove the original expression from Filter operation only if it's not
                 // a regex match. In such a case we need to perform the matching even
                 // after we've scanned the index.
-                removed_expressions.push_back(filter_info.expression);
+                metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
               }
             }
             auto value_expressions =
@@ -1839,13 +1823,59 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
           }
         }
-        if (!all_property_filters_same) removed_expressions.clear();
-        filters_.EraseOrLabelFilter(node_symbol, labels_to_erase, &removed_expressions);
-        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-        return prev;
+        metadata.is_or_label_filter = true;
+        return ScanByIndexResult{std::move(prev), std::move(metadata)};
       }
     }
-    return nullptr;
+    return std::nullopt;
+  }
+
+  // Applies the side effects of using an indexed scan (erases filters, marks expressions for removal).
+  void ApplyScanByIndex(const ScanByIndexMetadata &metadata) {
+    // Erase filters
+    for (const auto &filter : metadata.filters_to_erase) {
+      filters_.EraseFilter(filter);
+    }
+
+    // Erase label filters and collect removed expressions
+    std::vector<Expression *> removed_expressions;
+    if (metadata.is_or_label_filter) {
+      filters_.EraseOrLabelFilter(metadata.node_symbol, metadata.labels_to_erase, &removed_expressions);
+      if (!metadata.all_property_filters_same) {
+        removed_expressions.clear();
+      }
+    } else {
+      for (const auto &label : metadata.labels_to_erase) {
+        std::vector<Expression *> label_removed_expressions;
+        filters_.EraseLabelFilter(metadata.node_symbol, label, &label_removed_expressions);
+        removed_expressions.insert(
+            removed_expressions.end(), label_removed_expressions.begin(), label_removed_expressions.end());
+      }
+    }
+
+    // Mark expressions for removal
+    filter_exprs_for_removal_.insert(metadata.expressions_to_mark_for_removal.begin(),
+                                     metadata.expressions_to_mark_for_removal.end());
+    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+  }
+
+  // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
+  // does not have at least a label, no indexed lookup can be created and
+  // `nullptr` is returned. The operator is chained after `input`. Optional
+  // `max_vertex_count` controls, whether no operator should be created if the
+  // vertex count in the best index exceeds this number. In such a case,
+  // `nullptr` is returned and `input` is not chained.
+  // In case of a "or" expression on labels the Distinct operator will be returned with the
+  // Union operator as input. Union will have as input the ScanAll operator.
+  // TODO: Add new operator instead of Distinct + Union
+  std::unique_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
+                                                  const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+    auto result = FindBestScanByIndex(scan, max_vertex_count);
+    if (!result) {
+      return nullptr;
+    }
+    ApplyScanByIndex(result->metadata_);
+    return std::move(result->operator_);
   }
 };
 
