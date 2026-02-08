@@ -22,7 +22,7 @@ on:
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
-        default: '0'
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -39,6 +39,7 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
   core:
@@ -154,7 +155,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Code analysis)-${{ inputs.run_id }}"
+          name: "Code coverage(Code analysis)${{ env.RUN_ID }}"
           path: tools/github/generated/code_coverage.tar.gz
 
       - name: Stop mgbuild container
