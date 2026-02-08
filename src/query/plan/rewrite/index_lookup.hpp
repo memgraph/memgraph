@@ -368,12 +368,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (expand.common_.existing_node) {
       return true;
     }
-    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST && expand.filter_lambda_.accumulated_path_symbol) {
-      // When accumulated path is used, we cannot use ST shortest path algorithm.
-      // TODO: change because now STShortestPath doesn't always happen
-      return false;
-    }
-
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
@@ -382,14 +376,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       bool destination_has_index = destination_result.has_value();
       bool source_has_index = HasIndexedSource(expand.input());
 
-      if (destination_has_index && source_has_index) {
+      // When accumulated path is used, we cannot use ST shortest path algorithm.
+      if (destination_has_index && source_has_index && !expand.filter_lambda_.accumulated_path_symbol) {
         // Both source and destination have indices - check if STShortestPath is beneficial
         // Estimate cardinalities: source from existing operator, destination from FindBestScanByIndex result
         double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
         double destination_cardinality = EstimateIndexedScanCardinality(destination_result->operator_.get());
 
         if (ShouldUseSTShortestPath(source_cardinality, destination_cardinality, expand.common_.direction)) {
-          // Use bidirectional BFS (STShortestPath) - apply side effects and use the indexed scan
           ApplyScanByIndex(destination_result->metadata_);
           expand.set_input(std::move(destination_result->operator_));
           expand.common_.existing_node = true;
@@ -400,27 +394,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         ApplyScanByIndex(destination_result->metadata_);
         auto indexed_scan = std::move(destination_result->operator_);
 
-        // Extract source filter (Filter 4: n) before removing the source chain
+        // Extract source filter before removing the chain
         // The source chain is: Filter(n) -> ScanAll(n) -> Once
         Expression *source_filter_expr = nullptr;
-        Filters source_filters;
-        std::vector<std::shared_ptr<LogicalOperator>> source_pattern_filters;
+        Filters source_filter_filters;
+        std::vector<std::shared_ptr<LogicalOperator>> source_filter_pattern_filters;
         if (indexed_scan->input() && indexed_scan->input()->GetTypeInfo() == Filter::kType) {
           auto *source_filter = dynamic_cast<Filter *>(indexed_scan->input().get());
           source_filter_expr = source_filter->expression_;
-          source_filters = source_filter->all_filters_;
-          source_pattern_filters = source_filter->pattern_filters_;
+          source_filter_filters = source_filter->all_filters_;
+          source_filter_pattern_filters = source_filter->pattern_filters_;
         }
 
-        // Remove source chain (ScanAll 5) - set indexed scan input to Once()
         indexed_scan->set_input(std::make_shared<Once>());
 
-        // Wrap indexed scan with remaining destination filters (Filter 2: m)
         // PostVisit(Filter) will automatically remove filters satisfied by the index
         const auto &destination_symbol = expand.common_.node_symbol;
         auto bfs_input = WrapWithRemainingFilters(std::move(indexed_scan), destination_symbol);
 
-        // Reverse direction when expanding from destination
+        // reverse direction when expanding from destination
         switch (expand.common_.direction) {
           case EdgeAtom::Direction::IN:
             expand.common_.direction = EdgeAtom::Direction::OUT;
@@ -434,20 +426,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         expand.set_input(std::move(bfs_input));
         expand.common_.existing_node = true;
 
-        // Create Filter(source) after BFSExpand if source filter exists
-        // Final plan: Filter(source n) -> BFSExpand -> Filter(destination m) -> ScanAllByLabelProperties(m)
-        if (source_filter_expr) {
-          auto bfs_expand_cloned = expand.Clone(ast_storage_);
-          auto filter_after_bfs =
-              std::make_shared<Filter>(std::shared_ptr<LogicalOperator>(std::move(bfs_expand_cloned)),
-                                       source_pattern_filters,
-                                       source_filter_expr,
-                                       source_filters);
-          SetOnParent(filter_after_bfs);
+        // Modify the filter above BFSExpand to filter on source instead
+        // After popping BFSExpand, prev_ops_.back() is the filter above it
+        if (source_filter_expr && !prev_ops_.empty() && prev_ops_.back()->GetTypeInfo() == Filter::kType) {
+          auto *filter_to_modify = dynamic_cast<Filter *>(prev_ops_.back());
+          filter_to_modify->expression_ = source_filter_expr;
+          filter_to_modify->all_filters_ = source_filter_filters;
+          filter_to_modify->pattern_filters_ = source_filter_pattern_filters;
         }
       }
-      // If destination_has_index is false, or if source_has_index is true but STShortestPath wasn't beneficial,
-      // we fall through and expand from source via index or scanall (handled by the else branch below for non-BFS)
     } else {
       std::unique_ptr<LogicalOperator> indexed_scan =
           GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
