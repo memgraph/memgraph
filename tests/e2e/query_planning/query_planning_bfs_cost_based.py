@@ -157,6 +157,30 @@ def test_bfs_cost_based_selection(memgraph):
     actual_explain = [x[QUERY_PLAN] for x in results]
     assert expected_plan_8 == actual_explain, f"Expected plan 8, got: {actual_explain}"
 
+    # Test 9: Destination has index, source does not
+    expected_plan_9 = [
+        " * Produce {r}",
+        " * BFSExpand (n)-[r]-(m)",
+        " * Filter {m.filler}",
+        " * ScanAllByLabelProperties (m :Node {id})",
+        " * Once",
+    ]
+    results = list(memgraph.execute_and_fetch("EXPLAIN MATCH (n)-[r *BFS]-(m:Node {id: 0, filler:false}) RETURN r;"))
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_plan_9 == actual_explain, f"Expected plan 9, got: {actual_explain}"
+
+    # Test 10: Destination has index, source does not
+    expected_plan_10 = [
+        " * Produce {r}",
+        " * Filter (n :Node1), {n.id}",
+        " * BFSExpand (n)-[r]-(m)",
+        " * ScanAllByLabelProperties (m :Node {id})",
+        " * Once",
+    ]
+    results = list(memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node1 {id: 1})-[r *BFS]-(m:Node {id: 0}) RETURN r;"))
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_plan_10 == actual_explain, f"Expected plan 9, got: {actual_explain}"
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
