@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -74,6 +75,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/parallel_checker.hpp"
@@ -2669,6 +2671,12 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+
+  /// When the plan yields (scheduler-driven yield), we store the suspended handle here
+  /// so the next Pull() can resume. Cleared when resuming or when pull completes.
+  std::coroutine_handle<> suspended_pull_handle_{};
+  /// Root pull awaitable kept across yield so we can resume; created on first pull, cleared when done.
+  std::optional<plan::PullAwaitable> root_pull_awaitable_{};
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -2767,8 +2775,38 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 #endif
     }};
 
-    // Returns true if a result was pulled.
-    const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
+    // Temporary: enable test yield from env to verify coroutine yield/resume (e.g. MG_QUERY_TEST_YIELD_AFTER=2).
+    if (const char *v = std::getenv("MG_QUERY_TEST_YIELD_AFTER")) {
+      int n = std::atoi(v);
+      if (n > 0) ctx_.test_yield_after_yield_point_count = n;
+    }
+
+    // Point context at our persistent storage so yield stores the handle for scheduler resume.
+    ctx_.suspended_task_handle_ptr = &suspended_pull_handle_;
+    const auto restore_suspended_ptr = utils::OnScopeExit{[this]() { ctx_.suspended_task_handle_ptr = nullptr; }};
+
+    // Returns: true = has row, false = done, nullopt = yielded (control returned to scheduler).
+    // Each root PullAsync() produces one row then completes; clear root after each result so next pull starts fresh.
+    const auto pull_result = [&]() -> std::optional<bool> {
+      if (!root_pull_awaitable_) {
+        root_pull_awaitable_.emplace(cursor_->PullAsync(frame_, ctx_));
+        spdlog::info("[yield] PullPlan::Pull new root_pull_awaitable_ (handle={})",
+                     reinterpret_cast<uintptr_t>(root_pull_awaitable_->GetHandle().address()));
+      }
+      std::optional<std::coroutine_handle<>> resume_first;
+      if (suspended_pull_handle_) {
+        resume_first = suspended_pull_handle_;
+        suspended_pull_handle_ = std::coroutine_handle<>{};
+        spdlog::info("[yield] PullPlan::Pull resuming stored handle (not new awaitable)");
+      }
+      auto r = plan::RunPullUntilCompletionOrYield(*root_pull_awaitable_, ctx_, resume_first);
+      if (r.has_value()) {
+        root_pull_awaitable_.reset();
+        spdlog::info("[yield] PullPlan::Pull root_pull_awaitable_ reset after result={}", *r ? "row" : "done");
+      }
+      spdlog::info("[yield] PullPlan::Pull pull_result()={}", r.has_value() ? (*r ? "true" : "false") : "yielded");
+      return r;
+    };
 
     auto values = std::vector<TypedValue>(output_symbols.size());
     const auto stream_values = [&] {
@@ -2789,7 +2827,21 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
 
     for (; !n || i < n; ++i) {
-      if (!pull_result()) {
+      auto res = pull_result();
+      if (!res) {
+        // Yielded. Only return to scheduler once we've streamed at least one row,
+        // so the client gets a proper response and will send PULL for more. Otherwise
+        // we'd return has_more=true with 0 rows and the session would stay in Result
+        // with no PULL from the client, blocking the next query.
+        if (i > 0) {
+          return std::nullopt;
+        }
+        // No rows streamed yet: resume and keep going until we get a row or done.
+        do {
+          res = pull_result();
+        } while (!res);
+      }
+      if (!*res) {
         break;
       }
 
@@ -2802,7 +2854,18 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // we try to pull the next result to see if there is more.
     // If there is additional result, we leave the pulled result in the frame
     // and set the flag to true.
-    has_unsent_results_ = i == n && pull_result();
+    auto more = pull_result();
+    if (!more) {
+      // Yielded after the n-results loop. Only surface if we streamed something.
+      if (i > 0) {
+        return std::nullopt;
+      }
+      // No rows in this batch: resume until we get a result (row or done).
+      do {
+        more = pull_result();
+      } while (!more);
+    }
+    has_unsent_results_ = i == n && *more;
 
     execution_time_ += timer.Elapsed();
   }
@@ -2811,6 +2874,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     return std::nullopt;
   }
 
+  root_pull_awaitable_.reset();
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);
 

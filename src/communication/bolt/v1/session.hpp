@@ -113,6 +113,22 @@ class Session {
       // We are here, so the query will have the correct priority; just fall down to execute any other requests
     }
 
+    // Yield is internal: when a pull yields we re-queue (return true) so the worker can do other
+    // work. On the next run we resume the pull without reading a client message.
+    if (state_ == State::Result && impl.HasResumePullPending()) {
+      spdlog::trace("Bolt session: resuming pull (scheduler re-ran us)");
+      state_ = details::HandleResumePull(impl);
+      if (state_ == State::Result && impl.HasResumePullPending()) {
+        spdlog::trace("Bolt session: pull yielded again, re-queue");
+        return true;
+      }
+      if (state_ == State::Close) [[unlikely]] {
+        ClientFailureInvalidData();
+        return false;
+      }
+      // state_ is now Idle; fall through to process any pending input
+    }
+
     ChunkState chunk_state;
     while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
       if (chunk_state == ChunkState::Whole) {
@@ -148,6 +164,12 @@ class Session {
         // Try to not break from Prepare till the end of the execution as this will lead to worse performance.
         // Last pull will set the state to State::Idle
         return true;  // more data to process
+      }
+
+      // Pull yielded (has_more): re-queue so scheduler can do other work, then we resume on next run.
+      if (state_ == State::Result && impl.HasResumePullPending()) {
+        spdlog::trace("Bolt session: pull yielded, returning true to scheduler (task will re-queue, thread released)");
+        return true;
       }
 
       if (state_ == State::Close) [[unlikely]] {

@@ -62,6 +62,7 @@ target_sources(mg-query
     metadata.cpp
     plan/hint_provider.cpp
     plan/operator_type_info.cpp
+    plan/cursor_awaitable.cpp
     plan/operator.cpp
     plan/preprocess.cpp
     plan/pretty_print.cpp
