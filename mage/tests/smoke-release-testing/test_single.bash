@@ -61,6 +61,7 @@ test_load_csv
 test_load_jsonl
 test_load_parquet
 test_parallel_runtime
+test_mgconsole "1.5"
 
 # NOTE: If the testing container is NOT restarted (each test having their own
 # container), all the auth test have to come after all tests that assume there
