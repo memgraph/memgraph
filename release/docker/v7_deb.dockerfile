@@ -25,11 +25,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 USER memgraph
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt && \
-    pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16 && \
-    find /home/memgraph/.local/lib/python3.12/site-packages -type f -name "*.so" -exec strip --strip-unneeded {} + || true && \
-    find /home/memgraph/.local/lib/python3.12/site-packages -type f -name "*.so.*" -exec strip --strip-unneeded {} + || true && \
-    find /home/memgraph/.local/lib/python3.12/site-packages -type d \( -name "tests" -o -name "test" -o -name "__pycache__" \) -prune -exec rm -rf {} + && \
-    find /home/memgraph/.local/lib/python3.12/site-packages -type f -name "*.pyi" -delete
+    pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
 
 FROM ubuntu:24.04
 # NOTE: If you change the base distro update release/package as well.
@@ -72,7 +68,7 @@ VOLUME /var/lib/memgraph
 # Configuration volume
 VOLUME /etc/memgraph
 
-COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local/lib/python3.12/site-packages /home/memgraph/.local/lib/python3.12/site-packages
+COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
 USER memgraph
 WORKDIR /usr/lib/memgraph

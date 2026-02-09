@@ -106,7 +106,7 @@ ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
-COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local/lib/python${PY_VERSION}/site-packages /home/memgraph/.local/lib/python${PY_VERSION}/site-packages
+COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
 USER memgraph
 EXPOSE 7687
@@ -128,7 +128,7 @@ ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
-COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local/lib/python${PY_VERSION}/site-packages /home/memgraph/.local/lib/python${PY_VERSION}/site-packages
+COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
 # copy script to convert to dev container
 COPY make-dev-container.sh /make-dev-container.sh

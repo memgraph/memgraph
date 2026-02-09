@@ -118,7 +118,7 @@ RUN tar -xzvf /tmp/mage.tar.gz -C /usr/lib/memgraph/ && rm /tmp/mage.tar.gz
 COPY make-dev-container.sh /make-dev-container.sh
 
 USER memgraph
-COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local/lib/python${PY_VERSION}/site-packages /home/memgraph/.local/lib/python${PY_VERSION}/site-packages
+COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
 EXPOSE 7687
 
