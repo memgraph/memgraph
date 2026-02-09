@@ -8,7 +8,6 @@ Requires: pip install litellm
 Configure: set OPENAI_API_KEY (or provider-specific env) and optionally LITELLM_MODEL.
 """
 
-import json
 import os
 
 import mgp
