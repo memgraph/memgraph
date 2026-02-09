@@ -1891,10 +1891,12 @@ TypedValue GetHopsCounter(const TypedValue * /*args*/, int64_t /*nargs*/, const 
 
 TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
   FType<void>("username", /*args*/ nullptr, /*nargs*/ 0);
-  if (!ctx.user_or_role) {
+  // In triggers, use triggering_user (invoker), otherwise use user_or_role
+  const auto &user = ctx.triggering_user ? ctx.triggering_user : ctx.user_or_role;
+  if (!user) {
     return TypedValue(ctx.memory);
   }
-  const auto &username = ctx.user_or_role->username();
+  const auto &username = user->username();
   if (!username) {
     return TypedValue(ctx.memory);
   }
@@ -1903,7 +1905,9 @@ TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const Functi
 
 TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<String>>("db_name", args, nargs);
-  if (!ctx.user_or_role) {
+  // In triggers, use triggering_user (invoker), otherwise use user_or_role
+  const auto &user = ctx.triggering_user ? ctx.triggering_user : ctx.user_or_role;
+  if (!user) {
     return TypedValue(TypedValue::TVector(ctx.memory));
   }
 
@@ -1913,7 +1917,7 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   // nullopt = show all roles
-  auto const rolenames = ctx.user_or_role->GetRolenames(db_name);
+  auto const rolenames = user->GetRolenames(db_name);
   TypedValue::TVector roles_list(ctx.memory);
   roles_list.reserve(rolenames.size());
   for (auto const &rolename : rolenames) {
