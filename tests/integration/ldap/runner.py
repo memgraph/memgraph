@@ -79,7 +79,9 @@ class Memgraph:
         self._storage_directory = tempfile.TemporaryDirectory()
         self._auth_module = os.path.join(self._storage_directory.name, "ldap.py")
         self._auth_config = os.path.join(self._storage_directory.name, "ldap.yaml")
-        script_file = os.path.join(PROJECT_DIR, "src", "auth", "reference_modules", "ldap.py")
+        ref_modules = os.path.join(PROJECT_DIR, "src", "auth", "reference_modules")
+        script_file = os.path.join(ref_modules, "ldap.py")
+        common_file = os.path.join(ref_modules, "common.py")
         virtualenv_bin = os.path.join(PROJECT_DIR, "tests", "ve3", "bin", "python3")
         with open(script_file) as fin:
             data = fin.read()
@@ -88,6 +90,9 @@ class Memgraph:
             with open(self._auth_module, "w") as fout:
                 fout.write(data)
         os.chmod(self._auth_module, stat.S_IRWXU | stat.S_IRWXG)
+        with open(common_file) as fin:
+            with open(os.path.join(self._storage_directory.name, "common.py"), "w") as fout:
+                fout.write(fin.read())
         self.restart(**kwargs)
 
     def restart(self, **kwargs):

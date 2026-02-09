@@ -22,7 +22,6 @@
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
-
 struct CachedSet {
   using allocator_type = utils::Allocator<CachedSet>;
   using alloc_traits = std::allocator_traits<allocator_type>;
@@ -169,11 +168,93 @@ class FrameChangeCollector {
     invalidators_[symbol_pos].emplace_back(key);
   }
 
+  // Merge data from another FrameChangeCollector into this one
+  void MergeFrom(FrameChangeCollector &&other) {
+    // Merge inlist_cache_: combine cached values (union of sets)
+    for (auto &&[key, cached_set] : other.inlist_cache_) {
+      auto [it, inserted] = inlist_cache_.emplace(key, CachedSet(get_allocator()));
+      // Merge the cached values (union of sets) - works for both new and existing keys
+      for (auto &&value : cached_set.cache_) {
+        it->second.cache_.emplace(value);
+      }
+    }
+
+    // Merge regex_cache_: if key doesn't exist in main, insert it
+    // If it exists and main doesn't have a value but branch does, use branch's value
+    for (auto &[key, regex_opt] : other.regex_cache_) {
+      auto [it, inserted] = regex_cache_.emplace(key, std::nullopt);
+      if (!inserted) {
+        // Key exists in both - if main doesn't have a value but branch does, use branch's value
+        if (!it->second.has_value() && regex_opt.has_value()) {
+          it->second = std::move(regex_opt);
+        }
+      } else {
+        // Key didn't exist in main, copy from branch
+        it->second = std::move(regex_opt);
+      }
+    }
+
+    // Merge invalidators_: combine invalidator lists
+    for (auto &[symbol_pos, invalidator_list] : other.invalidators_) {
+      auto &main_list = invalidators_[symbol_pos];
+      main_list.insert(main_list.end(),
+                       std::make_move_iterator(invalidator_list.begin()),
+                       std::make_move_iterator(invalidator_list.end()));
+    }
+  }
+
+  // Copy the cache structure (keys and invalidators) from another collector without copying cached values.
+  // This is used when creating branch collectors for parallel execution.
+  // Branch collectors start with empty caches and will populate them as needed.
+  // Cache invalidation across branches is handled by batch version tracking in ScanParallelCursor.
+  void CopyStructureFrom(const FrameChangeCollector &other) {
+    // Copy inlist_cache_ keys but with empty cached values
+    for (const auto &entry : other.inlist_cache_) {
+      inlist_cache_.emplace(entry.first, CachedSet(get_allocator()));
+    }
+
+    // Copy regex_cache_ keys but with empty (nullopt) values
+    for (const auto &entry : other.regex_cache_) {
+      regex_cache_.emplace(entry.first, std::nullopt);
+    }
+
+    // Copy invalidators_ - used for normal symbol-based invalidation within a batch
+    for (const auto &[symbol_pos, invalidator_list] : other.invalidators_) {
+      auto &main_list = invalidators_[symbol_pos];
+      main_list.insert(main_list.end(), invalidator_list.begin(), invalidator_list.end());
+    }
+  }
+
   bool AnyCaches() const { return !inlist_cache_.empty() || !regex_cache_.empty(); }
 
   bool AnyInListCaches() const { return !inlist_cache_.empty(); }
 
   bool AnyRegexCaches() const { return !regex_cache_.empty(); }
+
+  // Clear all cached values without removing the cache structure.
+  // Used when input changes in parallel execution (e.g., UNWIND produces new value)
+  // to ensure all branches re-evaluate expressions with fresh data.
+  void ClearAllCaches() {
+    for (auto &[key, cached_set] : inlist_cache_) {
+      cached_set.Reset();
+    }
+    for (auto &[key, regex_opt] : regex_cache_) {
+      regex_opt = std::nullopt;
+    }
+  }
+
+  // Clear caches if the batch version has changed since last check.
+  // Used in parallel execution: when ScanParallelCursor gets a new input batch,
+  // all branch collectors must clear their caches to avoid using stale values.
+  // Returns true if caches were cleared.
+  bool ClearCachesIfBatchChanged(uint64_t current_batch_version) {
+    if (last_batch_version_ == current_batch_version) {
+      return false;  // Same batch, caches are still valid
+    }
+    last_batch_version_ = current_batch_version;
+    ClearAllCaches();
+    return true;
+  }
 
  private:
   void ResetInListCacheInternal(Symbol::Position_t const &symbol_pos) {
@@ -201,5 +282,8 @@ class FrameChangeCollector {
   utils::pmr::unordered_map<utils::FrameChangeId, CachedSet> inlist_cache_;
   utils::pmr::unordered_map<utils::FrameChangeId, std::optional<std::regex>> regex_cache_;
   utils::pmr::unordered_map<Symbol::Position_t, utils::pmr::vector<utils::FrameChangeId>> invalidators_;
+  // Tracks the last batch version seen by this collector.
+  // Used by ScanParallelCursor to detect when input changes and caches need clearing.
+  uint64_t last_batch_version_{0};
 };
 }  // namespace memgraph::query

@@ -2,10 +2,20 @@
 import base64
 import io
 import json
+import time
+
+from common import add_call_id_to_response, pop_call_id
 
 
 def authenticate(scheme: str, response: str):
     response = base64.b64decode(response).decode("utf-8")
+
+    # Used by test_sso_pipe_stale_response: delay writing so first connection's
+    # GetData times out (2s) but second connection's GetData is still waiting;
+    # script writes at 3s so without drain the second connection reads stale anthony.
+    if response == "delay_then_anthony":
+        time.sleep(3)
+        return {"authenticated": True, "role": "architect", "username": "anthony"}
 
     if response == "send_error":
         return {
@@ -78,5 +88,7 @@ if __name__ == "__main__":
     output_stream = io.FileIO(1001, mode="w")
     while True:
         params = json.loads(input_stream.readline().decode("ascii"))
+        call_id = pop_call_id(params)
         ret = authenticate(**params)
+        ret = add_call_id_to_response(ret, call_id)
         output_stream.write((json.dumps(ret) + "\n").encode("ascii"))

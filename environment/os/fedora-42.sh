@@ -69,7 +69,6 @@ MEMGRAPH_BUILD_DEPS=(
     PyYAML # Package name here does not correspond to the dnf package!
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
-    doxygen graphviz # source documentation generators
     which nodejs golang custom-golang # for driver tests
     zip unzip custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing

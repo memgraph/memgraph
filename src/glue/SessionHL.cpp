@@ -341,6 +341,14 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
 }
 
@@ -357,6 +365,9 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     metrics::IncrementCounter(GetExceptionName(e));
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
     // Exceptions inheriting from BasicException will result in a TransientError
@@ -488,6 +499,11 @@ void SessionHL::RollbackTransaction() {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
 }
 
@@ -504,6 +520,11 @@ void SessionHL::CommitTransaction() {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
 }
 

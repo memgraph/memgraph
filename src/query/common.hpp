@@ -184,7 +184,7 @@ inline void ProcessError(const storage::Error error) {
 
 template <typename T>
 concept AccessorWithSetProperty =
-    requires(T accessor, const storage::PropertyId key, const storage::PropertyValue new_value) {
+    requires(T accessor, const storage::PropertyId key, const storage::PropertyValue &new_value) {
       { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
     };
 
@@ -207,7 +207,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 
 template <typename T>
 concept AccessorWithInitProperties =
-    requires(T accessor, const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    requires(T accessor, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
       { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
     };
 

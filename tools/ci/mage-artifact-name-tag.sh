@@ -7,6 +7,7 @@ ARCH=$2
 BUILD_TYPE=$3
 MALLOC=$4
 CUDA=$5
+CUGRAPH=$6
 
 IMAGE_TAG="${MEMGRAPH_VERSION}"
 IMAGE_TAG="${IMAGE_TAG//+/_}"
@@ -25,7 +26,10 @@ if [[ "$MALLOC" == "true" ]]; then
     ARTIFACT_NAME="${ARTIFACT_NAME}-malloc"
     IMAGE_TAG="${IMAGE_TAG}-malloc"
 fi
-if [[ "$CUDA" == "true" ]]; then
+if [[ "$CUGRAPH" == "true" ]]; then
+    ARTIFACT_NAME="${ARTIFACT_NAME}-cugraph"
+    IMAGE_TAG="${IMAGE_TAG}-cugraph"
+elif [[ "$CUDA" == "true" ]]; then
     ARTIFACT_NAME="${ARTIFACT_NAME}-cuda"
     IMAGE_TAG="${IMAGE_TAG}-cuda"
 fi

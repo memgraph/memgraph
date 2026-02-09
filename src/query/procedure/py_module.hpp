@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,5 +81,14 @@ py::Object ReloadPyModule(PyObject *, mgp_module *);
 
 /// Call full python circular reference garbage collection (all generations)
 void PyCollectGarbage();
+
+/// Register the current thread with the Python interpreter.
+///
+/// This function should be called once per thread (e.g., at worker thread startup)
+/// to pre-initialize Python thread state. This prevents issues when many threads
+/// simultaneously try to acquire the GIL for the first time during parallel execution.
+///
+/// The function is safe to call if Python is not initialized - it will simply return.
+void RegisterPyThread();
 
 }  // namespace memgraph::query::procedure

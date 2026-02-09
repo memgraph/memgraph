@@ -57,6 +57,10 @@ on:
         type: boolean
         description: "Generate SBOM"
         default: false
+      run_smoke_tests:
+        type: boolean
+        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
 
   workflow_call:
     inputs:
@@ -96,6 +100,10 @@ on:
       generate_sbom:
         type: boolean
         description: "Generate SBOM"
+        default: false
+      run_smoke_tests:
+        type: boolean
+        description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
 
 jobs:
@@ -247,7 +255,7 @@ jobs:
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
     secrets: inherit
 
-  Docker-v6:
+  Docker:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.run_package_docker == 'true' }}
     uses: ./.github/workflows/reusable_package.yaml
@@ -263,9 +271,10 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: ${{ inputs.run_smoke_tests }}
     secrets: inherit
 
-  Docker-v6-arm:
+  Docker-arm:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.run_package_docker_arm == 'true' }}
     uses: ./.github/workflows/reusable_package.yaml
@@ -281,6 +290,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: ${{ inputs.run_smoke_tests }}
     secrets: inherit
 
   Fedora42:

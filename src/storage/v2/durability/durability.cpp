@@ -237,7 +237,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
   RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
 }
 
-void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
+void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
@@ -390,11 +390,11 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
-    for (const auto &spec : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
+    for (auto &recovery_info : indices_metadata.vector_indices) {
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, snapshot_info);
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(spec.label_id.AsUint()),
-                   name_id_mapper->IdToName(spec.property.AsUint()));
+                   name_id_mapper->IdToName(recovery_info.spec.label_id.AsUint()),
+                   name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
     }
     spdlog::info("Vector indices are recreated.");
   }
@@ -500,8 +500,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,
-                                       RecoveredIndicesAndConstraints const &indices_constraints,
-                                       bool properties_on_edges,
+                                       RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   RecoverIndicesAndStats(indices_constraints.indices,
                          indices,

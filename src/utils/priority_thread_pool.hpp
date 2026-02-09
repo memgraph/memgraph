@@ -15,6 +15,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
@@ -77,6 +78,10 @@ using TaskSignature = std::move_only_function<void(utils::Priority)>;
 // Also execute non scheduler tasks in the local thread
 class TaskCollection {
  public:
+  explicit TaskCollection(size_t num_tasks) { tasks_.reserve(num_tasks); }
+
+  TaskCollection() = default;
+
   void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
 
   class Task {
@@ -116,8 +121,10 @@ class TaskCollection {
 class PriorityThreadPool {
  public:
   using TaskID = uint64_t;
+  using ThreadInitCallback = std::function<void()>;
 
-  PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count);
+  PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
+                     ThreadInitCallback thread_init_callback = nullptr);
 
   ~PriorityThreadPool();
 
@@ -137,6 +144,12 @@ class PriorityThreadPool {
       ScheduledAddTask(collection.WrapTask(i), Priority::LOW);
     }
   }
+
+  uint64_t GetNumMixedWorkers() const { return workers_.size(); }
+
+  uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
+
+  uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
   // Single worker implementation
   class Worker {
@@ -191,6 +204,30 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+};
+
+class CollectionScheduler {
+ public:
+  CollectionScheduler(PriorityThreadPool *pool, std::shared_ptr<TaskCollection> collection)
+      : pool_{pool}, collection_{std::move(collection)} {}
+
+  void SetPool(PriorityThreadPool *pool) { pool_ = pool; }
+
+  void SetCollection(std::shared_ptr<TaskCollection> collection) { collection_ = std::move(collection); }
+
+  void Trigger() {
+    if (pool_ && collection_) pool_->ScheduledCollection(*collection_);
+    pool_ = nullptr;
+  }
+
+  void WaitOrSteal() {
+    if (collection_) collection_->WaitOrSteal();
+    collection_.reset();
+  }
+
+ private:
+  PriorityThreadPool *pool_;
+  std::shared_ptr<TaskCollection> collection_;
 };
 
 }  // namespace memgraph::utils

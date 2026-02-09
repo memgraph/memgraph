@@ -446,10 +446,10 @@ Auth::Auth(std::string storage_directory, Config config
 #endif
 }  // namespace memgraph::auth
 
-std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
+std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nlohmann::json module_params,
                                                    std::optional<std::string> provided_username) {
   spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
-  auto ret = modules_.at(scheme).Call(module_params, FLAGS_auth_module_timeout_ms);
+  auto ret = modules_.at(scheme).Call(std::move(module_params), FLAGS_auth_module_timeout_ms);
 
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
@@ -610,7 +610,7 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   params["username"] = username;
   params["password"] = password;
 
-  return CallExternalModule("basic", params, username);
+  return CallExternalModule("basic", std::move(params), username);
 }
 
 std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
@@ -623,7 +623,7 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   params["scheme"] = scheme;
   params["response"] = identity_provider_response;
 
-  return CallExternalModule(scheme, params);
+  return CallExternalModule(scheme, std::move(params));
 }
 
 void Auth::LinkUser(User &user) const {

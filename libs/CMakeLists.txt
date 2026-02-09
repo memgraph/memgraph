@@ -352,9 +352,22 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FRO
 target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
 add_library(tantivy_text_search ALIAS mgcxx_text_search)
 
-# setup usearch
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+# Suppress the guarded #warning in usearch/index_plugins.hpp.
+target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
+
+# SimSIMD variant (USEARCH_USE_SIMSIMD=1) for usearch_index_add_simsimd benchmark; uncomment with benchmark block.
+#[[
+add_library(usearch_simsimd INTERFACE IMPORTED GLOBAL)
+set_property(TARGET usearch_simsimd PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/simsimd/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+set_property(TARGET usearch_simsimd PROPERTY INTERFACE_COMPILE_DEFINITIONS
+  USEARCH_USE_SIMSIMD=1;USEARCH_USE_FP16LIB=1)
+]]

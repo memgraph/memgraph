@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -126,6 +126,23 @@ bool ReadWriteTypeChecker::PreVisit(RollUpApply &op) {
   op.list_collection_branch_->Accept(*this);
   return false;
 }
+
+PRE_VISIT(AggregateParallel, RWType::NONE, true)
+PRE_VISIT(OrderByParallel, RWType::NONE, true)
+PRE_VISIT(ParallelMerge, RWType::NONE, true)
+PRE_VISIT(ScanParallel, RWType::R, true)
+PRE_VISIT(ScanParallelByLabel, RWType::R, true)
+PRE_VISIT(ScanParallelByLabelProperties, RWType::R, true)
+PRE_VISIT(ScanParallelByEdge, RWType::R, true)
+PRE_VISIT(ScanParallelByEdgeType, RWType::R, true)
+PRE_VISIT(ScanParallelByEdgeTypeProperty, RWType::R, true)
+PRE_VISIT(ScanParallelByEdgeTypePropertyValue, RWType::R, true)
+PRE_VISIT(ScanParallelByEdgeTypePropertyRange, RWType::R, true)
+PRE_VISIT(ScanParallelByEdgeProperty, RWType::R, true)
+PRE_VISIT(ScanParallelByEdgePropertyValue, RWType::R, true)
+PRE_VISIT(ScanParallelByEdgePropertyRange, RWType::R, true)
+PRE_VISIT(ScanChunk, RWType::NONE, true)
+PRE_VISIT(ScanChunkByEdge, RWType::NONE, true)
 
 #undef PRE_VISIT
 

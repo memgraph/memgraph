@@ -35,17 +35,20 @@ def classify_string(s: str) -> str:
         return s
 
 
-def get_daily_url(date: str, arch: str, malloc: bool, cuda: bool, relwithdebinfo: bool) -> str:
+def get_daily_url(date: str, arch: str, malloc: bool, cuda: bool, relwithdebinfo: bool, image_type: str) -> str:
     """
     Given a date of the format yyyymmdd, find and return the URL of the
     appropriate image.
     """
 
-    packages = list_daily_release_packages(int(date), return_url=True)
+    packages = list_daily_release_packages(int(date), return_url=True, image_type=image_type)
 
     try:
         arch_name = "x86_64" if arch == "amd" else "arm64"
-        key = f"Docker ({arch_name})"
+        if image_type == "mage":
+            key = f"Docker ({arch_name})"
+        elif image_type == "memgraph":
+            key = "docker"
         suffixes = ""
         if relwithdebinfo:
             suffixes += "-relwithdebinfo"
@@ -61,7 +64,7 @@ def get_daily_url(date: str, arch: str, malloc: bool, cuda: bool, relwithdebinfo
     return url
 
 
-def get_version_docker(version: str, malloc: str, cuda: str, relwithdebinfo: str):
+def get_version_docker(version: str, malloc: str, cuda: str, relwithdebinfo: str, image_type: str):
     """
     convert version number to docker image tag
 
@@ -69,7 +72,12 @@ def get_version_docker(version: str, malloc: str, cuda: str, relwithdebinfo: str
     full docker tag to the workflow
     """
 
-    repo_tag = f"memgraph/memgraph-mage:{version}"
+    if image_type == "mage":
+        repo_tag = f"memgraph/memgraph-mage:{version}"
+    elif image_type == "memgraph":
+        repo_tag = f"memgraph/memgraph:{version}"
+    else:
+        raise ValueError(f"Invalid image type: {image_type}")
 
     if relwithdebinfo and "relwithdebinfo" not in version:
         repo_tag = f"{repo_tag}-relwithdebinfo"
@@ -123,6 +131,8 @@ def main() -> None:
 
     parser.add_argument("relwithdebinfo", type=str, help="Is a RelWithDebInfo build: true|false")
 
+    parser.add_argument("image_type", type=str, help="Image type: mage|memgraph")
+
     args = parser.parse_args()
 
     # classify image
@@ -135,6 +145,7 @@ def main() -> None:
             string_to_boolean(args.malloc),
             string_to_boolean(args.cuda),
             string_to_boolean(args.relwithdebinfo),
+            args.image_type,
         )
         cls = "url"
     elif cls == "version":
@@ -143,6 +154,7 @@ def main() -> None:
             string_to_boolean(args.malloc),
             string_to_boolean(args.cuda),
             string_to_boolean(args.relwithdebinfo),
+            args.image_type,
         )
         cls = "docker"
     else:

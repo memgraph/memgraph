@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -103,6 +103,23 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(PeriodicCommit &) override;
   bool PreVisit(SetNestedProperty &) override;
   bool PreVisit(RemoveNestedProperty &) override;
+
+  bool PreVisit(AggregateParallel &) override;
+  bool PreVisit(OrderByParallel &) override;
+  bool PreVisit(ParallelMerge &) override;
+  bool PreVisit(ScanParallel &) override;
+  bool PreVisit(ScanParallelByLabel &) override;
+  bool PreVisit(ScanParallelByLabelProperties &) override;
+  bool PreVisit(ScanParallelByEdge &) override;
+  bool PreVisit(ScanParallelByEdgeType &) override;
+  bool PreVisit(ScanParallelByEdgeTypeProperty &) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyValue &) override;
+  bool PreVisit(ScanParallelByEdgeTypePropertyRange &) override;
+  bool PreVisit(ScanParallelByEdgeProperty &) override;
+  bool PreVisit(ScanParallelByEdgePropertyValue &) override;
+  bool PreVisit(ScanParallelByEdgePropertyRange &) override;
+  bool PreVisit(ScanChunk &) override;
+  bool PreVisit(ScanChunkByEdge &) override;
 
   bool Visit(Once &) override;
 

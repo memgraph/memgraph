@@ -68,7 +68,6 @@ MEMGRAPH_BUILD_DEPS=(
     PyYAML # Package name here does not correspond to the yum package!
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
-    doxygen graphviz # source documentation generators
     which nodejs golang custom-golang # for driver tests
     zip unzip java-11-openjdk-devel java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing

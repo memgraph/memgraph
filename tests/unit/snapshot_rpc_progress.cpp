@@ -536,7 +536,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto const spec =
+  auto spec =
       VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
   auto vertices = SkipList<Vertex>();
@@ -546,7 +546,8 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+  ASSERT_TRUE(
+      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
@@ -555,7 +556,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto const spec =
+  auto spec =
       VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
   auto vertices = SkipList<Vertex>();
@@ -579,7 +580,8 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 4000);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+  ASSERT_TRUE(
+      vector_idx.CreateIndex(spec, vertices_acc, &storage.indices_, storage.name_id_mapper_.get(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices) {

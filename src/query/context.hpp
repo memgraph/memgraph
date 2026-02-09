@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
@@ -74,6 +75,7 @@ struct StoppingContext {
   std::atomic<TransactionStatus> *transaction_status{nullptr};
   std::atomic<bool> *is_shutting_down{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer{};
+  std::shared_ptr<std::atomic<uint8_t>> exception_occurred{nullptr};  // Used only for parallel execution
 
   auto MustAbort() const noexcept -> AbortReason {
     if (transaction_status && transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED)
@@ -85,6 +87,9 @@ struct StoppingContext {
     }
     if (timer && timer->IsExpired()) [[unlikely]] {
       return AbortReason::TIMEOUT;
+    }
+    if (exception_occurred && exception_occurred->load(std::memory_order_acquire)) [[unlikely]] {
+      return AbortReason::EXCEPTION;
     }
     return AbortReason::NO_ABORT;
   }
@@ -103,7 +108,7 @@ struct ExecutionContext {
   EvaluationContext evaluation_context;
   StoppingContext stopping_context;
   bool is_profile_query{false};
-  std::chrono::duration<double> profile_execution_time;
+  std::chrono::duration<double> profile_execution_time{0};
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
@@ -114,10 +119,13 @@ struct ExecutionContext {
   HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
 #ifdef MG_ENTERPRISE
-  std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
+  std::shared_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   std::shared_ptr<storage::DatabaseProtector> protector;
   bool is_main{true};
+  std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
+  utils::PriorityThreadPool *worker_pool{nullptr};
+
   auto commit_args() -> storage::CommitArgs;
 };
 

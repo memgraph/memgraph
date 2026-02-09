@@ -137,6 +137,7 @@ struct PropertyInfo {
           case PropertyValueType::IntList:
           case PropertyValueType::DoubleList:
           case PropertyValueType::NumericList:
+          case PropertyValueType::VectorIndexId:
             ss << "List";
             break;
           case PropertyValueType::Map:

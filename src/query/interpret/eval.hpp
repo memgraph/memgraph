@@ -248,6 +248,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   BINARY_OPERATOR_VISITOR(MultiplicationOperator, *, *);
   BINARY_OPERATOR_VISITOR(DivisionOperator, /, /);
   BINARY_OPERATOR_VISITOR(ModOperator, %, %);
+
   BINARY_OPERATOR_VISITOR(NotEqualOperator, !=, <>);
   BINARY_OPERATOR_VISITOR(EqualOperator, ==, =);
   BINARY_OPERATOR_VISITOR(LessOperator, <, <);

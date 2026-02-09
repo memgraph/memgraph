@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <execution>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -28,6 +30,9 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
+#include "flags/bolt.hpp"
+#include "memory/query_memory_control.hpp"
+#include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/run_time_configurable.hpp"
@@ -41,10 +46,12 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/graph.hpp"
 #include "query/interpret/eval.hpp"
+#include "query/parallel_state.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
@@ -71,6 +78,7 @@
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
+#include "utils/timer.hpp"
 #include "vertex_accessor.hpp"
 
 import memgraph.csv.parsing;
@@ -419,11 +427,108 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
   return dba->NameToEdgeType(edge_type_name.ValueString());
 }
 
+/// Thread-safe shared state for parallel Distinct execution.
+/// Multiple DistinctCursor instances can share this state to ensure
+/// global deduplication across parallel execution threads.
+/// Uses sharded locking to reduce contention - each shard has its own mutex.
+class SharedDistinctState {
+ public:
+  using SeenRowsSet =
+      utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                TypedValueVectorEqual>;
+
+  static constexpr size_t kNumShards = 64;  // Power of 2 for fast modulo via bitwise AND
+
+  explicit SharedDistinctState(utils::MemoryResource *mem) : mem_(mem) {
+    // Initialize all shards with the same memory resource
+    for (size_t i = 0; i < kNumShards; ++i) {
+      shards_[i] = SeenRowsSet(mem);
+    }
+  }
+
+  /// Batch insert: takes a vector of rows and returns a vector of bools indicating which are unique.
+  /// Groups rows by shard and locks once per shard for efficiency.
+  std::vector<bool> TryInsertBatch(auto &rows) {
+    std::vector<bool> results;
+    results.reserve(rows.size());
+    for (const auto &row : rows) {
+      const size_t hash = utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>{}(row);
+      const size_t shard_idx = hash & (kNumShards - 1);
+      const std::lock_guard<std::mutex> lock(shard_mutexes_[shard_idx].mutex);
+      auto [it, inserted] = shards_[shard_idx].emplace(std::move(row));
+      results.push_back(inserted);
+    }
+    return results;
+  }
+
+  void Clear() {
+    for (size_t i = 0; i < kNumShards; ++i) {
+      const std::lock_guard<std::mutex> lock(shard_mutexes_[i].mutex);
+      shards_[i].clear();
+    }
+  }
+
+  utils::MemoryResource *GetMemoryResource() const { return mem_; }
+
+ private:
+  utils::MemoryResource *mem_;
+
+  // Padded mutex to avoid false sharing between adjacent shards
+  struct alignas(64) PaddedMutex {
+    std::mutex mutex;
+  };
+
+  std::array<PaddedMutex, kNumShards> shard_mutexes_;
+  std::array<SeenRowsSet, kNumShards> shards_;
+};
+
+// Parallel execution plan creation helper
+struct CreationHelper {
+  std::shared_ptr<Cursor> cursor_{nullptr};
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
+  std::map<const LogicalOperator *, utils::SharedQuota> quotas_;  // Skip/Limit cursors need to use the same quota
+  std::map<const LogicalOperator *, std::shared_ptr<SharedDistinctState>>
+      shared_distinct_states_;  // Distinct cursors share deduplication state
+  std::shared_ptr<std::vector<utils::SharedQuota *>> shared_plan_quotas_{nullptr};
+
+  utils::SharedQuota GetSharedQuota(const LogicalOperator *op) {
+    auto [it, _] = quotas_.try_emplace(op, utils::SharedQuota(utils::SharedQuota::preload));
+    return it->second;
+  }
+
+  /// Get or create shared distinct state for a given Distinct operator.
+  /// Returns nullptr if not in parallel context (collection_scheduler_ is null).
+  std::shared_ptr<SharedDistinctState> GetSharedDistinctState(const LogicalOperator *op, utils::MemoryResource *mem) {
+    auto [it, inserted] = shared_distinct_states_.try_emplace(op, nullptr);
+    if (inserted) {
+      it->second = std::make_shared<SharedDistinctState>(mem);
+    }
+    return it->second;
+  }
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+thread_local CreationHelper plan_creation_helper_{.cursor_ = nullptr};
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+struct PlanCreationHelper {
+  explicit PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
+    creation_helper_old_ =
+        std::exchange(plan_creation_helper_, CreationHelper{.collection_scheduler_ = collection_scheduler});
+  }
+
+  ~PlanCreationHelper() { plan_creation_helper_ = std::move(creation_helper_old_); }
+
+ private:
+  CreationHelper creation_helper_old_{.cursor_ = nullptr};
+};
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP(name)                                                                    \
-  std::optional<ScopedProfile> profile =                                                           \
+  const std::optional<ScopedProfile> profile =                                                     \
       context.is_profile_query                                                                     \
           ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), name, &context) \
           : std::nullopt;
@@ -805,7 +910,9 @@ class ScanAllCursor : public Cursor {
     AbortCheck(context);
 
     while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+      if (!input_cursor_->Pull(frame, context)) {
+        return false;
+      }
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
       auto next_vertices = get_vertices_(frame, context);
@@ -1130,6 +1237,101 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
   return object;
 }
 
+namespace {
+std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
+                                                                      ExpressionEvaluator &evaluator) {
+  if (!bound) return std::nullopt;
+  const auto &value = bound->value()->Accept(evaluator);
+  try {
+    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
+    switch (property_value.type()) {
+      case storage::PropertyValue::Type::Bool:
+      case storage::PropertyValue::Type::List:
+      case storage::PropertyValue::Type::NumericList:
+      case storage::PropertyValue::Type::IntList:
+      case storage::PropertyValue::Type::DoubleList:
+      case storage::PropertyValue::Type::Map:
+      case storage::PropertyValue::Type::Enum:
+      case storage::PropertyValueType::Point2d:
+      case storage::PropertyValueType::Point3d:
+      case storage::PropertyValueType::VectorIndexId:
+        // Prevent indexed lookup with something that would fail if we did
+        // the original filter with `operator<`. Note, for some reason,
+        // Cypher does not support comparing boolean values.
+        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
+      case storage::PropertyValue::Type::Null:
+      case storage::PropertyValue::Type::Int:
+      case storage::PropertyValue::Type::Double:
+      case storage::PropertyValue::Type::String:
+      case storage::PropertyValue::Type::TemporalData:
+      case storage::PropertyValue::Type::ZonedTemporalData:
+        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
+    }
+  } catch (const TypedValueException &) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+}
+
+// Helper function to evaluate an expression and convert it to a property value.
+std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expression *expression, Frame &frame,
+                                                                        ExecutionContext &context, storage::View view) {
+  ExpressionEvaluator evaluator(&frame,
+                                context.symbol_table,
+                                context.evaluation_context,
+                                context.db_accessor,
+                                view,
+                                nullptr,
+                                &context.number_of_hops,
+                                context.user_or_role);
+  auto value = expression->Accept(evaluator);
+  if (value.IsNull()) {
+    return std::nullopt;
+  }
+  if (!value.IsPropertyValue()) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+  return value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+}
+
+// Helper function to convert bounds and check for null values.
+std::pair<std::optional<utils::Bound<storage::PropertyValue>>, std::optional<utils::Bound<storage::PropertyValue>>>
+ConvertBoundsAndCheckNull(std::optional<utils::Bound<Expression *>> lower_bound,
+                          std::optional<utils::Bound<Expression *>> upper_bound, ExpressionEvaluator &evaluator) {
+  auto maybe_lower = TryConvertToBound(lower_bound, evaluator);
+  auto maybe_upper = TryConvertToBound(upper_bound, evaluator);
+
+  // If any bound is null, then the comparison would result in nulls.
+  // This is treated as not satisfying the filter.
+  if (maybe_lower && maybe_lower->value().IsNull()) {
+    return {std::nullopt, std::nullopt};
+  }
+  if (maybe_upper && maybe_upper->value().IsNull()) {
+    return {std::nullopt, std::nullopt};
+  }
+
+  return {maybe_lower, maybe_upper};
+}
+
+// Helper function to evaluate expression ranges and check for null bounds.
+// Returns nullopt if any bound is null.
+std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRangesAndCheckNull(
+    const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator) {
+  auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
+  auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
+
+  auto const bound_is_null = [](auto &&range) {
+    return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+  };
+
+  // If either upper or lower bounds are `null`, then nothing can satisfy the filter.
+  if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    return std::nullopt;
+  }
+
+  return prop_value_ranges;
+}
+}  // namespace
+
 ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                                                Symbol edge_symbol, Symbol node1_symbol,
                                                                Symbol node2_symbol, EdgeAtom::Direction direction,
@@ -1149,24 +1351,9 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
       -> std::optional<decltype(context.db_accessor->Edges(
           view_, common_.edge_types[0], property_, storage::PropertyValue()))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(
-        db->Edges(view_,
-                  common_.edge_types[0],
-                  property_,
-                  value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) return std::nullopt;
+    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, *maybe_prop_value));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1207,41 +1394,6 @@ ScanAllByEdgeTypePropertyRange::ScanAllByEdgeTypePropertyRange(
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyRange)
 
-namespace {
-std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optional<utils::Bound<Expression *>> bound,
-                                                                      ExpressionEvaluator &evaluator) {
-  if (!bound) return std::nullopt;
-  const auto &value = bound->value()->Accept(evaluator);
-  try {
-    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
-    switch (property_value.type()) {
-      case storage::PropertyValue::Type::Bool:
-      case storage::PropertyValue::Type::List:
-      case storage::PropertyValue::Type::NumericList:
-      case storage::PropertyValue::Type::IntList:
-      case storage::PropertyValue::Type::DoubleList:
-      case storage::PropertyValue::Type::Map:
-      case storage::PropertyValue::Type::Enum:
-      case storage::PropertyValueType::Point2d:
-      case storage::PropertyValueType::Point3d:
-        // Prevent indexed lookup with something that would fail if we did
-        // the original filter with `operator<`. Note, for some reason,
-        // Cypher does not support comparing boolean values.
-        throw QueryRuntimeException("Range operator does not provide comparison methods for type {}.", value.type());
-      case storage::PropertyValue::Type::Null:
-      case storage::PropertyValue::Type::Int:
-      case storage::PropertyValue::Type::Double:
-      case storage::PropertyValue::Type::String:
-      case storage::PropertyValue::Type::TemporalData:
-      case storage::PropertyValue::Type::ZonedTemporalData:
-        return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-    }
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-  }
-}
-}  // namespace
-
 UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyRangeOperator);
 
@@ -1258,13 +1410,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
                                   &context.number_of_hops,
                                   context.user_or_role);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return std::nullopt;
 
     return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, maybe_lower, maybe_upper));
   };
@@ -1358,21 +1505,9 @@ UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *me
       -> std::optional<decltype(context.db_accessor->Edges(
           view_, common_.edge_types[0], property_, storage::PropertyValue()))> {
     auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  view_,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(db->Edges(
-        view_, property_, value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) return std::nullopt;
+    return std::make_optional(db->Edges(view_, property_, *maybe_prop_value));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1427,13 +1562,8 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
                                   &context.number_of_hops,
                                   context.user_or_role);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return std::nullopt;
 
     return std::make_optional(db->Edges(view_, property_, maybe_lower, maybe_upper));
   };
@@ -1499,20 +1629,12 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
                                   &context.number_of_hops,
                                   context.user_or_role);
 
-    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
-
-    auto const bound_is_null = [](auto &&range) {
-      return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
-    };
-
-    // If either upper or lower bounds are `null`, then nothing can satisy the
-    // filter.
-    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    if (!maybe_prop_value_ranges) {
       return std::nullopt;
     }
 
-    return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
+    return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelProperties");
@@ -4919,7 +5041,7 @@ SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNes
 
 bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  const SCOPED_PROFILE_OP("SetNestedProperty");
+  SCOPED_PROFILE_OP("SetNestedProperty");
 
   AbortCheck(context);
 
@@ -5564,7 +5686,7 @@ RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(con
 
 bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
-  const SCOPED_PROFILE_OP("RemoveNestedProperty");
+  SCOPED_PROFILE_OP("RemoveNestedProperty");
 
   AbortCheck(context);
 
@@ -6028,10 +6150,33 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(query::Graph(memory));
   }
 }
+
+void DefaultAggregation(ExecutionContext &context, const std::vector<Aggregate::Element> &aggregations,
+                        const auto &remember, FrameWriter &frame_writer) {
+  auto *pull_memory = context.evaluation_context.memory;
+  // place default aggregation values on the frame
+  for (const auto &elem : aggregations) {
+    frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
+  }
+
+  // place null as remember values on the frame
+  for (const Symbol &remember_sym : remember) {
+    frame_writer.Write(remember_sym, TypedValue(pull_memory));
+  }
+}
+
+inline size_t align_forward(size_t ptr, size_t alignment) { return (ptr + (alignment - 1)) & ~(alignment - 1); }
 }  // namespace
+
+#ifdef MG_ENTERPRISE
+class AggregateParallelCursor;
+#endif
 
 class AggregateCursor : public Cursor {
  public:
+#ifdef MG_ENTERPRISE
+  friend class AggregateParallelCursor;
+#endif
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
@@ -6041,41 +6186,27 @@ class AggregateCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
-
     AbortCheck(context);
-
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-
     if (!pulled_all_input_) {
       if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
       if (aggregation_.empty()) {
-        auto *pull_memory = context.evaluation_context.memory;
-        // place default aggregation values on the frame
-        for (const auto &elem : self_.aggregations_) {
-          frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
-        }
-
-        // place null as remember values on the frame
-        for (const Symbol &remember_sym : self_.remember_) {
-          frame_writer.Write(remember_sym, TypedValue(pull_memory));
-        }
+        DefaultAggregation(context, self_.aggregations_, self_.remember_, frame_writer);
         return true;
       }
     }
     if (aggregation_it_ == aggregation_.end()) return false;
-
     // place aggregation values on the frame
-    auto aggregation_values_it = aggregation_it_->second.values_.begin();
+    size_t pos = 0;
     for (const auto &aggregation_elem : self_.aggregations_)
-      frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
-
+      frame_writer.Write(aggregation_elem.output_sym, aggregation_it_->second.values_[pos++]);
     // place remember values on the frame
-    auto remember_values_it = aggregation_it_->second.remember_.begin();
-    for (const Symbol &remember_sym : self_.remember_) frame_writer.Write(remember_sym, *remember_values_it++);
-
+    pos = 0;
+    for (const Symbol &remember_sym : self_.remember_)
+      frame_writer.Write(remember_sym, aggregation_it_->second.remember_[pos++]);
     aggregation_it_++;
     return true;
   }
@@ -6094,25 +6225,122 @@ class AggregateCursor : public Cursor {
   // Does NOT include the group-by values since those are a key in the
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
-  struct AggregationValue {
-    explicit AggregationValue(utils::MemoryResource *mem)
-        : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
-
-    // how many input rows have been aggregated in respective values_ element so
-    // far
-    // TODO: The counting value type should be changed to an unsigned type once
-    // TypedValue can support signed integer values larger than 64bits so that
-    // precision isn't lost.
-    utils::pmr::vector<int64_t> counts_;
-    // aggregated values. Initially Null (until at least one input row with a
-    // valid value gets processed)
-    utils::pmr::vector<TypedValue> values_;
-    // remember values.
-    utils::pmr::vector<TypedValue> remember_;
-
+  struct CompactAggregationValue {
     using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
 
-    utils::pmr::vector<TSet> unique_values_;
+    // Pointers to the start of our arrays within the single memory block
+    int64_t *counts_ = nullptr;
+    TypedValue *values_ = nullptr;
+    TypedValue *remember_ = nullptr;
+    TSet *unique_values_ = nullptr;
+
+    // We store the allocation details to free it later
+    utils::MemoryResource *mem_resource_;
+    void *raw_block_ = nullptr;
+    size_t total_alloc_size_ = 0;
+
+    // Capacities (needed for destruction)
+    size_t num_aggs_;
+    size_t num_rem_;
+
+    // Track if logical initialization has been done
+    bool initialized_ = false;
+
+    // Disable copy
+    CompactAggregationValue(const CompactAggregationValue &) = delete;
+    CompactAggregationValue &operator=(const CompactAggregationValue &) = delete;
+
+    CompactAggregationValue(CompactAggregationValue &&other) noexcept
+        : counts_(std::exchange(other.counts_, nullptr)),
+          values_(std::exchange(other.values_, nullptr)),
+          remember_(std::exchange(other.remember_, nullptr)),
+          unique_values_(std::exchange(other.unique_values_, nullptr)),
+          mem_resource_(other.mem_resource_),
+          raw_block_(std::exchange(other.raw_block_, nullptr)),
+          total_alloc_size_(other.total_alloc_size_),
+          num_aggs_(other.num_aggs_),
+          num_rem_(other.num_rem_),
+          initialized_(other.initialized_) {}
+
+    CompactAggregationValue &operator=(CompactAggregationValue &&other) noexcept {
+      if (this != &other) {
+        // Clean up current resources
+        free_resources();
+
+        // Transfer ownership
+        counts_ = std::exchange(other.counts_, nullptr);
+        values_ = std::exchange(other.values_, nullptr);
+        remember_ = std::exchange(other.remember_, nullptr);
+        unique_values_ = std::exchange(other.unique_values_, nullptr);
+
+        mem_resource_ = other.mem_resource_;
+        raw_block_ = std::exchange(other.raw_block_, nullptr);
+
+        total_alloc_size_ = other.total_alloc_size_;
+        num_aggs_ = other.num_aggs_;
+        num_rem_ = other.num_rem_;
+        initialized_ = other.initialized_;
+      }
+      return *this;
+    }
+
+    CompactAggregationValue(utils::MemoryResource *mem, size_t num_aggregations, size_t num_remember)
+        : mem_resource_(mem), num_aggs_(num_aggregations), num_rem_(num_remember) {
+      // Calculate Layout
+      size_t offset = 0;
+      // Counts (int64_t)
+      offset = align_forward(offset, alignof(int64_t));
+      const size_t offset_counts = offset;
+      offset += sizeof(int64_t) * num_aggs_;
+      // Values (TypedValue)
+      offset = align_forward(offset, alignof(TypedValue));
+      const size_t offset_values = offset;
+      offset += sizeof(TypedValue) * num_aggs_;
+      // Remember (TypedValue)
+      // Note: reusing alignment of TypedValue
+      const size_t offset_remember = offset;
+      offset += sizeof(TypedValue) * num_rem_;
+      // Unique Values (TSet)
+      offset = align_forward(offset, alignof(TSet));
+      const size_t offset_unique = offset;
+      offset += sizeof(TSet) * num_aggs_;
+
+      // Allocate ONE block
+      total_alloc_size_ = offset;
+      raw_block_ = mem->allocate(total_alloc_size_, max_align);
+      char *base = static_cast<char *>(raw_block_);
+
+      // Setup Pointers
+      counts_ = reinterpret_cast<int64_t *>(base + offset_counts);
+      values_ = reinterpret_cast<TypedValue *>(base + offset_values);
+      remember_ = reinterpret_cast<TypedValue *>(base + offset_remember);
+      unique_values_ = reinterpret_cast<TSet *>(base + offset_unique);
+
+      // Construct Objects (Placement New)
+      // Initialize counts to 0
+      std::uninitialized_fill_n(counts_, num_aggs_, 0);
+      // Initialize TypedValue arrays with Nulls so they are safe to destruct
+      for (size_t i = 0; i < num_aggs_; ++i) new (&values_[i]) TypedValue(mem);
+      for (size_t i = 0; i < num_rem_; ++i) new (&remember_[i]) TypedValue(mem);
+      // Construct Sets (Must pass the allocator!)
+      for (size_t i = 0; i < num_aggs_; ++i) new (&unique_values_[i]) TSet(mem);
+    }
+
+    ~CompactAggregationValue() { free_resources(); }
+
+   private:
+    static constexpr size_t max_align = std::max({alignof(int64_t), alignof(TypedValue), alignof(TSet)});
+
+    void free_resources() {
+      if (!raw_block_) return;
+      // Destruct objects in reverse order
+      for (size_t i = 0; i < num_aggs_; ++i) unique_values_[i].~TSet();
+      for (size_t i = 0; i < num_rem_; ++i) remember_[i].~TypedValue();
+      for (size_t i = 0; i < num_aggs_; ++i) values_[i].~TypedValue();
+      // Deallocate memory
+      mem_resource_->deallocate(raw_block_, total_alloc_size_, max_align);
+      raw_block_ = nullptr;
+    }
   };
 
   const Aggregate &self_;
@@ -6120,7 +6348,7 @@ class AggregateCursor : public Cursor {
   // storage for aggregated data
   // map key is the vector of group-by values
   // map value is an AggregationValue struct
-  utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, AggregationValue,
+  utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, CompactAggregationValue,
                             // use FNV collection hashing specialized for a
                             // vector of TypedValues
                             utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
@@ -6151,7 +6379,8 @@ class AggregateCursor : public Cursor {
                                   context->db_accessor,
                                   storage::View::NEW,
                                   nullptr,
-                                  &context->number_of_hops);
+                                  &context->number_of_hops,
+                                  context->user_or_role);
 
     bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
@@ -6166,11 +6395,11 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::AVG: {
           // calculate AVG aggregations (so far they have only been summed)
           for (auto &kv : aggregation_) {
-            AggregationValue &agg_value = kv.second;
+            const CompactAggregationValue &agg_value = kv.second;
             auto count = agg_value.counts_[pos];
             auto *pull_memory = context->evaluation_context.memory;
             if (count > 0) {
-              agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+              kv.second.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
             }
           }
           break;
@@ -6178,8 +6407,8 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COUNT: {
           // Copy counts to be the value
           for (auto &kv : aggregation_) {
-            AggregationValue &agg_value = kv.second;
-            agg_value.values_[pos] = agg_value.counts_[pos];
+            const CompactAggregationValue &agg_value = kv.second;
+            kv.second.values_[pos] = agg_value.counts_[pos];
           }
           break;
         }
@@ -6210,7 +6439,7 @@ class AggregateCursor : public Cursor {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
     }
     auto *mem = aggregation_.get_allocator().resource();
-    auto res = aggregation_.try_emplace(reused_group_by_, mem);
+    auto res = aggregation_.try_emplace(reused_group_by_, mem, self_.aggregations_.size(), self_.remember_.size());
     auto &agg_value = res.first->second;
     if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
     Update(evaluator, &agg_value);
@@ -6220,47 +6449,38 @@ class AggregateCursor : public Cursor {
    * that the value vectors are filled with an appropriate number of Nulls,
    * counts are set to 0 and remember values are remembered.
    */
-  void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value) const {
-    if (!agg_value->values_.empty()) return;
-
-    const auto num_of_aggregations = self_.aggregations_.size();
-    agg_value->values_.reserve(num_of_aggregations);
-    agg_value->unique_values_.reserve(num_of_aggregations);
-
-    auto *mem = agg_value->values_.get_allocator().resource();
+  void EnsureInitialized(const Frame &frame, CompactAggregationValue *agg_value) const {
+    if (agg_value->initialized_) return;
+    agg_value->initialized_ = true;
+    auto *mem = agg_value->mem_resource_;
+    size_t idx = 0;
     for (const auto &agg_elem : self_.aggregations_) {
-      agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
-      agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
+      agg_value->values_[idx++] = DefaultAggregationOpValue(agg_elem, mem);
+      // unique_values_ sets are already constructed and empty from constructor
     }
-    agg_value->counts_.resize(num_of_aggregations, 0);
-
-    agg_value->remember_.reserve(self_.remember_.size());
+    // counts_ are already 0 from constructor
+    // Populate Remembered values
+    size_t rem_idx = 0;
     for (const Symbol &remember_sym : self_.remember_) {
-      agg_value->remember_.push_back(frame[remember_sym]);
+      // Copy value from frame
+      agg_value->remember_[rem_idx++] = frame[remember_sym];
     }
   }
 
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
-  void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value) {
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->values_.size(),
+  void Update(ExpressionEvaluator *evaluator, AggregateCursor::CompactAggregationValue *agg_value) {
+    DMG_ASSERT(self_.aggregations_.size() == agg_value->num_aggs_,
                "Expected as much AggregationValue.values_ as there are "
                "aggregations.");
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->counts_.size(),
-               "Expected as much AggregationValue.counts_ as there are "
-               "aggregations.");
 
-    auto count_it = agg_value->counts_.begin();
-    auto value_it = agg_value->values_.begin();
-    auto unique_values_it = agg_value->unique_values_.begin();
-    auto agg_elem_it = self_.aggregations_.begin();
-    const auto counts_end = agg_value->counts_.end();
-    for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
+    for (size_t pos = 0; pos < agg_value->num_aggs_; ++pos) {
+      const auto &agg_elem = self_.aggregations_[pos];
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto *input_expr_ptr = agg_elem_it->arg1;
+      auto *input_expr_ptr = agg_elem.arg1;
       if (!input_expr_ptr) {
-        *count_it += 1;
+        agg_value->counts_[pos] += 1;
         // value is deferred to post-processing
         continue;
       }
@@ -6269,46 +6489,46 @@ class AggregateCursor : public Cursor {
 
       // Aggregations skip Null input values.
       if (input_value.IsNull()) continue;
-      const auto &agg_op = agg_elem_it->op;
-      if (agg_elem_it->distinct) {
-        auto insert_result = unique_values_it->insert(input_value);
+      const auto &agg_op = agg_elem.op;
+      if (agg_elem.distinct) {
+        auto insert_result = agg_value->unique_values_[pos].insert(input_value);
         if (!insert_result.second) {
           continue;
         }
       }
-      *count_it += 1;
-      if (*count_it == 1) {
+      agg_value->counts_[pos] += 1;
+      if (agg_value->counts_[pos] == 1) {
         // first value, nothing to aggregate. check type, set and continue.
         switch (agg_op) {
           case Aggregation::Op::MIN:
           case Aggregation::Op::MAX:
             EnsureOkForMinMax(input_value);
-            *value_it = std::move(input_value);
+            agg_value->values_[pos] = std::move(input_value);
             break;
           case Aggregation::Op::SUM:
           case Aggregation::Op::AVG:
             EnsureOkForAvgSum(input_value);
-            *value_it = std::move(input_value);
+            agg_value->values_[pos] = std::move(input_value);
             break;
           case Aggregation::Op::COUNT:
             // value is deferred to post-processing
             break;
           case Aggregation::Op::COLLECT_LIST:
-            value_it->ValueList().push_back(std::move(input_value));
+            agg_value->values_[pos].ValueList().push_back(std::move(input_value));
             break;
           case Aggregation::Op::PROJECT_PATH: {
             EnsureOkForProjectPath(input_value);
-            value_it->ValueGraph().Expand(input_value.ValuePath());
+            agg_value->values_[pos].ValueGraph().Expand(input_value.ValuePath());
             break;
           }
           case Aggregation::Op::PROJECT_LISTS: {
-            ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+            ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
-            auto key = agg_elem_it->arg2->Accept(*evaluator);
+            auto key = agg_elem.arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-            value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
+            agg_value->values_[pos].ValueMap().emplace(key.ValueString(), std::move(input_value));
             break;
         }
         continue;
@@ -6322,13 +6542,14 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::MIN: {
           EnsureOkForMinMax(input_value);
           try {
-            TypedValue comparison_result = input_value < *value_it;
+            TypedValue comparison_result = input_value < agg_value->values_[pos];
             // since we skip nulls we either have a valid comparison, or
             // an exception was just thrown above
             // safe to assume a bool TypedValue
-            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
+            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
           } catch (const TypedValueException &) {
-            throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", input_value.type(), value_it->type());
+            throw QueryRuntimeException(
+                "Unable to get MIN of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
           }
           break;
         }
@@ -6336,10 +6557,11 @@ class AggregateCursor : public Cursor {
           //  all comments as for Op::Min
           EnsureOkForMinMax(input_value);
           try {
-            TypedValue comparison_result = input_value > *value_it;
-            if (comparison_result.ValueBool()) *value_it = std::move(input_value);
+            TypedValue comparison_result = input_value > agg_value->values_[pos];
+            if (comparison_result.ValueBool()) agg_value->values_[pos] = std::move(input_value);
           } catch (const TypedValueException &) {
-            throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", input_value.type(), value_it->type());
+            throw QueryRuntimeException(
+                "Unable to get MAX of '{}' and '{}'.", input_value.type(), agg_value->values_[pos].type());
           }
           break;
         }
@@ -6348,25 +6570,25 @@ class AggregateCursor : public Cursor {
         // the input has been processed
         case Aggregation::Op::SUM:
           EnsureOkForAvgSum(input_value);
-          *value_it = *value_it + input_value;
+          agg_value->values_[pos] = agg_value->values_[pos] + input_value;
           break;
         case Aggregation::Op::COLLECT_LIST:
-          value_it->ValueList().push_back(std::move(input_value));
+          agg_value->values_[pos].ValueList().push_back(std::move(input_value));
           break;
         case Aggregation::Op::PROJECT_PATH: {
           EnsureOkForProjectPath(input_value);
-          value_it->ValueGraph().Expand(input_value.ValuePath());
+          agg_value->values_[pos].ValueGraph().Expand(input_value.ValuePath());
           break;
         }
 
         case Aggregation::Op::PROJECT_LISTS: {
-          ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+          ProjectList(input_value, agg_elem.arg2->Accept(*evaluator), agg_value->values_[pos].ValueGraph());
           break;
         }
         case Aggregation::Op::COLLECT_MAP:
-          auto key = agg_elem_it->arg2->Accept(*evaluator);
+          auto key = agg_elem.arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
-          value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
+          agg_value->values_[pos].ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
     }  // end loop over all aggregations
@@ -6456,150 +6678,12 @@ std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
 }
 
 std::string Aggregate::ToString() const {
-  return fmt::format(
-      "Aggregate {{{0}}} {{{1}}}",
-      utils::IterableToString(aggregations_, ", ", [](const auto &aggr) { return aggr.output_sym.name(); }),
-      utils::IterableToString(remember_, ", ", [](const auto &sym) { return sym.name(); }));
-}
-
-Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
-
-ACCEPT_WITH_INPUT(Skip)
-
-UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::SkipOperator);
-
-  return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
-}
-
-std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
-  // Propagate this to potential Produce.
-  return input_->OutputSymbols(symbol_table);
-}
-
-std::vector<Symbol> Skip::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
-
-std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<Skip>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
-
-bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Skip");
-
-  AbortCheck(context);
-
-  while (input_cursor_->Pull(frame, context)) {
-    if (to_skip_ == -1) {
-      // First successful pull from the input, evaluate the skip expression.
-      // The skip expression doesn't contain identifiers so graph view
-      // parameter is not important.
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role);
-      TypedValue to_skip = self_.expression_->Accept(evaluator);
-      if (to_skip.type() != TypedValue::Type::Int)
-        throw QueryRuntimeException("Number of elements to skip must be an integer.");
-
-      to_skip_ = to_skip.ValueInt();
-      if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
-    }
-
-    if (skipped_++ < to_skip_) continue;
-    return true;
-  }
-  return false;
-}
-
-void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
-
-void Skip::SkipCursor::Reset() {
-  input_cursor_->Reset();
-  to_skip_ = -1;
-  skipped_ = 0;
-}
-
-Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
-
-ACCEPT_WITH_INPUT(Limit)
-
-UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::LimitOperator);
-
-  return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
-}
-
-std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) const {
-  // Propagate this to potential Produce.
-  return input_->OutputSymbols(symbol_table);
-}
-
-std::vector<Symbol> Limit::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
-
-std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<Limit>();
-  object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  return object;
-}
-
-Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
-
-bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("Limit");
-
-  AbortCheck(context);
-
-  // We need to evaluate the limit expression before the first input Pull
-  // because it might be 0 and thereby we shouldn't Pull from input at all.
-  // We can do this before Pulling from the input because the limit expression
-  // is not allowed to contain any identifiers.
-  if (limit_ == -1) {
-    // Limit expression doesn't contain identifiers so graph view is not
-    // important.
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::OLD,
-                                  nullptr,
-                                  &context.number_of_hops,
-                                  context.user_or_role);
-    TypedValue limit = self_.expression_->Accept(evaluator);
-    if (limit.type() != TypedValue::Type::Int)
-      throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
-
-    limit_ = limit.ValueInt();
-    if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
-  }
-
-  // check we have not exceeded the limit before pulling
-  if (pulled_++ >= limit_) return false;
-
-  return input_cursor_->Pull(frame, context);
-}
-
-void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
-
-void Limit::LimitCursor::Reset() {
-  input_cursor_->Reset();
-  limit_ = -1;
-  pulled_ = 0;
+  return fmt::format("Aggregate {{{0}}} {{{1}}}",
+                     utils::IterableToString(
+                         aggregations_,
+                         ", ",
+                         [](const auto &aggr) { return (aggr.distinct ? "DISTINCT " : "") + aggr.output_sym.name(); }),
+                     utils::IterableToString(remember_, ", ", [](const auto &sym) { return sym.name(); }));
 }
 
 OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vector<SortItem> &order_by,
@@ -6625,13 +6709,21 @@ std::vector<Symbol> OrderBy::OutputSymbols(const SymbolTable &symbol_table) cons
 
 std::vector<Symbol> OrderBy::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
+class OrderByParallelCursor;
+
 class OrderByCursor : public Cursor {
  public:
-  OrderByCursor(const OrderBy &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem) {}
+  friend class OrderByParallelCursor;
+
+  OrderByCursor(const OrderBy &self, utils::MemoryResource *mem, bool parallel_execution = false)
+      : self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem)),
+        parallel_execution_(parallel_execution),
+        cache_(mem),
+        order_by_cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!did_pull_all_) [[unlikely]] {
@@ -6643,15 +6735,15 @@ class OrderByCursor : public Cursor {
                                     nullptr,
                                     &context.number_of_hops,
                                     context.user_or_role);
-      auto *pull_mem = context.evaluation_context.memory;
+      // auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
 
-      utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(pull_mem);  // Not cached, pull memory
-      utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);   // Cached, query memory
+      utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(query_mem);  // Cached for parallel merge
+      utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);    // Cached, query memory
 
       while (input_cursor_->Pull(frame, context)) {
         // collect the order_by elements
-        utils::pmr::vector<TypedValue> order_by_elem(pull_mem);
+        utils::pmr::vector<TypedValue> order_by_elem(query_mem);
         order_by_elem.reserve(self_.order_by_.size());
         for (auto const &expression_ptr : self_.order_by_) {
           order_by_elem.emplace_back(expression_ptr->Accept(evaluator));
@@ -6674,28 +6766,34 @@ class OrderByCursor : public Cursor {
         return std::get<0>(value);
       });
 
-      // no longer need the order_by terms
-      order_by.clear();
+      // Keep order_by for parallel merge only (saves memory in single-threaded mode)
+      if (parallel_execution_) {
+        order_by_cache_ = std::move(order_by);
+      }
       cache_ = std::move(output);
 
       did_pull_all_ = true;
       cache_it_ = cache_.begin();
+      order_by_cache_it_ = order_by_cache_.begin();
     }
 
     if (cache_it_ == cache_.end()) return false;
 
     AbortCheck(context);
 
-    // place the output values on the frame
-    DMG_ASSERT(self_.output_symbols_.size() == cache_it_->size(),
-               "Number of values does not match the number of output symbols "
-               "in OrderBy");
-    auto output_sym_it = self_.output_symbols_.begin();
-    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-    for (TypedValue &output : *cache_it_) {
-      frame_writer.Write(*output_sym_it++, std::move(output));
+    // Parallel execution will extract the cache and handle the output values in OrderByParallelCursor
+    if (!parallel_execution_) {
+      // place the output values on the frame
+      DMG_ASSERT(self_.output_symbols_.size() == cache_it_->size(),
+                 "Number of values does not match the number of output symbols "
+                 "in OrderBy");
+      auto output_sym_it = self_.output_symbols_.begin();
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      for (auto &&output : *cache_it_) {
+        frame_writer.Write(*output_sym_it++, std::move(output));
+      }
+      cache_it_++;
     }
-    cache_it_++;
     return true;
   }
 
@@ -6706,23 +6804,31 @@ class OrderByCursor : public Cursor {
     did_pull_all_ = false;
     cache_.clear();
     cache_it_ = cache_.begin();
+    if (parallel_execution_) {
+      order_by_cache_.clear();
+      order_by_cache_it_ = order_by_cache_.begin();
+    }
   }
 
  private:
   const OrderBy &self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_all_{false};
+  bool parallel_execution_{false};
   // a cache of elements pulled from the input
   // the cache is filled and sorted on first Pull
   utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
   // iterator over the cache_, maintains state between Pulls
   decltype(cache_.begin()) cache_it_ = cache_.begin();
+  // Cache of order_by values for parallel merge (kept after sorting; only used when parallel_execution_)
+  utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by_cache_;
+  decltype(order_by_cache_.begin()) order_by_cache_it_ = order_by_cache_.begin();
 };
 
 UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
 
-  return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem, parallel_execution_);
 }
 
 std::unique_ptr<LogicalOperator> OrderBy::Clone(AstStorage *storage) const {
@@ -6734,6 +6840,7 @@ std::unique_ptr<LogicalOperator> OrderBy::Clone(AstStorage *storage) const {
     object->order_by_[i6] = order_by_[i6] ? order_by_[i6]->Clone(storage) : nullptr;
   }
   object->output_symbols_ = output_symbols_;
+  object->parallel_execution_ = parallel_execution_;
   return object;
 }
 
@@ -7026,7 +7133,6 @@ class DistinctCursor : public Cursor {
 
     while (true) {
       if (!input_cursor_->Pull(frame, context)) {
-        // Nothing left to pull, we can dispose of seen_rows now
         seen_rows_.clear();
         return false;
       }
@@ -7054,23 +7160,162 @@ class DistinctCursor : public Cursor {
  private:
   const Distinct &self_;
   const UniqueCursorPtr input_cursor_;
-  // a set of already seen rows
   utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
-                            // use FNV collection hashing specialized for a
-                            // vector of TypedValue
                             utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
                             TypedValueVectorEqual>
       seen_rows_;
 };
+
+#ifdef MG_ENTERPRISE
+class DistinctParallelCursor : public Cursor {
+ public:
+  static constexpr size_t kLocalCacheBatchSize = 8;
+
+  /// Constructor for parallel distinct (uses shared state with local caching)
+  DistinctParallelCursor(const Distinct &self, utils::MemoryResource *mem,
+                         std::shared_ptr<SharedDistinctState> shared_state)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        shared_state_(std::move(shared_state)),
+        local_seen_(mem) {
+    DMG_ASSERT(shared_state_, "DistinctParallelCursor must be created with a shared state");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    const OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("Distinct");
+
+    AbortCheck(context);
+
+    if (local_cache_.empty()) {
+      local_cache_.resize(kLocalCacheBatchSize,
+                          Frame(static_cast<int64_t>(frame.elems().size()), shared_state_->GetMemoryResource()));
+      local_seen_.reserve(kLocalCacheBatchSize);
+    }
+
+    // Return from local cache if available
+    if (unique_count_ > 0) {
+      std::swap(frame, local_cache_[unique_count_ - 1]);
+      unique_count_--;
+      return true;
+    }
+    // Refill local cache by pulling a batch from input
+    while (true) {
+      const auto res = RefillCacheAndPull(frame, context);
+      if (res) return true;
+      if (pulled_all_) {
+        // NOTE Not safe, because execution memory will be destroyed independent of the worker thread
+        // TODO Postpone state destruction to another worker thread
+        // if (context.worker_pool) {
+        //   context.worker_pool->ScheduledAddTask([shared_state = std::move(shared_state_)](auto /* unused */) {},
+        //                                         utils::Priority::LOW);
+        // }
+        return false;
+      }
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    if (shared_state_) {
+      shared_state_->Clear();
+    }
+    local_cache_.clear();
+    local_seen_.clear();
+  }
+
+ private:
+  bool RefillCacheAndPull(Frame &frame, ExecutionContext &context) {
+    if (pulled_all_) return false;
+    utils::MemoryResource *row_mem = shared_state_->GetMemoryResource();
+
+    // Clear local seen set for next batch
+    local_seen_.clear();
+    unique_count_ = 0;
+
+    // Pull batch of rows from input, deduplicating locally first
+    while (local_seen_.size() < kLocalCacheBatchSize) {
+      if (!input_cursor_->Pull(frame, context)) {
+        pulled_all_ = true;
+        break;  // Input exhausted
+      }
+
+      // Build the distinct key row
+      utils::pmr::vector<TypedValue> row(row_mem);
+      row.reserve(self_.value_symbols_.size());
+      for (const auto &symbol : self_.value_symbols_) {
+        row.emplace_back(frame.at(symbol));
+      }
+
+      // Local deduplication within batch using local_seen_ set
+      if (local_seen_.insert(std::move(row)).second) {
+        std::swap(local_cache_[local_seen_.size() - 1], frame);
+      }
+    }
+
+    if (local_seen_.empty()) {
+      // Input exhausted and no cached items
+      return false;
+    }
+
+    // Batch check against global shared state
+    auto uniqueness = shared_state_->TryInsertBatch(local_seen_);
+    for (size_t i = 0; i < uniqueness.size(); ++i) {
+      if (uniqueness[i]) {
+        if (unique_count_ != i) {
+          std::swap(local_cache_[unique_count_], local_cache_[i]);
+        }
+        unique_count_++;
+      }
+    }
+
+    if (unique_count_ > 0) {
+      std::swap(frame, local_cache_[unique_count_ - 1]);
+      unique_count_--;
+      return true;
+    }
+    // All pulled items were duplicates globally, try again
+    return false;
+  }
+
+  using RowSet =
+      utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                TypedValueVectorEqual>;
+
+  const Distinct &self_;
+  const UniqueCursorPtr input_cursor_;
+  // Shared state for parallel execution (nullptr for single-threaded mode)
+  std::shared_ptr<SharedDistinctState> shared_state_;
+  // Local set for deduplication within batches (parallel mode)
+  RowSet local_seen_;
+  // Local cache of unique frames for parallel mode (avoids per-row global locking)
+  std::vector<Frame> local_cache_;
+  size_t unique_count_{0};
+  bool pulled_all_{false};
+};
+#endif
 
 Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &value_symbols)
     : input_(input ? input : std::make_shared<Once>()), value_symbols_(value_symbols) {}
 
 ACCEPT_WITH_INPUT(Distinct)
 
+// Distinct::MakeCursor implementation - needs to be after parallel namespace to access plan_creation_helper_
 UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::DistinctOperator);
-
+#ifdef MG_ENTERPRISE
+  if (parallel_execution_) {
+    // Parallel mode: use shared state for global deduplication
+    auto shared_state = plan_creation_helper_.GetSharedDistinctState(this, mem);
+    if (shared_state) {
+      return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, std::move(shared_state));
+    }
+    throw QueryRuntimeException("Failed to create distinct cursor");
+  }
+#endif
   return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
 }
 
@@ -7085,6 +7330,7 @@ std::unique_ptr<LogicalOperator> Distinct::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Distinct>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->value_symbols_ = value_symbols_;
+  object->parallel_execution_ = parallel_execution_;
   return object;
 }
 
@@ -8582,7 +8828,8 @@ class HashJoinCursor : public Cursor {
                                       context.db_accessor,
                                       storage::View::OLD,
                                       nullptr,
-                                      &context.number_of_hops);
+                                      &context.number_of_hops,
+                                      context.user_or_role);
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
@@ -8774,6 +9021,7 @@ std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
   object->list_collection_branch_ = list_collection_branch_ ? list_collection_branch_->Clone(storage) : nullptr;
   object->list_collection_symbol_ = list_collection_symbol_;
   object->result_symbol_ = result_symbol_;
+  object->pass_input_ = pass_input_;
   return object;
 }
 
@@ -9193,6 +9441,1726 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
   object.output_sym = output_sym;
   object.distinct = distinct;
   return object;
+}
+
+ScanChunk::ScanChunk(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view,
+                     Symbol state_symbol)
+    : ScanAll(input, std::move(output_symbol), view), state_symbol_(std::move(state_symbol)) {
+  DMG_ASSERT(dynamic_cast<ParallelMerge *>(input.get()) != nullptr, "Input must be a ParallelMerge");
+}
+
+ACCEPT_WITH_INPUT(ScanChunk)
+
+UniqueCursorPtr ScanChunk::MakeCursor(utils::MemoryResource *mem) const {
+  auto vertices = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
+                      Frame &frame,
+                      ExecutionContext & /*context*/) mutable -> std::optional<VerticesChunkedIterable::Chunk> {
+    // Make sure state is valid for duration of the cursor
+    state = ParallelStateOnFrame::PopFromFrame(frame, state_symbol);
+    if (!state) return std::nullopt;
+    return state->GetVerticesChunk();
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanChunk");
+}
+
+std::string ScanChunk::ToString() const { return fmt::format("ScanChunk ({})", output_symbol_.name()); }
+
+std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanChunk>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+ScanChunkByEdge::ScanChunkByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                                 Symbol node2_symbol, EdgeAtom::Direction direction,
+                                 const std::vector<storage::EdgeTypeId> &edge_types, storage::View view,
+                                 Symbol state_symbol)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, edge_types, view),
+      state_symbol_(std::move(state_symbol)) {}
+
+ACCEPT_WITH_INPUT(ScanChunkByEdge)
+
+UniqueCursorPtr ScanChunkByEdge::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+
+  auto edges = [state_symbol = state_symbol_, state = std::unique_ptr<ParallelStateOnFrame>()](
+                   Frame &frame, ExecutionContext & /*context*/) mutable -> std::optional<EdgesChunkedIterable::Chunk> {
+    state = ParallelStateOnFrame::PopFromFrame(frame, state_symbol);
+    if (!state) return std::nullopt;
+    return state->GetEdgesChunk();
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(
+      mem, *this, input_->MakeCursor(mem), view_, std::move(edges), "ScanChunkByEdge");
+}
+
+std::vector<Symbol> ScanChunkByEdge::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(common_.edge_symbol);
+  symbols.emplace_back(common_.node1_symbol);
+  symbols.emplace_back(common_.node2_symbol);
+  return symbols;
+}
+
+std::string ScanChunkByEdge::ToString() const {
+  return fmt::format(
+      "ScanChunkByEdge ({}){}[{}{}]{}({})",
+      common_.node1_symbol.name(),
+      common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
+      common_.edge_symbol.name(),
+      utils::IterableToString(
+          common_.edge_types, "|", [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+      common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
+      common_.node2_symbol.name());
+}
+
+std::unique_ptr<LogicalOperator> ScanChunkByEdge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanChunkByEdge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->common_ = common_;
+  object->view_ = view_;
+  object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+#ifdef MG_ENTERPRISE
+template <typename TChunksFun>
+class ScanParallelCursor : public Cursor {
+ public:
+  ScanParallelCursor(const ScanParallel &self, utils::MemoryResource *mem, TChunksFun get_chunks)
+      : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), get_chunks_(std::move(get_chunks)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    const OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+    size_t index = 0;
+    uint64_t current_batch = 0;
+
+    // Use the actual return type from get_chunks_ (can be VerticesChunkedIterable or EdgesChunkedIterable)
+    using ChunksType = std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>;
+    std::shared_ptr<ChunksType> chunks;
+
+    {
+      const std::unique_lock lock(mutex_);
+      if (all_pulled_) return false;  // Everything was pulled
+      if (index_ == 0 || index_ >= self_.num_threads_) {
+        if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        chunks_.reset();
+        const bool res = input_cursor_->Pull(*frame_, context);
+        if (!res) {
+          all_pulled_ = true;
+          return false;
+        }
+        index_ = 0;
+        ++batch_version_;  // New input batch - caches need to be cleared
+        chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
+      }
+      current_batch = batch_version_;
+      frame = *frame_;  // Copy the filled frame
+      chunks = chunks_;
+      index = index_++;
+    }
+
+    // Clear caches if this branch hasn't seen this batch yet.
+    // This is critical for correctness: when UNWIND produces a new value, each branch
+    // must re-evaluate expressions like "IN [0, multiplier]" with the new value.
+    // Each branch's FrameChangeCollector tracks the last batch it saw.
+    if (context.frame_change_collector) {
+      context.frame_change_collector->ClearCachesIfBatchChanged(current_batch);
+    }
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    ParallelStateOnFrame::PushToFrame(
+        frame_writer, context.evaluation_context.memory, self_.state_symbol_, chunks, index);
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    const std::unique_lock lock(mutex_);
+    index_ = 0;
+    chunks_.reset();
+    frame_.reset();
+    all_pulled_ = false;
+    input_cursor_->Reset();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  size_t index_{0};
+  std::shared_ptr<std::invoke_result_t<TChunksFun, Frame &, ExecutionContext &>> chunks_;
+  const ScanParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::optional<Frame> frame_{std::nullopt};
+  const UniqueCursorPtr input_cursor_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  TChunksFun get_chunks_;
+  bool all_pulled_{false};
+  // Tracks input batch version. Incremented when new input is pulled from upstream (e.g., UNWIND).
+  // Used to signal branch collectors to clear their caches when input changes.
+  uint64_t batch_version_{0};
+};
+#endif
+
+UniqueCursorPtr ScanParallel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);  // TODO
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame & /*unused*/, ExecutionContext &context) {
+    // Make sure chunks is valid for duration of the cursor
+    auto *db = context.db_accessor;
+    return db->ChunkedVertices(view_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallel is not supported in the community edition");
+#endif
+}
+
+ScanParallel::ScanParallel(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                           Symbol state_symbol)
+    : input_(input), view_(view), num_threads_(num_threads), state_symbol_(std::move(state_symbol)) {}
+
+ACCEPT_WITH_INPUT(ScanParallel)
+
+std::string ScanParallel::ToString() const { return fmt::format("ScanParallel (threads: {})", num_threads_); }
+
+std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallel>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  return object;
+}
+
+ScanParallelByLabel::ScanParallelByLabel(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                         size_t num_threads, Symbol state_symbol, storage::LabelId label)
+    : ScanParallel(input, view, num_threads, state_symbol), label_(label) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByLabel)
+
+UniqueCursorPtr ScanParallelByLabel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedVertices(view_, label_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByLabel is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByLabel::ToString() const {
+  return fmt::format("ScanParallelByLabel (threads: {}, label: {})", num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByLabel::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByLabel>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  return object;
+}
+
+ScanParallelByEdgeType::ScanParallelByEdgeType(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                               size_t num_threads, Symbol state_symbol, storage::EdgeTypeId edge_type)
+    : ScanParallel(input, view, num_threads, state_symbol), edge_type_(edge_type) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeType)
+
+UniqueCursorPtr ScanParallelByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, edge_type_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeType is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdgeType::ToString() const {
+  return fmt::format("ScanParallelByEdgeType (threads: {}, edge_type: {})", num_threads_, edge_type_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeType>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  return object;
+}
+
+ScanParallelByLabelProperties::ScanParallelByLabelProperties(const std::shared_ptr<LogicalOperator> &input,
+                                                             storage::View view, size_t num_threads,
+                                                             Symbol state_symbol, storage::LabelId label,
+                                                             std::vector<storage::PropertyPath> properties,
+                                                             std::vector<ExpressionRange> expression_ranges)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      label_(label),
+      properties_(std::move(properties)),
+      expression_ranges_(std::move(expression_ranges)) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByLabelProperties)
+
+UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertiesOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  view_,
+                                  nullptr,
+                                  &context.number_of_hops,
+                                  context.user_or_role);
+
+    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    // Return empty chunks if bounds are null - need to handle this case
+    // For now, we'll create a dummy chunks object, but this might need special handling
+    return db->ChunkedVertices(view_,
+                               label_,
+                               properties_,
+                               maybe_prop_value_ranges.value_or(std::vector<storage::PropertyValueRange>{}),
+                               num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByLabelProperties is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByLabelProperties::ToString() const {
+  return fmt::format("ScanParallelByLabelProperties (threads: {}, label: {})", num_threads_, label_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByLabelProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->label_ = label_;
+  object->properties_ = properties_;
+  object->expression_ranges_ = expression_ranges_ |
+                               rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
+                               ranges::to_vector;
+  return object;
+}
+
+ScanParallelByEdgeTypeProperty::ScanParallelByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input,
+                                                               storage::View view, size_t num_threads,
+                                                               Symbol state_symbol, storage::EdgeTypeId edge_type,
+                                                               storage::PropertyId property)
+    : ScanParallel(input, view, num_threads, state_symbol), edge_type_(edge_type), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypeProperty)
+
+UniqueCursorPtr ScanParallelByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, edge_type_, property_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeTypeProperty is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdgeTypeProperty::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypeProperty (threads: {}, edge_type: {}, property: {})",
+                     num_threads_,
+                     edge_type_.AsUint(),
+                     property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypeProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  return object;
+}
+
+ScanParallelByEdgeTypePropertyRange::ScanParallelByEdgeTypePropertyRange(
+    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
+    storage::EdgeTypeId edge_type, storage::PropertyId property, std::optional<Bound> lower_bound,
+    std::optional<Bound> upper_bound)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_type_(edge_type),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyRange)
+
+UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyRangeOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  view_,
+                                  nullptr,
+                                  &context.number_of_hops,
+                                  context.user_or_role);
+
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeTypePropertyRange is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdgeTypePropertyRange::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypePropertyRange (threads: {}, edge_type: {}, property: {})",
+                     num_threads_,
+                     edge_type_.AsUint(),
+                     property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyRange::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypePropertyRange>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  if (lower_bound_) {
+    object->lower_bound_.emplace(
+        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
+  }
+  if (upper_bound_) {
+    object->upper_bound_.emplace(
+        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  return object;
+}
+
+ScanParallelByEdgeProperty::ScanParallelByEdgeProperty(const std::shared_ptr<LogicalOperator> &input,
+                                                       storage::View view, size_t num_threads, Symbol state_symbol,
+                                                       storage::PropertyId property)
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeProperty)
+
+UniqueCursorPtr ScanParallelByEdgeProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return db->ChunkedEdges(view_, property_, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeProperty is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdgeProperty::ToString() const {
+  return fmt::format("ScanParallelByEdgeProperty (threads: {}, property: {})", num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  return object;
+}
+
+ScanParallelByEdgePropertyValue::ScanParallelByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input,
+                                                                 storage::View view, size_t num_threads,
+                                                                 Symbol state_symbol, storage::PropertyId property,
+                                                                 Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol), property_(property), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyValue)
+
+UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyValueOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgePropertyValue is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdgePropertyValue::ToString() const {
+  return fmt::format("ScanParallelByEdgePropertyValue (threads: {}, property: {})", num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyValue::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgePropertyValue>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanParallelByEdgePropertyRange::ScanParallelByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                                                                 storage::View view, size_t num_threads,
+                                                                 Symbol state_symbol, storage::PropertyId property,
+                                                                 std::optional<Bound> lower_bound,
+                                                                 std::optional<Bound> upper_bound)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgePropertyRange)
+
+UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyRangeOperator);
+#ifdef MG_ENTERPRISE
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  view_,
+                                  nullptr,
+                                  &context.number_of_hops,
+                                  context.user_or_role);
+
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgePropertyRange is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdgePropertyRange::ToString() const {
+  return fmt::format("ScanParallelByEdgePropertyRange (threads: {}, property: {})", num_threads_, property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgePropertyRange::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgePropertyRange>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->property_ = property_;
+  if (lower_bound_) {
+    object->lower_bound_.emplace(
+        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
+  }
+  if (upper_bound_) {
+    object->upper_bound_.emplace(
+        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  return object;
+}
+
+ScanParallelByEdge::ScanParallelByEdge(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                       size_t num_threads, Symbol state_symbol, Symbol edge_symbol, Symbol node1_symbol,
+                                       Symbol node2_symbol, EdgeAtom::Direction direction)
+    : ScanParallel(input, view, num_threads, std::move(state_symbol)),
+      edge_symbol_(std::move(edge_symbol)),
+      node1_symbol_(std::move(node1_symbol)),
+      node2_symbol_(std::move(node2_symbol)),
+      direction_(direction) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdge)
+
+UniqueCursorPtr ScanParallelByEdge::MakeCursor(utils::MemoryResource * /*mem*/) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+#ifdef MG_ENTERPRISE
+  throw utils::NotYetImplemented("Parallel scan over edges!");
+#else
+  throw QueryRuntimeException("ScanParallelByEdge is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdge::ToString() const {
+  return fmt::format("ScanParallelByEdge (threads: {})", num_threads_);
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_symbol_ = edge_symbol_;
+  object->node1_symbol_ = node1_symbol_;
+  object->node2_symbol_ = node2_symbol_;
+  object->direction_ = direction_;
+  return object;
+}
+
+ScanParallelByEdgeTypePropertyValue::ScanParallelByEdgeTypePropertyValue(
+    const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads, Symbol state_symbol,
+    storage::EdgeTypeId edge_type, storage::PropertyId property, Expression *expression)
+    : ScanParallel(input, view, num_threads, state_symbol),
+      edge_type_(edge_type),
+      property_(property),
+      expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanParallelByEdgeTypePropertyValue)
+
+UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyValueOperator);
+#ifdef MG_ENTERPRISE
+  // Note: There's no ChunkedEdges(edge_type, property, value) method, so we use the range version
+  // with equal bounds to simulate the value lookup
+  auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) {
+      // Return empty chunks
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+    }
+    // Use range with equal bounds to simulate value lookup
+    auto bound = utils::MakeBoundInclusive(*maybe_prop_value);
+    return db->ChunkedEdges(view_, edge_type_, property_, bound, bound, num_threads_);
+  };
+  return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(mem, *this, mem, std::move(get_chunks));
+#else
+  (void)mem;
+  throw QueryRuntimeException("ScanParallelByEdgeTypePropertyValue is not supported in the community edition");
+#endif
+}
+
+std::string ScanParallelByEdgeTypePropertyValue::ToString() const {
+  return fmt::format("ScanParallelByEdgeTypePropertyValue (threads: {}, edge_type: {}, property: {})",
+                     num_threads_,
+                     edge_type_.AsUint(),
+                     property_.AsUint());
+}
+
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypePropertyValue::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanParallelByEdgeTypePropertyValue>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->view_ = view_;
+  object->num_threads_ = num_threads_;
+  object->state_symbol_ = state_symbol_;
+  object->edge_type_ = edge_type_;
+  object->property_ = property_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+class ParallelMergeCursor;
+
+ParallelMerge::ParallelMerge(const std::shared_ptr<LogicalOperator> &input) : input_(input) {
+  DMG_ASSERT(dynamic_cast<ScanParallel *>(input.get()) != nullptr, "Input must be a ScanParallel");
+}
+
+ACCEPT_WITH_INPUT(ParallelMerge)
+
+std::string ParallelMerge::ToString() const { return "ParallelMerge"; }
+
+std::unique_ptr<LogicalOperator> ParallelMerge::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ParallelMerge>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  return object;
+}
+
+std::vector<Symbol> ParallelMerge::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem) const {
+#ifdef MG_ENTERPRISE
+  return MakeUniqueCursorPtr<ParallelMergeCursor>(mem, *this, mem);
+#else
+  (void)mem;
+  throw QueryRuntimeException("ParallelMerge is not supported in the community edition");
+#endif
+}
+
+#ifdef MG_ENTERPRISE
+class ParallelMergeCursor : public Cursor {
+ public:
+  ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem)
+      : self_(self),
+        // Collection scheduler is executed by the first parallel operator only
+        collection_scheduler_(std::exchange(plan_creation_helper_.collection_scheduler_, nullptr)),
+        input_cursor_(std::invoke([&]() {
+          if (!plan_creation_helper_.cursor_) {
+            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem);
+          }
+          return plan_creation_helper_.cursor_;
+        })) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    auto res = input_cursor_->Pull(frame, context);
+
+    // Source aggregation cannot schedule collection until we made a first pass through the query.
+    // Otherwise all would block on the first scan parallel operator and wait until (potentially) everything has been
+    // pulled. We would fallback to single threaded execution for all subsequent parallel operators. This is hacky, but
+    // it works. The real solution is to convert cursors into coroutines and yield here.
+    if (collection_scheduler_ && !scheduled_) {
+      // Schedule parallel work for this section
+      collection_scheduler_->Trigger();
+      scheduled_ = true;
+    }
+    return res;
+  }
+
+  void Shutdown() override {
+    if (input_cursor_) input_cursor_->Shutdown();
+    input_cursor_.reset();
+  }
+
+  void Reset() override {
+    scheduled_ = false;
+    if (input_cursor_) input_cursor_->Reset();
+  }
+
+ private:
+  const ParallelMerge &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_{nullptr};
+  std::shared_ptr<Cursor> input_cursor_;
+  bool scheduled_{false};
+};
+#endif
+
+#ifdef MG_ENTERPRISE
+/**
+ * Generic base class for parallel branch execution.
+ * Handles creating multiple cursors, executing them in parallel, and unifying context fields.
+ * Derived classes should override MergeResults() to implement domain-specific merging logic.
+ */
+class ParallelBranchCursor : public Cursor {
+ public:
+  ParallelBranchCursor(const std::shared_ptr<LogicalOperator> &branch_input, size_t num_threads,
+                       utils::MemoryResource *mem)
+      : collection_scheduler_(std::make_shared<utils::CollectionScheduler>(nullptr, nullptr)),
+        branch_plan_quotas_(num_threads),
+        branch_cursors_(std::invoke([&]() {
+          const PlanCreationHelper helper{collection_scheduler_};
+          std::vector<UniqueCursorPtr> cursors;
+          cursors.reserve(num_threads);
+          for (size_t i = 0; i < num_threads; i++) {
+            branch_plan_quotas_[i] = std::make_shared<std::vector<utils::SharedQuota *>>();
+            plan_creation_helper_.shared_plan_quotas_ = branch_plan_quotas_[i];  // Branch specific plan quotas
+            cursors.push_back(branch_input->MakeCursor(mem));
+          }
+          return cursors;
+        })) {}
+
+  void Shutdown() override {
+    for (const auto &cursor : branch_cursors_) cursor->Shutdown();
+  }
+
+  void Reset() override {
+    for (const auto &cursor : branch_cursors_) cursor->Reset();
+  }
+
+ protected:
+  /**
+   * Execute all branches in parallel and unify context fields.
+   * The first branch (index 0) runs on the main thread, others run in parallel tasks.
+   *
+   * @param frame Frame for the main branch (branch 0)
+   * @param context Execution context (will be modified to unify branch results)
+   * @param self Reference to the operator for profiling
+   * @return true if any branch returned true from Pull(), false otherwise
+   */
+  bool ExecuteBranchesInParallel(Frame &frame, ExecutionContext &context, const LogicalOperator &self, auto &&profile,
+                                 auto &&pre_pull_func, auto &&post_pull_func) {
+    if (branch_cursors_.empty()) {
+      return false;
+    }
+
+    // Make sure auth is thread safe
+    if (context.auth_checker) {
+      context.auth_checker->MakeThreadSafe();
+    }
+
+    AbortCheck(context);
+
+    std::atomic_int pull_result = 0;
+    const auto num_branches = branch_cursors_.size();
+    const auto num_branches_without_main = num_branches - 1;
+
+    utils::TaskCollection tasks(num_branches);
+    std::vector<std::exception_ptr> exceptions(num_branches, nullptr);
+    // Store context copies from each branch for unification after execution
+    std::vector<ExecutionContext> branch_contexts(num_branches_without_main);
+    // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
+    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(num_branches_without_main);
+    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(num_branches_without_main);
+
+    // Execute branches 1..N in parallel
+    for (size_t i = 1; i < num_branches; i++) {
+      tasks.AddTask([&,
+                     i,
+                     context,
+                     frame_size = frame.elems().size(),
+                     main_thread = std::this_thread::get_id(),
+                     post_pull_func,
+                     mem_tracking = memgraph::memory::CrossThreadMemoryTracking()](utils::Priority /*unused*/) mutable {
+        const OOMExceptionEnabler oom_exception;
+        const utils::Timer timer;
+        if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+          mem_tracking.StartTracking();
+        }
+        // Create parallel operator entry in branch's stats tree
+        context.stats_root = nullptr;
+        context.stats = plan::ProfilingStats();
+        SCOPED_PROFILE_OP_BY_REF(self);
+
+        DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
+        const auto &cursor = branch_cursors_[i];
+        const auto metadata_i = i - 1;
+        if (context.frame_change_collector != nullptr) {
+          auto &collector =
+              branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+          // Copy the cache structure (keys and invalidators) from the main collector so that
+          // cache invalidation works correctly when frame values change in this branch.
+          collector.CopyStructureFrom(*context.frame_change_collector);
+          context.frame_change_collector = &collector;
+        }
+        if (context.trigger_context_collector != nullptr) {
+          // Create an empty collector with same config for this branch (don't copy existing data)
+          // Main branch retains its own data, this branch will only receive new changes.
+          auto &collector = branch_trigger_collectors[metadata_i].emplace(
+              context.trigger_context_collector->CreateEmptyWithSameConfig());
+          context.trigger_context_collector = &collector;
+        }
+
+        // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
+        // shared quotas are used)
+        if (branch_plan_quotas_[i] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
+          context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[i]);
+        }
+
+        // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
+        Frame frame_local(static_cast<int64_t>(frame_size));
+
+        auto on_exit = utils::OnScopeExit([&]() {
+          // Force state reset (life extended through the context)
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+          const_cast<std::optional<ScopedProfile> &>(profile).reset();
+          if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
+            // NOTE: Parallel operators have to PullAll, so no need to worry about switching threads (at the bolt level)
+            // Main thread is handled by the higher level
+            context.profile_execution_time += timer.Elapsed();
+            // Main thread will continue using the same tracker
+            mem_tracking.StopTracking();
+          }
+          // NOTE: hops limit is shared between threads, so we need to free the leftover quota
+          context.hops_limit.Free();
+          // Move current context to the branch context for unification
+          branch_contexts[metadata_i] = std::move(context);
+        });
+
+        try {
+          pre_pull_func(cursor.get());
+          pull_result.fetch_add((int)cursor->Pull(frame_local, context));
+          post_pull_func(cursor.get(), &frame_local);
+        } catch (const std::exception &e) {
+          // Stop all other threads
+          DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+          if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
+            // Set exception occurred flag and pass exception to the main thread
+            exceptions[i] = std::current_exception();
+          }
+          return;
+        }
+      });
+    }
+
+    if (!collection_scheduler_) {
+      spdlog::warn(
+          "Collection scheduler not initialized. Please contact Memgraph support as this scenario "
+          "should not happen!");
+      throw QueryRuntimeException("Collection scheduler not initialized");
+    }
+    collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
+    collection_scheduler_->SetPool(context.worker_pool);
+
+    // TODO Reuse the same logic as each thread
+    // Execute branch 0 on the main thread
+    // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
+    // shared quotas are used)
+    if (branch_plan_quotas_[0] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
+      context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[0]);
+    }
+    const auto &cursor = branch_cursors_[0];
+    try {
+      pre_pull_func(cursor.get());
+      pull_result.fetch_add((int)cursor->Pull(frame, context));
+      // NOTE: hops limit is shared between threads, so we need to free the leftover quota
+      context.hops_limit.Free();
+      post_pull_func(cursor.get(), &frame);
+    } catch (const std::exception &e) {
+      DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
+      if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
+        // Exception occurred on the main thread, set flag and pass exception to the main thread
+        exceptions[0] = std::current_exception();
+      }
+    }
+
+    collection_scheduler_->WaitOrSteal();
+
+    // Check for exceptions
+    if (const auto exception_it = std::find_if(
+            exceptions.begin(), exceptions.end(), [](const std::exception_ptr &e) { return e != nullptr; });
+        exception_it != exceptions.end()) {
+      // Just rethrow the first exception
+      std::rethrow_exception(*exception_it);
+    }
+
+    // Nothing to pull, return
+    if (pull_result.load() == 0) return false;
+
+    // Unify context fields from all branches
+    plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    const_cast<std::optional<ScopedProfile> &>(profile).reset();
+    UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, parallel_stats);
+
+    return true;
+  }
+
+  /**
+   * Unify context fields from all branches into the main context.
+   */
+  static void UnifyContexts(ExecutionContext &context, std::vector<ExecutionContext> &branch_contexts,
+                            std::vector<std::optional<TriggerContextCollector>> &branch_trigger_collectors,
+                            std::vector<std::optional<FrameChangeCollector>> &branch_frame_collectors,
+                            plan::ProfilingStats *parallel_stats) {
+    // Helper to find all ancestors of a stats node
+    auto FindAncestors = [](plan::ProfilingStats &root,
+                            plan::ProfilingStats *target) -> std::vector<plan::ProfilingStats *> {
+      std::vector<plan::ProfilingStats *> ancestors;
+      std::function<bool(plan::ProfilingStats &, plan::ProfilingStats *)> FindPath =
+          [&FindPath, &ancestors, target](plan::ProfilingStats &current, plan::ProfilingStats *parent) -> bool {
+        if (&current == target) {
+          // Found the target - add the parent to ancestors if it exists
+          if (parent != nullptr) ancestors.push_back(parent);
+          return true;  // Found it
+        }
+        for (auto &child : current.children) {
+          if (FindPath(child, &current)) {
+            if (parent != nullptr) ancestors.push_back(parent);
+            return true;
+          }
+        }
+        return false;
+      };
+      FindPath(root, nullptr);
+      return ancestors;
+    };
+
+    // Find ancestors once (they don't change during merging)
+    std::vector<plan::ProfilingStats *> ancestors;
+    if (context.is_profile_query && parallel_stats != nullptr) {
+      ancestors = FindAncestors(context.stats, parallel_stats);
+    }
+
+    DMG_ASSERT(branch_contexts.size() == branch_frame_collectors.size() &&
+                   branch_contexts.size() == branch_trigger_collectors.size(),
+               "Branch contexts, frame collectors and trigger collectors must have the same size");
+
+    // Unify context fields from all branches into the main context
+    for (size_t branch_index = 0; branch_index < branch_contexts.size(); branch_index++) {
+      auto &branch_ctx = branch_contexts[branch_index];
+      // Unify number_of_hops: sum across all branches
+      context.number_of_hops += branch_ctx.number_of_hops;
+
+      // Unify execution_stats: sum all counters across branches
+      for (size_t key_idx = 0; key_idx < context.execution_stats.counters.size(); ++key_idx) {
+        context.execution_stats.counters[key_idx] += branch_ctx.execution_stats.counters[key_idx];
+      }
+
+      // Unify evaluation_context.counters: sum counters by key across branches
+      for (const auto &[counter_key, counter_value] : branch_ctx.evaluation_context.counters) {
+        context.evaluation_context.counters[counter_key] += counter_value;
+      }
+
+      // Unify frame_change_collector: merge collected data from branch into main collector
+      if (context.frame_change_collector != nullptr && branch_frame_collectors[branch_index].has_value()) {
+        context.frame_change_collector->MergeFrom(std::move(*branch_frame_collectors[branch_index]));
+      }
+
+      // Unify trigger_context_collector: merge collected trigger data from branch into main collector
+      if (context.trigger_context_collector != nullptr && branch_trigger_collectors[branch_index].has_value()) {
+        context.trigger_context_collector->MergeFrom(std::move(*branch_trigger_collectors[branch_index]));
+      }
+
+      // Unify profiling stats: merge stats trees
+      if (context.is_profile_query && parallel_stats != nullptr && branch_ctx.stats.key == parallel_stats->key) {
+        // Update CPU time
+        context.profile_execution_time += branch_ctx.profile_execution_time;
+        // Merge stats by recursively combining stats with the same key.
+        // Swap so we iterate over the smaller child list (merge common prefix; extra nodes stay as-is).
+        std::function<void(plan::ProfilingStats &, plan::ProfilingStats &)> MergeProfilingStats =
+            [&MergeProfilingStats](plan::ProfilingStats &main_stats, plan::ProfilingStats &branch_stats) {
+              main_stats.actual_hits += branch_stats.actual_hits;
+              main_stats.num_cycles += branch_stats.num_cycles;
+
+              if (main_stats.children.size() < branch_stats.children.size()) {
+                std::swap(main_stats.children, branch_stats.children);
+              }
+
+              const auto merge_count = branch_stats.children.size();
+              for (size_t j = 0; j < merge_count; ++j) {
+                auto &main_child = main_stats.children[j];
+                auto &branch_child = branch_stats.children[j];
+                if (main_child.name != branch_child.name) {
+                  throw QueryRuntimeException("Profile merge: plan structure differs across branches (name mismatch)");
+                }
+                MergeProfilingStats(main_child, branch_child);
+              }
+            };
+        // Merge stats trees
+        MergeProfilingStats(*parallel_stats, branch_ctx.stats);
+        // Add the branch's delta cycles to all ancestor stats
+        for (auto *ancestor : ancestors) {
+          ancestor->num_cycles += branch_ctx.stats.num_cycles;
+        }
+      }
+    }
+  }
+
+  std::shared_ptr<utils::CollectionScheduler> collection_scheduler_;
+  std::vector<std::shared_ptr<std::vector<utils::SharedQuota *>>> branch_plan_quotas_;
+  const std::vector<UniqueCursorPtr> branch_cursors_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+};
+
+namespace {
+void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const auto &aggregations) {
+  for (auto other_itr = other_aggregation.begin(); other_itr != other_aggregation.end();) {
+    auto node = other_aggregation.extract(other_itr++);
+    auto [main_itr, main_inserted, other_node] = main_aggregation.insert(std::move(node));
+    if (main_inserted) {
+      continue;
+    }
+    auto &main_agg_value = main_itr->second;
+    auto &other_agg_value = other_node.mapped();
+
+    for (size_t pos = 0; pos < aggregations.size(); ++pos) {
+      const auto &agg_info = aggregations[pos];  // Cache reference
+      const auto &agg_op = agg_info.op;
+
+      auto &other_value = other_agg_value.values_[pos];
+      auto &main_value = main_agg_value.values_[pos];  // Reference for easy access
+
+      auto &main_count = main_agg_value.counts_[pos];
+      const auto other_count = other_agg_value.counts_[pos];
+      const auto old_main_count = main_count;
+
+      // Special case for DISTINCT
+      if (agg_info.distinct) {
+        auto &main_unique_values = main_agg_value.unique_values_[pos];
+        auto &other_unique_values = other_agg_value.unique_values_[pos];
+        const auto other_unique_values_size = other_unique_values.size();
+
+        // This moves unique nodes from 'other' to 'main' without allocation.
+        // Duplicates remain in 'other'.
+        main_unique_values.merge(other_unique_values);
+
+        // If 'other' is empty, everything was unique.
+        // If 'other' still has items, those are the duplicates we must skip.
+
+        if (other_unique_values.size() == other_unique_values_size) continue;  // all duplicates
+
+        // Skip Nulls (except for COUNT)
+        if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+          continue;
+        }
+
+        // Update count based on the new set size
+        main_count = main_unique_values.size();
+
+        // If main is null, simply take the other value
+        if (main_value.IsNull()) {
+          main_value = std::move(other_value);  // Move instead of copy
+          continue;
+        }
+
+        switch (agg_op) {
+          case Aggregation::Op::COUNT: {
+            // Adjust calculation based on how many items were actually merged
+            // (Total size of other - duplicates that remained)
+            const int64_t moved_count =
+                static_cast<int64_t>(other_unique_values_size) - static_cast<int64_t>(other_unique_values.size());
+            main_value = main_value + TypedValue(moved_count);
+            break;
+          }
+          case Aggregation::Op::SUM:
+          case Aggregation::Op::AVG: {
+            TypedValue left_sum{0};
+            std::for_each(other_unique_values.begin(), other_unique_values.end(), [&](const auto &val) {
+              left_sum = left_sum + val;
+            });
+
+            if (agg_op == Aggregation::Op::SUM) {
+              main_value = main_value + other_value - left_sum;
+            } else {
+              // Reconstructing AVG is hard with simple subtraction,
+              // typically simpler to reconstruct from the set or keep Sum/Count separate until Produce.
+              // Assuming standard update logic from previous step:
+              const TypedValue other_sum = other_value * TypedValue(other_count);
+              const TypedValue main_sum = main_value * TypedValue(old_main_count);
+              if (main_count != 0) {
+                main_value = (main_sum + other_sum - left_sum) / TypedValue(main_count);
+              } else {
+                main_value = TypedValue();
+              }
+            }
+            break;
+          }
+          case Aggregation::Op::MIN:
+            if ((other_value < main_value).ValueBool()) {
+              main_value = std::move(other_value);
+            }
+            break;
+          case Aggregation::Op::MAX:
+            if ((other_value > main_value).ValueBool()) {
+              main_value = std::move(other_value);
+            }
+            break;
+          case Aggregation::Op::COLLECT_LIST: {
+            auto &main_list = main_value.ValueList();
+            auto &other_list = other_value.ValueList();
+            // If the item is found in 'other_unique_values', it means it was a duplicate (rejected by merge). We skip
+            // it. If it is NOT found, it means it was moved to 'main', so we add it.
+            for (auto &item : other_list) {
+              if (other_unique_values.contains(item)) {
+                main_list.push_back(std::move(item));
+              }
+            }
+            break;
+          }
+          case Aggregation::Op::COLLECT_MAP: {
+            auto &main_map = main_value.ValueMap();
+            auto &other_map = other_value.ValueMap();
+            // Check if the VALUE (which is what distinct tracks)  was left behind.
+            for (auto &[key, val] : other_map) {
+              if (other_unique_values.contains(val)) {
+                main_map.insert_or_assign(key, std::move(val));
+              }
+            }
+            break;
+          }
+          case Aggregation::Op::PROJECT_PATH:
+          case Aggregation::Op::PROJECT_LISTS: {
+            // For Graph projections, deduplication is handled by the Graph object internally.
+            // We can ignore the set check to save hash-lookup costs.
+            auto &main_graph = main_value.ValueGraph();
+            auto &other_graph = other_value.ValueGraph();
+            for (auto &vertex : other_graph.vertices()) {
+              main_graph.InsertVertex(std::move(vertex));
+            }
+            for (auto &edge : other_graph.edges()) {
+              main_graph.InsertEdge(std::move(edge));
+            }
+            break;
+          }
+        }
+        continue;
+      }
+
+      // Skip Nulls (except for COUNT)
+      if (other_value.IsNull() && agg_op != Aggregation::Op::COUNT) {
+        continue;
+      }
+
+      main_count += other_count;
+
+      // If main is null, simply take the other value
+      if (main_value.IsNull()) {
+        main_value = std::move(other_value);  // Move instead of copy
+        continue;
+      }
+
+      switch (agg_op) {
+        case Aggregation::Op::COUNT:
+          [[fallthrough]];
+        case Aggregation::Op::SUM: {
+          main_value = main_value + other_value;
+          break;
+        }
+        case Aggregation::Op::AVG: {
+          // Weighted Average: (M_avg * M_cnt + O_avg * O_cnt) / (M_cnt + O_cnt)
+          // Optimized to avoid excessive TypedValue constructions if possible
+          const TypedValue other_sum = other_value * TypedValue(other_count);
+          const TypedValue main_sum = main_value * TypedValue(old_main_count);
+          if (main_count != 0) {
+            main_value = (main_sum + other_sum) / TypedValue(main_count);
+          } else {
+            main_value = TypedValue();
+          }
+          break;
+        }
+        case Aggregation::Op::MIN: {
+          if ((other_value < main_value).ValueBool()) {
+            main_value = std::move(other_value);
+          }
+          break;
+        }
+        case Aggregation::Op::MAX: {
+          if ((other_value > main_value).ValueBool()) {
+            main_value = std::move(other_value);
+          }
+          break;
+        }
+        case Aggregation::Op::COLLECT_LIST: {
+          // OPTIMIZATION: Use std::move iterator or splice if underlying type supports it
+          // Assuming TypedValue::operator+ handles lists, ensure it doesn't deep copy everything
+          // ideally: main_value.AppendList(std::move(other_value));
+          main_value = main_value + other_value;
+          break;
+        }
+        case Aggregation::Op::COLLECT_MAP: {
+          // Direct map access to avoid overhead
+          auto &main_map = main_value.ValueMap();
+          auto &other_map = other_value.ValueMap();
+          // Merge maps efficiently
+          if (main_map.empty()) {
+            main_map = std::move(other_map);
+          } else {
+            // Use merge for maps (C++17) or insert with move
+            for (auto &[k, v] : other_map) {
+              main_map.insert_or_assign(k, std::move(v));
+            }
+          }
+          break;
+        }
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS: {
+          auto &main_graph = main_value.ValueGraph();
+          auto &other_graph = other_value.ValueGraph();
+          for (auto &vertex : other_graph.vertices()) {
+            main_graph.InsertVertex(std::move(vertex));
+          }
+          for (auto &edge : other_graph.edges()) {
+            main_graph.InsertEdge(std::move(edge));
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+}
+}  // namespace
+
+class AggregateParallelCursor : public ParallelBranchCursor {
+ public:
+  AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem)
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    const OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    if (branch_cursors_.empty()) {
+      return false;
+    }
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    const auto &remember = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.remember_;
+    const auto &aggregations = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.aggregations_;
+
+    std::mutex branch_aggregations_mutex;
+    std::queue<decltype(main_aggregation_)> branch_aggregations;
+
+    // First pull, process all input and store results in the aggregation map
+    if (!initialized_) {
+      initialized_ = true;
+      auto pre_pull_func = [&branch_aggregations_mutex, &branch_aggregations](Cursor *cursor) {
+        // Try to find a free aggregation to reuse
+        decltype(main_aggregation_) complete_aggregation = nullptr;
+        {
+          const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+          if (!branch_aggregations.empty()) {
+            complete_aggregation = branch_aggregations.front();
+            branch_aggregations.pop();
+          }
+        }
+        // Reuse already completed section if available
+        if (complete_aggregation != nullptr) {
+          static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
+        }
+      };
+      auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor,
+                                                                                              Frame * /*frame*/) {
+        auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
+        decltype(main_aggregation_) complete_aggregation = nullptr;
+
+        while (true) {
+          complete_aggregation = nullptr;
+          // Phase 1: find a free aggregation
+          {
+            const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+            if (!branch_aggregations.empty()) {
+              complete_aggregation = branch_aggregations.front();
+              branch_aggregations.pop();
+            } else {
+              branch_aggregations.push(aggregation);
+              return;
+            }
+          }
+          // Phase 2: unify the aggregation
+          UnifyAggregation(*aggregation, *complete_aggregation, aggregations);
+        }
+      };
+
+      // Execute branches in parallel and unify context fields (handled by base class)
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+      if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
+        return false;
+      }
+
+      // There should be only one aggregation left in the list
+      DMG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
+      main_aggregation_ = branch_aggregations.front();
+      aggregation_it_ = main_aggregation_->begin();
+      if (main_aggregation_->empty()) {
+        DefaultAggregation(context, aggregations, remember, frame_writer);
+        return true;  // Send back default aggregation values
+      }
+    }
+
+    if (aggregation_it_ == main_aggregation_->end()) return false;
+
+    // TODO Free unused cursors
+
+    // place aggregation values on the frame
+    size_t pos = 0;
+    for (const auto &aggregation_elem : aggregations)
+      frame_writer.Write(aggregation_elem.output_sym, aggregation_it_->second.values_[pos++]);
+
+    // place remember values on the frame
+    pos = 0;
+    for (const Symbol &remember_sym : remember)
+      frame_writer.Write(remember_sym, aggregation_it_->second.remember_[pos++]);
+
+    aggregation_it_++;
+    return true;
+  }
+
+  void Reset() override {
+    for (const auto &cursor : branch_cursors_) cursor->Reset();
+    initialized_ = false;
+    main_aggregation_ = nullptr;
+  }
+
+ private:
+  bool initialized_ = false;
+  decltype(AggregateCursor::aggregation_) *main_aggregation_;  // Reusing from AggregateCursor
+  decltype(AggregateCursor::aggregation_.begin()) aggregation_it_;
+  const AggregateParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+};
+#endif
+
+#ifdef MG_ENTERPRISE
+AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> &agg_inputs, size_t num_threads)
+    : input_(agg_inputs), num_threads_(num_threads) {
+  DMG_ASSERT(dynamic_cast<Aggregate *>(agg_inputs.get()) != nullptr, "Input must be an Aggregate");
+  DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
+}
+#else
+AggregateParallel::AggregateParallel(const std::shared_ptr<LogicalOperator> & /*agg_inputs*/, size_t /*num_threads*/) {
+  throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
+}
+#endif
+
+UniqueCursorPtr AggregateParallel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
+  }
+  return MakeUniqueCursorPtr<AggregateParallelCursor>(mem, *this, mem);
+#else
+  (void)mem;
+  throw QueryRuntimeException("AggregateParallel is not supported in the community edition");
+#endif
+}
+
+std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table) const {
+#ifdef MG_ENTERPRISE
+  auto symbols = std::vector<Symbol>();
+  auto right = input_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+#else
+  (void)table;
+  return {};
+#endif
+}
+
+ACCEPT_WITH_INPUT(AggregateParallel);
+
+#ifdef MG_ENTERPRISE
+class OrderByParallelCursor : public ParallelBranchCursor {
+ public:
+  OrderByParallelCursor(const OrderByParallel &self, utils::MemoryResource *mem)
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem), self_(self) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    const OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    if (branch_cursors_.empty()) {
+      return false;
+    }
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    const auto &output_symbols = static_cast<OrderByCursor *>(branch_cursors_[0].get())->self_.output_symbols_;
+    const auto &compare = static_cast<OrderByCursor *>(branch_cursors_[0].get())->self_.compare_;
+
+    // Compare using order_by values for correct sort order
+    auto heap_cmp = [&compare](const auto &a, const auto &b) {
+      return !compare.lex_cmp()(*std::get<1>(a), *std::get<1>(b));
+    };
+
+    // First pull, process all input and store results sorted in each branch
+    if (!initialized_) {
+      initialized_ = true;
+
+      auto pre_pull_func = [](Cursor * /*cursor*/) {};
+      auto post_pull_func = [](Cursor * /*cursor*/, Frame * /*frame*/) {};
+
+      // Execute branches in parallel - each branch will pull all its data and sort it
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+      if (!ExecuteBranchesInParallel(frame, context, self_, std::move(profile), pre_pull_func, post_pull_func)) {
+        return false;
+      }
+
+      // Initialize heap with iterators from each branch's sorted cache
+      // Each element is (cache_it, order_by_it, cache_end, order_by_end, branch_index)
+      for (size_t i = 0; i < branch_cursors_.size(); ++i) {
+        auto *orderby_cursor = static_cast<OrderByCursor *>(branch_cursors_[i].get());
+        if (orderby_cursor->cache_.begin() != orderby_cursor->cache_.end()) {
+          branch_iters_.emplace_back(orderby_cursor->cache_.begin(),
+                                     orderby_cursor->order_by_cache_.begin(),
+                                     orderby_cursor->cache_.end(),
+                                     orderby_cursor->order_by_cache_.end(),
+                                     i);
+        }
+      }
+
+      // Build a min-heap based on the compare function
+      // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
+      std::make_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+    }
+
+    if (branch_iters_.empty()) return false;
+
+    AbortCheck(context);
+
+    // Pop the smallest element from the heap (based on order_by values
+    // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
+    std::pop_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+    auto &[cache_it, order_by_it, cache_end, order_by_end, branch_idx] = branch_iters_.back();
+
+    // Place the output values on the frame (from cache_, not order_by_cache_)
+    DMG_ASSERT(output_symbols.size() == cache_it->size(),
+               "Number of values does not match the number of output symbols in OrderByParallel");
+    auto output_sym_it = output_symbols.begin();
+    for (auto &&output : *cache_it) {
+      frame_writer.Write(*output_sym_it++, std::move(output));
+    }
+
+    // Advance both iterators and reheapify if there are more elements
+    ++cache_it;
+    ++order_by_it;
+    if (cache_it != cache_end) {
+      // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
+      std::push_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+    } else {
+      branch_iters_.pop_back();
+    }
+
+    return true;
+  }
+
+ private:
+  bool initialized_ = false;
+  // Heap of (cache_it, order_by_it, cache_end, order_by_end, branch_index)
+  using CacheType = utils::pmr::vector<utils::pmr::vector<TypedValue>>;
+  std::vector<std::tuple<CacheType::iterator, CacheType::iterator, CacheType::iterator, CacheType::iterator, size_t>>
+      branch_iters_;
+  const OrderByParallel &self_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+};
+#endif
+
+#ifdef MG_ENTERPRISE
+OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> &orderby_input, size_t num_threads)
+    : input_(orderby_input), num_threads_(num_threads) {
+  DMG_ASSERT(dynamic_cast<OrderBy *>(orderby_input.get()) != nullptr, "Input must be an OrderBy");
+  DMG_ASSERT(num_threads > 0, "Number of threads must be greater than 0");
+}
+#else
+OrderByParallel::OrderByParallel(const std::shared_ptr<LogicalOperator> & /*orderby_input*/, size_t /*num_threads*/) {
+  throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
+}
+#endif
+
+UniqueCursorPtr OrderByParallel::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
+  }
+  return MakeUniqueCursorPtr<OrderByParallelCursor>(mem, *this, mem);
+#else
+  (void)mem;
+  throw QueryRuntimeException("OrderByParallel is not supported in the community edition");
+#endif
+}
+
+std::vector<Symbol> OrderByParallel::ModifiedSymbols(const SymbolTable &table) const {
+#ifdef MG_ENTERPRISE
+  auto symbols = std::vector<Symbol>();
+  auto right = input_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+#else
+  (void)table;
+  return {};
+#endif
+}
+
+std::vector<Symbol> OrderByParallel::OutputSymbols(const SymbolTable &symbol_table) const {
+#ifdef MG_ENTERPRISE
+  return input_->OutputSymbols(symbol_table);
+#else
+  (void)symbol_table;
+  return {};
+#endif
+}
+
+ACCEPT_WITH_INPUT(OrderByParallel);
+
+Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(Skip)
+
+UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SkipOperator);
+
+  return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> Skip::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
+std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<Skip>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->parallel_execution_ = parallel_execution_;
+  return object;
+}
+
+Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+#ifdef MG_ENTERPRISE
+  if (self_.parallel_execution_) {
+    // Use a globally defined quota for parallel execution
+    shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
+    shared_quota_->SetPlanQuotas(plan_creation_helper_.shared_plan_quotas_);
+  }
+#endif
+}
+
+bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
+  const OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("Skip");
+
+  AbortCheck(context);
+
+  while (input_cursor_->Pull(frame, context)) {
+    if (to_skip_ == -1) {
+      // First successful pull from the input, evaluate the skip expression.
+      // The skip expression doesn't contain identifiers so graph view
+      // parameter is not important.
+      ExpressionEvaluator evaluator(&frame,
+                                    context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor,
+                                    storage::View::OLD,
+                                    nullptr,
+                                    &context.number_of_hops,
+                                    context.user_or_role);
+      TypedValue to_skip = self_.expression_->Accept(evaluator);
+      if (to_skip.type() != TypedValue::Type::Int)
+        throw QueryRuntimeException("Number of elements to skip must be an integer.");
+
+      to_skip_ = to_skip.ValueInt();
+      if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
+      // Single threaded and parallel execution quota setup
+      if (self_.parallel_execution_) {
+        MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
+        shared_quota_->Initialize(static_cast<uint64_t>(to_skip_),
+                                  utils::SharedQuota::WorkersToBatch(*self_.parallel_execution_));
+      } else {
+        shared_quota_.emplace(static_cast<uint64_t>(to_skip_));
+      }
+    }
+    // Skip until we skipped the quota
+    if (shared_quota_ && shared_quota_->Decrement() > 0) continue;
+    shared_quota_.reset();  // consumed all quota, reset the shared quota
+    return true;
+  }
+  shared_quota_.reset();  // Important to release any remaining resource for other threads
+  return false;
+}
+
+void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void Skip::SkipCursor::Reset() {
+  input_cursor_->Reset();
+  to_skip_ = -1;
+  shared_quota_.reset();
+}
+
+Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(Limit)
+
+UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::LimitOperator);
+
+  return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> Limit::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
+std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<Limit>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->parallel_execution_ = parallel_execution_;
+  return object;
+}
+
+Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {
+#ifdef MG_ENTERPRISE
+  if (self_.parallel_execution_) {
+    // Use a globally defined quota for parallel execution
+    shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
+    shared_quota_->SetPlanQuotas(plan_creation_helper_.shared_plan_quotas_);
+  }
+#endif
+}
+
+bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
+  const OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("Limit");
+
+  AbortCheck(context);
+
+  // We need to evaluate the limit expression before the first input Pull
+  // because it might be 0 and thereby we shouldn't Pull from input at all.
+  // We can do this before Pulling from the input because the limit expression
+  // is not allowed to contain any identifiers.
+  if (limit_ == -1) {
+    // Limit expression doesn't contain identifiers so graph view is not
+    // important.
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  storage::View::OLD,
+                                  nullptr,
+                                  &context.number_of_hops,
+                                  context.user_or_role);
+    TypedValue limit = self_.expression_->Accept(evaluator);
+    if (limit.type() != TypedValue::Type::Int)
+      throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
+
+    limit_ = limit.ValueInt();
+    if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
+    // Initialize the quota for parallel execution or single threaded execution
+    if (self_.parallel_execution_) {
+      MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
+      shared_quota_->Initialize(static_cast<uint64_t>(limit_),
+                                utils::SharedQuota::WorkersToBatch(*self_.parallel_execution_));
+    } else {
+      shared_quota_.emplace(static_cast<uint64_t>(limit_));
+    }
+  }
+
+  // check we have not exceeded the limit before pulling
+  if (shared_quota_->Decrement() == 0) {
+    shared_quota_.reset();  // Important to release any remaining resource for other threads
+    return false;
+  }
+
+  const auto res = input_cursor_->Pull(frame, context);
+  if (!res) {
+    shared_quota_->Increment();  // We failed to pull, so we need to return the last quota
+    shared_quota_.reset();       // Important to release any remaining resource for other threads
+  }
+  return res;
+}
+
+void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void Limit::LimitCursor::Reset() {
+  input_cursor_->Reset();
+  limit_ = -1;
+  shared_quota_.reset();
 }
 
 }  // namespace memgraph::query::plan

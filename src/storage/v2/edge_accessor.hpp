@@ -70,7 +70,7 @@ class EdgeAccessor final {
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
   /// @throw std::bad_alloc
-  Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
       std::map<storage::PropertyId, storage::PropertyValue> &properties) const;

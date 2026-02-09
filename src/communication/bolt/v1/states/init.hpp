@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -82,8 +82,12 @@ std::optional<State> BasicAuthentication(TSession &session, memgraph::communicat
 
 template <typename TSession>
 std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
-  if (!data.contains("credentials")) {
+  if (!data.contains("credentials") || !data["credentials"].IsString()) {
     spdlog::warn("The client didn’t supply the SSO token!");
+    return State::Close;
+  }
+  if (!data.contains("scheme") || !data["scheme"].IsString()) {
+    spdlog::warn("The client didn't supply a valid SSO scheme!");
     return State::Close;
   }
 

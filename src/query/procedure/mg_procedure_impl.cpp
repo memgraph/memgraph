@@ -43,7 +43,6 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -831,6 +830,12 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
           "mgp_value for PropertyValue::Type::Point3d doesn't exist. Contact Memgraph team under team@memgraph.com or "
           "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
       break;
+    }
+    case memgraph::storage::PropertyValue::Type::VectorIndexId: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::VectorIndexId doesn't exist. Contact Memgraph team under "
+          "team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
     }
   }
 }
@@ -4747,6 +4752,8 @@ int mgp_must_abort(mgp_graph *graph) {
       return 2;
     case memgraph::query::AbortReason::TIMEOUT:
       return 3;
+    case memgraph::query::AbortReason::EXCEPTION:
+      return 4;
     case memgraph::query::AbortReason::NO_ABORT:
       return 0;
   }

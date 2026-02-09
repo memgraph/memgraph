@@ -3,44 +3,57 @@ import json
 import os
 import sys
 
-PR_BUILDS = ["amd", "arm", "cuda"]
+PR_BUILDS = ["amd", "arm", "cuda", "cugraph"]
 
 MATRIX_BUILDS = [
     {
         "arch": "amd",
         "build_type": "Release",
         "cuda": False,
+        "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "arm",
         "build_type": "Release",
         "cuda": False,
+        "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "amd",
         "build_type": "RelWithDebInfo",
         "cuda": False,
+        "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "arm",
         "build_type": "RelWithDebInfo",
         "cuda": False,
+        "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "amd",
         "build_type": "RelWithDebInfo",
         "cuda": True,
+        "cugraph": False,
         "malloc": False,
     },
     {
         "arch": "amd",
         "build_type": "Release",
         "cuda": False,
+        "cugraph": False,
         "malloc": True,
+    },
+    {
+        "arch": "amd",
+        "build_type": "Release",
+        "cuda": False,
+        "cugraph": True,
+        "malloc": False,
     },
 ]
 
@@ -93,7 +106,12 @@ class PackageMageSetup:
         }
         if f"CI -package=mage-{package}" in pr_labels:
             print(f'Found label for "{package}"')
-            out = {"build_type": "Release", "arch": "arm" if package == "arm" else "amd", "cuda": package == "cuda"}
+            out = {
+                "build_type": "Release",
+                "arch": "arm" if package == "arm" else "amd",
+                "cuda": package == "cuda",
+                "cugraph": package == "cugraph",
+            }
             out.update(default_args)
             return out
         return None
@@ -118,6 +136,7 @@ class PackageMageSetup:
                 "build_type": self.workflow_inputs.get("build_type", "Release"),
                 "arch": self.workflow_inputs.get("build_arch", "amd"),
                 "cuda": self.workflow_inputs.get("cuda", False),
+                "cugraph": self.workflow_inputs.get("cugraph", False),
                 "malloc": self.workflow_inputs.get("malloc", False),
                 "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
                 "push_to_s3": self.workflow_inputs.get("push_to_s3", False),

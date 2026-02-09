@@ -5,3 +5,6 @@
 workloads:
   - config: workloads/supernode_edge_abort/workload.yaml
     enabled: true
+
+  - config: workloads/parallel_execution/workload.yaml
+    enabled: true
