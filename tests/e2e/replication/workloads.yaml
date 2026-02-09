@@ -97,6 +97,10 @@ workloads:
           ]
         validation_queries: []
 
+  - name: "Bolt exception handling"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/bolt_exception_handling.py"]
+
   - name: "Show while creating invalid state"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/show_while_creating_invalid_state.py"]

@@ -1,4 +1,4 @@
-name: Reusable Smoke Test MAGE
+name: Reusable Smoke Tests
 
 on:
   workflow_call:
@@ -31,6 +31,10 @@ on:
         type: string
         description: "Branch or tag to build"
         default: ''
+      image_type:
+        type: string
+        description: "Image type to test (mage or memgraph)"
+        default: 'mage'
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -41,13 +45,14 @@ env:
   INPUT_MALLOC: ${{ inputs.malloc }}
   INPUT_CUDA: ${{ inputs.cuda }}
   INPUT_RELWITHDEBINFO: ${{ inputs.relwithdebinfo }}
+  INPUT_IMAGE_TYPE: ${{ inputs.image_type }}
   TOOLCHAIN: v7
   OS: ubuntu-24.04
   ARCH: ${{ inputs.arch }}
 
 jobs:
   smoke-test-image:
-    name: "Smoke Test Image (${{ inputs.arch}}${{ inputs.malloc && ',malloc' || '' }}; ${{ inputs.last_version }} -> ${{ inputs.next_version }})"
+    name: "Smoke Test Image (${{ inputs.image_type }}; ${{ inputs.arch}}${{ inputs.malloc && ',malloc' || '' }}; ${{ inputs.last_version }} -> ${{ inputs.next_version }})"
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "ARM64"]') || fromJSON('["self-hosted", "X64"]') }}
     steps:
       - name: Checkout repository and submodules
@@ -87,10 +92,10 @@ jobs:
             last_version="$INPUT_LAST_VERSION"
           fi
 
-          read next_type next_image < <(python3 tools/ci/workflow_image_setup.py "${next_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO")
+          read next_type next_image < <(python3 tools/ci/workflow_image_setup.py "${next_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO" "$INPUT_IMAGE_TYPE")
           echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
           echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
-          read last_type last_image < <(python3 tools/ci/workflow_image_setup.py "${last_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO")
+          read last_type last_image < <(python3 tools/ci/workflow_image_setup.py "${last_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO" "$INPUT_IMAGE_TYPE")
           echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
           echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
 
@@ -137,6 +142,7 @@ jobs:
           echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
 
       - name: Run Tests
+        if: ${{ inputs.image_type == 'mage' }}
         env:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
@@ -148,6 +154,22 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-mage smoke \
+          --next-image "$MEMGRAPH_NEXT_DOCKERHUB_IMAGE" \
+          --last-image "$MEMGRAPH_LAST_DOCKERHUB_IMAGE"
+
+      - name: Run Tests
+        if: ${{ inputs.image_type == 'memgraph' }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph smoke \
           --next-image "$MEMGRAPH_NEXT_DOCKERHUB_IMAGE" \
           --last-image "$MEMGRAPH_LAST_DOCKERHUB_IMAGE"
 

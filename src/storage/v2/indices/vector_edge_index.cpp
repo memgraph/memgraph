@@ -110,7 +110,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
   try {
     if (!SetupIndex(spec)) return false;
     auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
-    PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+    PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> /* thread_id */) {
       TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);  // NOLINT(clang-analyzer-core.CallAndMessage)
     });
     return true;
@@ -130,11 +130,11 @@ void VectorEdgeIndex::RecoverIndex(const VectorEdgeIndexSpec &spec, utils::SkipL
     auto &[mg_index, mutable_spec] = pimpl->edge_index_.at({spec.edge_type_id, spec.property});
     if (FLAGS_storage_parallel_schema_recovery && FLAGS_storage_recovery_thread_count > 1) {
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::size_t thread_id) {
+      PopulateVectorIndexMultiThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> thread_id) {
         TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info, thread_id);
       });
     } else {
-      PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex) {
+      PopulateVectorIndexSingleThreaded(vertices, [&](Vertex &vertex, std::optional<std::size_t> /* thread_id */) {
         // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
         TryAddEdgesToIndex(mg_index, mutable_spec, vertex, snapshot_info);
       });

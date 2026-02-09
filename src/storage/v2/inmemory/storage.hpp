@@ -140,7 +140,10 @@ class InMemoryStorage final : public Storage {
     CopyFailure,
     BackupFailure,
     DownloadFailure,
-    S3GetFailure
+    S3GetFailure,
+    S3MissingAwsRegion,
+    S3MissingAwsAccessKey,
+    S3MissingAwsSecretKey
   };
 
   /// @throw std::system_error

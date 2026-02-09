@@ -8152,16 +8152,6 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
   return {std::move(m), mem};
 }
 
-// Builds a map of run-time settings
-auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
-  std::map<std::string, std::string, std::less<>> config;
-  config.emplace(utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
-  config.emplace(utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
-  config.emplace(utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
-  config.emplace(utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
-  return config;
-}
-
 }  // namespace
 
 class LoadCsvCursor : public Cursor {

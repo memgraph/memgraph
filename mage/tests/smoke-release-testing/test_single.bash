@@ -7,6 +7,15 @@ START_TIME=$(date +%s)
 START_TIME_READABLE=$(date)
 echo "Script execution started at: $START_TIME_READABLE"
 
+# Set image type
+IMAGE_TYPE=${1:-"mage"}
+# exit if not memgraph or mage
+if [[ "$IMAGE_TYPE" != "mage" && "$IMAGE_TYPE" != "memgraph" ]]; then
+  echo "Error: Invalid image type '$IMAGE_TYPE'"
+  exit 1
+fi
+echo "Testing container with image type: $IMAGE_TYPE"
+
 # NOTE: 1st arg is how to pull LAST image, 2nd arg is how to pull NEXT image.
 spinup_and_cleanup_memgraph_dockers Dockerhub RC
 echo "Waiting for memgraph to initialize..."
@@ -26,7 +35,7 @@ done
 test_auth_roles
 test_basic_auth
 test_query
-test_query_modules
+test_query_modules $IMAGE_TYPE
 test_session_trace
 test_show_schema_info
 test_spatial

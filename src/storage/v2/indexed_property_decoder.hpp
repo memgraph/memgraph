@@ -27,7 +27,7 @@ struct IndexedPropertyDecoder {
     switch (value.type()) {
       case PropertyValueType::VectorIndexId: {
         value.ValueVectorIndexList() = indices->vector_index_.GetVectorPropertyFromIndex(
-            entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]));
+            entity, name_id_mapper->IdToName(value.ValueVectorIndexIds()[0]), name_id_mapper);
         break;
       }
       default:
