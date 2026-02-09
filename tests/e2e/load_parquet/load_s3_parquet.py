@@ -27,6 +27,19 @@ AWS_REGION = "us-east-1"
 BUCKET_NAME = "deps.memgraph.io"
 
 
+def test_aws_region_not_provided_err_msg():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM 's3://{BUCKET_NAME}/nodes_no_file.parquet' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
+
+    try:
+        execute_and_fetch_all(cursor, load_query)
+    except Exception as e:
+        assert (
+            str(e)
+            == "AWS region configuration parameter not provided. Please provide it through the query, run-time setting aws_region or env variable AWS_REGION"
+        )
+
+
 def test_no_such_file():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = (

@@ -44,8 +44,11 @@ def test_file_exists_no_s3_config():
     load_query = f"RECOVER SNAPSHOT 's3://{BUCKET_NAME}/{SNAPSHOT_FILE}' FORCE"
     try:
         execute_and_fetch_all(cursor, load_query)
-    except DatabaseError as e:
-        assert str(e) == "Failed to download snapshot file from s3 s3://deps.memgraph.io/test_snapshot"
+    except Exception as e:
+        assert (
+            str(e)
+            == "AWS region configuration parameter not provided. Please provide it through the query, run-time setting aws_region or env variable AWS_REGION"
+        )
 
 
 def test_file_exists_s3_db_settings():

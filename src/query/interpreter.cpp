@@ -56,6 +56,7 @@
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_query_handler.hpp"
+#include "query/common.hpp"
 #include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
@@ -154,15 +155,6 @@ extern const Event ShowSchema;
 }  // namespace memgraph::metrics
 
 namespace {
-// Builds a map of run-time settings
-auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
-  std::map<std::string, std::string, std::less<>> config;
-  config.emplace(memgraph::utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
-  config.emplace(memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
-  config.emplace(memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
-  config.emplace(memgraph::utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
-  return config;
-}
 
 using memgraph::query::Expression;
 using memgraph::query::ExpressionVisitor;
@@ -5517,7 +5509,18 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             case S3GetFailure: {
               throw utils::BasicException("Failed to download snapshot file from s3 {}", path);
             }
+            case S3MissingAwsRegion: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_REGION));
+            }
+            case S3MissingAwsAccessKey: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_ACCESS_KEY));
+            }
+            case S3MissingAwsSecretKey: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
+            }
+            default: {
               std::unreachable();
+            }
           }
         }
         // REPLICATION
