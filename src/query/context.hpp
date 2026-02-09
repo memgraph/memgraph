@@ -167,15 +167,8 @@ struct ExecutionContext {
   utils::PriorityThreadPool *worker_pool{nullptr};
 
   /// For cursor coroutine yield: set by the runner before starting the root pull.
-  /// When a cursor yields, it stores the root handle here so the scheduler can resume later.
+  /// When a cursor yields, it stores the suspended handle here so the scheduler can resume later.
   std::coroutine_handle<> *suspended_task_handle_ptr{nullptr};
-  /// Set by the root coroutine at start (via StoreRootHandle). Used when yielding.
-  std::coroutine_handle<> root_task_handle{};
-
-  /// Temporary test hook: when set, yield point will decrement this; when it reaches 0, execution
-  /// suspends (same as scheduler yield). E.g. set to 1 to yield on the first yield point.
-  /// Used only to verify coroutine yield/resume; not for production.
-  std::optional<int> test_yield_after_yield_point_count;
 
   auto commit_args() -> storage::CommitArgs;
 };
