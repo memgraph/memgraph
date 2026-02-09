@@ -832,10 +832,17 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       break;
     }
     case memgraph::storage::PropertyValue::Type::VectorIndexId: {
-      throw std::logic_error{
-          "mgp_value for PropertyValue::Type::VectorIndexId doesn't exist. Contact Memgraph team under "
-          "team@memgraph.com or "
-          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      // Expose vector index payload as a list of doubles for the procedure API
+      type = MGP_VALUE_TYPE_LIST;
+      const auto &vec = pv.ValueVectorIndexList();
+      memgraph::utils::pmr::vector<mgp_value> elems(alloc);
+      elems.reserve(vec.size());
+      for (auto elem : vec) {
+        elems.emplace_back(elem);
+      }
+      memgraph::utils::Allocator<mgp_list> list_allocator(alloc);
+      list_v = list_allocator.new_object<mgp_list>(std::move(elems));
+      break;
     }
   }
 }
