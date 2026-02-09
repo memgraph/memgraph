@@ -44,8 +44,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
   apt-get update && apt-get install -y \
-    /tmp/openssl/openssl*.deb \
-    /tmp/openssl/libssl3t64*.deb \
+    /openssl/openssl*.deb \
+    /openssl/libssl3t64*.deb \
     --no-install-recommends && \
   apt-get install -y \
     libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
