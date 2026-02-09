@@ -300,7 +300,25 @@ install_memgraph_ha() {
     # Build helm install command with values file
     local helm_cmd="helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE"
 
-    log_info "Running: $helm_cmd"
+    # Override image tag if MEMGRAPH_IMAGE_TAG is set
+    if [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
+        helm_cmd+=" --set image.tag=$MEMGRAPH_IMAGE_TAG"
+        log_info "Using image tag: $MEMGRAPH_IMAGE_TAG"
+    fi
+
+    # Override license if MEMGRAPH_ENTERPRISE_LICENSE is set
+    if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" ]]; then
+        helm_cmd+=" --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE"
+        log_info "Enterprise license configured"
+    fi
+
+    # Override organization name if MEMGRAPH_ORGANIZATION_NAME is set
+    if [[ -n "${MEMGRAPH_ORGANIZATION_NAME:-}" ]]; then
+        helm_cmd+=" --set env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME"
+        log_info "Organization name configured"
+    fi
+
+    log_info "Running: helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE [+ overrides]"
     eval "$helm_cmd"
 
     if [[ $? -ne 0 ]]; then
@@ -554,24 +572,15 @@ stop_memgraph() {
         log_warn "Helm release $HELM_RELEASE_NAME not found"
     fi
 
-    # Optionally delete PVCs
-    read -p "Delete persistent volume claims? (y/N): " delete_pvcs
-    if [[ "$delete_pvcs" =~ ^[Yy]$ ]]; then
-        log_info "Deleting PVCs..."
-        kubectl get pvc --no-headers -o name 2>/dev/null | grep "memgraph-" | xargs -r kubectl delete 2>/dev/null || true
-    fi
+    # Delete PVCs
+    log_info "Deleting PVCs..."
+    kubectl get pvc --no-headers -o name 2>/dev/null | grep "memgraph-" | xargs -r kubectl delete 2>/dev/null || true
 
     log_info "Memgraph HA deployment stopped"
 }
 
 destroy_cluster() {
     log_info "Destroying EKS cluster: $CLUSTER_NAME..."
-
-    read -p "Are you sure you want to delete the entire EKS cluster? (y/N): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        log_info "Cluster deletion cancelled"
-        return 0
-    fi
 
     # First stop Memgraph
     stop_memgraph 2>/dev/null || true
@@ -637,10 +646,25 @@ upgrade_memgraph() {
     # Build helm upgrade command with values file
     local helm_cmd="helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE"
 
+    # Override image tag if MEMGRAPH_IMAGE_TAG is set
+    if [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
+        helm_cmd+=" --set image.tag=$MEMGRAPH_IMAGE_TAG"
+    fi
+
+    # Override license if MEMGRAPH_ENTERPRISE_LICENSE is set
+    if [[ -n "${MEMGRAPH_ENTERPRISE_LICENSE:-}" ]]; then
+        helm_cmd+=" --set env.MEMGRAPH_ENTERPRISE_LICENSE=$MEMGRAPH_ENTERPRISE_LICENSE"
+    fi
+
+    # Override organization name if MEMGRAPH_ORGANIZATION_NAME is set
+    if [[ -n "${MEMGRAPH_ORGANIZATION_NAME:-}" ]]; then
+        helm_cmd+=" --set env.MEMGRAPH_ORGANIZATION_NAME=$MEMGRAPH_ORGANIZATION_NAME"
+    fi
+
     # Pass any additional arguments
     helm_cmd+=" $@"
 
-    log_info "Running: $helm_cmd"
+    log_info "Running: helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE [+ overrides]"
     eval "$helm_cmd"
 
     wait_for_pods
@@ -952,7 +976,7 @@ print_usage() {
     echo ""
     echo "Commands:"
     echo "  start               - Create EKS cluster and deploy Memgraph HA"
-    echo "  stop                - Uninstall Memgraph HA (keeps cluster)"
+    echo "  stop                - Uninstall Memgraph HA and delete PVCs (keeps cluster)"
     echo "  destroy             - Delete entire EKS cluster"
     echo "  status              - Check deployment status"
     echo "  upgrade [flags]     - Upgrade Helm release with optional flags"
@@ -977,8 +1001,11 @@ print_usage() {
     echo "  POD_READY_TIMEOUT             - Timeout for pods to be ready in seconds (default: 600)"
     echo "  ENABLE_MONITORING             - Install kube-prometheus-stack (default: true)"
     echo ""
-    echo "Note: Set MEMGRAPH_ENTERPRISE_LICENSE and MEMGRAPH_ORGANIZATION_NAME in eks/values.yaml"
-    echo "      When ENABLE_MONITORING=true, also set prometheus.enabled=true in values.yaml"
+    echo "  MEMGRAPH_IMAGE_TAG            - Override image.tag in values.yaml"
+    echo "  MEMGRAPH_ENTERPRISE_LICENSE   - Override env.MEMGRAPH_ENTERPRISE_LICENSE in values.yaml"
+    echo "  MEMGRAPH_ORGANIZATION_NAME    - Override env.MEMGRAPH_ORGANIZATION_NAME in values.yaml"
+    echo ""
+    echo "Note: When ENABLE_MONITORING=true, also set prometheus.enabled=true in values.yaml"
     echo ""
     echo "Examples:"
     echo "  $0 start                           # Create cluster and deploy"
@@ -989,7 +1016,7 @@ print_usage() {
     echo "  $0 port-forward coordinator 7687   # Port forward coordinator"
     echo "  $0 logs mem-ha-test-data-0         # View pod logs"
     echo "  $0 upgrade --set key=value         # Upgrade with custom values"
-    echo "  $0 stop                            # Remove Memgraph deployment"
+    echo "  $0 stop                            # Remove Memgraph deployment + delete PVCs"
     echo "  $0 destroy                         # Delete entire cluster"
 }
 

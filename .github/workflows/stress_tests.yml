@@ -4,16 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       deployment:
-        description: 'Deployment type: native_standalone/native_ha/docker_ha'
+        description: 'Deployment type: native_standalone/native_ha/docker_ha/eks_ha'
         required: true
         type: choice
         options:
           - native_standalone
           - native_ha
           - docker_ha
+          - eks_ha
         default: native_standalone
       memgraph_image:
-        description: 'Memgraph Docker image (docker image tag or URL to .tar.gz) - required for docker_ha'
+        description: 'Memgraph Docker image (docker image tag or URL to .tar.gz) - required for docker_ha/eks_ha'
         required: true
         type: string
         default: ''
@@ -52,6 +53,16 @@ jobs:
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
     if: ${{ inputs.deployment == 'docker_ha' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ${{ inputs.deployment }}
+      memgraph_image: ${{ inputs.memgraph_image }}
+      arch: ${{ inputs.arch }}
+    secrets: inherit
+
+  stress_test_eks_ha:
+    name: "Stress Tests EKS HA"
+    if: ${{ inputs.deployment == 'eks_ha' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}

@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       deployment:
-        description: 'Deployment type: native_standalone/native_ha/docker_ha'
+        description: 'Deployment type: native_standalone/native_ha/docker_ha/eks_ha'
         required: true
         type: string
       memgraph_image:
-        description: 'Memgraph Docker image (repo:tag or URL to .tar.gz) - required for docker_ha'
+        description: 'Memgraph Docker image (repo:tag or URL to .tar.gz) - required for docker_ha/eks_ha'
         required: false
         type: string
         default: ''
@@ -241,6 +241,43 @@ jobs:
           test-memgraph stress-docker-ha
         env:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
+          S3_AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          S3_AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Clean up Docker
+        if: always()
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+  stress_test_eks_ha:
+    name: "Stress Tests EKS HA"
+    if: ${{ inputs.deployment == 'eks_ha' }}
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    timeout-minutes: 180
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run stress tests (EKS HA)
+        run: |
+          ./release/package/mgbuild.sh \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph stress-eks-ha
+        env:
           S3_AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           S3_AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
 
