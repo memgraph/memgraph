@@ -115,6 +115,7 @@ struct ExecutionContext {
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<QueryUserOrRole> user_or_role;
+  std::shared_ptr<QueryUserOrRole> triggering_user{nullptr};
   int64_t number_of_hops{0};
   HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
