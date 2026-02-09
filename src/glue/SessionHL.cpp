@@ -377,6 +377,23 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
   }
 }
 
+void SessionHL::SetResumePullPending(std::optional<int> n, std::optional<int> qid) {
+  resume_pull_pending_ = true;
+  resume_n_ = n;
+  resume_qid_ = qid;
+}
+
+bool SessionHL::HasResumePullPending() const { return resume_pull_pending_; }
+
+bolt_map_t SessionHL::ResumePull() {
+  auto summary = Pull(resume_n_, resume_qid_);
+  resume_pull_pending_ = false;
+  if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
+    SetResumePullPending(resume_n_, resume_qid_);
+  }
+  return summary;
+}
+
 void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {

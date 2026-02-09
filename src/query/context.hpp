@@ -12,7 +12,9 @@
 #pragma once
 
 #include <atomic>
+#include <coroutine>
 #include <memory>
+#include <optional>
 #include <type_traits>
 
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -25,6 +27,7 @@
 #include "utils/counter.hpp"
 #include "utils/priority_thread_pool.hpp"
 
+#include "query/exceptions.hpp"
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
 
@@ -70,12 +73,26 @@ std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &labe
 
 std::vector<storage::EdgeTypeId> NamesToEdgeTypes(const std::vector<std::string> &edgetype_names, DbAccessor *dba);
 
+/// Result of checking whether to continue, abort, or yield at a check point.
+/// Used with StoppingContext::CheckAbortOrYield for scheduler-driven yield.
+struct StopOrYieldResult {
+  enum class Action { Continue, Abort, Yield };
+  Action action{Action::Continue};
+  AbortReason abort_reason{AbortReason::NO_ABORT};  // meaningful only when action == Abort
+};
+
 struct StoppingContext {
   // Even though this is called `StoppingContext`. TransactionStatus is used for more
   std::atomic<TransactionStatus> *transaction_status{nullptr};
   std::atomic<bool> *is_shutting_down{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer{};
   std::shared_ptr<std::atomic<uint8_t>> exception_occurred{nullptr};  // Used only for parallel execution
+
+  /// When non-null, the scheduler may set *yield_requested to true to signal that
+  /// execution should yield at the next check point. The execution layer checks this
+  /// at the same points as MustAbort (e.g. AbortCheck). After the execution yields,
+  /// the scheduler clears the flag and resumes the execution when it may continue.
+  std::atomic<bool> *yield_requested{nullptr};
 
   auto MustAbort() const noexcept -> AbortReason {
     if (transaction_status && transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED)
@@ -92,6 +109,28 @@ struct StoppingContext {
       return AbortReason::EXCEPTION;
     }
     return AbortReason::NO_ABORT;
+  }
+
+  /// True if the scheduler has requested a yield at the next check point.
+  /// Checked only when throttling allows (e.g. every N-th check).
+  auto ShouldYield() const noexcept -> bool {
+    return yield_requested && yield_requested->load(std::memory_order_acquire);
+  }
+
+  /// Combined check: when maybe_check() is true, returns Abort (with reason), Yield, or Continue.
+  /// Use this at the same call sites as AbortCheck when you want to honour scheduler-driven yield.
+  /// Not thread safe with respect to maybe_check.
+  auto CheckAbortOrYield(utils::ResettableCounter &maybe_check) const noexcept -> StopOrYieldResult {
+    if (!maybe_check()) {
+      return {StopOrYieldResult::Action::Continue, AbortReason::NO_ABORT};
+    }
+    if (auto const reason = MustAbort(); reason != AbortReason::NO_ABORT) {
+      return {StopOrYieldResult::Action::Abort, reason};
+    }
+    if (ShouldYield()) {
+      return {StopOrYieldResult::Action::Yield, AbortReason::NO_ABORT};
+    }
+    return {StopOrYieldResult::Action::Continue, AbortReason::NO_ABORT};
   }
 
   auto MakeMaybeAborter(std::size_t n = 20) const noexcept {
@@ -126,6 +165,17 @@ struct ExecutionContext {
   bool is_main{true};
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
   utils::PriorityThreadPool *worker_pool{nullptr};
+
+  /// For cursor coroutine yield: set by the runner before starting the root pull.
+  /// When a cursor yields, it stores the root handle here so the scheduler can resume later.
+  std::coroutine_handle<> *suspended_task_handle_ptr{nullptr};
+  /// Set by the root coroutine at start (via StoreRootHandle). Used when yielding.
+  std::coroutine_handle<> root_task_handle{};
+
+  /// Temporary test hook: when set, yield point will decrement this; when it reaches 0, execution
+  /// suspends (same as scheduler yield). E.g. set to 1 to yield on the first yield point.
+  /// Used only to verify coroutine yield/resume; not for production.
+  std::optional<int> test_yield_after_yield_point_count;
 
   auto commit_args() -> storage::CommitArgs;
 };

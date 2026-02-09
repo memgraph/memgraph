@@ -402,9 +402,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           try {
             while (true) {
               if (shared_this->session_.Execute()) {
+                spdlog::trace("Session Execute() returned true (yield or more data); re-queue or loop");
                 // Check if we can just steal this task (loop through)
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
                   // Task priority lower; reschedule
+                  spdlog::trace("Re-queuing session task, thread released to pool");
                   shared_this->DoWork();
                   return;
                 }

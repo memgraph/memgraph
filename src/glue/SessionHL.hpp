@@ -97,6 +97,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   bolt_map_t Discard(std::optional<int> n, std::optional<int> qid);
 
+  /// Server-side resume: after a pull yields (has_more), scheduler can run other work then resume without client PULL.
+  void SetResumePullPending(std::optional<int> n, std::optional<int> qid);
+  bool HasResumePullPending() const;
+  bolt_map_t ResumePull();
+
   void Abort();
 
   /// Server/Session level API ///
@@ -142,6 +147,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
+
+  // Server-side resume pull: when a pull yields (has_more), we re-queue and resume without waiting for client PULL.
+  bool resume_pull_pending_{false};
+  std::optional<int> resume_n_;
+  std::optional<int> resume_qid_;
 };
 
 }  // namespace memgraph::glue
