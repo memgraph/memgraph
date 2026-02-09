@@ -338,8 +338,8 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
         auto guard = std::lock_guard{object->delta->commit_info->lock};
         if (object->delta->commit_info->non_seq_propagation == NonSeqPropagationState::NONE) {
           object->delta->commit_info->non_seq_propagation = NonSeqPropagationState::PENDING;
-          object->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
         }
+        object->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
       }
     }
   }

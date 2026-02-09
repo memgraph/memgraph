@@ -80,6 +80,11 @@ struct OpCheckLabels {
   std::vector<std::string> expected_labels;
 };
 
+struct OpCheckVertexFlag {
+  VId vertex;
+  bool expected_has_uncommitted_non_sequential_deltas;
+};
+
 // GC control via sentinel transaction - holds deltas from being collected
 struct OpHoldGc {};  // Start sentinel transaction to prevent GC/fast-discard
 
@@ -89,7 +94,7 @@ struct OpGc {};  // Trigger manual garbage collection
 
 // A single step in the test sequence
 using Op = std::variant<OpStart, OpCommit, OpAbort, OpAddLabel, OpCreateEdge, OpCheckEdges, OpCheckLabels, OpHoldGc,
-                        OpReleaseGc, OpGc>;
+                        OpReleaseGc, OpGc, OpCheckVertexFlag>;
 
 // A complete test case
 struct TestCase {
@@ -244,6 +249,15 @@ class DeltaCorrectnessTest : public ::testing::TestWithParam<TestCase> {
   }
 
   void Execute(const OpGc & /*op*/) { storage_->FreeMemory(); }
+
+  void Execute(OpCheckVertexFlag const &op) {
+    auto acc = storage_->Access(ms::READ);
+    auto vertex = acc->FindVertex(GetGid(op.vertex), ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value()) << "Vertex not found";
+    auto const guard = std::shared_lock{vertex->vertex_->lock};
+    EXPECT_EQ(vertex->vertex_->has_uncommitted_non_sequential_deltas, op.expected_has_uncommitted_non_sequential_deltas)
+        << "Flag check failed for " << (op.vertex == VId::V1 ? "V1" : "V2");
+  }
 
   std::unique_ptr<ms::Storage::Accessor> &GetTx(TxId tx) {
     auto it = transactions_.find(tx);
@@ -1084,6 +1098,31 @@ std::vector<TestCase> GetTestCases() {
         OpStart{6},
         OpAddLabel{6, V1, "Label4", OK},
         OpCommit{6}
+      }
+    },
+
+    {
+      "PropagatedDelta_MultipleVerticesAllGetFlag",
+      {
+        OpHoldGc{},
+
+        OpStart{0},
+        OpCreateEdge{0, V1, V2, "Edge1", OK},
+        OpCheckVertexFlag{V1, false},
+        OpCheckVertexFlag{V2, false},
+
+        OpStart{1},
+        OpCreateEdge{1, V1, V2, "Edge2", OK},
+        OpCheckVertexFlag{V1, true},
+        OpCheckVertexFlag{V2, true},
+
+        OpCommit{1},
+        OpCheckVertexFlag{V1, true},
+        OpCheckVertexFlag{V2, true},
+
+        OpCommit{0},
+        OpCheckVertexFlag{V1, false},
+        OpCheckVertexFlag{V2, false},
       }
     },
 
