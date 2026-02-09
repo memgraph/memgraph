@@ -239,15 +239,35 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
   "${MG_TOOLCHAIN_ROOT}/include"
 )
 
-macro(build_mgconsole)
-    add_external_project(mgconsole
-      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
-      CMAKE_ARGS
-      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
-      BUILD_COMMAND $(MAKE) mgconsole)
-    add_custom_target(mgconsole DEPENDS mgconsole-proj)
-endmacro()
-mg_build_if_needed(build_mgconsole "mgconsole")
+# Build mgconsole in isolation using ExternalProject to avoid target conflicts
+# with memgraph's dependencies (e.g., gflags)
+# Default to v1.5.0 if not specified
+if(NOT DEFINED MGCONSOLE_GIT_TAG)
+    set(MGCONSOLE_GIT_TAG "v1.5.0")
+endif()
+
+set(mgconsole_prefix ${CMAKE_BINARY_DIR}/mgconsole)
+set(mgconsole_source_dir ${mgconsole_prefix}/src/mgconsole-proj)
+set(mgconsole_build_dir ${mgconsole_prefix}/src/mgconsole-proj-build)
+
+ExternalProject_Add(mgconsole-proj
+    PREFIX ${mgconsole_prefix}
+    GIT_REPOSITORY https://github.com/memgraph/mgconsole.git
+    GIT_TAG ${MGCONSOLE_GIT_TAG}
+    SOURCE_DIR ${mgconsole_source_dir}
+    BINARY_DIR ${mgconsole_build_dir}
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target mgconsole
+    INSTALL_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target install
+    BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/bin/mgconsole
+)
+
+add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)

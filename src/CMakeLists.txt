@@ -45,6 +45,8 @@ set(mg_single_node_v2_sources
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
+# Ensure mgconsole is built when memgraph is built
+add_dependencies(memgraph mgconsole-proj)
 
 # Link memgraph with custom libstdc++
 message(STATUS "Linking memgraph with custom libstdc++")
