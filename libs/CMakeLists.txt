@@ -243,7 +243,7 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
 # with memgraph's dependencies (e.g., gflags)
 # Default to v1.5.0 if not specified
 if(NOT DEFINED MGCONSOLE_GIT_TAG)
-    set(MGCONSOLE_GIT_TAG "v1.5.0")  # TODO: use tag once mgconsole is released
+    set(MGCONSOLE_GIT_TAG "v1.5.0")
 endif()
 
 set(mgconsole_prefix ${CMAKE_BINARY_DIR}/mgconsole)
