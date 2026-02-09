@@ -13,281 +13,184 @@
 
 #include <coroutine>
 #include <cstdint>
+#include <exception>
 #include <utility>
 
 namespace memgraph::query::plan {
 
-/// Result of running a pull to completion: has row, done, or yielded (scheduler can resume later).
+/// Result status for the scheduler/driver.
 struct PullRunResult {
   enum class Status : uint8_t { HasRow, Done, Yielded };
   Status status{Status::Done};
-  bool has_row{false};  // meaningful when status == HasRow
 
-  static PullRunResult Row() { return {Status::HasRow, true}; }
+  [[nodiscard]] static PullRunResult Row() noexcept { return {Status::HasRow}; }
 
-  static PullRunResult Done() { return {Status::Done, false}; }
+  [[nodiscard]] static PullRunResult Done() noexcept { return {Status::Done}; }
 
-  static PullRunResult Yielded() { return {Status::Yielded, false}; }
+  [[nodiscard]] static PullRunResult Yielded() noexcept { return {Status::Yielded}; }
 };
 
-/// Promise type for PullAsync coroutines. Produces a single bool (has_row) on completion.
-/// Uses suspend_always at final_suspend so the frame stays alive until the awaiter has read
-/// the result in await_resume() (avoids use-after-free if symmetric transfer destroyed the frame).
-struct PullPromise {
-  struct promise_type {
-    bool result_{false};
-    std::coroutine_handle<> continuation_{nullptr};
+/// Base promise layout shared by all pull coroutines.
+/// To support Symmetric Transfer safely, the child writes its result and exceptions
+/// into parent-owned memory (pointers) during execution/return.
+struct BasePromise {
+  bool result_{false};
+  bool *result_ptr_{nullptr};
+  std::exception_ptr *exception_ptr_{nullptr};
+  std::coroutine_handle<> continuation_{nullptr};
+  std::exception_ptr local_exception_{nullptr};
 
-    auto get_return_object() noexcept -> PullPromise;
+  static constexpr std::suspend_always initial_suspend() noexcept { return {}; }
 
-    static constexpr auto initial_suspend() noexcept { return std::suspend_always{}; }
+  /// Suspends the current coroutine and resumes the parent via symmetric transfer.
+  struct FinalSuspender {
+    std::coroutine_handle<> continuation;
 
-    auto final_suspend() noexcept {
-      struct FinalSuspender {
-        std::coroutine_handle<> continuation;
+    bool await_ready() const noexcept { return false; }
 
-        bool await_ready() const noexcept { return false; }
-
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept {
-          return continuation ? continuation : std::noop_coroutine();
-        }
-
-        void await_resume() const noexcept {}
-      };
-
-      return FinalSuspender{continuation_};
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept {
+      return continuation ? continuation : std::noop_coroutine();
     }
 
-    void return_value(bool has_row) noexcept { result_ = has_row; }
-
-    void unhandled_exception() { throw; }
+    void await_resume() const noexcept {}
   };
 
-  std::coroutine_handle<promise_type> handle_{};
+  auto final_suspend() noexcept { return FinalSuspender{continuation_}; }
 
-  PullPromise() noexcept = default;
-
-  explicit PullPromise(std::coroutine_handle<promise_type> h) noexcept : handle_(h) {}
-
-  PullPromise(PullPromise &&other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
-
-  PullPromise &operator=(PullPromise &&other) noexcept {
-    if (this != &other) {
-      handle_ = other.handle_;
-      other.handle_ = nullptr;
+  void return_value(bool has_row) noexcept {
+    result_ = has_row;
+    if (result_ptr_) {
+      *result_ptr_ = has_row;
     }
-    return *this;
   }
 
-  ~PullPromise() {
-    if (handle_) handle_.destroy();
+  void unhandled_exception() noexcept {
+    auto current_ex = std::current_exception();
+    if (exception_ptr_) {
+      *exception_ptr_ = current_ex;
+    } else {
+      local_exception_ = current_ex;
+    }
   }
 
-  std::coroutine_handle<promise_type> GetHandle() const noexcept { return handle_; }
-
-  bool Done() const noexcept { return handle_ && handle_.done(); }
-
-  bool Result() const noexcept { return handle_ && handle_.promise().result_; }
+  void RethrowIfException() const {
+    if (local_exception_) {
+      std::rethrow_exception(local_exception_);
+    }
+  }
 };
 
-inline PullPromise PullPromise::promise_type::get_return_object() noexcept {
-  return PullPromise{std::coroutine_handle<promise_type>::from_promise(*this)};
-}
-
-struct PullAwaitablePromise;
-
-/// Awaitable returned by PullAsync. When co_await'ed, runs one pull and completes with bool (has_row).
-/// Can hold a coroutine (PullPromise or PullAwaitablePromise), or an immediate result (for default/sync cursor).
+/// Single awaitable type for the Query Plan.
 class PullAwaitable {
  public:
-  using promise_type = PullAwaitablePromise;
+  struct promise_type final : BasePromise {
+    PullAwaitable get_return_object() noexcept {
+      return PullAwaitable{std::coroutine_handle<promise_type>::from_promise(*this)};
+    }
+  };
 
+  /// The Awaiter handles the transition between two coroutines.
+  /// It holds the storage for results/exceptions to ensure memory safety
+  /// after the child coroutine has finished.
   struct Awaiter {
-    void *handle_ptr_{nullptr};  // PullPromise* or &awaitable_handle_
+    std::coroutine_handle<promise_type> child_handle_{nullptr};
     bool immediate_ready_{false};
     bool immediate_value_{false};
-    bool use_promise_{false};  // true => handle_ptr_ is PullPromise*
-    /// Parent-owned result storage so we don't read child's promise after child may be invalid.
+
+    // Result/Exception write-back storage
     bool result_storage_{false};
+    std::exception_ptr exception_storage_{nullptr};
 
-    bool await_ready() const noexcept { return immediate_ready_ || !handle_ptr_; }
+    bool await_ready() const noexcept {
+      // If we have an immediate value or no handle, don't suspend.
+      // We don't check .done() here because the driver should ensure
+      // we don't await a finished coroutine.
+      return immediate_ready_ || !child_handle_;
+    }
 
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) const noexcept;
-    bool await_resume() const noexcept;
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) noexcept {
+      auto &promise = child_handle_.promise();
+      promise.continuation_ = parent;
+
+      // Hook up write-back pointers to this Awaiter's storage
+      promise.result_ptr_ = &result_storage_;
+      promise.exception_ptr_ = &exception_storage_;
+
+      return child_handle_;
+    }
+
+    bool await_resume() {
+      if (immediate_ready_) return immediate_value_;
+
+      // If the child threw, propagate it now.
+      if (exception_storage_) {
+        std::rethrow_exception(exception_storage_);
+      }
+
+      return result_storage_;
+    }
   };
 
   PullAwaitable() = default;
 
-  explicit PullAwaitable(PullPromise &&p) noexcept : promise_(std::move(p)), from_promise_(true) {}
+  explicit PullAwaitable(std::coroutine_handle<promise_type> h) noexcept : handle_(h) {}
 
-  explicit PullAwaitable(std::coroutine_handle<PullAwaitablePromise> h) noexcept
-      : awaitable_handle_(h), from_awaitable_promise_(true) {}
-
-  /// For default PullAsync: complete immediately with the given bool (no coroutine).
   explicit PullAwaitable(bool immediate_has_row) noexcept
       : immediate_ready_(true), immediate_value_(immediate_has_row) {}
 
   ~PullAwaitable() {
-    if (from_awaitable_promise_ && awaitable_handle_) awaitable_handle_.destroy();
+    if (handle_) {
+      handle_.destroy();
+    }
   }
 
+  // Move-only semantics
+  PullAwaitable(const PullAwaitable &) = delete;
+  PullAwaitable &operator=(const PullAwaitable &) = delete;
+
   PullAwaitable(PullAwaitable &&other) noexcept
-      : promise_(std::move(other.promise_)),
-        awaitable_handle_(other.awaitable_handle_),
+      : handle_(std::exchange(other.handle_, nullptr)),
         immediate_ready_(other.immediate_ready_),
-        immediate_value_(other.immediate_value_),
-        from_promise_(other.from_promise_),
-        from_awaitable_promise_(other.from_awaitable_promise_) {
-    other.awaitable_handle_ = nullptr;
-    other.from_awaitable_promise_ = false;
-  }
+        immediate_value_(other.immediate_value_) {}
 
   PullAwaitable &operator=(PullAwaitable &&other) noexcept {
     if (this != &other) {
-      if (from_awaitable_promise_ && awaitable_handle_) awaitable_handle_.destroy();
-      promise_ = std::move(other.promise_);
-      awaitable_handle_ = other.awaitable_handle_;
+      if (handle_) handle_.destroy();
+      handle_ = std::exchange(other.handle_, nullptr);
       immediate_ready_ = other.immediate_ready_;
       immediate_value_ = other.immediate_value_;
-      from_promise_ = other.from_promise_;
-      from_awaitable_promise_ = other.from_awaitable_promise_;
-      other.awaitable_handle_ = nullptr;
-      other.from_awaitable_promise_ = false;
     }
     return *this;
   }
 
-  auto operator co_await() & noexcept {
-    Awaiter a;
-    a.immediate_ready_ = immediate_ready_;
-    a.immediate_value_ = immediate_value_;
-    if (from_awaitable_promise_) {
-      a.handle_ptr_ = &awaitable_handle_;
-      a.use_promise_ = false;
-    } else if (from_promise_) {
-      a.handle_ptr_ = &promise_;
-      a.use_promise_ = true;
-    } else {
-      a.handle_ptr_ = nullptr;
+  /// co_await for lvalues: shared ownership of the handle logic.
+  auto operator co_await() & noexcept { return Awaiter{handle_, immediate_ready_, immediate_value_}; }
+
+  /// co_await for rvalues (temporaries): move the handle into the awaiter
+  /// so it isn't destroyed by ~PullAwaitable() before the coroutine resumes.
+  auto operator co_await() && noexcept {
+    return Awaiter{std::exchange(handle_, nullptr), immediate_ready_, immediate_value_};
+  }
+
+  [[nodiscard]] std::coroutine_handle<promise_type> GetHandle() const noexcept { return handle_; }
+
+  [[nodiscard]] bool Done() const noexcept { return immediate_ready_ || (handle_ && handle_.done()); }
+
+  [[nodiscard]] bool Result() const noexcept {
+    if (immediate_ready_) return immediate_value_;
+    return handle_ ? handle_.promise().result_ : false;
+  }
+
+  void RethrowIfException() const {
+    if (handle_) {
+      handle_.promise().RethrowIfException();
     }
-    a.result_storage_ = false;
-    return a;
   }
-
-  auto operator co_await() && noexcept { return operator co_await(); }
-
-  std::coroutine_handle<> GetHandle() const noexcept {
-    if (from_awaitable_promise_) return std::coroutine_handle<>(awaitable_handle_);
-    return promise_.GetHandle();
-  }
-
-  bool Done() const noexcept {
-    if (immediate_ready_) return true;
-    if (from_awaitable_promise_) return awaitable_handle_.done();
-    return promise_.Done();
-  }
-
-  bool Result() const noexcept;
 
  private:
-  PullPromise promise_;
-  std::coroutine_handle<PullAwaitablePromise> awaitable_handle_{};
+  std::coroutine_handle<promise_type> handle_{nullptr};
   bool immediate_ready_{false};
   bool immediate_value_{false};
-  bool from_promise_{false};
-  bool from_awaitable_promise_{false};
-};
-
-/// Promise type for coroutines that return PullAwaitable (e.g. cursor PullAsync implementations).
-/// Uses suspend_always at final_suspend. When the parent awaits us, we write the result to
-/// result_ptr_ (parent's storage) in return_value so the parent never reads our promise after
-/// we may have been invalidated (e.g. if parent resume re-enters and resumes us at final_suspend).
-struct PullAwaitablePromise {
-  bool result_{false};
-  bool *result_ptr_{nullptr};  // set by parent's await_suspend; we write here in return_value
-  std::coroutine_handle<> continuation_{nullptr};
-
-  PullAwaitable get_return_object() noexcept {
-    return PullAwaitable{std::coroutine_handle<PullAwaitablePromise>::from_promise(*this)};
-  }
-
-  static constexpr auto initial_suspend() noexcept { return std::suspend_always{}; }
-
-  auto final_suspend() noexcept {
-    struct FinalSuspender {
-      std::coroutine_handle<> continuation;
-
-      bool await_ready() const noexcept { return false; }
-
-      std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept {
-        return continuation ? continuation : std::noop_coroutine();
-      }
-
-      void await_resume() const noexcept {}
-    };
-
-    return FinalSuspender{continuation_};
-  }
-
-  void return_value(bool has_row) noexcept {
-    result_ = has_row;
-    if (result_ptr_) *result_ptr_ = has_row;
-  }
-
-  void unhandled_exception() { throw; }
-};
-
-inline std::coroutine_handle<> PullAwaitable::Awaiter::await_suspend(std::coroutine_handle<> parent) const noexcept {
-  if (use_promise_) {
-    auto *p = static_cast<PullPromise *>(handle_ptr_);
-    p->GetHandle().promise().continuation_ = parent;
-    return std::coroutine_handle<>(p->GetHandle());
-  }
-  if (handle_ptr_) {
-    auto &child_handle = *static_cast<std::coroutine_handle<PullAwaitablePromise> *>(handle_ptr_);
-    child_handle.promise().continuation_ = parent;
-    child_handle.promise().result_ptr_ = &const_cast<Awaiter *>(this)->result_storage_;
-    return std::coroutine_handle<>(child_handle);
-  }
-  return std::coroutine_handle<>();
-}
-
-inline bool PullAwaitable::Result() const noexcept {
-  if (immediate_ready_) return immediate_value_;
-  if (from_awaitable_promise_) return awaitable_handle_.promise().result_;
-  return promise_.Result();
-}
-
-inline bool PullAwaitable::Awaiter::await_resume() const noexcept {
-  if (immediate_ready_) return immediate_value_;
-  if (use_promise_) return static_cast<PullPromise *>(handle_ptr_)->Result();
-  if (handle_ptr_) {
-    // Read from parent-owned result_storage_ (child wrote it in return_value); do not read
-    // child's promise in case the child was invalidated when we were resumed.
-    return result_storage_;
-  }
-  return false;
-}
-
-/// Awaitable that completes immediately with the given bool.
-class ImmediatePullAwaitable {
- public:
-  struct Awaiter {
-    bool value_{false};
-
-    bool await_ready() const noexcept { return true; }
-
-    void await_suspend(std::coroutine_handle<>) const noexcept {}
-
-    bool await_resume() const noexcept { return value_; }
-  };
-
-  explicit ImmediatePullAwaitable(bool has_row) noexcept : value_(has_row) {}
-
-  auto operator co_await() const noexcept { return Awaiter{value_}; }
-
- private:
-  bool value_;
 };
 
 }  // namespace memgraph::query::plan

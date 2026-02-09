@@ -21,7 +21,6 @@
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
-#include "query/plan/cursor_awaitable_core.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
 #include "storage/v2/id_types.hpp"
@@ -85,12 +84,6 @@ class Cursor {
   ///
   /// @throws QueryRuntimeException if something went wrong with execution
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
-
-  /// Async pull: returns an awaitable that completes with bool (has_row). Default implementation
-  /// runs Pull() and completes immediately. Override in coroutine cursors to use co_await.
-  virtual plan::PullAwaitable PullAsync(Frame &frame, ExecutionContext &context) {
-    return plan::PullAwaitable(Pull(frame, context));
-  }
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -338,7 +331,6 @@ class Once : public memgraph::query::plan::LogicalOperator {
    public:
     OnceCursor() = default;
     bool Pull(Frame &, ExecutionContext &) override;
-    plan::PullAwaitable PullAsync(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1272,7 +1264,6 @@ class Filter : public memgraph::query::plan::LogicalOperator {
    public:
     FilterCursor(const Filter &, utils::MemoryResource *);
     bool Pull(Frame &, ExecutionContext &) override;
-    plan::PullAwaitable PullAsync(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1324,7 +1315,6 @@ class Produce : public memgraph::query::plan::LogicalOperator {
    public:
     ProduceCursor(const Produce &, utils::MemoryResource *);
     bool Pull(Frame &, ExecutionContext &) override;
-    plan::PullAwaitable PullAsync(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 

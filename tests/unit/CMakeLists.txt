@@ -121,6 +121,11 @@ add_unit_test(query_parallel_plan
     LINK_TARGETS mg-query
 )
 
+add_unit_test(cursor_awaitable
+    SOURCES cursor_awaitable.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan_accumulate_aggregate
     SOURCES query_plan_accumulate_aggregate.cpp
     LINK_TARGETS mg-query mg-glue

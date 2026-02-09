@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "query/plan/operator.hpp"
-#include "query/plan/cursor_awaitable.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -539,24 +538,17 @@ struct PlanCreationHelper {
       context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
                                : std::nullopt;
 
-bool Once::OnceCursor::Pull(Frame &frame, ExecutionContext &context) {
-  auto awaitable = PullAsync(frame, context);
-  return plan::RunPullUntilCompletion(awaitable, context);
-}
-
-plan::PullAwaitable Once::OnceCursor::PullAsync(Frame &, ExecutionContext &context) {
+bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
 
-  co_await plan::YieldPointAwaitable(context, maybe_check_abort);
+  AbortCheck(context);
 
   if (!did_pull_) {
     did_pull_ = true;
-    spdlog::info("[yield] OnceCursor::PullAsync returning true (first pull)");
-    co_return true;
+    return true;
   }
-  spdlog::info("[yield] OnceCursor::PullAsync returning false (did_pull_ already true)");
-  co_return false;
+  return false;
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
@@ -914,21 +906,13 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    auto awaitable = PullAsync(frame, context);
-    return plan::RunPullUntilCompletion(awaitable, context);
-  }
-
-  plan::PullAwaitable PullAsync(Frame &frame, ExecutionContext &context) override {
-    spdlog::info("[yield] ScanAllCursor::PullAsync");
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    co_await plan::YieldPointAwaitable(context, maybe_check_abort);
+    AbortCheck(context);
 
     while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
-      bool input_has_row = co_await input_cursor_->PullAsync(frame, context);
-      spdlog::info("[yield] ScanAllCursor: input_cursor_->PullAsync returned {}", input_has_row);
-      if (!input_has_row) co_return false;
+      if (!input_cursor_->Pull(frame, context)) return false;
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
       auto next_vertices = get_vertices_(frame, context);
@@ -936,21 +920,17 @@ class ScanAllCursor : public Cursor {
       vertices_ = std::move(next_vertices);
       vertices_it_.emplace(vertices_->begin());
       vertices_end_it_.emplace(vertices_->end());
-      if (vertices_it_.value() == vertices_end_it_.value()) {
-        spdlog::info(
-            "[yield] ScanAllCursor: vertex range empty (read snapshot has no vertices), will pull input again");
-      }
     }
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
-      co_return false;
+      return false;
     }
 #endif
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     frame_writer.Write(output_symbol_, *vertices_it_.value());
     ++vertices_it_.value();
-    co_return true;
+    return true;
   }
 
 #ifdef MG_ENTERPRISE
@@ -4579,17 +4559,13 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
       pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  auto awaitable = PullAsync(frame, context);
-  return plan::RunPullUntilCompletion(awaitable, context);
-}
-
-plan::PullAwaitable Filter::FilterCursor::PullAsync(Frame &frame, ExecutionContext &context) {
-  spdlog::info("[yield] FilterCursor::PullAsync");
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  co_await plan::YieldPointAwaitable(context, maybe_check_abort);
+  AbortCheck(context);
 
+  // Like all filters, newly set values should not affect filtering of old
+  // nodes and edges.
   ExpressionEvaluator evaluator(&frame,
                                 context.symbol_table,
                                 context.evaluation_context,
@@ -4599,13 +4575,13 @@ plan::PullAwaitable Filter::FilterCursor::PullAsync(Frame &frame, ExecutionConte
                                 &context.number_of_hops,
                                 context.user_or_role,
                                 context.triggering_user);
-  while (co_await input_cursor_->PullAsync(frame, context)) {
+  while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
-      co_await pattern_filter_cursor->PullAsync(frame, context);
+      pattern_filter_cursor->Pull(frame, context);
     }
-    if (EvaluateFilter(evaluator, self_.expression_)) co_return true;
+    if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
-  co_return false;
+  return false;
 }
 
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -4700,34 +4676,28 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
-  auto awaitable = PullAsync(frame, context);
-  bool result = plan::RunPullUntilCompletion(awaitable, context);
-  spdlog::info("[yield] ProduceCursor::Pull returning {}", result);
-  return result;
-}
-
-plan::PullAwaitable Produce::ProduceCursor::PullAsync(Frame &frame, ExecutionContext &context) {
-  spdlog::info("[yield] ProduceCursor::PullAsync");
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  co_await plan::YieldPointAwaitable(context, maybe_check_abort);
+  AbortCheck(context);
 
-  if (!(co_await input_cursor_->PullAsync(frame, context))) co_return false;
-  // Produce should always yield the latest results.
-  ExpressionEvaluator evaluator(&frame,
-                                context.symbol_table,
-                                context.evaluation_context,
-                                context.db_accessor,
-                                storage::View::NEW,
-                                context.frame_change_collector,
-                                &context.number_of_hops,
-                                context.user_or_role,
-                                context.triggering_user);
-  for (auto *named_expr : self_.named_expressions_) {
-    named_expr->Accept(evaluator);
+  if (input_cursor_->Pull(frame, context)) {
+    // Produce should always yield the latest results.
+    ExpressionEvaluator evaluator(&frame,
+                                  context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor,
+                                  storage::View::NEW,
+                                  context.frame_change_collector,
+                                  &context.number_of_hops,
+                                  context.user_or_role,
+                                  context.triggering_user);
+    for (auto *named_expr : self_.named_expressions_) {
+      named_expr->Accept(evaluator);
+    }
+    return true;
   }
-  co_return true;
+  return false;
 }
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }

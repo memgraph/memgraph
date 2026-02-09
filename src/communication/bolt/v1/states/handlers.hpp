@@ -110,39 +110,15 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       summary = session.Discard(n, qid);
     }
 
-    // Yield is internal to the scheduler: we do not send SUCCESS(has_more=true) to the client.
-    // Just re-queue the task; when the worker runs us again we resume and send one SUCCESS at the end.
-    if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
-      session.SetResumePullPending(n, qid);
-      spdlog::trace("Pull yielded (internal), resume pending for scheduler re-run");
-      return State::Result;
-    }
-
     if (!session.encoder_.MessageSuccess(summary)) {
       spdlog::trace("Couldn't send query summary!");
       return State::Close;
     }
 
-    return State::Idle;
-  } catch (const std::exception &e) {
-    return HandleFailure(session, e);
-  }
-}
-
-/// Called when resuming a pull after internal yield (scheduler re-ran the task, no client message).
-template <typename TSession>
-State HandleResumePull(TSession &session) {
-  try {
-    spdlog::trace("Resuming pull (scheduler re-ran us)");
-    auto summary = session.ResumePull();
-    // If we yielded again, do not send SUCCESS; re-queue and resume later.
     if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
       return State::Result;
     }
-    if (!session.encoder_.MessageSuccess(summary)) {
-      spdlog::trace("Couldn't send query summary on resume!");
-      return State::Close;
-    }
+
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
