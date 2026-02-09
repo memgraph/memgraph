@@ -49,7 +49,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   apt-get install -y \
     libcurl4 libseccomp2 python3 libpython3.12 libatomic1 adduser \
     --no-install-recommends && \
-    apt install -y libxmlsec1 && \
+  apt install -y libxmlsec1 && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
   dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
