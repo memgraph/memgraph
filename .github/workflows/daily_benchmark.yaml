@@ -18,15 +18,15 @@ jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 600
+    timeout-minutes: 500
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
-    #  - macro-benchmark: 2.13 minutes
-    #  - mgbench: 13 minutes
-    #  - extended planner improvements mgbench: 7.26 minutes
-    #  - mgbench-supernode: 1 minute (very rough estimate)
-    #  - mgbench-load-parquet: 2 minutes
-    #  10 iterations would take about 234 minutes, leaving 36 minutes to allow
+    #  - macro-benchmark: 3 minutes
+    #  - mgbench: 20 minutes
+    #  - extended planner improvements mgbench: 15 minutes
+    #  - mgbench-supernode: 1.5 minute
+    #  - mgbench-load-parquet: 4 minutes
+    #  10 iterations would take about 435 minutes, leaving 65 minutes to allow
     #  for building memgraph and variations in benchmark times.
     env:
       ARCH: "amd"
