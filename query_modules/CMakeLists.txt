@@ -131,7 +131,7 @@ install(FILES date.py DESTINATION lib/memgraph/query_modules)
 install(FILES ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py DESTINATION lib/memgraph/query_modules/mage)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/mage/python/mage/date DESTINATION lib/memgraph/query_modules/mage)
 install(FILES ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py DESTINATION lib/memgraph/query_modules/mage/date)
-file(GLOB MAGE_PYTHON_INSTALL_FILES "${CMAKE_SOURCE_DIR}/mage/python/*.py")
-install(FILES ${MAGE_PYTHON_INSTALL_FILES} DESTINATION lib/memgraph/query_modules)
+#file(GLOB MAGE_PYTHON_INSTALL_FILES "${CMAKE_SOURCE_DIR}/mage/python/*.py")
+#install(FILES ${MAGE_PYTHON_INSTALL_FILES} DESTINATION lib/memgraph/query_modules)
 
 # IMPORTANT: when adding enterprise module add its name to kEnterpriseModuleList in src/query/procedure/module.cpp
