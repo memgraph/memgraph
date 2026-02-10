@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 
 #include "storage/v2/transaction.hpp"
@@ -102,6 +103,51 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   }
   return n_processed;
 }
+
+template <typename TObject>
+class MvccRead {
+ public:
+  template <typename TWithLock>
+  MvccRead(TObject const *object, Transaction const *transaction, View view, TWithLock &&with_lock)
+      : transaction_{transaction}, view_{view}, lock_{object->lock} {
+    std::forward<TWithLock>(with_lock)(*object);
+    delta_ = object->delta;
+    if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
+      if (!object->has_uncommitted_non_sequential_deltas) {
+        lock_.unlock();
+      }
+    } else {
+      lock_.unlock();
+    }
+  }
+
+  MvccRead(TObject const *object, Transaction const *transaction, View view)
+      : MvccRead(object, transaction, view, [](TObject const &) {}) {}
+
+  MvccRead(MvccRead const &) = delete;
+  MvccRead(MvccRead &&) = delete;
+  MvccRead &operator=(MvccRead const &) = delete;
+  MvccRead &operator=(MvccRead &&) = delete;
+
+  ~MvccRead() = default;
+
+  bool HasDeltas() const { return delta_ != nullptr; }
+
+  bool OwnsLock() const { return lock_.owns_lock(); }
+
+  void Unlock() { lock_.unlock(); }
+
+  template <typename TCallback>
+  std::size_t ApplyDeltasForRead(TCallback const &callback) {
+    return memgraph::storage::ApplyDeltasForRead(transaction_, delta_, view_, callback);
+  }
+
+ private:
+  Transaction const *transaction_;
+  View view_;
+  Delta *delta_;
+  std::shared_lock<utils::RWSpinLock> lock_;
+};
 
 /// This function prepares the object for a write. It checks whether there are
 /// any serialization errors in the process (eg. the object can't be written to

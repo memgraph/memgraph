@@ -10291,13 +10291,10 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
       bool is_visible = true;
-      Delta *delta = nullptr;
-      {
-        auto guard = std::shared_lock{edge.lock};
-        is_visible = !edge.deleted;
-        delta = edge.delta;
-      }
-      ApplyDeltasForRead(transaction, delta, View::OLD, [&is_visible](const Delta &delta) {
+
+      MvccRead reader{&edge, transaction, View::OLD, [&](Edge const &e) { is_visible = !e.deleted; }};
+
+      reader.ApplyDeltasForRead([&is_visible](Delta const &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
           case Delta::Action::REMOVE_LABEL:
