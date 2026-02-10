@@ -1,0 +1,179 @@
+name: Reusable Smoke Tests
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Architecture to build the image for (amd64/arm64)"
+        required: true
+      next_version:
+        type: string
+        required: false
+        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
+      last_version:
+        type: string
+        required: false
+        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest release"
+      malloc:
+        type: boolean
+        default: false
+        description: "Used if next_type or last_type is of 'date'"
+      cuda:
+        type: boolean
+        default: false
+        description: "Used if next_type or last_type is of 'date'"
+      relwithdebinfo:
+        type: boolean
+        default: false
+        description: "Used if next_type or last_type is of 'date'"
+      ref:
+        type: string
+        description: "Branch or tag to build"
+        default: ''
+      image_type:
+        type: string
+        description: "Image type to test (mage or memgraph)"
+        default: 'mage'
+
+env:
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  INPUT_NEXT_VERSION: ${{ inputs.next_version }}
+  INPUT_LAST_VERSION: ${{ inputs.last_version }}
+  INPUT_ARCH: ${{ inputs.arch }}
+  INPUT_MALLOC: ${{ inputs.malloc }}
+  INPUT_CUDA: ${{ inputs.cuda }}
+  INPUT_RELWITHDEBINFO: ${{ inputs.relwithdebinfo }}
+  INPUT_IMAGE_TYPE: ${{ inputs.image_type }}
+  TOOLCHAIN: v7
+  OS: ubuntu-24.04
+  ARCH: ${{ inputs.arch }}
+
+jobs:
+  smoke-test-image:
+    name: "Smoke Test Image (${{ inputs.image_type }}; ${{ inputs.arch}}${{ inputs.malloc && ',malloc' || '' }}; ${{ inputs.last_version }} -> ${{ inputs.next_version }})"
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "ARM64"]') || fromJSON('["self-hosted", "X64"]') }}
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log into AWS
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Determine Input Types
+        run: |
+          # default to latest daily build (from the previous day)
+          if [ -z "$INPUT_NEXT_VERSION" ]; then
+            next_version="$(date -d "yesterday" +%Y%m%d)"
+          else
+            next_version="$INPUT_NEXT_VERSION"
+          fi
+
+          # default to latest release version
+          if [ -z "$INPUT_LAST_VERSION" ]; then
+            tag="$( git tag | grep -v rc | tail -n 1)"
+            last_version="${tag#v}"
+          else
+            last_version="$INPUT_LAST_VERSION"
+          fi
+
+          read next_type next_image < <(python3 tools/ci/workflow_image_setup.py "${next_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO" "$INPUT_IMAGE_TYPE")
+          echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
+          echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
+          read last_type last_image < <(python3 tools/ci/workflow_image_setup.py "${last_version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO" "$INPUT_IMAGE_TYPE")
+          echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
+          echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
+
+      - name: Load Next Image (Docker)
+        if: ${{ env.NEXT_TYPE == 'docker' }}
+        run: |
+          docker pull "$NEXT_IMAGE"
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${NEXT_IMAGE}" >> $GITHUB_ENV
+
+      - name: Load Next Image (URL)
+        if: ${{ env.NEXT_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.NEXT_IMAGE }} > next.tar.gz
+          load_output=$(docker load -i next.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          rm next.tar.gz
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Load Last Image (Docker)
+        if: ${{ env.LAST_TYPE == 'docker' }}
+        run: |
+          docker pull "$LAST_IMAGE"
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${LAST_IMAGE}" >> $GITHUB_ENV
+
+      - name: Load Last Image (URL)
+        if: ${{ env.LAST_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.LAST_IMAGE }} > last.tar.gz
+          load_output=$(docker load -i last.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          rm last.tar.gz
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Run Tests
+        if: ${{ inputs.image_type == 'mage' }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-mage smoke \
+          --next-image "$MEMGRAPH_NEXT_DOCKERHUB_IMAGE" \
+          --last-image "$MEMGRAPH_LAST_DOCKERHUB_IMAGE"
+
+      - name: Run Tests
+        if: ${{ inputs.image_type == 'memgraph' }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph smoke \
+          --next-image "$MEMGRAPH_NEXT_DOCKERHUB_IMAGE" \
+          --last-image "$MEMGRAPH_LAST_DOCKERHUB_IMAGE"
+
+      - name: Clean up Docker images
+        if: always()
+        run: |
+          ./tools/ci/docker_cleanup.sh

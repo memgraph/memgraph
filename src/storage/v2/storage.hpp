@@ -196,6 +196,7 @@ using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
+  friend class VectorIndex;
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
@@ -563,6 +564,10 @@ class Storage {
     virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
     virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(std::string_view index_name) = 0;
+
+    virtual utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) = 0;
+
+    virtual utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const = 0;
 
     virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
         VectorEdgeIndexSpec spec) = 0;

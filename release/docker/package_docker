@@ -17,7 +17,7 @@ toolchain_version="v7"
 package_path=""
 arch=""
 src_path=""
-custom_mirror=""
+custom_mirror=false
 generate_sbom=false
 malloc=false
 while [[ $# -gt 0 ]]; do
@@ -48,7 +48,11 @@ while [[ $# -gt 0 ]]; do
         exit 0
     ;;
     --custom-mirror)
-        custom_mirror=$2
+        if [[ "$2" == "true" ]]; then
+          custom_mirror=true
+        else
+          custom_mirror=false
+        fi
         shift 2
     ;;
     --generate-sbom)
@@ -94,6 +98,8 @@ mkdir -p "${working_dir}/openssl"
 cp -v ../../build/openssl*.deb "${working_dir}/openssl"
 cp -v ../../build/libssl3t64*.deb "${working_dir}/openssl"
 
+cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-module-requirements.txt"
+
 extension="${package_path##*.}"
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
 echo "Dockerfile: $dockerfile_path"
@@ -115,6 +121,10 @@ fi
 tag="${version}${tag_extension}"
 image_name="memgraph/memgraph:${tag}"
 image_package_name="memgraph-${tag}-docker.tar.gz"
+
+if [[ "$custom_mirror" == true ]]; then
+  cp -v ../../tools/ci/ubuntu-mirrors/${arch}/ci.sources "${working_dir}/ci.sources"
+fi
 
 # Build docker image.
 # NOTE: --pull is here to always pull that latest base image because of security patches.

@@ -582,4 +582,67 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
 
   return {std::move(set_vertex_labels), std::move(removed_vertex_labels)};
 }
+
+void TriggerContextCollector::MergeFrom(TriggerContextCollector &&other) {
+  // Helper to merge a registry
+  auto merge_registry = [](auto &main_registry, auto &other_registry) {
+    // Merge created_objects: if GID exists in main, keep main; if only in other, add it
+    for (auto &&[gid, created_obj] : other_registry.created_objects) {
+      if (!main_registry.created_objects.contains(gid)) {
+        main_registry.created_objects.emplace(gid, std::move(created_obj));
+      }
+    }
+
+    // Merge deleted_objects: append all from other, but skip if the object was created in main
+    for (auto &deleted_obj : other_registry.deleted_objects) {
+      if (!main_registry.created_objects.contains(deleted_obj.object.Gid())) {
+        main_registry.deleted_objects.emplace_back(std::move(deleted_obj));
+      }
+    }
+
+    // Merge property_changes: if same object+property exists, keep the one from other (latest change)
+    // If only in other, add it (but skip if object was created in main)
+    for (auto &&[key, change_info] : other_registry.property_changes) {
+      if (main_registry.created_objects.contains(key.first.Gid())) {
+        // Object was created in main, skip property changes
+        continue;
+      }
+      // If exists in main, replace with other (latest change); otherwise add it
+      main_registry.property_changes[key] = std::move(change_info);
+    }
+  };
+
+  // Merge vertex registry
+  merge_registry(vertex_registry_, other.vertex_registry_);
+
+  // Merge edge registry
+  merge_registry(edge_registry_, other.edge_registry_);
+
+  // Merge label_changes_: combine the changes (clamp to -1, 1)
+  for (auto &&[key, label_state] : other.label_changes_) {
+    if (vertex_registry_.created_objects.contains(key.first.Gid())) {
+      // Vertex was created in main, skip label changes
+      continue;
+    }
+    if (auto it = label_changes_.find(key); it != label_changes_.end()) {
+      // Combine the changes
+      it->second = static_cast<signed char>(std::clamp(it->second + label_state, -1, 1));
+    } else {
+      // Add the change from other
+      label_changes_.emplace(key, label_state);
+    }
+  }
+}
+
+TriggerContextCollector TriggerContextCollector::CreateEmptyWithSameConfig() const {
+  TriggerContextCollector empty_collector{{}};  // Create with empty event types
+  // Copy the configuration flags but not the data
+  empty_collector.vertex_registry_.should_register_created_objects = vertex_registry_.should_register_created_objects;
+  empty_collector.vertex_registry_.should_register_deleted_objects = vertex_registry_.should_register_deleted_objects;
+  empty_collector.vertex_registry_.should_register_updated_objects = vertex_registry_.should_register_updated_objects;
+  empty_collector.edge_registry_.should_register_created_objects = edge_registry_.should_register_created_objects;
+  empty_collector.edge_registry_.should_register_deleted_objects = edge_registry_.should_register_deleted_objects;
+  empty_collector.edge_registry_.should_register_updated_objects = edge_registry_.should_register_updated_objects;
+  return empty_collector;
+}
 }  // namespace memgraph::query

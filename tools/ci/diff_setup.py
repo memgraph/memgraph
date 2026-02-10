@@ -91,9 +91,7 @@ class DiffSetup:
 
     def _check_diff_workflow(self) -> bool:
         for file in os.popen(f"git diff --name-only {self._base_branch}").read().splitlines():
-            if file.startswith("docs/"):
-                continue
-            elif file.startswith("licenses/"):
+            if file.startswith("licenses/"):
                 continue
             elif file.endswith(".md"):
                 continue

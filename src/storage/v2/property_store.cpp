@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/property_store.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -25,6 +27,7 @@
 #include <utility>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -41,7 +44,6 @@ namespace memgraph::storage {
 namespace {
 
 namespace r = ranges;
-namespace rv = r::views;
 
 // `PropertyValue` is a very large object. It is implemented as a `union` of all
 // possible types that could be stored as a property value. That causes the
@@ -209,6 +211,10 @@ const uint8_t kShiftIdSize = 2;
 //     - type; payload size is used to encode the crs type (this only works becuase there are 4 sizes + 4 crs types)
 //     - encoded property ID
 //     - encoded value as 2 (for 2D) or 3 (for 3D) doubles forced to be encoded as int64
+//   * VECTOR
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - encoded vector index id -> this id is used to get the name of the vector index
 
 const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
@@ -741,6 +747,15 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!writer->WriteDoubleForceInt64(point.z())) return std::nullopt;
       return {{Type::POINT, CrsToSize(point.crs())}};
     }
+    case PropertyValue::Type::VectorIndexId: {
+      auto vector_index_id = value.ValueVectorIndexIds();
+      auto size = writer->WriteUint(vector_index_id.size());
+      if (!size) return std::nullopt;
+      for (const auto &id : vector_index_id) {
+        if (!writer->InternalWriteInt<uint64_t>(id)) return std::nullopt;
+      }
+      return {{Type::VECTOR, *size}};
+    }
   }
 }
 
@@ -1144,6 +1159,20 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       }
       return true;
     }
+    case Type::VECTOR: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      utils::small_vector<uint64_t> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
+        if (!id) return false;
+        vector_index_ids.push_back(*id);
+      }
+      value = PropertyValue(
+          PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = utils::small_vector<float>{}});
+      return true;
+    }
   }
   // in case of corrupt storage, handle unknown types
   return false;
@@ -1234,6 +1263,20 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         if (!z_opt) return std::nullopt;
         return std::optional<PropertyValue>{std::in_place, Point3d{crs, *x_opt, *y_opt, *z_opt}};
       }
+    }
+    case Type::VECTOR: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return std::nullopt;
+      utils::small_vector<uint64_t> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
+        if (!id) return std::nullopt;
+        vector_index_ids.push_back(*id);
+      }
+      return std::optional<PropertyValue>{
+          std::in_place,
+          PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = utils::small_vector<float>{}}};
     }
   }
 }
@@ -1367,6 +1410,15 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       property_size += bytes_size;
       return true;
     }
+    case Type::VECTOR: {
+      auto count_bytes_size = SizeToByteSize(payload_size);
+      auto count = reader->ReadUint(payload_size);
+      if (!count) return false;
+      auto ids_bytes_size = *count * SizeToByteSize(Size::INT64);
+      if (!reader->SkipBytes(ids_bytes_size)) return false;
+      property_size += count_bytes_size + ids_bytes_size;
+      return true;
+    }
   }
 }
 
@@ -1429,6 +1481,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       auto payload_members = valid2d(SizeToCrs(payload_size)) ? 2 : 3;
       auto bytes_to_skip = payload_members * SizeToByteSize(Size::INT64);
       return reader->SkipBytes(bytes_to_skip);
+    }
+    case Type::VECTOR: {
+      auto count = reader->ReadUint(payload_size);
+      if (!count) return false;
+      return reader->SkipBytes(*count * SizeToByteSize(Size::INT64));
     }
   }
 }
@@ -1557,6 +1614,23 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
       }
       return false;
+    }
+    case Type::VECTOR: {
+      if (!value.IsVectorIndexId()) return false;
+      const auto &vector_index_ids = value.ValueVectorIndexIds();
+      auto count = reader->ReadUint(payload_size);
+      if (!count || *count != vector_index_ids.size()) return false;
+      utils::small_vector<uint64_t> read_ids;
+      read_ids.reserve(*count);
+      for (uint64_t i = 0; i < *count; ++i) {
+        auto read_id = reader->ReadUint(Size::INT64);
+        if (!read_id) return false;
+        read_ids.push_back(*read_id);
+      }
+      utils::small_vector<uint64_t> expected_sorted(vector_index_ids.begin(), vector_index_ids.end());
+      std::ranges::sort(expected_sorted);
+      std::ranges::sort(read_ids);
+      return read_ids == expected_sorted;
     }
   }
 }
@@ -1745,6 +1819,10 @@ enum class ExpectedPropertyStatus {
         return ExpectedPropertyStatus::EQUAL;
       }
     } break;
+    case VECTOR:
+      // If property store type is VECTOR, it means that we stored list somewhere else but it's still a list for user.
+      type = ExtendedPropertyType{PropertyValue::Type::List};
+      break;
   }
 
   if (*property_id == expected_property.AsUint()) {
@@ -1883,6 +1961,10 @@ enum class ExpectedPropertyStatus {
           value.type()};  // PropertyStoreType has only Point; while PropertyValueType has point 2d and 3d
       return PropertyId::FromUint(*property_id);
     }
+    case VECTOR:
+      // If property store type is VECTOR, it means that we stored list somewhere else but it's still a list for user.
+      type = ExtendedPropertyType{PropertyValue::Type::List};
+      break;
   }
 
   if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return std::nullopt;
@@ -2101,7 +2183,7 @@ const uint8_t kUseCompressedBuffer = 0x02;
 static_assert(kUseLocalBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
 static_assert(kUseCompressedBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
 
-enum class StorageMode : uint8_t {
+enum class BufferMode : uint8_t {
   EMPTY,
   BUFFER,
   LOCAL,
@@ -2110,12 +2192,12 @@ enum class StorageMode : uint8_t {
 
 struct DecodedBufferConst {
   std::span<uint8_t const> view;
-  StorageMode storage_mode;
+  BufferMode storage_mode;
 };
 
 struct DecodedBuffer {
   std::span<uint8_t> view;
-  StorageMode storage_mode;
+  BufferMode storage_mode;
 
   // implicit conversion operator
   // NOLINTNEXTLINE( hicpp-explicit-conversions )
@@ -2129,12 +2211,12 @@ struct DecodedBuffer {
 
 void FreeMemory(DecodedBuffer const &buffer_info) {
   switch (buffer_info.storage_mode) {
-    case StorageMode::BUFFER:
-    case StorageMode::COMPRESSED:
+    case BufferMode::BUFFER:
+    case BufferMode::COMPRESSED:
       delete[] buffer_info.view.data();
       break;
-    case StorageMode::LOCAL:
-    case StorageMode::EMPTY:
+    case BufferMode::LOCAL:
+    case BufferMode::EMPTY:
       break;
   }
 }
@@ -2149,7 +2231,7 @@ DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
   buffer[0] = kUseLocalBuffer;
   return DecodedBuffer{
       .view = std::span{&buffer[1], sizeof(buffer) - 1},
-      .storage_mode = StorageMode::LOCAL,
+      .storage_mode = BufferMode::LOCAL,
   };
 }
 
@@ -2159,7 +2241,7 @@ DecodedBuffer SetupExternalBuffer(uint32_t size) {
 
   return DecodedBuffer{
       .view = std::span{alloc_data, alloc_size},
-      .storage_mode = StorageMode::BUFFER,
+      .storage_mode = BufferMode::BUFFER,
   };
 }
 
@@ -2169,7 +2251,7 @@ DecodedBuffer SetupBuffer(std::array<uint8_t, 12> &buffer, uint32_t const size) 
 }
 
 std::optional<utils::DecompressedBuffer> DecompressBuffer(DecodedBufferConst const &buffer_info) {
-  if (buffer_info.storage_mode != StorageMode::COMPRESSED) return std::nullopt;
+  if (buffer_info.storage_mode != BufferMode::COMPRESSED) return std::nullopt;
 
   // Memory (hex):
   // 00 00 00 00 00 00 00
@@ -2200,7 +2282,7 @@ std::optional<utils::DecompressedBuffer> DecompressBuffer(DecodedBufferConst con
 }
 
 void CompressBuffer(std::array<uint8_t, 12> &buffer, DecodedBuffer const &buffer_info) {
-  if (buffer_info.storage_mode != StorageMode::BUFFER) {
+  if (buffer_info.storage_mode != BufferMode::BUFFER) {
     return;
   }
   auto uncompressed_size = buffer_info.view.size_bytes();
@@ -2249,11 +2331,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
   memcpy(static_cast<void *>(&data), buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
 
   if (size == 0) {
-    return {std::span<uint8_t>{}, StorageMode::EMPTY};
+    return {.view = std::span<uint8_t>{}, .storage_mode = BufferMode::EMPTY};
   }
 
   if (size % 8 == 0) {
-    return {std::span{data, size}, StorageMode::BUFFER};
+    return {.view = std::span{data, size}, .storage_mode = BufferMode::BUFFER};
   }
 
   auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
@@ -2261,11 +2343,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
     case kUseLocalBuffer: {
       auto *local_start = &buffer[1];
       auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
-      return {std::span{local_start, local_size}, StorageMode::LOCAL};
+      return {.view = std::span{local_start, local_size}, .storage_mode = BufferMode::LOCAL};
     }
     case kUseCompressedBuffer: {
       auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
-      return {std::span{data, real_size}, StorageMode::COMPRESSED};
+      return {.view = std::span{data, real_size}, .storage_mode = BufferMode::COMPRESSED};
     }
     default: {
       MG_ASSERT(false, "Corrupt property storage");
@@ -2281,11 +2363,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
   memcpy(static_cast<void *>(&data), static_cast<const uint8_t *>(buffer.data() + sizeof(uint32_t)), sizeof(uint8_t *));
 
   if (size == 0) {
-    return {std::span<uint8_t>{}, StorageMode::EMPTY};
+    return {.view = std::span<uint8_t>{}, .storage_mode = BufferMode::EMPTY};
   }
 
   if (size % 8 == 0) {
-    return {std::span{data, size}, StorageMode::BUFFER};
+    return {.view = std::span{data, size}, .storage_mode = BufferMode::BUFFER};
   }
 
   auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
@@ -2293,11 +2375,11 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
     case kUseLocalBuffer: {
       auto const *local_start = &buffer[1];
       auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
-      return {std::span{local_start, local_size}, StorageMode::LOCAL};
+      return {.view = std::span{local_start, local_size}, .storage_mode = BufferMode::LOCAL};
     }
     case kUseCompressedBuffer: {
       auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
-      return {std::span{data, real_size}, StorageMode::COMPRESSED};
+      return {.view = std::span{data, real_size}, .storage_mode = BufferMode::COMPRESSED};
     }
     default: {
       MG_ASSERT(false, "Corrupt property storage");
@@ -2336,7 +2418,7 @@ PropertyStore::~PropertyStore() {
 template <typename Func>
 auto PropertyStore::WithReader(Func &&func) const {
   auto buffer_info = GetDecodedBuffer(buffer_);
-  if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+  if (buffer_info.storage_mode == BufferMode::COMPRESSED) {
     auto decompressed_buffer = DecompressBuffer(buffer_info);
     auto view = decompressed_buffer->view();
     Reader reader(view.data(), view.size_bytes());
@@ -2391,6 +2473,15 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   };
   return WithReader(get_property);
 }
+
+template <typename T>
+PropertyValue PropertyStore::GetProperty(PropertyId property, const IndexedPropertyDecoder<T> &decoder) const {
+  auto property_value = GetProperty(property);
+  decoder.DecodeProperty(property_value);
+  return property_value;
+}
+
+template PropertyValue PropertyStore::GetProperty(PropertyId, const IndexedPropertyDecoder<Vertex> &) const;
 
 ExtendedPropertyType PropertyStore::GetExtendedPropertyType(PropertyId property) const {
   auto get_property_type = [&](Reader &reader) -> ExtendedPropertyType {
@@ -2601,6 +2692,24 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   return WithReader(get_properties);
 }
 
+template <typename T>
+std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<T> &decoder) const {
+  auto get_properties = [&](Reader &reader) {
+    std::map<PropertyId, PropertyValue> props;
+    PropertyValue value;
+    while (true) {
+      auto prop = DecodeAnyProperty(&reader, value);
+      if (!prop) break;
+      decoder.DecodeProperty(value);
+      props.emplace(*prop, std::move(value));
+    }
+    return props;
+  };
+  return WithReader(get_properties);
+}
+
+template std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPropertyDecoder<Vertex> &) const;
+
 std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes() const {
   auto get_properties = [&](Reader &reader) {
     std::map<PropertyId, ExtendedPropertyType> props;
@@ -2641,7 +2750,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   auto buffer_info = GetDecodedBuffer(buffer_);
 
   bool existed = false;
-  if (buffer_info.storage_mode == StorageMode::EMPTY) {
+  if (buffer_info.storage_mode == BufferMode::EMPTY) {
     if (!value.IsNull()) {
       // We don't have a data buffer. Setup on for writting
       auto new_buffer_info = SetupBuffer(buffer_, property_size);
@@ -2658,7 +2767,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       }
 
       // Make buffer perminant
-      if (new_buffer_info.storage_mode == StorageMode::BUFFER) {
+      if (new_buffer_info.storage_mode == BufferMode::BUFFER) {
         SetSizeData(buffer_, new_view.size_bytes(), new_view.data());
       }
 
@@ -2672,7 +2781,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     std::optional<utils::DecompressedBuffer> decompressed_buffer;
 
     auto current_view = std::invoke([&] {
-      if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+      if (buffer_info.storage_mode == BufferMode::COMPRESSED) {
         decompressed_buffer = DecompressBuffer(buffer_info);
         return decompressed_buffer->view();
       }
@@ -2706,7 +2815,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
               info.all_end - info.property_end);
 
       // Make buffer perminant
-      if (new_buffer_info.storage_mode == StorageMode::BUFFER) {
+      if (new_buffer_info.storage_mode == BufferMode::BUFFER) {
         SetSizeData(buffer_, new_view.size_bytes(), new_view.data());
       }
 
@@ -2727,7 +2836,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
     // If we still started with compressed buffer
     // take ownership of the decompressed buffer before writing
-    if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+    if (buffer_info.storage_mode == BufferMode::COMPRESSED) {
       // remove compressed buffer
       FreeMemory(buffer_info);
       // take ownership of decompressed buffer
@@ -2736,7 +2845,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       decompressed_buffer.reset();
       buffer_info = DecodedBuffer{
           .view = current_view,
-          .storage_mode = StorageMode::BUFFER,  // decompressed buffer is now a regular buffer
+          .storage_mode = BufferMode::BUFFER,  // decompressed buffer is now a regular buffer
       };
     }
 
@@ -2764,7 +2873,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties) {
   auto orig_buffer_info = GetDecodedBuffer(buffer_);
-  if (orig_buffer_info.storage_mode != StorageMode::EMPTY) {
+  if (orig_buffer_info.storage_mode != BufferMode::EMPTY) {
     return false;
   }
 
@@ -2801,7 +2910,7 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
   }
 
   // Make buffer perminant
-  if (buffer_info.storage_mode == StorageMode::BUFFER) {
+  if (buffer_info.storage_mode == BufferMode::BUFFER) {
     SetSizeData(buffer_, view.size_bytes(), view.data());
   }
 
@@ -2855,7 +2964,7 @@ bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, st
 bool PropertyStore::ClearProperties() {
   auto buffer_info = GetDecodedBuffer(buffer_);
 
-  if (buffer_info.storage_mode == StorageMode::EMPTY) return false;
+  if (buffer_info.storage_mode == BufferMode::EMPTY) return false;
   FreeMemory(buffer_info);
   SetSizeData(buffer_, 0, nullptr);
 
@@ -2881,7 +2990,7 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   }
 
   // Make buffer perminant
-  if (buffer_info.storage_mode == StorageMode::BUFFER) {
+  if (buffer_info.storage_mode == BufferMode::BUFFER) {
     SetSizeData(buffer_, view.size_bytes(), view.data());
   }
 }

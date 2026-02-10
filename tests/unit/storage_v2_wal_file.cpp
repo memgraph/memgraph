@@ -29,6 +29,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -90,7 +91,7 @@ class DeltaGenerator final {
     }
 
     void AddLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
-      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
+      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper().NameToId(label));
       vertex->labels.push_back(label_id);
       memgraph::storage::CreateAndLinkDelta(
           &transaction_, &*vertex, memgraph::storage::Delta::RemoveLabelTag(), label_id);
@@ -101,7 +102,7 @@ class DeltaGenerator final {
     }
 
     void RemoveLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
-      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
+      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper().NameToId(label));
       vertex->labels.erase(std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::AddLabelTag(), label_id);
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
@@ -112,7 +113,7 @@ class DeltaGenerator final {
 
     void SetProperty(memgraph::storage::Vertex *vertex, const std::string &property,
                      const memgraph::storage::PropertyValue &value) {
-      auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
+      auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(property));
       auto &props = vertex->properties;
       auto old_value = props.GetProperty(property_id);
       memgraph::storage::CreateAndLinkDelta(
@@ -137,9 +138,9 @@ class DeltaGenerator final {
           owner = owner.delta->prev.Get();
         }
         if (owner.type == memgraph::storage::PreviousPtr::Type::VERTEX) {
-          gen_->wal_file_.AppendDelta(delta, *owner.vertex, commit_timestamp);
+          gen_->wal_file_.AppendDelta(delta, owner.vertex, commit_timestamp, gen_->storage_.get());
         } else if (owner.type == memgraph::storage::PreviousPtr::Type::EDGE) {
-          gen_->wal_file_.AppendDelta(delta, *owner.edge, commit_timestamp);
+          gen_->wal_file_.AppendDelta(delta, owner.edge, commit_timestamp, gen_->storage_.get());
         } else {
           LOG_FATAL("Invalid delta owner!");
         }
@@ -156,9 +157,9 @@ class DeltaGenerator final {
               auto vertex = std::find(gen_->vertices_.begin(), gen_->vertices_.end(), set_property->gid);
               ASSERT_NE(vertex, gen_->vertices_.end());
               auto property_id =
-                  memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(set_property->property));
+                  memgraph::storage::PropertyId::FromUint(gen_->mapper().NameToId(set_property->property));
               set_property->value = memgraph::storage::ToExternalPropertyValue(
-                  vertex->properties.GetProperty(property_id), &gen_->mapper_);
+                  vertex->properties.GetProperty(property_id), gen_->storage_->name_id_mapper_.get());
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
@@ -204,8 +205,9 @@ class DeltaGenerator final {
                  memgraph::storage::StorageMode storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
       : epoch_id_(memgraph::utils::GenerateUUID()),
         seq_num_(seq_num),
-        wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
-                  &file_retainer_),
+        storage_(std::make_unique<memgraph::storage::InMemoryStorage>()),
+        wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges},
+                  storage_->name_id_mapper_.get(), seq_num, &file_retainer_),
         storage_mode_(storage_mode) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
@@ -222,18 +224,18 @@ class DeltaGenerator final {
                        std::string const &enum_val = {}, const std::string &enum_type = {},
                        const std::string &vector_index_name = {}, std::uint16_t vector_dimension = 2,
                        std::size_t vector_capacity = 100) {
-    auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
+    auto label_id = memgraph::storage::LabelId::FromUint(mapper().NameToId(label));
     std::vector<memgraph::storage::PropertyPath> property_paths;
     for (const auto &[pos, properties] : ranges::views::enumerate(property_paths_as_str)) {
       property_paths.emplace_back();
       for (const auto &property : properties) {
-        property_paths[pos].insert(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
+        property_paths[pos].insert(memgraph::storage::PropertyId::FromUint(mapper().NameToId(property)));
       }
     }
     auto property_ids =
         ranges::views::transform(properties,
                                  [&](const std::string &property) {
-                                   return memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property));
+                                   return memgraph::storage::PropertyId::FromUint(mapper().NameToId(property));
                                  }) |
         ranges::to<std::vector<memgraph::storage::PropertyId>>();
     std::string first_property;
@@ -256,7 +258,7 @@ class DeltaGenerator final {
     }
     std::optional<memgraph::storage::EdgeTypeId> edge_type_id;
     if (!edge_type.empty()) {
-      edge_type_id = memgraph::storage::EdgeTypeId::FromUint(mapper_.NameToId(edge_type));
+      edge_type_id = memgraph::storage::EdgeTypeId::FromUint(mapper().NameToId(edge_type));
     }
 
     std::optional<memgraph::storage::EnumTypeId> enum_type_id;
@@ -307,20 +309,20 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, mapper_, label_id);
+          EncodeLabel(encoder, mapper(), label_id);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, mapper_, label_id);
+          EncodeLabel(encoder, mapper(), label_id);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_STATS_SET: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder, mapper_, label_id, property_paths, lp_stats);
+          EncodeLabelPropertyStats(encoder, mapper(), label_id, property_paths, lp_stats);
         });
         break;
       }
@@ -328,7 +330,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_DROP: {
         ASSERT_TRUE(edge_type_id.has_value());
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeEdgeTypeIndex(encoder, mapper_, *edge_type_id);
+          EncodeEdgeTypeIndex(encoder, mapper(), *edge_type_id);
         });
         break;
       }
@@ -336,21 +338,21 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_DROP: {
         ASSERT_TRUE(edge_type_id.has_value());
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeEdgeTypePropertyIndex(encoder, mapper_, *edge_type_id, property_paths[0][0]);
+          EncodeEdgeTypePropertyIndex(encoder, mapper(), *edge_type_id, property_paths[0][0]);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, mapper_, property_paths[0][0]);
+          EncodeEdgePropertyIndex(encoder, mapper(), property_paths[0][0]);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, mapper_, label_id, property_paths);
+          EncodeLabelProperties(encoder, mapper(), label_id, property_paths);
         });
         break;
       }
@@ -359,26 +361,26 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(encoder, mapper_, label_id, property_paths[0][0]);
+          EncodeLabelProperty(encoder, mapper(), label_id, property_paths[0][0]);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelStats(encoder, mapper_, label_id, l_stats);
+          EncodeLabelStats(encoder, mapper(), label_id, l_stats);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTextIndexSpec(encoder, mapper_, memgraph::storage::TextIndexSpec{name, label_id, property_ids});
+          EncodeTextIndexSpec(encoder, mapper(), memgraph::storage::TextIndexSpec{name, label_id, property_ids});
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_EDGE_INDEX_CREATE: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeTextEdgeIndexSpec(
-              encoder, mapper_, memgraph::storage::TextEdgeIndexSpec{name, *edge_type_id, property_ids});
+              encoder, mapper(), memgraph::storage::TextEdgeIndexSpec{name, *edge_type_id, property_ids});
         });
         break;
       }
@@ -389,7 +391,7 @@ class DeltaGenerator final {
       }
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_CREATE:
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeVectorIndexSpec(encoder, mapper_, *vector_index_spec);
+          EncodeVectorIndexSpec(encoder, mapper(), *vector_index_spec);
         });
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_DROP:
@@ -399,14 +401,14 @@ class DeltaGenerator final {
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_EDGE_INDEX_CREATE:
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeVectorEdgeIndexSpec(encoder, mapper_, *vector_edge_index_spec);
+          EncodeVectorEdgeIndexSpec(encoder, mapper(), *vector_edge_index_spec);
         });
         break;
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           auto as_set = std::set(property_ids.begin(), property_ids.end());
-          EncodeLabelProperties(encoder, mapper_, label_id, as_set);
+          EncodeLabelProperties(encoder, mapper(), label_id, as_set);
         });
         break;
       }
@@ -414,7 +416,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeTypeConstraint(
-              encoder, mapper_, label_id, first_property_id, memgraph::storage::TypeConstraintKind::STRING);
+              encoder, mapper(), label_id, first_property_id, memgraph::storage::TypeConstraintKind::STRING);
         });
       }
 
@@ -572,10 +574,12 @@ class DeltaGenerator final {
   uint64_t timestamp_{memgraph::storage::kTimestampInitialId};
   uint64_t vertices_count_{0};
   std::list<memgraph::storage::Vertex> vertices_;
-  memgraph::storage::NameIdMapper mapper_;
+  std::unique_ptr<memgraph::storage::InMemoryStorage> storage_;
   memgraph::storage::EnumStore enum_store_;
 
   memgraph::storage::durability::WalFile wal_file_;
+
+  memgraph::storage::NameIdMapper &mapper() { return *storage_->name_id_mapper_; }
 
   DataT data_;
 

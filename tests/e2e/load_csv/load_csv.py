@@ -174,5 +174,12 @@ def test_creating_edge_types_with_load_csv_parameter(memgraph):
             assert len(list(results)) == 4
 
 
+def test_non_existing_file_err_msg(memgraph):
+    try:
+        next(memgraph.execute_and_fetch("load csv from 'nonexisting' with header as row return row limit 1"))
+    except Exception as e:
+        assert str(e) == "CSV file not found: nonexisting"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -15,6 +15,15 @@ import pytest
 from common import connect, execute_and_fetch_all, get_file_path
 
 
+def test_non_existing_file_err_ms():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = "load parquet from 'nonexisting' as row return row limit 1"
+    try:
+        execute_and_fetch_all(cursor, load_query)
+    except Exception as e:
+        assert str(e) == "Failed to open local file 'nonexisting'. [errno 2] No such file or directory."
+
+
 def test_aws_settings():
     cursor = connect(host="localhost", port=7687).cursor()
     aws_region_key = "aws.region"
@@ -187,6 +196,13 @@ def test_complex_collection_types():
     result = execute_and_fetch_all(cursor, "match (n) where n.id = 1 return n.metadata.country")
     assert result[0][0] is not None  # Should have country in metadata
 
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_small_file_nodes_with_limit():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_100.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}}) RETURN n LIMIT 1"
+    execute_and_fetch_all(cursor, load_query)
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 

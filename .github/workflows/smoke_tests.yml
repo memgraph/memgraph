@@ -1,4 +1,4 @@
-name: "Smoke Testing MAGE"
+name: "Smoke Test Docker Images"
 concurrency:
   group: smoke-tests-${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
@@ -36,8 +36,16 @@ on:
         type: boolean
         default: false
         description: "Test RelWithDebInfo build (only used for daily builds)"
+      image_type:
+        type: choice
+        default: "mage"
+        options:
+        - "mage"
+        - "memgraph"
+        required: false
+        description: "Image type to test (mage or memgraph)"
 
-run-name: "Smoke Testing MAGE"
+run-name: "Smoke Test Docker Images"
 
 jobs:
   smoke-release-tests-setup:
@@ -64,24 +72,41 @@ jobs:
             echo "run_all=true"  >> "$GITHUB_OUTPUT"
           fi
 
-
   smoke-release-single:
-    name: "Smoke Testing MAGE (Single)"
+    name: "Smoke Testing Docker Images (Single)"
     needs: smoke-release-tests-setup
     if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'false' }}
-    uses: ./.github/workflows/reusable_smoke_test_mage.yml
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
     with:
       arch: "${{ inputs.arch }}"
       next_version: "${{ inputs.next_version }}"
       last_version: "${{ inputs.last_version }}"
       malloc: ${{ inputs.malloc }}
+      image_type: "${{ inputs.image_type }}"
     secrets: inherit
 
 
-  smoke-release-all:
-    name: "Smoke Testing MAGE (All)"
+  smoke-release-all-memgraph:
+    name: "Smoke Testing Memgraph Docker Images (All)"
     needs: smoke-release-tests-setup
-    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' }}
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' && inputs.image_type == 'memgraph' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["amd", "arm"]
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
+    with:
+      arch: "${{ matrix.arch }}"
+      next_version: "${{ inputs.next_version }}"
+      last_version: "${{ inputs.last_version }}"
+      image_type: "memgraph"
+    secrets: inherit
+
+
+  smoke-release-all-mage:
+    name: "Smoke Testing MAGE Docker Images (All)"
+    needs: smoke-release-tests-setup
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' && inputs.image_type == 'mage' }}
     strategy:
       fail-fast: false
       matrix:
@@ -90,21 +115,11 @@ jobs:
         include:
         - arch: "amd"
           malloc: true
-    uses: ./.github/workflows/reusable_smoke_test_mage.yml
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
     with:
       arch: "${{ matrix.arch }}"
       next_version: "${{ inputs.next_version }}"
       last_version: "${{ inputs.last_version }}"
       malloc: ${{ matrix.malloc }}
+      image_type: "mage"
     secrets: inherit
-
-  # smoke-push-tests:
-  #   name: "Smoke Testing MAGE (Push)"
-  #   if: ${{ github.event_name == 'push' }}
-  #   uses: ./.github/workflows/reusable_smoke_test_mage.yml
-  #   with:
-  #     arch: "amd"
-  #     next_version: "3.7.2"
-  #     last_version: "3.7.1"
-  #     malloc: false
-  #   secrets: inherit

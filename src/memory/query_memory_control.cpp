@@ -111,8 +111,7 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
 #if USE_JEMALLOC
   // No need for user tracking at this level, if it was needed, it would have already been setup by this point
   DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
-  GetQueryTracker()->TryCreateProcTracker(procedure_id, limit);
-  GetQueryTracker()->SetActiveProc(procedure_id);
+  GetQueryTracker()->CreateOrSetProcTracker(procedure_id, limit);
 #endif
 }
 
@@ -137,4 +136,26 @@ ThreadTrackingBlocker::~ThreadTrackingBlocker() {
 }
 #endif
 
+#if USE_JEMALLOC
+CrossThreadMemoryTracking::CrossThreadMemoryTracking()
+    : query_tracker(GetQueryTracker()), user_tracker(GetUserTracker()) {}
+void CrossThreadMemoryTracking::StartTracking() const {
+  if (query_tracker) memgraph::memory::StartTrackingCurrentThread(query_tracker);
+  if (user_tracker) memgraph::memory::StartTrackingUserResource(user_tracker);
+}
+void CrossThreadMemoryTracking::StopTracking() const {
+  if (query_tracker) memgraph::memory::StopTrackingCurrentThread();
+  if (user_tracker) memgraph::memory::StopTrackingUserResource();
+}
+CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
+    : query_tracker(std::exchange(other.query_tracker, nullptr)),
+      user_tracker(std::exchange(other.user_tracker, nullptr)) {}
+CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
+  if (this != &other) {
+    query_tracker = std::exchange(other.query_tracker, nullptr);
+    user_tracker = std::exchange(other.user_tracker, nullptr);
+  }
+  return *this;
+}
+#endif
 }  // namespace memgraph::memory

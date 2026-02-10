@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,7 @@ struct FunctionContext {
   storage::View view;
   int64_t hops_counter{0};
   std::shared_ptr<QueryUserOrRole> user_or_role{nullptr};
+  std::shared_ptr<QueryUserOrRole> triggering_user{nullptr};
 };
 
 using func_impl =

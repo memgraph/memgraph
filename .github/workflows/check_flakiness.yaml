@@ -38,6 +38,10 @@ on:
         type: string
         default: 'amd'
         description: 'Comma-separated list of architectures to run the mage tests on (e.g. amd,arm,cuda). Use "none" to skip all mage tests.'
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "Run the mgcxx tests."
       flakiness_runs:
         type: number
         default: 3
@@ -62,6 +66,7 @@ jobs:
       run_mage_amd: ${{ steps.setup.outputs.run_mage_amd }}
       run_mage_arm: ${{ steps.setup.outputs.run_mage_arm }}
       run_mage_cuda: ${{ steps.setup.outputs.run_mage_cuda }}
+      run_mgcxx_unit: ${{ steps.setup.outputs.run_mgcxx_unit }}
       runs: ${{ steps.setup_flakiness.outputs.runs }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
@@ -196,5 +201,18 @@ jobs:
       run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
+      run_id: "${{ matrix.run_no }}"
+    secrets: inherit
+
+  MGCXX:
+    needs: DiffSetup
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run_no: ${{ fromJSON(needs.DiffSetup.outputs.runs) }}
+    uses: ./.github/workflows/diff_mgcxx.yml
+    with:
+      run_test: ${{ needs.DiffSetup.outputs.run_mgcxx_unit == 'true' }}
       run_id: "${{ matrix.run_no }}"
     secrets: inherit

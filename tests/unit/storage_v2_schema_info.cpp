@@ -2481,7 +2481,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto read_schema = [&]() {
     auto stop = memgraph::utils::OnScopeExit{[&]() { running = false; }};
     uint16_t i = 0;
-    while (i++ < 15'000) {
+    while (i++ < 15000) {
       const auto json = in_memory->schema_info_.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
       // Possible schemas:
       static const auto no_labels_no_prop = nlohmann::json::parse(
@@ -2575,6 +2575,104 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto t2 = std::jthread(modify_edge);
   auto t3 = std::jthread(modify_edge2);
   auto t4 = std::jthread(read_schema);
+}
+
+TYPED_TEST(SchemaInfoTestWEdgeProp, LabelCommitsFirst_EdgeCommitsAfter) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction T_l1: Add label L1 to v1
+  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
+  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_l1.has_value());
+  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
+
+  // T_l1 commits first (L1 becomes committed)
+  ASSERT_TRUE(tx_l1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_l1.reset();
+
+  // Transaction T_ce: Create edge from v1 to v2 (sees committed L1)
+  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
+  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
+  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
+  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
+
+  // T_ce commits (edge created with committed L1)
+  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_ce.reset();
+
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
+}
+
+TYPED_TEST(SchemaInfoTestWEdgeProp, LabelAbortsFirst_EdgeCommitsAfter) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+
+  // Skip in analytical mode - abort doesn't work without deltas
+  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+    GTEST_SKIP() << "Abort not supported in analytical mode (no deltas)";
+  }
+
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices
+  {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Transaction T_l1: Add label L1 to v1
+  auto tx_l1 = in_memory->Access(memgraph::storage::WRITE);
+  auto v1_l1 = tx_l1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_l1.has_value());
+  ASSERT_TRUE(v1_l1->AddLabel(l1).has_value());
+
+  // T_l1 aborts first (L1 is removed)
+  tx_l1->Abort();
+  tx_l1.reset();
+
+  // Transaction T_ce: Create edge from v1 to v2 (v1 has no labels since L1 aborted)
+  auto tx_ce = in_memory->Access(memgraph::storage::WRITE);
+  auto v1_ce = tx_ce->FindVertex(v1_gid, View::NEW);
+  auto v2_ce = tx_ce->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v1_ce.has_value() && v2_ce.has_value());
+  ASSERT_TRUE(tx_ce->CreateEdge(&*v1_ce, &*v2_ce, e1).has_value());
+
+  // T_ce commits (edge created without L1)
+  ASSERT_TRUE(tx_ce->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx_ce.reset();
+
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected)) << " Actual: " << json.dump(2);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -2961,5 +3059,176 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
 
     check_json(json["nodes"], 50.0);
     check_json(json["edges"], 100.0);
+  }
+}
+
+// Test for potential double-processing: Non-sequential transactions modify labels on opposite endpoints
+TYPED_TEST(SchemaInfoTestWEdgeProp, NonSequentialLabelChangesOnBothEndpoints) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices and an edge
+  {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Add L1 to v1 (uncommitted)
+  auto tx1 = in_memory->Access(memgraph::storage::WRITE);
+  auto v1_tx1 = tx1->FindVertex(v1_gid, View::NEW);
+  ASSERT_TRUE(v1_tx1.has_value());
+  ASSERT_TRUE(v1_tx1->AddLabel(l1).has_value());
+
+  // T2: Add L2 to v2 (while T1 uncommitted)
+  auto tx2 = in_memory->Access(memgraph::storage::WRITE);
+  auto v2_tx2 = tx2->FindVertex(v2_gid, View::NEW);
+  ASSERT_TRUE(v2_tx2.has_value());
+  ASSERT_TRUE(v2_tx2->AddLabel(l2).has_value());
+
+  // T2 commits first
+  ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx2.reset();
+
+  // T1 commits after
+  ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  tx1.reset();
+
+  // After both commit: edge should be [L1]:[L2], not duplicated
+  const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+  const auto expected = nlohmann::json::parse(
+      R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+  ASSERT_TRUE(ConfrontJSON(json, expected))
+      << "After both commits, edge should be counted once with both labels. Actual: " << json.dump(2);
+}
+
+// Test: Edge created, then label added with non-sequential transactions
+TYPED_TEST(SchemaInfoTestWEdgeProp, BothEndpointsModifiedSameTransaction) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices and an edge
+  {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Add labels to both v1 and v2 in same transaction
+  {
+    auto tx = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = tx->FindVertex(v1_gid, View::NEW);
+    auto v2 = tx->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(v2->AddLabel(l2).has_value());
+    ASSERT_TRUE(tx->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Edge should be [L1]:[L2], counted once
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected))
+        << "Edge should be counted once with both labels. Actual: " << json.dump(2);
+  }
+}
+
+// Test: Edge deleted and recreated after label change
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgeDeletedAndRecreatedAfterLabelChange) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+
+  // Skip in analytical mode - edge deletion doesn't work
+  if (in_memory->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+    GTEST_SKIP() << "Edge deletion not supported in analytical mode";
+  }
+
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto e1 = in_memory->NameToEdgeType("E1");
+
+  Gid v1_gid, v2_gid;
+
+  // Setup: Create two vertices and an edge
+  {
+    auto acc = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.has_value());
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // T1: Add label L1 to v1
+  {
+    auto tx1 = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = tx1->FindVertex(v1_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value());
+    ASSERT_TRUE(v1->AddLabel(l1).has_value());
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // After T1: edge should be [L1]:[]
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected)) << "After T1, edge should have L1. Actual: " << json.dump(2);
+  }
+
+  // T2: Delete edge and recreate it
+  {
+    auto tx2 = in_memory->Access(memgraph::storage::WRITE);
+    auto v1 = tx2->FindVertex(v1_gid, View::NEW);
+    auto v2 = tx2->FindVertex(v2_gid, View::NEW);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+
+    // Find and delete the edge
+    auto out_edges = v1->OutEdges(View::NEW);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_FALSE(out_edges->edges.empty());
+    auto edge_accessor = out_edges->edges.front();
+    ASSERT_TRUE(tx2->DeleteEdge(&edge_accessor).has_value());
+
+    // Recreate the edge
+    auto new_edge = tx2->CreateEdge(&*v1, &*v2, e1);
+    ASSERT_TRUE(new_edge.has_value());
+
+    ASSERT_TRUE(tx2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // After T2: edge should still be [L1]:[], counted once (not duplicated)
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto expected = nlohmann::json::parse(
+        R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+    ASSERT_TRUE(ConfrontJSON(json, expected))
+        << "After T2 (delete/recreate), edge should be counted once. Actual: " << json.dump(2);
   }
 }

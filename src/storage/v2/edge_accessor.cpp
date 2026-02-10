@@ -61,32 +61,38 @@ bool EdgeAccessor::IsVisible(const View view) const {
       attached = std::ranges::any_of(from_vertex_->out_edges,
                                      [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
       delta = from_vertex_->delta;
-    }
-    ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
-      switch (delta.action) {
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-          break;
-        case Delta::Action::ADD_OUT_EDGE: {
-          if (delta.vertex_edge.edge == edge_) {
-            attached = true;
-          }
-          break;
-        }
-        case Delta::Action::REMOVE_OUT_EDGE: {
-          if (delta.vertex_edge.edge == edge_) {
-            attached = false;
-          }
-          break;
-        }
+
+      // If vertex has non-sequential deltas, hold lock while applying them
+      if (!from_vertex_->has_uncommitted_non_sequential_deltas) {
+        guard.unlock();
       }
-    });
+
+      ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::RECREATE_OBJECT:
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT:
+            break;
+          case Delta::Action::ADD_OUT_EDGE: {
+            if (delta.vertex_edge.edge == edge_) {
+              attached = true;
+            }
+            break;
+          }
+          case Delta::Action::REMOVE_OUT_EDGE: {
+            if (delta.vertex_edge.edge == edge_) {
+              attached = false;
+            }
+            break;
+          }
+        }
+      });
+    }
     return attached;
   };
   auto check_presence_of_edge = [&view, this]() -> bool {
@@ -163,7 +169,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
     current_value.emplace(edge_.ptr->properties.GetProperty(property));
-    if (skip_duplicate_write && current_value == value) {
+    if (skip_duplicate_write && *current_value == value) {
       return;
     }
     // We could skip setting the value if the previous one is the same to the new
@@ -196,7 +202,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   return std::move(*current_value);
 }
 
-Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return std::unexpected{Error::PROPERTIES_DISABLED};
 

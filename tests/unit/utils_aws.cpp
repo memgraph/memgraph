@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -144,22 +144,22 @@ TEST(S3Config, PreferQueryOverEnv) {
 
 TEST(S3Config, ValidateOK) {
   S3Config s3_config{.aws_region = "eu-west-1", .aws_access_key = "test", .aws_secret_key = "123"};
-  ASSERT_NO_THROW(s3_config.Validate());
+  ASSERT_FALSE(s3_config.Validate().has_value());
 }
 
 TEST(S3Config, MissingSecretKey) {
   S3Config s3_config{.aws_region = "eu-west-1", .aws_access_key = "test", .aws_endpoint_url = "localhost:4566"};
-  ASSERT_FALSE(s3_config.Validate());
+  ASSERT_EQ(s3_config.Validate(), memgraph::utils::AwsValidationError::AWS_SECRET_KEY);
 }
 
 TEST(S3Config, MissingAccessKey) {
   S3Config s3_config{.aws_region = "eu-west-1", .aws_secret_key = "test", .aws_endpoint_url = "localhost:4566"};
-  ASSERT_FALSE(s3_config.Validate());
+  ASSERT_EQ(s3_config.Validate(), memgraph::utils::AwsValidationError::AWS_ACCESS_KEY);
 }
 
 TEST(S3Config, MissingRegion) {
   S3Config s3_config{.aws_access_key = "test_123", .aws_secret_key = "test", .aws_endpoint_url = "localhost:4566"};
-  ASSERT_FALSE(s3_config.Validate());
+  ASSERT_EQ(s3_config.Validate(), memgraph::utils::AwsValidationError::AWS_REGION);
 }
 
 TEST(ExtractBucketAndObjectKey, Regular) {

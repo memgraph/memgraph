@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,8 +14,10 @@
 #include <tuple>
 #include <vector>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/delta_action.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
@@ -149,7 +151,7 @@ template <EdgeDirection dir>
 auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
                         std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
   auto const predicate = [&, destination](Delta const &delta) {
-    if (destination && delta.vertex_edge.vertex != destination) return false;
+    if (destination && delta.vertex_edge.vertex.Get() != destination) return false;
     if (!edge_types.empty() && !std::ranges::contains(edge_types, delta.vertex_edge.edge_type)) return false;
     return true;
   };
@@ -161,7 +163,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
           [&, predicate](Delta const &delta) {
               if (!predicate(delta)) return;
               // Add the edge because we don't see the removal.
-              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge};
               /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
               /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
               /// in out_edges struct.
@@ -176,7 +178,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
               if (!predicate(delta)) return;
               // Remove the label because we don't see the addition.
               auto it = std::ranges::find(edges,
-                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
+                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge});
               DMG_ASSERT(it != edges.end(), "Invalid database state!");
               *it = edges.back();
               edges.pop_back();
@@ -197,7 +199,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
           [&, predicate](Delta const &delta) {
               if (!predicate(delta)) return;
               // Add the edge because we don't see the removal.
-              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge};
               /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
               /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
               /// in out_edges struct.
@@ -212,7 +214,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
               if (!predicate(delta)) return;
               // Remove the label because we don't see the addition.
               auto it = std::ranges::find(edges,
-                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
+                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge});
               DMG_ASSERT(it != edges.end(), "Invalid database state!");
               *it = edges.back();
               edges.pop_back();
@@ -230,7 +232,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
       ActionMethod <(dir == EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
           [&](Delta const &delta) {
               // Add the edge because we don't see the removal.
-              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge};
               /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
               /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
               /// in out_edges struct.
@@ -244,7 +246,7 @@ auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, Edg
           [&](Delta const &delta) {
               // Remove the label because we don't see the addition.
               auto it = std::ranges::find(edges,
-                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
+                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get(), delta.vertex_edge.edge});
               DMG_ASSERT(it != edges.end(), "Invalid database state!");
               *it = edges.back();
               edges.pop_back();

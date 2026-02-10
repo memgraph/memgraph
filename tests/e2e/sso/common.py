@@ -1,5 +1,20 @@
 import os
 
+# Helpers for auth modules (oidc/saml) that are copied into this folder for e2e tests.
+MEMGRAPH_CALL_ID_KEY = "memgraph_call_id"
+
+
+def pop_call_id(params):
+    """Remove memgraph_call_id from params; return the value for echoing in the response."""
+    return params.pop(MEMGRAPH_CALL_ID_KEY, None)
+
+
+def add_call_id_to_response(ret, call_id):
+    """Add memgraph_call_id to the response for request/response correlation."""
+    if call_id is not None:
+        ret[MEMGRAPH_CALL_ID_KEY] = call_id
+    return ret
+
 
 def get_data_path(file: str, test: str):
     """

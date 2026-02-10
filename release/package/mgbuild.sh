@@ -799,6 +799,7 @@ package_docker() {
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local generate_sbom=false
   local malloc=false
+  local custom_mirror=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
@@ -817,6 +818,10 @@ package_docker() {
         malloc=$2
         shift 2
       ;;
+      --custom-mirror)
+        [[ "$2" == "true" ]] && custom_mirror=true
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -828,21 +833,14 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  if [[ "$os" == "ubuntu-24.04" && "$arch" == "amd" ]]; then
-    echo "Finding best mirror"
-    mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"
-  else
-    echo "Using default mirror"
-    mirror=""
-  fi
-  echo "Using mirror: $mirror"
+  echo "Using custom mirror: $custom_mirror"
 
   if [[ "$build_type" == "Release" ]]; then
     echo "Package release"
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
   else
     echo "Package other"
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src" --custom-mirror "$mirror" --generate-sbom $generate_sbom --malloc $malloc
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -1057,6 +1055,13 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run.sh'
     ;;
     drivers-high-availability)
+      copy_report() {
+        status=$?
+        echo "Copying test report to host..."
+        docker cp $build_container:$MGBUILD_ROOT_DIR/tests/drivers/test_report.tar.gz $PROJECT_ROOT/tests/drivers/test_report.tar.gz || true
+        exit $status
+      }
+      trap copy_report EXIT INT TERM
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run_cluster.sh'
     ;;
     integration)
@@ -1105,9 +1110,14 @@ test_memgraph() {
     gql-behave)
       local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
       local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"
+      # Run single-threaded version first
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration"
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
+      # Run parallel execution version
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --parallel-execution"
+      docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status_parallel.csv
+      docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status_parallel.html
     ;;
     macro-benchmark)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
@@ -1147,7 +1157,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-supernode)
       shift 1
@@ -1218,6 +1228,45 @@ test_memgraph() {
     query_modules_unit)
       docker exec -u mg $build_container bash -c "source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && export PYTHONPATH=$MGBUILD_ROOT_DIR/mage/python:\$PYTHONPATH && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
+    ;;
+    smoke)
+      shift 1
+      next_image=""
+      last_image=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --next-image)
+            next_image=$2
+            shift 2
+          ;;
+          --last-image)
+            last_image=$2
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      export MEMGRAPH_NEXT_DOCKERHUB_IMAGE=$next_image
+      export MEMGRAPH_LAST_DOCKERHUB_IMAGE=$last_image
+      cleanup() {
+        local status=$?
+        rm -rf env || true
+        rm -rf "$HOME/go-install" || true
+        docker rmi -f $next_image || true
+        docker rmi -f $last_image || true
+        exit $status
+      }
+      trap cleanup EXIT INT TERM
+      cd "$PROJECT_ROOT/mage/tests/smoke-release-testing"
+      ./init_workflow.bash
+      python3 -m venv env
+      source env/bin/activate
+      pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
+      ./test_single.bash "memgraph"
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -1290,6 +1339,9 @@ build_mage() {
   if [[ "$config_only" = true ]]; then
     build_args+=("--config-only")
   fi
+  if [[ "$cugraph" = true ]]; then
+    build_args+=("--cugraph")
+  fi
 
   docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
   if [[ "$config_only" = true ]]; then
@@ -1331,10 +1383,14 @@ package_mage_deb() {
     esac
   done
 
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
+  fi
+
   echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
   docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
 
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
 
   package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb")"
   mkdir -pv output
@@ -1351,7 +1407,8 @@ package_mage_docker() {
   local image_tag=""
   local memgraph_ref=""
   local cache_present=false
-  local custom_mirror="http://archive.ubuntu.com/ubuntu"
+  local custom_mirror=false
+  local cuda=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --docker-repository-name)
@@ -1371,7 +1428,11 @@ package_mage_docker() {
         shift 2
       ;;
       --custom-mirror)
-        custom_mirror=$2
+        [[ "$2" == "true" ]] && custom_mirror=true
+        shift 2
+      ;;
+      --cuda)
+        [[ "$2" == "true" ]] && cuda=true
         shift 2
       ;;
       *)
@@ -1381,10 +1442,16 @@ package_mage_docker() {
     esac
   done
 
-  if [[ "$build_type" = "RelWithDebInfo" ]]; then
+  if [[ "$build_type" = "RelWithDebInfo" && "$cugraph" = "false" ]]; then
     docker_target="relwithdebinfo"
   else
     docker_target="prod"
+  fi
+
+  if [[ "$cugraph" = "true" ]]; then
+    dockerfile="Dockerfile.cugraph"
+  else
+    dockerfile="Dockerfile.release"
   fi
 
   echo -e "${YELLOW_BOLD}build options:"
@@ -1407,16 +1474,28 @@ package_mage_docker() {
   cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
   cd $PROJECT_ROOT/mage
 
+  build_args=(
+    --target $docker_target
+    --platform linux/${arch}64
+    --tag ${docker_repository_name}:$image_tag
+    --file $dockerfile
+    --build-arg MEMGRAPH_REF=$memgraph_ref
+    --build-arg BUILD_TYPE=$build_type
+    --build-arg CACHE_PRESENT=$cache_present
+    --build-arg CUSTOM_MIRROR=$custom_mirror
+    --build-arg CUDA=$cuda
+    --progress=plain
+  )
+
+  # copy custom mirror for CI
+  if [[ "$custom_mirror" = "true" ]]; then
+    cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/mage/ci.sources
+    build_args+=(--secret id=ubuntu_sources,src=ci.sources)
+  fi
+
   # build the docker image
   docker buildx build \
-    --target $docker_target \
-    --platform linux/${arch}64 \
-    --tag ${docker_repository_name}:$image_tag \
-    --file Dockerfile.release \
-    --build-arg MEMGRAPH_REF=$memgraph_ref \
-    --build-arg BUILD_TYPE=$build_type \
-    --build-arg CACHE_PRESENT=$cache_present \
-    --build-arg CUSTOM_MIRROR=$custom_mirror \
+    ${build_args[*]} \
     --load .
 
   # print the image size in both SI and IEC units
@@ -1478,7 +1557,7 @@ test_mage() {
       docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
 
       echo -e "${GREEN_BOLD}Running Python tests${RESET}"
-      if [[ "$CUDA" == true ]]; then
+      if [[ "$cuda" == true ]]; then
         requirements_file="requirements-gpu.txt"
       else
         requirements_file="requirements.txt"
@@ -1664,7 +1743,7 @@ test_mage() {
       python3 -m venv env
       source env/bin/activate
       pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
-      ./test_single_mage.bash
+      ./test_single.bash "mage"
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -1801,6 +1880,7 @@ conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 conan_cache_dir=""
 command=""
 build_container=""
+cugraph=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -1820,6 +1900,10 @@ while [[ $# -gt 0 ]]; do
         build_type=$2
         check_support build_type $build_type
         shift 2
+    ;;
+    --cugraph)
+      [[ "$2" == "true" ]] && cugraph=true
+      shift 2
     ;;
     --enterprise-license)
         enterprise_license=$2
@@ -1890,6 +1974,9 @@ if [[ "$os" != "all" ]]; then
 fi
 
 build_container="mgbuild_${toolchain_version}_${os}"
+if [[ "$cugraph" == "true" ]]; then
+  build_container="${build_container}-cugraph"
+fi
 
 if [[ "$command" == "" ]]; then
   echo -e "Error: Command not provided, please provide command"
@@ -1917,6 +2004,9 @@ case $command in
       git_ref_flag="--build-arg GIT_REF=master"
       rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
       node_version_flag="--build-arg NODE_VERSION=20"
+      rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
+      cuda_version_minor="13.1.0"
+      python_version_flag="--build-arg PY_VERSION=3.12"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --git-ref)
@@ -1931,6 +2021,18 @@ case $command in
               node_version_flag="--build-arg NODE_VERSION=$2"
               shift 2
             ;;
+            --rapids-version)
+              rapids_version_flag="--build-arg RAPIDS_VERSION=$2"
+              shift 2
+            ;;
+            --cuda-version)
+              cuda_version_minor=$2
+              shift 2
+            ;;
+            --python-version)
+              python_version_flag="--build-arg PY_VERSION=$2"
+              shift 2
+            ;;
             *)
               echo "Error: Unknown flag '$1'"
               print_help
@@ -1938,7 +2040,18 @@ case $command in
             ;;
         esac
       done
-      if [[ "$os" == "all" ]]; then
+
+      if [[ "$cugraph" == "true" ]] && [[ "$os" != "ubuntu-24.04" ]] && [[ "$arch" != "amd" ]]; then
+        echo -e "Error: cugraph is only supported with ubuntu-24.04 and amd"
+        exit 1
+      fi
+
+      if [[ "$cugraph" == "true" ]]; then
+        cuda_version="${cuda_version_minor%%.*}"
+        cuda_version_flag="--build-arg CUDA_VERSION=${cuda_version}"
+        cuda_version_minor_flag="--build-arg CUDA_VERSION_MINOR=${cuda_version_minor}"
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $rapids_version_flag $cuda_version_flag $cuda_version_minor_flag $python_version_flag $build_container
+      elif [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag
       else
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $build_container
@@ -1950,11 +2063,16 @@ case $command in
     run)
       cd $SCRIPT_DIR
       pull=false
+      custom_mirror=false
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --pull)
               pull=true
               shift 1
+            ;;
+            --custom-mirror)
+              [[ "$2" == "true" ]] && custom_mirror=true
+              shift 2
             ;;
             *)
               echo "Error: Unknown flag '$1'"
@@ -1986,43 +2104,12 @@ case $command in
           $docker_compose_cmd $compose_files pull --ignore-pull-failures $build_container
         fi
         $docker_compose_cmd $compose_files up -d $build_container
+      fi
 
-        # set local mirror for Ubuntu
-        if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
-          if [[ "$os" == "ubuntu-22.04" ]]; then
-            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh 'jammy')"; then
-              # set custom mirror within build container
-              docker exec -i -u root \
-                -e CUSTOM_MIRROR=$mirror \
-                $build_container \
-              bash -c '
-                if [ -n "$CUSTOM_MIRROR" ]; then
-                  sed -E -i \
-                    -e "s#https?://[^ ]*archive\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                    -e "s#https?://[^ ]*security\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
-                    /etc/apt/sources.list
-                  apt-get update -qq
-                fi
-              '
-            fi
-          else
-            if mirror="$(${PROJECT_ROOT}/tools/ci/test-mirrors.sh)"; then
-              # set custom mirror within build container
-              docker exec -i -u root \
-                -e CUSTOM_MIRROR=$mirror \
-                $build_container \
-              bash -c '
-                if [ -n "$CUSTOM_MIRROR" ]; then
-                  sed -E -i \
-                    -e "/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                    -e "/^URIs:/ s#https?://security\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                    /etc/apt/sources.list.d/ubuntu.sources
-                  apt-get update -qq
-                fi
-              '
-            fi
-          fi
-        fi
+      # set custom mirror for CI
+      if [[ "$custom_mirror" = "true" && "$os" =~ ^"ubuntu-24.04".* ]]; then
+        echo "Copying custom mirror to container..."
+        docker cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $build_container:/etc/apt/sources.list.d/ubuntu.sources
       fi
 
       # Install ccache if enabled

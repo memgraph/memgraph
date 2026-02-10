@@ -22,7 +22,7 @@ on:
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
-        default: '0'
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -39,6 +39,7 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
   core:
@@ -61,12 +62,17 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       # This is also needed if we want do to comparison against other branches
       # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
@@ -149,7 +155,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Code analysis)-${{ inputs.run_id }}"
+          name: "Code coverage(Code analysis)${{ env.RUN_ID }}"
           path: tools/github/generated/code_coverage.tar.gz
 
       - name: Stop mgbuild container
@@ -188,12 +194,17 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Set base branch
         run: |
@@ -271,12 +282,17 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Set base branch
         run: |

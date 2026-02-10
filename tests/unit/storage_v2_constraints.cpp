@@ -1325,9 +1325,12 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW((void)vertex1.InitProperties({{this->prop1, PropertyValue("problem")}}),
-                 memgraph::query::QueryException);
-    ASSERT_NO_ERROR(vertex1.InitProperties({{this->prop1, PropertyValue(1)}}));
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> invalid_props{
+        {this->prop1, PropertyValue("problem")}};
+    ASSERT_THROW((void)vertex1.InitProperties(invalid_props), memgraph::query::QueryException);
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> valid_props{
+        {this->prop1, PropertyValue(1)}};
+    ASSERT_NO_ERROR(vertex1.InitProperties(valid_props));
   }
 }
 

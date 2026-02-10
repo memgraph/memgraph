@@ -119,8 +119,6 @@ DECLARE_string(pulsar_service_url);
 // Query flags.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-// DECLARE_double(query_execution_timeout_sec); Moved to run_time_configurable
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_callable_mappings_path);
@@ -133,13 +131,3 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
-
-// AWS settings
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(aws_region);
-DECLARE_string(aws_access_key);
-DECLARE_string(aws_secret_key);
-DECLARE_string(aws_endpoint_url);
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint64(file_download_conn_timeout_sec);

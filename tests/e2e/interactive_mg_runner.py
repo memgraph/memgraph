@@ -37,12 +37,7 @@ from inspect import signature
 
 import yaml
 
-from memgraph import (
-  MemgraphInstanceRunner,
-  connectable_port,
-  extract_bolt_port,
-  extract_management_port,
-)
+from memgraph import *
 
 log = logging.getLogger("memgraph.tests.e2e")
 
@@ -230,6 +225,7 @@ def _start(
     username=None,
     password=None,
     storage_snapshot_on_exit: bool = False,
+    gdb_port=None,
 ):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
@@ -250,7 +246,7 @@ def _start(
     data_directory_path = os.path.join(BUILD_DIR, "e2e", "data", data_directory)
 
     mg_instance = MemgraphInstanceRunner(
-        MEMGRAPH_BINARY, use_ssl, data_directory_path, username=username, password=password
+        MEMGRAPH_BINARY, use_ssl, data_directory_path, username=username, password=password, gdb_port=gdb_port
     )
     MEMGRAPH_INSTANCES[name] = mg_instance
 
@@ -312,14 +308,14 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-def start_wrapper(instances, instance_name, procdir=""):
+def start_wrapper(instances, instance_name, procdir="", gdb_port=None):
     if instance_name == "all":
-        start_all(instances, procdir)
+        start_all(instances, procdir, gdb_port=gdb_port)
     else:
-        start(instances, instance_name, procdir)
+        start(instances, instance_name, procdir, gdb_port=gdb_port)
 
 
-def start(instances, instance_name, procdir=""):
+def start(instances, instance_name, procdir="", gdb_port=None):
     mg_instances = {}
 
     if instance_name not in instances:
@@ -358,6 +354,7 @@ def start(instances, instance_name, procdir=""):
             username,
             password,
             storage_snapshot_on_exit=storage_snapshot_on_exit,
+            gdb_port=gdb_port,
         )
         log.info(f"Instance with name {instance_name} started")
         mg_instances[instance_name] = instance
@@ -365,21 +362,29 @@ def start(instances, instance_name, procdir=""):
     assert len(mg_instances) == 1
 
 
-def start_all(context, procdir="", keep_directories=True):
+def start_all(context, procdir="", keep_directories=True, gdb_port=None):
     """
     Start all instances by first stopping all instances and then calling start_instance for each instance from the `context`.
+    If gdb_port is set, only the first instance will be started under gdbserver.
     """
     stop_all(keep_directories)
+    first_instance = True
     for key, _ in context.items():
-        start(context, key, procdir)
+        # Only attach gdb to the first instance to avoid port conflicts
+        port = gdb_port if first_instance else None
+        start(context, key, procdir, gdb_port=port)
+        first_instance = False
 
 
-def start_all_keep_others(context, procdir=""):
+def start_all_keep_others(context, procdir="", gdb_port=None):
     """
     Start all instances from the context but don't stop currently running instances.
     """
+    first_instance = True
     for key, _ in context.items():
-        start(context, key, procdir)
+        port = gdb_port if first_instance else None
+        start(context, key, procdir, gdb_port=port)
+        first_instance = False
 
 
 def info(context):

@@ -4,6 +4,7 @@ popd () { command popd "$@" > /dev/null; }
 # https://stackoverflow.com/questions/59119904/process-terminated-couldnt-find-a-valid-icu-package-installed-on-the-system-in
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 declare -a pids=()
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 function cleanup() {
     for pid in "${pids[@]}"; do
@@ -298,7 +299,7 @@ stop_process $pid_instance_2
 echo "Stopping instance3"
 stop_process $pid_instance_3
 
-tar -zcvf test_report.tar.gz $tmpdir/logs/*.log
+tar -zcvf $SCRIPT_DIR/test_report.tar.gz $tmpdir/logs/*.log
 
 # Temporary directory cleanup.
 if [ -d $tmpdir ]; then

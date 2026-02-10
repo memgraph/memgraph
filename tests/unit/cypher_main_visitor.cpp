@@ -3069,6 +3069,16 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::MODULE_WRITE},
                    {},
                    {});
+  check_auth_query(&ast_generator,
+                   "GRANT PARALLEL_EXECUTION TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::PARALLEL_EXECUTION},
+                   {},
+                   {});
 
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
@@ -3514,6 +3524,16 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::MODULE_WRITE},
                    {},
                    {});
+  check_auth_query(&ast_generator,
+                   "DENY PARALLEL_EXECUTION TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::PARALLEL_EXECUTION},
+                   {},
+                   {});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -3682,6 +3702,16 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    "user",
                    {},
                    {AuthQuery::Privilege::MODULE_WRITE},
+                   {},
+                   {});
+  check_auth_query(&ast_generator,
+                   "REVOKE PARALLEL_EXECUTION FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {AuthQuery::Privilege::PARALLEL_EXECUTION},
                    {},
                    {});
 
@@ -7297,6 +7327,105 @@ TEST_P(CypherMainVisitorTest, NestedPeriodicCommitQuery) {
   {
     ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 3.0 ROWS;"),
                  SyntaxException);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ParallelExecutionCacheDisabling) {
+  {
+    ParsingContext context;
+    AstStorage storage;
+    Parameters parameters;
+    CypherMainVisitor visitor(context, &storage, &parameters);
+    ::frontend::opencypher::Parser parser("USING PARALLEL EXECUTION 4 CREATE (n);");
+    visitor.visit(parser.tree());
+    ASSERT_FALSE(visitor.GetQueryInfo().is_cacheable);
+  }
+
+  {
+    ParsingContext context;
+    AstStorage storage;
+    Parameters parameters;
+    CypherMainVisitor visitor(context, &storage, &parameters);
+    ::frontend::opencypher::Parser parser("USING PARALLEL EXECUTION CREATE (n);");
+    visitor.visit(parser.tree());
+    ASSERT_TRUE(visitor.GetQueryInfo().is_cacheable);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TopLevelParallelExecutionQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PARALLEL EXECUTION CREATE (n);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.parallel_execution_);
+    ASSERT_EQ(query->pre_query_directives_.num_threads_, nullptr);
+    CheckRWType(query, kWrite);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PARALLEL EXECUTION 4 CREATE (n);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.parallel_execution_);
+    ASSERT_NE(query->pre_query_directives_.num_threads_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.num_threads_, 4);
+    CheckRWType(query, kWrite);
+  }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PARALLEL EXECUTION 4 MATCH (n) RETURN n;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.parallel_execution_);
+    ASSERT_NE(query->pre_query_directives_.num_threads_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.num_threads_, 4);
+    CheckRWType(query, kRead);
+  }
+
+  ASSERT_THROW(ast_generator.ParseQuery("USING 4 PARALLEL EXECUTION CREATE (n);"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("USING PARALLEL 4 EXECUTION CREATE (n);"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, ParallelExecutionWithOtherDirectives) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING PARALLEL EXECUTION, HOPS LIMIT 5 MATCH (n) RETURN n;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.parallel_execution_);
+    ASSERT_TRUE(query->pre_query_directives_.hops_limit_);
+    ast_generator.CheckLiteral(query->pre_query_directives_.hops_limit_, 5);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING PARALLEL EXECUTION 2, PERIODIC COMMIT 10 CREATE (n);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.parallel_execution_);
+    ASSERT_TRUE(query->pre_query_directives_.commit_frequency_);
+    ASSERT_NE(query->pre_query_directives_.num_threads_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.num_threads_, 2);
+    ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
+    CheckRWType(query, kWrite);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ParallelExecutionValidation) {
+  auto &ast_generator = *GetParam();
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PARALLEL EXECUTION 'a' CREATE (n);"), SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PARALLEL EXECUTION -1 CREATE (n);"), SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PARALLEL EXECUTION 3.0 CREATE (n);"), SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PARALLEL EXECUTION, PARALLEL EXECUTION CREATE (n);"), SyntaxException);
   }
 }
 

@@ -227,7 +227,7 @@ def test_username_and_roles_functions_in_trigger(memgraph):
         EXECUTE
         UNWIND createdVertices AS createdVertex
         SET createdVertex.trigger_username = username(),
-            createdVertex.trigger_roles = roles()
+            createdVertex.trigger_roles = roles();
         """
     )
 
@@ -250,17 +250,24 @@ def test_username_and_roles_functions_in_trigger(memgraph):
     memgraph.execute("DROP TRIGGER test_username_roles_trigger_invoker;")
     memgraph.execute("MATCH (n) DETACH DELETE n;")
 
+    # Create a user with all privileges to create the SECURITY DEFINER trigger
+    # (required due to up_to_date policy)
+    memgraph.execute("CREATE USER trigger_admin;")
+    memgraph.execute("GRANT ALL PRIVILEGES TO trigger_admin;")
+    memgraph.execute(f"GRANT * ON NODES CONTAINING LABELS * TO trigger_admin;")
+    memgraph_with_trigger_admin = Memgraph(username="trigger_admin", password="")
+
     # again capture the username and roles of the user who invoked the trigger
-    memgraph.execute(
+    memgraph_with_trigger_admin.execute(
         """
         CREATE TRIGGER test_username_roles_trigger_definer
-        SECURITY INVOKER
+        SECURITY DEFINER
         ON () CREATE
         BEFORE COMMIT
         EXECUTE
         UNWIND createdVertices AS createdVertex
         SET createdVertex.trigger_username = username(),
-            createdVertex.trigger_roles = roles()
+            createdVertex.trigger_roles = roles();
         """
     )
 
@@ -282,6 +289,7 @@ def test_username_and_roles_functions_in_trigger(memgraph):
     memgraph.execute("MATCH (n) DETACH DELETE n;")
 
     memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP USER trigger_admin;")
     memgraph.execute("DROP ROLE admin_role;")
     memgraph.execute("DROP ROLE user_role;")
 
