@@ -26,3 +26,4 @@ setuptools==81.0.0  # maximum version that can be used until torchmetrics doesn'
 six==1.17.0
 torch==2.9.0
 torchmetrics==0.10.0
+litellm==1.81.9
