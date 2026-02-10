@@ -48,7 +48,7 @@ on:
       s3_dest_dir:
         type: string
         description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
-        default: ''
+        default: 'memgraph-unofficial'
       malloc:
         type: boolean
         description: "Package malloc build?"
