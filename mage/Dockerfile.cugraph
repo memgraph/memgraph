@@ -96,7 +96,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     apt-get install -y gdb libc6-dbg --no-install-recommends; \
   fi && \
   apt-get install adduser -y && \
-  chmod +x /install_runtime_requirements.sh && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
     --py-version ${PY_VERSION} --cuda true && \
   groupadd -g 103 memgraph && \
