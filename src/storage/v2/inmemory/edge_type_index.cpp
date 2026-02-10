@@ -64,6 +64,10 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
     // clang-format on
   });
 
+  if (reader.OwnsLock()) {
+    reader.Unlock();
+  }
+
   if (!exists || deleted || edges.empty()) {
     return;
   }
