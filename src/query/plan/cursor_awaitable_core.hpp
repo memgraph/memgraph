@@ -119,7 +119,7 @@ class PullAwaitable {
       return child_handle_;
     }
 
-    bool await_resume() {
+    bool await_resume() const {
       if (immediate_ready_) return immediate_value_;
 
       // If the child threw, propagate it now.
