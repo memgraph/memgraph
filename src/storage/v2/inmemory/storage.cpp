@@ -714,27 +714,18 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     }
   }
 
-  auto result = utils::AtomicMemoryBlock([this,
-                                          edge,
-                                          from_vertex = from_vertex,
-                                          edge_type = edge_type,
-                                          to_vertex = to_vertex,
-                                          &schema_acc,
-                                          from_state,
-                                          to_state]() -> std::expected<void, Error> {
-    if (auto res = CreateAndLinkEdgeDeltas(
-            &transaction_,
-            from_vertex,
-            from_state,
-            std::forward_as_tuple(Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state),
-            to_vertex,
-            to_state,
-            std::forward_as_tuple(Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state));
-        !res) {
-      return res;
-    }
-
+  utils::AtomicMemoryBlock([this,
+                            edge,
+                            from_vertex = from_vertex,
+                            edge_type = edge_type,
+                            to_vertex = to_vertex,
+                            &schema_acc,
+                            from_state,
+                            to_state]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -753,12 +744,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                                    [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                  *schema_acc);
     }
-    return {};
   });
-
-  if (!result) {
-    return std::unexpected{result.error()};
-  }
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -860,46 +846,30 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   }
 
-  auto result =
-      utils::AtomicMemoryBlock([this, edge, from_vertex, edge_type, to_vertex, &schema_acc, from_state, to_state]()
-                                   -> std::expected<void, Error> {
-        if (auto res = CreateAndLinkEdgeDeltas(
-                &transaction_,
-                from_vertex,
-                from_state,
-                std::forward_as_tuple(Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state),
-                to_vertex,
-                to_state,
-                std::forward_as_tuple(Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state));
-            !res) {
-          return res;
-        }
+  utils::AtomicMemoryBlock([this, edge, from_vertex, edge_type, to_vertex, &schema_acc, from_state, to_state]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-        // Update indices if they exist.
-        Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    // Update indices if they exist.
+    Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
-        // Increment edge count.
-        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    // Increment edge count.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-        if (schema_acc) {
-          std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
-                                       },
-                                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                     *schema_acc);
-        }
-        return {};
-      });
-
-  if (!result) {
-    return std::unexpected{result.error()};
-  }
+    if (schema_acc) {
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                     acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                   },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
+  });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }

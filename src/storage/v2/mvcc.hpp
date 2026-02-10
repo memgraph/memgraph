@@ -13,12 +13,8 @@
 
 #include <atomic>
 #include <cstdint>
-#include <expected>
-#include <mutex>
 #include <optional>
-#include <tuple>
 
-#include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
@@ -332,6 +328,20 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // delta but won't modify it until we are done with all of our modifications.
   if (object->delta) {
     object->delta->prev.Set(delta);
+
+    // If the new delta is non-sequential and the previous delta is a
+    // sequential edge creation delta, propagate the non-sequential state to
+    // the head of the previous delta block.
+    if (IsDeltaNonSequential(*delta) && CanBeNonSequential(object->delta->action) &&
+        object->delta->vertex_edge.vertex.GetState() == DeltaChainState::SEQUENTIAL) {
+      {
+        auto guard = std::lock_guard{object->delta->commit_info->lock};
+        if (object->delta->commit_info->non_seq_propagation == NonSeqPropagationState::NONE) {
+          object->delta->commit_info->non_seq_propagation = NonSeqPropagationState::PENDING;
+        }
+        object->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
+      }
+    }
   }
 
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
@@ -340,99 +350,6 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // modification is being done, everybody else will wait until we are fully
   // done with our modification before they read the object's delta value.
   object->delta = delta;
-}
-
-/// Creates edge deltas on both vertices atomically. Checks non-sequential
-/// constraints upfront before doing any work so we can abort without
-/// requiring published work to be undone.
-/// @throw std::bad_alloc
-template <typename FromArgsTuple, typename ToArgsTuple>
-[[nodiscard]] inline std::expected<void, Error> CreateAndLinkEdgeDeltas(Transaction *transaction, Vertex *from_vertex,
-                                                                        DeltaChainState from_state,
-                                                                        FromArgsTuple &&from_args, Vertex *to_vertex,
-                                                                        DeltaChainState to_state,
-                                                                        ToArgsTuple &&to_args) {
-  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-    return {};
-  }
-
-  // Check if we're prepending a non-sequential delta to a vertex with
-  // sequential deltas.
-  auto const is_non_sequential_prepend = [](Vertex *vertex, DeltaChainState new_delta_state) {
-    return new_delta_state == DeltaChainState::NON_SEQUENTIAL && vertex->delta &&
-           CanBeNonSequential(vertex->delta->action) &&
-           vertex->delta->vertex_edge.vertex.GetState() == DeltaChainState::SEQUENTIAL;
-  };
-
-  // Upgrade vertex's delta chain from sequential to non-sequential, which
-  // can fail (with a serialization error) if the other transaction has already
-  // started committing or aborting.
-  auto const set_non_sequential_state = [](Vertex *vertex) -> std::expected<void, Error> {
-    if (vertex->delta->commit_info->non_seq_propagation == NonSeqPropagationState::HANDLED) {
-      return std::unexpected{Error::SERIALIZATION_ERROR};
-    }
-    if (vertex->delta->commit_info->non_seq_propagation == NonSeqPropagationState::NONE) {
-      vertex->delta->commit_info->non_seq_propagation = NonSeqPropagationState::PENDING;
-    }
-    vertex->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
-    vertex->has_uncommitted_non_sequential_deltas = true;
-    return {};
-  };
-
-  auto const link_delta = [transaction](Vertex *vertex, auto &&...args) {
-    auto delta = &transaction->deltas.emplace(
-        std::forward<decltype(args)>(args)..., transaction->commit_info.get(), transaction->command_id);
-
-    // Same ordering logic here as in CreateAndLinkDelta above
-    delta->next.store(vertex->delta, std::memory_order_release);
-    delta->prev.Set(vertex);
-    if (vertex->delta) {
-      vertex->delta->prev.Set(delta);
-    }
-    vertex->delta = delta;
-  };
-
-  bool const from_is_non_seq = is_non_sequential_prepend(from_vertex, from_state);
-  bool const to_is_non_seq = (to_vertex != from_vertex) && is_non_sequential_prepend(to_vertex, to_state);
-
-  // Check and set non-sequential state upfront, before creating any deltas.
-  // This allows us to detect serialization errors early, without needing to
-  // undo published work (which the trade off of holding the commit_info lock
-  // for longer.)
-  if (from_is_non_seq && to_is_non_seq) {
-    auto &from_lock = from_vertex->delta->commit_info->lock;
-    auto &to_lock = to_vertex->delta->commit_info->lock;
-    // Same commit_info means same transaction, so we only need one lock.
-    if (&from_lock == &to_lock) {
-      auto guard = std::unique_lock{from_lock};
-      if (auto res = set_non_sequential_state(from_vertex); !res) return res;
-      if (auto res = set_non_sequential_state(to_vertex); !res) return res;
-    } else {
-      // Different transactions, so we must apply a consistent order to
-      // locking.
-      std::lock(from_lock, to_lock);
-      auto from_guard = std::unique_lock{from_lock, std::adopt_lock};
-      auto to_guard = std::unique_lock{to_lock, std::adopt_lock};
-      if (auto res = set_non_sequential_state(from_vertex); !res) return res;
-      if (auto res = set_non_sequential_state(to_vertex); !res) return res;
-    }
-  } else if (from_is_non_seq) {
-    auto guard = std::unique_lock{from_vertex->delta->commit_info->lock};
-    if (auto res = set_non_sequential_state(from_vertex); !res) return res;
-  } else if (to_is_non_seq) {
-    auto guard = std::unique_lock{to_vertex->delta->commit_info->lock};
-    if (auto res = set_non_sequential_state(to_vertex); !res) return res;
-  }
-
-  transaction->EnsureCommitInfoExists();
-
-  std::apply([&](auto &&...args) { link_delta(from_vertex, std::forward<decltype(args)>(args)...); },
-             std::forward<FromArgsTuple>(from_args));
-
-  std::apply([&](auto &&...args) { link_delta(to_vertex, std::forward<decltype(args)>(args)...); },
-             std::forward<ToArgsTuple>(to_args));
-
-  return {};
 }
 
 }  // namespace memgraph::storage
