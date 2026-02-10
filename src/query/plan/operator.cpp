@@ -387,11 +387,8 @@ uint64_t ComputeProfilingKey(const T *obj) {
 // impact on performance for the expected (non-abort) case.
 thread_local auto maybe_check_abort = utils::ResettableCounter{20};
 
-inline void AbortCheck(ExecutionContext const &context) {
-  if (!maybe_check_abort()) return;
-
-  if (auto const reason = context.stopping_context.MustAbort(); reason != AbortReason::NO_ABORT)
-    throw HintedAbortError(reason);
+inline YieldPointAwaitable AbortCheck(ExecutionContext &context) {
+  return YieldPointAwaitable(context, maybe_check_abort);
 }
 
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
@@ -543,7 +540,7 @@ PullAwaitable Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (!did_pull_) {
     did_pull_ = true;
@@ -656,7 +653,7 @@ PullAwaitable CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext 
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   ExpressionEvaluator evaluator(&frame,
                                 context.symbol_table,
@@ -808,7 +805,7 @@ PullAwaitable CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionCont
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (!co_await input_cursor_->Pull(frame, context)) co_return false;
   ExpressionEvaluator evaluator(&frame,
@@ -910,7 +907,7 @@ class ScanAllCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
       if (!co_await input_cursor_->Pull(frame, context)) co_return false;
@@ -983,7 +980,7 @@ class ScanAllByEdgeCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
       if (!co_await input_cursor_->Pull(frame, context)) co_return false;
@@ -1868,7 +1865,7 @@ PullAwaitable Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context
   };
 
   while (true) {
-    AbortCheck(context);
+    co_await AbortCheck(context);
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
@@ -2153,7 +2150,7 @@ class ExpandVariableCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     while (true) {
       if (co_await Expand(frame, context)) co_return true;
@@ -2217,7 +2214,7 @@ class ExpandVariableCursor : public Cursor {
     // Input Vertex could be null if it is created by a failed optional match.
     // In those cases we skip that input pull and continue with the next.
     while (true) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       if (!co_await input_cursor_->Pull(frame, context)) co_return false;
 
       if (context.hops_limit.IsLimitReached()) co_return false;
@@ -2394,7 +2391,7 @@ class ExpandVariableCursor : public Cursor {
     };
 
     while (true) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
       while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
@@ -2430,7 +2427,7 @@ class STShortestPathCursor : public query::plan::Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("STShortestPath");
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     ExpressionEvaluator evaluator(&frame,
                                   context.symbol_table,
@@ -2550,7 +2547,7 @@ class STShortestPathCursor : public query::plan::Cursor {
     out_edge[sink] = std::nullopt;
 
     while (true) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
       if (current_length > upper_bound) co_return false;
@@ -2801,7 +2798,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     // do it all in a loop because we skip some elements
     while (true) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       // if we have nothing to visit on the current depth, switch to next
       if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
 
@@ -3087,7 +3084,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     };
 
     while (true) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       if (pq_.empty()) {
         if (!co_await input_cursor_->Pull(frame, context)) co_return false;
         const auto &vertex_value = frame[self_.input_symbol_];
@@ -3136,7 +3133,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       }
 
       while (!pq_.empty()) {
-        AbortCheck(context);
+        co_await AbortCheck(context);
         auto [current_weight, current_depth, current_vertex, current_edge, curr_acc_path] = pq_.top();
         pq_.pop();
 
@@ -3500,9 +3497,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       return true;
     };
 
-    auto create_DFS_traversal_tree = [this, &context, &memory, &frame_writer, &create_state, &expand_from_vertex]() {
+    auto create_DFS_traversal_tree =
+        [this, &context, &memory, &frame_writer, &create_state, &expand_from_vertex]() -> PullAwaitable {
       while (!pq_.empty()) {
-        AbortCheck(context);
+        co_await AbortCheck(context);
 
         auto [current_weight, current_depth, current_vertex, directed_edge, acc_path] = pq_.top();
         pq_.pop();
@@ -3533,6 +3531,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         }
         next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
       }
+      co_return true;
     };
 
     // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal
@@ -3556,7 +3555,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // On each subsequent Pull run, paths are created from the traversal stack and returned.
     while (true) {
       // Check if there is an external error.
-      AbortCheck(context);
+      co_await AbortCheck(context);
 
       // The algorithm is run all at once by create_DFS_traversal_tree, after which we
       // traverse the tree iteratively by preserving the traversal state on stack.
@@ -3611,7 +3610,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
 
       // Create a DFS traversal tree from the start node
-      create_DFS_traversal_tree();
+      co_await create_DFS_traversal_tree();
 
       // DFS traversal tree is create,
       if (start_vertex && next_edges_.contains({*start_vertex, 0})) {
@@ -3747,14 +3746,14 @@ class KShortestPathsCursor : public Cursor {
 
     // Try to compute the next shortest path for current input
     if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
-        ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+        co_await ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
       push_next_path(frame, evaluator);
       co_return true;
     }
 
     // Need to pull new input
     while (co_await input_cursor_->Pull(frame, context)) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       if (context.hops_limit.IsLimitReached()) co_return false;
 
       auto &source_tv = frame[self_.input_symbol_];
@@ -3778,7 +3777,7 @@ class KShortestPathsCursor : public Cursor {
       current_target_ = target_vertex;
       current_input_initialized_ = true;
 
-      if (!InitializeKShortestPaths(source_vertex, target_vertex, evaluator, context)) {
+      if (!co_await InitializeKShortestPaths(source_vertex, target_vertex, evaluator, context)) {
         // If no path found, continue to next input
         continue;
       }
@@ -3787,7 +3786,7 @@ class KShortestPathsCursor : public Cursor {
       auto *last_path = &shortest_paths_.back();
       while (last_path->edges.size() < lower_bound_) {
         current_path_index_ = shortest_paths_.size();
-        if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+        if (!co_await ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
           break;
         }
         last_path = &shortest_paths_.back();
@@ -3874,29 +3873,30 @@ class KShortestPathsCursor : public Cursor {
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
 
-  bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
-                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
+  PullAwaitable InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
+                                         ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
 
     // Find the shortest path using Dijkstra's algorithm
-    auto shortest_path = ComputeShortestPath(source, target, evaluator, context);
+    PathInfo shortest_path(evaluator.GetMemoryResource());
+    co_await ComputeShortestPath(source, target, evaluator, context, &shortest_path);
     if (!shortest_path.edges.empty()) {
       shortest_paths_.emplace_back(std::move(shortest_path));
       AddPathToFoundSet(shortest_paths_.back());
-      return true;
+      co_return true;
     }
-    return false;
+    co_return false;
   }
 
-  bool ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target,
-                               ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    if (shortest_paths_.empty()) return false;
+  PullAwaitable ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target,
+                                        ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    if (shortest_paths_.empty()) co_return false;
 
     const auto &last_path = shortest_paths_.back();
 
     // Generate candidate paths by deviating at each vertex of the last shortest path
     for (size_t i = 0; i < last_path.edges.size(); ++i) {
-      GenerateCandidatesFromDeviation(source, target, last_path, i, evaluator, context);
+      co_await GenerateCandidatesFromDeviation(source, target, last_path, i, evaluator, context);
     }
 
     // Find the best candidate path
@@ -3906,20 +3906,20 @@ class KShortestPathsCursor : public Cursor {
       // Handle upper bound
       if (candidate.edges.size() > upper_bound_) {
         // Next path is too long, stop generating candidates
-        return false;
+        co_return false;
       }
       if (!IsPathInFoundSet(candidate)) {
         shortest_paths_.emplace_back(std::move(candidate));
         AddPathToFoundSet(shortest_paths_.back());
-        return true;
+        co_return true;
       }
     }
-    return false;
+    co_return false;
   }
 
-  void GenerateCandidatesFromDeviation(const VertexAccessor &source, const VertexAccessor &target,
-                                       const PathInfo &base_path, size_t deviation_index,
-                                       ExpressionEvaluator &evaluator, ExecutionContext &context) {
+  PullAwaitable GenerateCandidatesFromDeviation(const VertexAccessor &source, const VertexAccessor &target,
+                                                const PathInfo &base_path, size_t deviation_index,
+                                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
     // Set up blocked edges and vertices for this deviation
     SetupBlockedElementsForDeviation(source, base_path, deviation_index);
 
@@ -3927,7 +3927,8 @@ class KShortestPathsCursor : public Cursor {
     VertexAccessor deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
 
     // Compute shortest path from deviation vertex to target with blocked elements
-    auto spur_path = ComputeShortestPath(deviation_vertex, target, evaluator, context);
+    PathInfo spur_path(evaluator.GetMemoryResource());
+    co_await ComputeShortestPath(deviation_vertex, target, evaluator, context, &spur_path);
 
     if (!spur_path.edges.empty()) {
       // Combine the root path (up to deviation) with the spur path
@@ -3947,6 +3948,7 @@ class KShortestPathsCursor : public Cursor {
 
       candidate_paths_.push(std::move(candidate_path));
     }
+    co_return true;
   }
 
   void SetupBlockedElementsForDeviation(const VertexAccessor &source, const PathInfo &base_path,
@@ -4056,9 +4058,12 @@ class KShortestPathsCursor : public Cursor {
   }
 
   // TODO: Should be coroutine
-  PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target,
-                               ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    if (source == target) return PathInfo(evaluator.GetMemoryResource());
+  PullAwaitable ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target,
+                                    ExpressionEvaluator &evaluator, ExecutionContext &context, PathInfo *result) {
+    if (source == target) {
+      *result = PathInfo(evaluator.GetMemoryResource());
+      co_return true;
+    }
 
     // We expand from both directions, both from the source and the target.
     // Expansions meet at the middle of the path if it exists. This should
@@ -4089,10 +4094,13 @@ class KShortestPathsCursor : public Cursor {
     out_edge[target] = std::nullopt;
 
     while (true) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
+      if (current_length > upper_bound_) {
+        *result = PathInfo(evaluator.GetMemoryResource());
+        co_return true;
+      }
 
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
@@ -4109,7 +4117,8 @@ class KShortestPathsCursor : public Cursor {
             }
             in_edge.emplace(edge.To(), edge);
             if (out_edge.contains(edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+              *result = ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+              co_return true;
             }
             source_next.push_back(edge.To());
           }
@@ -4127,20 +4136,27 @@ class KShortestPathsCursor : public Cursor {
             }
             in_edge.emplace(edge.From(), edge);
             if (out_edge.contains(edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+              *result = ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+              co_return true;
             }
             source_next.push_back(edge.From());
           }
         }
       }
 
-      if (source_next.empty()) return PathInfo(evaluator.GetMemoryResource());
+      if (source_next.empty()) {
+        *result = PathInfo(evaluator.GetMemoryResource());
+        co_return true;
+      }
       source_frontier.clear();
       std::swap(source_frontier, source_next);
 
       // Bottom-up step (expansion from the target).
       ++current_length;
-      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
+      if (current_length > upper_bound_) {
+        *result = PathInfo(evaluator.GetMemoryResource());
+        co_return true;
+      }
 
       // When expanding from the target we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
@@ -4160,7 +4176,8 @@ class KShortestPathsCursor : public Cursor {
             }
             out_edge.emplace(edge.To(), edge);
             if (in_edge.contains(edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+              *result = ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+              co_return true;
             }
             target_next.push_back(edge.To());
           }
@@ -4178,14 +4195,18 @@ class KShortestPathsCursor : public Cursor {
             }
             out_edge.emplace(edge.From(), edge);
             if (in_edge.contains(edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+              *result = ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+              co_return true;
             }
             target_next.push_back(edge.From());
           }
         }
       }
 
-      if (target_next.empty()) return PathInfo(evaluator.GetMemoryResource());
+      if (target_next.empty()) {
+        *result = PathInfo(evaluator.GetMemoryResource());
+        co_return true;
+      }
       target_frontier.clear();
       std::swap(target_frontier, target_next);
     }
@@ -4323,7 +4344,7 @@ class ConstructNamedPathCursor : public Cursor {
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     if (!co_await input_cursor_->Pull(frame, context)) co_return false;
 
@@ -4583,7 +4604,7 @@ PullAwaitable Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
@@ -4638,16 +4659,17 @@ std::unique_ptr<LogicalOperator> EvaluatePatternFilter::Clone(AstStorage *storag
 PullAwaitable EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EvaluatePatternFilter");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   std::function<void(TypedValue *)> function =
       [&frame, self = this->self_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
         OOMExceptionEnabler const oom_exception;
         input_cursor->Reset();
         // TODO: Should be coroutine
-        *return_value = TypedValue(plan::RunPullToCompletion(input_cursor->Pull(frame, context), context).status ==
-                                       plan::PullRunResult::Status::HasRow,
-                                   context.evaluation_context.memory);
+        auto awaitable = input_cursor->Pull(frame, context);
+        *return_value =
+            TypedValue(plan::RunPullToCompletion(awaitable, context).status == plan::PullRunResult::Status::HasRow,
+                       context.evaluation_context.memory);
       };
 
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -4702,7 +4724,7 @@ PullAwaitable Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &conte
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (co_await input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
@@ -4801,7 +4823,7 @@ PullAwaitable Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionCo
   };
 
   for (TypedValue &expression_result : expression_results) {
-    AbortCheck(context);
+    co_await AbortCheck(context);
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto va = expression_result.ValueVertex();
@@ -4865,7 +4887,7 @@ PullAwaitable Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
     ExpressionEvaluator evaluator(&frame,
@@ -4966,7 +4988,7 @@ PullAwaitable SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContex
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperty");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (!co_await input_cursor_->Pull(frame, context)) co_return false;
 
@@ -5085,7 +5107,7 @@ PullAwaitable SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, Exe
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetNestedProperty");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (!co_await input_cursor_->Pull(frame, context)) co_return false;
   // Set, just like Create needs to see the latest changes.
@@ -5409,7 +5431,7 @@ PullAwaitable SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionCo
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperties");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (!co_await input_cursor_->Pull(frame, context)) co_return false;
 
@@ -5513,7 +5535,7 @@ PullAwaitable SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &c
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   ExpressionEvaluator evaluator(&frame,
                                 context.symbol_table,
@@ -5618,7 +5640,7 @@ PullAwaitable RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, Execution
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveProperty");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (!co_await input_cursor_->Pull(frame, context)) co_return false;
 
@@ -5734,7 +5756,7 @@ PullAwaitable RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &fram
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveNestedProperty");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   if (!co_await input_cursor_->Pull(frame, context)) co_return false;
 
@@ -5874,7 +5896,7 @@ PullAwaitable RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionCont
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   ExpressionEvaluator evaluator(&frame,
                                 context.symbol_table,
@@ -6010,7 +6032,7 @@ PullAwaitable EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &fram
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   auto expansion_ok = [&]() {
     const auto &expand_value = frame[self_.expand_symbol_];
@@ -6056,7 +6078,7 @@ class EmptyResultCursor : public Cursor {
 
     if (!pulled_all_input_) {
       while (co_await input_cursor_->Pull(frame, context)) {
-        AbortCheck(context);
+        co_await AbortCheck(context);
       }
       pulled_all_input_ = true;
     }
@@ -6119,7 +6141,7 @@ class AccumulateCursor : public Cursor {
       if (self_.advance_command_) dba.AdvanceCommand();
     }
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
     if (cache_it_ == cache_.end()) co_return false;
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto row_it = (cache_it_++)->begin();
@@ -6234,7 +6256,7 @@ class AggregateCursor : public Cursor {
   PullAwaitable Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
-    AbortCheck(context);
+    co_await AbortCheck(context);
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     if (!pulled_all_input_) {
       if (!(co_await ProcessAll(&frame, &context)) && !self_.group_by_.empty()) co_return false;
@@ -6828,7 +6850,7 @@ class OrderByCursor : public Cursor {
 
     if (cache_it_ == cache_.end()) co_return false;
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     // Parallel execution will extract the cache and handle the output values in OrderByParallelCursor
     if (!parallel_execution_) {
@@ -6945,7 +6967,7 @@ PullAwaitable Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) 
   memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
 
   while (true) {
-    AbortCheck(context);
+    co_await AbortCheck(context);
     if (pull_input_) {
       if (co_await input_cursor_->Pull(frame, context)) {
         // after a successful input from the input
@@ -7034,7 +7056,7 @@ PullAwaitable Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &con
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   while (true) {
-    AbortCheck(context);
+    co_await AbortCheck(context);
     if (pull_input_) {
       if (co_await input_cursor_->Pull(frame, context)) {
         // after a successful input from the input
@@ -7107,7 +7129,7 @@ class UnwindCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     while (true) {
-      AbortCheck(context);
+      co_await AbortCheck(context);
       // if we reached the end of our list of values
       // pull from the input
       if (input_value_it_ == input_value_.end()) {
@@ -7179,7 +7201,7 @@ class DistinctCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     while (true) {
       if (!co_await input_cursor_->Pull(frame, context)) {
@@ -7235,7 +7257,7 @@ class DistinctParallelCursor : public Cursor {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     // Initialize local cache if not already done
     // Reuse same memory resource for all pulls
@@ -7443,7 +7465,7 @@ PullAwaitable Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) 
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
   if (co_await left_cursor_->Pull(frame, context)) {
@@ -7547,7 +7569,7 @@ class CartesianCursor : public Cursor {
       restore_frame(self_.right_symbols_, right_op_frame_);
     }
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     restore_frame(self_.left_symbols_, *left_op_frames_it_);
     left_op_frames_it_++;
@@ -7611,7 +7633,7 @@ class OutputTableCursor : public Cursor {
   PullAwaitable Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     if (!pulled_) {
       rows_ = self_.callback_(&frame, &context);
@@ -7673,7 +7695,7 @@ class OutputTableStreamCursor : public Cursor {
   PullAwaitable Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -7907,7 +7929,7 @@ class CallProcedureCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -8032,7 +8054,7 @@ class CallValidateProcedureCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("CallValidateProcedureCursor");
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
     if (!co_await input_cursor_->Pull(frame, context)) {
       co_return false;
     }
@@ -8227,7 +8249,7 @@ class LoadCsvCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -8375,7 +8397,7 @@ class LoadParquetCursor : public Cursor {
   PullAwaitable Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -8489,7 +8511,7 @@ class LoadJsonlCursor : public Cursor {
   PullAwaitable Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     auto *mem = context.evaluation_context.memory;
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -8603,7 +8625,7 @@ class ForeachCursor : public Cursor {
     for (const auto &index : cache_) {
       frame_writer.Write(loop_variable_symbol_, index);
       while (co_await updates_->Pull(frame, context)) {
-        AbortCheck(context);
+        co_await AbortCheck(context);
       }
       ResetUpdates();
     }
@@ -8710,7 +8732,7 @@ PullAwaitable Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) 
   SCOPED_PROFILE_OP("Apply");
 
   while (true) {
-    AbortCheck(context);
+    co_await AbortCheck(context);
     if (pull_input_ && !co_await input_->Pull(frame, context)) {
       co_return false;
     };
@@ -8783,7 +8805,7 @@ PullAwaitable IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContex
   SCOPED_PROFILE_OP("IndexedJoin");
 
   while (true) {
-    AbortCheck(context);
+    co_await AbortCheck(context);
     if (pull_input_ && !co_await main_branch_->Pull(frame, context)) {
       co_return false;
     };
@@ -8845,7 +8867,7 @@ class HashJoinCursor : public Cursor {
   PullAwaitable Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("HashJoin");
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     if (!hash_join_initialized_) {
       co_await InitializeHashJoin(frame, context);
@@ -9023,7 +9045,7 @@ class RollUpApplyCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -9107,7 +9129,7 @@ class PeriodicCommitCursor : public Cursor {
     // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     if (!commit_frequency_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame,
@@ -9211,7 +9233,7 @@ class PeriodicSubqueryCursor : public Cursor {
     // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP("PeriodicSubquery");
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     if (!commit_frequency_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame,
@@ -10292,7 +10314,7 @@ class ParallelBranchCursor : public Cursor {
       context.auth_checker->MakeThreadSafe();
     }
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     std::atomic_int pull_result = 0;
     const auto num_branches = branch_cursors_.size();
@@ -10373,8 +10395,9 @@ class ParallelBranchCursor : public Cursor {
         try {
           pre_pull_func(cursor.get());
           // TODO: Should be coroutine
-          pull_result.fetch_add((int)(plan::RunPullToCompletion(cursor->Pull(frame_local, context), context).status ==
-                                      plan::PullRunResult::Status::HasRow));
+          auto awaitable = cursor->Pull(frame_local, context);
+          pull_result.fetch_add(
+              (int)(plan::RunPullToCompletion(awaitable, context).status == plan::PullRunResult::Status::HasRow));
           post_pull_func(cursor.get(), &frame_local);
         } catch (const std::exception &e) {
           // Stop all other threads
@@ -10973,7 +10996,7 @@ class OrderByParallelCursor : public ParallelBranchCursor {
 
     if (branch_iters_.empty()) co_return false;
 
-    AbortCheck(context);
+    co_await AbortCheck(context);
 
     // Pop the smallest element from the heap (based on order_by values
     // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
@@ -11100,7 +11123,7 @@ PullAwaitable Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Skip");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   while (co_await input_cursor_->Pull(frame, context)) {
     if (to_skip_ == -1) {
@@ -11189,7 +11212,7 @@ PullAwaitable Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) 
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Limit");
 
-  AbortCheck(context);
+  co_await AbortCheck(context);
 
   // We need to evaluate the limit expression before the first input Pull
   // because it might be 0 and thereby we shouldn't Pull from input at all.
