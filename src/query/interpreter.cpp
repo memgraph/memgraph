@@ -2671,6 +2671,11 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+
+  // Scheduler-driven yield: keep the suspended coroutine handle and root
+  // awaitable alive so the task can return and be resumed later.
+  std::coroutine_handle<> suspended_handle_{};
+  std::optional<plan::PullAwaitable> stored_awaitable_{};
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -2769,15 +2774,24 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 #endif
     }};
 
-    // TODO: Should be coroutine
-    // Returns true if a result was pulled.
-    const auto pull_result = [&]() -> bool {
-      auto awaitable = cursor_->Pull(frame_, ctx_);
+    // Allow the cursor to store its suspended handle for scheduler-driven yield.
+    ctx_.suspended_task_handle_ptr = &suspended_handle_;
+
+    // Returns std::optional<bool>: true = has row, false = done, nullopt = yielded (caller should return and resume
+    // later).
+    const auto pull_result = [this]() -> std::optional<bool> {
+      plan::PullAwaitable awaitable;
+      if (stored_awaitable_) {
+        awaitable = std::move(*stored_awaitable_);
+        stored_awaitable_.reset();
+      } else {
+        awaitable = cursor_->Pull(frame_, ctx_);
+      }
       while (true) {
         auto result = plan::RunPullToCompletion(awaitable, ctx_);
-        // NOTE: Temporary fix for the coroutine scheduler
         if (result.status == plan::PullRunResult::Status::Yielded) {
-          continue;
+          stored_awaitable_ = std::move(awaitable);
+          return std::nullopt;  // Expose yield to scheduler; next Pull() will resume.
         }
         return result.status == plan::PullRunResult::Status::HasRow;
       }
@@ -2802,20 +2816,32 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
 
     for (; !n || i < n; ++i) {
-      if (!pull_result()) {
-        break;
+      auto pr = pull_result();
+      if (!pr.has_value()) {
+        break;  // Yielded: exit so scheduler can resume later.
       }
-
+      if (!*pr) break;
       if (!output_symbols.empty()) {
         stream_values();
       }
+    }
+
+    // If we yielded, return without finishing so the task can end and be resumed later.
+    if (stored_awaitable_) {
+      return std::nullopt;
     }
 
     // If we finished because we streamed the requested n results,
     // we try to pull the next result to see if there is more.
     // If there is additional result, we leave the pulled result in the frame
     // and set the flag to true.
-    has_unsent_results_ = i == n && pull_result();
+    {
+      auto pr = pull_result();
+      if (!pr.has_value()) {
+        return std::nullopt;  // Yielded during lookahead.
+      }
+      has_unsent_results_ = i == n && *pr;
+    }
 
     execution_time_ += timer.Elapsed();
   }
