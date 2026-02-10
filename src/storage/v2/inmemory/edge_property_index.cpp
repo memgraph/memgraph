@@ -73,19 +73,24 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
     deleted = from_vertex.deleted;
     delta = from_vertex.delta;
     edges = from_vertex.out_edges;
-  }
 
-  // Create and drop index will always use snapshot isolation
-  if (delta) {
-    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Exists_ActionMethod(exists),
-        Deleted_ActionMethod(deleted),
-        Edges_ActionMethod<EdgeDirection::OUT>(edges),
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!from_vertex.has_uncommitted_non_sequential_deltas) {
+      guard.unlock();
+    }
+
+    // Create and drop index will always use snapshot isolation
+    if (delta) {
+      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+        // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Exists_ActionMethod(exists),
+          Deleted_ActionMethod(deleted),
+          Edges_ActionMethod<EdgeDirection::OUT>(edges),
+        });
+        // clang-format on
       });
-      // clang-format on
-    });
+    }
   }
   if (!exists || deleted || edges.empty()) {
     return;
@@ -100,6 +105,7 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
       delta = edge_ref.ptr->delta;
       property_value = edge_ref.ptr->properties.GetProperty(property);
     }
+
     if (delta) {
       // Edge type is immutable so we don't need to check it
       ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {

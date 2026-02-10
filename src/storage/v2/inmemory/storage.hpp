@@ -24,6 +24,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
@@ -828,21 +829,30 @@ class InMemoryStorage final : public Storage {
   std::mutex gc_lock_;
 
   struct GCDeltas {
-    GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
-        : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
+    GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,
+             uint64_t transaction_id)
+        : mark_timestamp_{mark_timestamp},
+          deltas_{std::move(deltas)},
+          commit_info_{std::move(commit_info)},
+          unlinkable_timestamp_{commit_info_ ? commit_info_->timestamp.load(std::memory_order_acquire) : 0},
+          transaction_id_{transaction_id} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
-    uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
-    delta_container deltas_;                                     //!< the deltas that need cleaning
-    std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
+    uint64_t mark_timestamp_{};                  //!< a timestamp no active transaction currently has
+    delta_container deltas_;                     //!< the deltas that need cleaning
+    std::unique_ptr<CommitInfo> commit_info_{};  //!< the commit info the deltas are pointing at
+    uint64_t unlinkable_timestamp_{};            //!< earliest timestamp when these deltas can be safely unlinked
+    uint64_t transaction_id_{};                  //!< the transaction ID that created these deltas
   };
 
-  // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
 
-  // Ownership of unlinked deltas is transferred to garabage_undo_buffers once transaction is commited/aborted
+  // Non-sequential delta chains waiting for all contributors to commit
+  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> waiting_gc_deltas_{};
+
+  // Ownership of unlinked deltas is transferred to garbage_undo_buffers once transaction is committed/aborted
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> garbage_undo_buffers_{};
 
   // Vertices that are logically deleted but still have to be removed from
@@ -881,6 +891,28 @@ class InMemoryStorage final : public Storage {
   AsyncIndexer async_indexer_;
 
   mutable utils::Synchronized<std::unordered_map<LabelId, uint64_t>, utils::SpinLock> label_counts_;
+
+  struct SchemaUpdateData {
+    LocalSchemaTracking schema_diff;
+    SchemaInfoPostProcess post_process;
+    uint64_t start_ts;
+    uint64_t commit_ts;
+    bool property_on_edges;
+
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t commit,
+                     bool prop_on_edges)
+        : schema_diff(std::move(diff)),
+          post_process(std::move(post_proc)),
+          start_ts(start),
+          commit_ts(commit),
+          property_on_edges(prop_on_edges) {}
+  };
+
+  std::map<uint64_t, SchemaUpdateData> pending_schema_updates_;
+  std::mutex schema_queue_mutex_;
+  uint64_t last_processed_commit_ts_{0};
+
+  void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {

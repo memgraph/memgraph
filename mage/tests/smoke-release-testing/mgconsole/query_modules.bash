@@ -5,7 +5,7 @@ source "$SCRIPT_DIR/../utils.bash"
 test_query_modules() {
   IMAGE_TYPE=${1:-"mage"}
   if [ "$IMAGE_TYPE" == "mage" ]; then
-    expected_procedure_count=322
+    expected_procedure_count=323
   elif [ "$IMAGE_TYPE" == "memgraph" ]; then
     expected_procedure_count=138
   else
