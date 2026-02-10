@@ -62,6 +62,6 @@ class YieldPointAwaitable {
 /// Run the given pull awaitable to completion or until it yields.
 /// Caller must set ctx.suspended_task_handle_ptr before calling.
 /// Returns HasRow, Done, or Yielded. If Yielded, *ctx.suspended_task_handle_ptr holds the handle to resume.
-PullRunResult RunPullToCompletion(PullAwaitable awaitable, ExecutionContext &ctx);
+PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx);
 
 }  // namespace memgraph::query::plan
