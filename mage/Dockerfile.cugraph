@@ -80,15 +80,17 @@ COPY openssl/ /tmp/openssl/
 COPY memgraph.deb .
 COPY install_runtime_requirements.sh /install_runtime_requirements.sh
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source="./memgraph.deb",target=/memgraph.deb,ro \
+  --mount=type=bind,source="./openssl",target=/openssl,ro,required=false \
+  --mount=type=bind,source="./install_runtime_requirements.sh",target=/install_runtime_requirements.sh,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
-  if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
+  if test -n "$(find /openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
     apt-get update && apt-get install -y \
-    /tmp/openssl/*.deb \
+    /openssl/*.deb \
     --no-install-recommends && \
-    rm -rf /tmp/*; \
   fi && \
   if [ "$BUILD_TYPE" = "RelWithDebInfo" ]; then \
     apt-get install -y gdb libc6-dbg --no-install-recommends; \
@@ -100,8 +102,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
   dpkg -i memgraph.deb && \
-  rm memgraph.deb && \
-  rm /install_runtime_requirements.sh && \
   apt remove adduser -y && \
   apt autoremove -y && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
@@ -111,8 +111,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 
 # Copy modules
 RUN mkdir -p /usr/lib/memgraph/query_modules/
-COPY mage.tar.gz /tmp/mage.tar.gz
-RUN tar -xzvf /tmp/mage.tar.gz -C /usr/lib/memgraph/ && rm /tmp/mage.tar.gz
+RUN --mount=type=bind,source="./mage.tar.gz",target=/mage.tar.gz,ro \
+  tar -xzvf /mage.tar.gz -C /usr/lib/memgraph/
 
 # copy script to convert to dev container
 COPY make-dev-container.sh /make-dev-container.sh
