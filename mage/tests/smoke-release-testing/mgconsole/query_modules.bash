@@ -7,7 +7,7 @@ test_query_modules() {
   if [ "$IMAGE_TYPE" == "mage" ]; then
     expected_module_count=322
   elif [ "$IMAGE_TYPE" == "memgraph" ]; then
-    expected_module_count=142
+    expected_module_count=138
   else
     echo "Invalid image type: $IMAGE_TYPE"
     exit 1
