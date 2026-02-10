@@ -58,7 +58,7 @@ ARG MEMGRAPH_PACKAGE
 # copy custom openssl packages, runtime install script and install requirements
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   --mount=type=bind,source="./memgraph.deb",target=/memgraph.deb,ro \
-  --mount=type=bind,source="./openssl",target=/openssl,ro,required=false \
+  --mount=type=bind,source="./openssl",target=/openssl,ro \
   --mount=type=bind,source="./install_runtime_requirements.sh",target=/install_runtime_requirements.sh,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
