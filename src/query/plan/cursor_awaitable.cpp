@@ -13,7 +13,7 @@
 
 namespace memgraph::query::plan {
 
-PullRunResult RunPullToCompletion(PullAwaitable awaitable, ExecutionContext &ctx) {
+PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx) {
   // 1. Reset the suspension pointer
   if (ctx.suspended_task_handle_ptr) *ctx.suspended_task_handle_ptr = {};
 
