@@ -14,30 +14,44 @@
 namespace memgraph::query::plan {
 
 PullRunResult RunPullToCompletion(PullAwaitable &awaitable, ExecutionContext &ctx) {
-  // 1. Reset the suspension pointer
-  if (ctx.suspended_task_handle_ptr) *ctx.suspended_task_handle_ptr = {};
-
-  auto handle = awaitable.GetHandle();
-
-  // 2. Immediate check for finished/null handles
-  if (!handle || handle.done()) {
-    awaitable.RethrowIfException();
-    return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
+  // 1. If we are resuming after a yield, the suspended handle is in the context.
+  //    We must resume that handle (the inner coroutine that yielded), not the root.
+  std::coroutine_handle<> resume_from{};
+  if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
+    resume_from = std::exchange(*ctx.suspended_task_handle_ptr, {});
+  } else if (ctx.suspended_task_handle_ptr) {
+    // TODO: do we need this?
+    *ctx.suspended_task_handle_ptr = {};
   }
 
-  // 3. Execution Loop
-  while (!handle.done()) {
-    handle.resume();
+  decltype(awaitable.GetHandle()) handle;
 
-    // Check if the coroutine paused itself via YieldPointAwaitable
+  if (resume_from) {
+    resume_from.resume();
     if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
       return PullRunResult::Yielded();
     }
-
-    // Safety: If handle.done() is true, the loop will naturally exit.
+    if (awaitable.Done()) {
+      awaitable.RethrowIfException();
+      return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
+    }
+    handle = awaitable.GetHandle();
+  } else {
+    handle = awaitable.GetHandle();
+    if (!handle || handle.done()) {
+      awaitable.RethrowIfException();
+      return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
+    }
   }
 
-  // 4. Final Result Extraction
+  // 2. Execution loop (run until root is done or we yield again)
+  while (!handle.done()) {
+    handle.resume();
+    if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
+      return PullRunResult::Yielded();
+    }
+  }
+
   awaitable.RethrowIfException();
   return awaitable.Result() ? PullRunResult::Row() : PullRunResult::Done();
 }
