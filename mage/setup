@@ -227,10 +227,8 @@ def build_and_copy_cpp_modules(args: Dict[str, Any]) -> bool:
 
     logger.info(f"[Terminal] (3/8) Copying built C++ modules to {MAGE_BUILD_DIRECTORY}.")
     all_so = set(glob.glob("**/*.so", recursive=True))
-    all_so -= {
-        "mgclient/src/mgclient-proj-build/src/libmgclient.so",
-        "mgclient/lib/libmgclient.so",
-    }
+    # Exclude libmgclient.so files - they are client libraries, not query modules
+    all_so = {file for file in all_so if not os.path.basename(file) == "libmgclient.so"}
 
     for file in all_so:
         shutil.copy2(file, MAGE_BUILD_DIRECTORY)
