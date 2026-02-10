@@ -2772,7 +2772,15 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // TODO: Should be coroutine
     // Returns true if a result was pulled.
     const auto pull_result = [&]() -> bool {
-      return plan::RunPullToCompletion(cursor_->Pull(frame_, ctx_), ctx_).status == plan::PullRunResult::Status::HasRow;
+      auto awaitable = cursor_->Pull(frame_, ctx_);
+      while (true) {
+        auto result = plan::RunPullToCompletion(awaitable, ctx_);
+        // NOTE: Temporary fix for the coroutine scheduler
+        if (result.status == plan::PullRunResult::Status::Yielded) {
+          continue;
+        }
+        return result.status == plan::PullRunResult::Status::HasRow;
+      }
     };
 
     auto values = std::vector<TypedValue>(output_symbols.size());

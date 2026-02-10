@@ -161,6 +161,11 @@ add_unit_test(query_plan_read_write_typecheck
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_plan_yield
+    SOURCES query_plan_yield.cpp
+    LINK_TARGETS mg-query mg-glue
+)
+
 add_unit_test(query_plan_v2_create_set_remove_delete
     SOURCES query_plan_v2_create_set_remove_delete.cpp
     LINK_TARGETS mg-query mg-glue

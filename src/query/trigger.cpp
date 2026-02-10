@@ -295,9 +295,12 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   }
 
   // NOTE: Does not need to be a coroutine.
-  // Trigger can be executed from the Commit (where we don't want to yiedl)
+  // Trigger can be executed from the Commit (where we don't want to yield)
   // or in a separate thread that does not need to yield to other work.
-  while (plan::RunPullToCompletion(cursor->Pull(frame, ctx), ctx).status == plan::PullRunResult::Status::HasRow);
+  while (true) {
+    auto awaitable = cursor->Pull(frame, ctx);
+    if (plan::RunPullToCompletion(awaitable, ctx).status != plan::PullRunResult::Status::HasRow) break;
+  }
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
