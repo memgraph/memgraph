@@ -22,6 +22,7 @@ python-Levenshtein==0.26.1
 scikit-learn==1.5.2
 scipy==1.13.1
 sentence-transformers==5.1.1
+setuptools==81.0.0  # maximum version that can be used until torchmetrics doesn't rely on pkg_resources any more
 six==1.17.0
 torch==2.9.0
 torchmetrics==0.10.0

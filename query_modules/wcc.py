@@ -10,9 +10,6 @@ except ImportError as import_error:
     )
     raise import_error
 
-# Import nxalg to use its implementation
-from nxalg import weakly_connected_components_subgraph  # noqa E402
-
 
 @mgp.read_proc
 def get_components(
@@ -48,4 +45,6 @@ def get_components(
     procedure name for better compatibility with NetworkX algorithms.
     """
     # Call the implementation from nxalg
+    from nxalg import weakly_connected_components_subgraph
+
     return weakly_connected_components_subgraph(vertices, edges)
