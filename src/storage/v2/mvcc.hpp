@@ -39,8 +39,8 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
   // its commit timestamp set.
   // This allows the transaction to see its changes even though it's committed.
-  const auto commit_timestamp = transaction->commit_timestamp
-                                    ? transaction->commit_timestamp->load(std::memory_order_acquire)
+  auto const commit_timestamp = transaction->commit_info
+                                    ? transaction->commit_info->timestamp.load(std::memory_order_acquire)
                                     : transaction->transaction_id;
 
   std::size_t n_processed = 0;
@@ -54,17 +54,29 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     // id value, that the change is committed.
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+    bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
+
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
-      break;
+      if (is_delta_non_sequential) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
     auto cid = delta->command_id;
     if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
-      break;
+      if (is_delta_non_sequential) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
@@ -73,7 +85,12 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
         (cid < transaction->command_id ||
          // This check is used for on-disk storage. The vertex is valid only if it was deserialized in this transaction.
          (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
-      break;
+      if (is_delta_non_sequential) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // This delta must be applied, call the callback.
@@ -94,13 +111,120 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
 template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
-  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+  auto ts = object->delta->commit_info->timestamp.load(std::memory_order_acquire);
+
+  if (ts == transaction->transaction_id) {
+    // If head delta from same transaction is non-sequential, cannot add blocking operation
+    if (IsDeltaNonSequential(*object->delta)) {
+      transaction->has_serialization_error = true;
+      return false;
+    }
+    return true;
+  }
+
+  if (ts < transaction->start_timestamp) {
+    if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
+      if (object->has_uncommitted_non_sequential_deltas) {
+        transaction->has_serialization_error = true;
+        return false;
+      }
+    }
     return true;
   }
 
   transaction->has_serialization_error = true;
   return false;
+}
+
+enum class WriteResult : uint8_t { SUCCESS, NON_SEQUENTIAL, SERIALIZATION_ERROR };
+
+/// This function prepares the object for a write of an edge creation action on
+/// a vertex. It checks whether there are any serialization errors in the process
+/// and returns a `WriteResult` indicating whether the caller can proceed with a
+/// write operation, and if so, is the operation non-sequential (`NON_SEQUENTIAL`).
+/// A non-sequential delta can be prepended in all situations where a "normal"
+/// delta could be, but can also be prepended onto non-sequential deltas from
+/// other in-flight transactions, or to a CREATE_*_EDGE for an in-flight
+/// transaction provided that there are no uncommitted deltas other than CREATE_*_EDGE.
+template <typename TObj>
+inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *object, Delta::Action action) {
+  DMG_ASSERT(action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE);
+
+  if (object->delta == nullptr) return WriteResult::SUCCESS;
+
+  auto const ts = object->delta->commit_info->timestamp.load(std::memory_order_acquire);
+
+  if (ts != transaction->transaction_id) {
+    if (ts < transaction->start_timestamp) {
+      // Its possible that the commited delta we are looking at is part of a NonSequential block
+      // Use the has_uncommitted_non_sequential_deltas flag as our indicator
+      if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
+        if (object->has_uncommitted_non_sequential_deltas) {
+          transaction->has_non_sequential_deltas = true;
+          return WriteResult::NON_SEQUENTIAL;
+        }
+      }
+      // Standard MVCC visibility rules: if the head delta was committed before
+      // this transaction started, any delta action can be prepended.
+      return WriteResult::SUCCESS;
+    }
+
+    // Head delta is from another uncommitted transaction. Check if this is
+    // a situation where the entire uncommitted delta chain is of edge creations:
+    // if so, we can safely add a non-sequential delta.
+
+    // If the head delta is non-sequential, we know we can always add another
+    // non-sequential delta.
+    if (IsDeltaNonSequential(*object->delta)) {
+      transaction->has_non_sequential_deltas = true;
+      object->has_uncommitted_non_sequential_deltas = true;
+      return WriteResult::NON_SEQUENTIAL;
+    }
+
+    // If the head delta is an edge creation delta with FORCED_SEQUENTIAL state,
+    // there's a blocking delta upstream in that transaction's chain, so this
+    // would be a serialization error.
+    if (CanBeNonSequential(object->delta->action) &&
+        object->delta->vertex_edge.vertex.GetState() == DeltaChainState::FORCED_SEQUENTIAL) {
+      transaction->has_serialization_error = true;
+      return WriteResult::SERIALIZATION_ERROR;
+    }
+
+    for (const Delta *delta = object->delta; delta != nullptr; delta = delta->next.load(std::memory_order_acquire)) {
+      const auto delta_ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+
+      if (delta_ts == transaction->transaction_id) continue;
+
+      if (delta_ts < transaction->start_timestamp) break;
+
+      // Optimization: Once we encounter a non-sequential delta, we can break early
+      // because blocking deltas can only exist BEFORE non-sequential deltas in the
+      // chain (PrepareForWrite prevents them when head is non-sequential).
+      if (IsDeltaNonSequential(*delta)) {
+        break;
+      }
+
+      if (delta->action != Delta::Action::REMOVE_IN_EDGE && delta->action != Delta::Action::REMOVE_OUT_EDGE) {
+        transaction->has_serialization_error = true;
+        return WriteResult::SERIALIZATION_ERROR;
+      }
+    }
+
+    transaction->has_non_sequential_deltas = true;
+    object->has_uncommitted_non_sequential_deltas = true;
+    return WriteResult::NON_SEQUENTIAL;
+  }
+
+  // Same transaction: check if the head delta is non-sequential
+  // If the head delta belongs to the same transaction and is non-sequential,
+  // then only another edge creation delta can be prepended.
+  if (IsDeltaNonSequential(*object->delta)) {
+    transaction->has_non_sequential_deltas = true;
+    object->has_uncommitted_non_sequential_deltas = true;
+    return WriteResult::NON_SEQUENTIAL;
+  }
+  // Head delta from same transaction is not non-sequential - allow any new delta
+  return WriteResult::SUCCESS;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
@@ -112,17 +236,17 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return nullptr;
   }
-  transaction->EnsureCommitTimestampExists();
+  transaction->EnsureCommitInfoExists();
 
   return &transaction->deltas.emplace(
-      Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
+      Delta::DeleteObjectTag(), transaction->commit_info.get(), transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
 
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction,
                                                   std::optional<std::string_view> old_disk_key, std::string &&ts) {
-  transaction->EnsureCommitTimestampExists();
+  transaction->EnsureCommitInfoExists();
 
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
@@ -151,6 +275,32 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
   return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
 }
 
+/// Computes whether a new edge creation delta should have FORCED_SEQUENTIAL state.
+/// Returns true if there exists a blocking (non-edge-creation) uncommitted delta
+/// upstream in this transaction's chain.
+template <typename TObj>
+inline bool ShouldSetNonSequentialBlockerUpstreamFlag(Transaction *transaction, TObj *object) {
+  Delta *head = object->delta;
+  if (head == nullptr) {
+    return false;
+  }
+
+  auto const head_ts = head->commit_info->timestamp.load(std::memory_order_acquire);
+  if (head_ts != transaction->transaction_id) {
+    // Different transaction - we're non-sequential, so no upstream in our transaction
+    return false;
+  }
+
+  // Same transaction. Check if head is blocking or has the flag
+  if (CanBeNonSequential(head->action)) {
+    // Head is an edge delta (REMOVE_IN_EDGE/REMOVE_OUT_EDGE) so inherit its flag
+    return head->vertex_edge.vertex.GetState() == DeltaChainState::FORCED_SEQUENTIAL;
+  }
+
+  // Head is some other blocking operation (non-edge-creation)
+  return true;
+}
+
 /// This function creates a delta in the transaction for the object and links
 /// the delta into the object's delta list.
 /// @throw std::bad_alloc
@@ -160,9 +310,9 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     return;
   }
 
-  transaction->EnsureCommitTimestampExists();
+  transaction->EnsureCommitInfoExists();
   auto delta = &transaction->deltas.emplace(
-      std::forward<Args>(args)..., transaction->commit_timestamp.get(), transaction->command_id);
+      std::forward<Args>(args)..., transaction->commit_info.get(), transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times
@@ -178,7 +328,22 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // delta but won't modify it until we are done with all of our modifications.
   if (object->delta) {
     object->delta->prev.Set(delta);
+
+    // If the new delta is non-sequential and the previous delta is a
+    // sequential edge creation delta, propagate the non-sequential state to
+    // the head of the previous delta block.
+    if (IsDeltaNonSequential(*delta) && CanBeNonSequential(object->delta->action) &&
+        object->delta->vertex_edge.vertex.GetState() == DeltaChainState::SEQUENTIAL) {
+      {
+        auto guard = std::lock_guard{object->delta->commit_info->lock};
+        if (object->delta->commit_info->non_seq_propagation == NonSeqPropagationState::NONE) {
+          object->delta->commit_info->non_seq_propagation = NonSeqPropagationState::PENDING;
+        }
+        object->delta->vertex_edge.vertex.SetState(DeltaChainState::NON_SEQUENTIAL);
+      }
+    }
   }
+
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
   // collector and other transactions will acquire the object lock to read the
   // delta from the object. Because the lock is held during the whole time this

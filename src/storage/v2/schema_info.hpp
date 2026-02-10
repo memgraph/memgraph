@@ -106,7 +106,6 @@ struct SchemaTracking final : public SchemaTrackingInterface {
                     const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) override;
 
   void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) override;
-
   void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
 
   void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
