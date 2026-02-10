@@ -5,7 +5,7 @@ source "$SCRIPT_DIR/../utils.bash"
 test_query_modules() {
   IMAGE_TYPE=${1:-"mage"}
   if [ "$IMAGE_TYPE" == "mage" ]; then
-    expected_module_count=322
+    expected_module_count=323
   elif [ "$IMAGE_TYPE" == "memgraph" ]; then
     expected_module_count=142
   else
