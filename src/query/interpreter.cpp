@@ -76,6 +76,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/parallel_checker.hpp"
@@ -3029,8 +3030,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 #endif
     }};
 
+    // TODO: Should be coroutine
     // Returns true if a result was pulled.
-    const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
+    const auto pull_result = [&]() -> bool {
+      return plan::RunPullToCompletion(cursor_->Pull(frame_, ctx_), ctx_).status == plan::PullRunResult::Status::HasRow;
+    };
 
     auto values = std::vector<TypedValue>(output_symbols.size());
     const auto stream_values = [&] {
