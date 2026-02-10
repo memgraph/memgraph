@@ -54,56 +54,47 @@ bool EdgeAccessor::IsVisible(const View view) const {
 
   auto check_from_vertex_integrity = [&view, this]() -> bool {
     bool attached = true;
-    Delta *delta = nullptr;
-    {
-      auto guard = std::shared_lock{from_vertex_->lock};
-      // Initialize deleted by checking if out edges contain edge_
-      attached = std::ranges::any_of(from_vertex_->out_edges,
-                                     [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
-      delta = from_vertex_->delta;
 
-      // If vertex has non-sequential deltas, hold lock while applying them
-      if (!from_vertex_->has_uncommitted_non_sequential_deltas) {
-        guard.unlock();
-      }
+    MvccRead reader{from_vertex_, transaction_, view, [&](Vertex const &v) {
+                      // Initialize deleted by checking if out edges contain edge_
+                      attached = std::ranges::any_of(
+                          v.out_edges, [&](auto const &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
+                    }};
 
-      ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
-        switch (delta.action) {
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-            break;
-          case Delta::Action::ADD_OUT_EDGE: {
-            if (delta.vertex_edge.edge == edge_) {
-              attached = true;
-            }
-            break;
+    reader.ApplyDeltasForRead([&](Delta const &delta) {
+      switch (delta.action) {
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+          break;
+        case Delta::Action::ADD_OUT_EDGE: {
+          if (delta.vertex_edge.edge == edge_) {
+            attached = true;
           }
-          case Delta::Action::REMOVE_OUT_EDGE: {
-            if (delta.vertex_edge.edge == edge_) {
-              attached = false;
-            }
-            break;
-          }
+          break;
         }
-      });
-    }
+        case Delta::Action::REMOVE_OUT_EDGE: {
+          if (delta.vertex_edge.edge == edge_) {
+            attached = false;
+          }
+          break;
+        }
+      }
+    });
+
     return attached;
   };
   auto check_presence_of_edge = [&view, this]() -> bool {
     bool deleted = true;
-    Delta *delta = nullptr;
-    {
-      auto guard = std::shared_lock{edge_.ptr->lock};
-      deleted = edge_.ptr->deleted;
-      delta = edge_.ptr->delta;
-    }
-    ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+
+    MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) { deleted = e.deleted; }};
+
+    reader.ApplyDeltasForRead([&](Delta const &delta) {
       switch (delta.action) {
         case Delta::Action::ADD_LABEL:
         case Delta::Action::REMOVE_LABEL:
@@ -338,14 +329,13 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   bool exists = true;
   bool deleted = false;
   std::optional<PropertyValue> value;
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
-    value.emplace(edge_.ptr->properties.GetProperty(property));
-    delta = edge_.ptr->delta;
-  }
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
+
+  MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) {
+                    deleted = e.deleted;
+                    value.emplace(e.properties.GetProperty(property));
+                  }};
+
+  reader.ApplyDeltasForRead([&exists, &deleted, &value, property](Delta const &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
@@ -402,14 +392,13 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
-    properties = edge_.ptr->properties.Properties();
-    delta = edge_.ptr->delta;
-  }
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
+
+  MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) {
+                    deleted = e.deleted;
+                    properties = e.properties.Properties();
+                  }};
+
+  reader.ApplyDeltasForRead([&exists, &deleted, &properties](Delta const &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         auto it = properties.find(delta.property.key);
@@ -455,23 +444,23 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   bool deleted = false;
   std::vector<PropertyValue> property_values;
   property_values.reserve(properties.size());
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
-    auto property_paths = properties |
-                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                          r::to<std::vector<storage::PropertyPath>>();
-    property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
-    delta = edge_.ptr->delta;
-  }
+
+  MvccRead reader{edge_.ptr, transaction_, view, [&](Edge const &e) {
+                    deleted = e.deleted;
+                    auto property_paths =
+                        properties |
+                        rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
+                        r::to<std::vector<storage::PropertyPath>>();
+                    property_values = e.properties.ExtractPropertyValuesMissingAsNull(property_paths);
+                  }};
+
   auto properties_map =
-      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+      rv::zip(properties, property_values) | rv::transform([](auto const &property_id_value_pair) {
         return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
       }) |
       r::to<std::map<PropertyId, PropertyValue>>();
 
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
+  reader.ApplyDeltasForRead([&exists, &deleted, &properties_map](Delta const &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         auto it = properties_map.find(delta.property.key);

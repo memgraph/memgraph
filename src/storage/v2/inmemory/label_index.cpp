@@ -122,32 +122,23 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
 
   bool exists = true;
   bool deleted = false;
-  Delta *delta = nullptr;
   bool has_label = false;
-  {
-    auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted;
-    delta = vertex.delta;
-    has_label = std::ranges::contains(vertex.labels, label);
 
-    // If vertex has non-sequential deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_non_sequential_deltas) {
-      guard.unlock();
-    }
+  MvccRead reader{&vertex, &tx, View::OLD, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    has_label = std::ranges::contains(v.labels, label);
+                  }};
 
-    // Create and drop index will always use snapshot isolation
-    if (delta) {
-      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-        // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Exists_ActionMethod(exists),
-          Deleted_ActionMethod(deleted),
-          HasLabel_ActionMethod(has_label, label),
-        });
-        // clang-format on
-      });
-    }
-  }
+  reader.ApplyDeltasForRead([&](Delta const &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Exists_ActionMethod(exists),
+      Deleted_ActionMethod(deleted),
+      HasLabel_ActionMethod(has_label, label),
+    });
+    // clang-format on
+  });
+
   if (!exists || deleted || !has_label) {
     return;
   }
