@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,21 +11,16 @@
 
 #include <gtest/gtest.h>
 
-#include "planner/core/enode.hpp"
+#include "planner/egraph/enode.hpp"
+#include "test_symbols.hpp"
+
 import memgraph.planner.core.union_find;
+import memgraph.planner.core.concepts;
+import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 
-// Exemplary enum for operation symbols
-enum class Op : uint8_t {
-  Add,
-  Mul,
-  Neg,
-  Var,
-  Const,
-  F,  // N-ary function
-};
-
+using namespace test;
 using TestNode = ENode<Op>;
 
 static_assert(ENodeSymbol<Op>);
