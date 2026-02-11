@@ -4,42 +4,42 @@ Feature: Server-side parameters
         Given an empty graph
         When executing query:
             """
-            SET GLOBAL PARAMETER x="value"
+            SET GLOBAL PARAMETER x='value'
             """
         When executing query:
             """
             SHOW PARAMETERS
             """
         Then the result should be:
-            | name | value     | scope   |
+            | name | value       | scope   |
             | 'x'  | '"value"' | 'global' |
 
     Scenario: Set global parameters (literal and from client parameter) and show
         Given an empty graph
         And parameters are:
-            | config | "my_config" |
+            | config | my_config |
         When executing query:
             """
             SET GLOBAL PARAMETER y=$config
             """
         When executing query:
             """
-            SET GLOBAL PARAMETER x="value"
+            SET GLOBAL PARAMETER x='value'
             """
         When executing query:
             """
             SHOW PARAMETERS
             """
         Then the result should be (ignoring element order for lists):
-            | name | value        | scope   |
-            | 'x'  | '"value"'    | 'global' |
-            | 'y'  | '"my_config"'| 'global' |
+            | name | value            | scope   |
+            | 'x'  | '"value"'      | 'global' |
+            | 'y'  | '"my_config"'  | 'global' |
 
     Scenario: Unset parameter
         Given an empty graph
         And having executed:
             """
-            SET GLOBAL PARAMETER x="value"
+            SET GLOBAL PARAMETER x='value'
             """
         When executing query:
             """
@@ -55,7 +55,7 @@ Feature: Server-side parameters
         Given an empty graph
         And having executed:
             """
-            SET GLOBAL PARAMETER x="value"
+            SET GLOBAL PARAMETER x='value'
             """
        And having executed:
             """
@@ -72,10 +72,10 @@ Feature: Server-side parameters
     Scenario: Override server side parameters in queries
         Given an empty graph
         And parameters are:
-            | x | "overrrided_value" |
+            | x | overrrided_value |
         And having executed:
             """
-            SET GLOBAL PARAMETER x="value"
+            SET GLOBAL PARAMETER x='value'
             """
        And having executed:
             """

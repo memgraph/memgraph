@@ -34,7 +34,7 @@ std::string_view ScopePrefix(ParameterScope scope) {
     case ParameterScope::SESSION:
       return "session/";
   }
-  return "global/";
+  throw utils::BasicException("Invalid parameter scope");
 }
 
 std::string MakeKey(ParameterScope scope, std::string_view name) {
@@ -46,13 +46,13 @@ std::string MakeKey(ParameterScope scope, std::string_view name) {
 std::string_view ParameterScopeToString(ParameterScope scope) {
   switch (scope) {
     case ParameterScope::GLOBAL:
-      return "GLOBAL";
+      return "global";
     case ParameterScope::DATABASE:
-      return "DATABASE";
+      return "database";
     case ParameterScope::SESSION:
-      return "SESSION";
+      return "session";
   }
-  return "GLOBAL";
+  throw utils::BasicException("Invalid parameter scope");
 }
 
 Parameters::Parameters(const std::filesystem::path &storage_path) {
