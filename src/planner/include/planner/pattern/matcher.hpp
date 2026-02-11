@@ -135,14 +135,86 @@ class EMatcher {
  private:
   using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
 
+<<<<<<< HEAD
   // MatchFrame is defined in match.hpp for reuse in EMatchContext
+=======
+  /// Stack frame for iterative backtracking matcher
+  struct MatchFrame {
+    PatternNodeId const pnode_id;
+    EClassId const eclass_id;
+
+    /// Result from child frame (set by parent when child pops)
+    enum class ChildResult : uint8_t {
+      None,        ///< No child result pending
+      Yielded,     ///< Child completed successfully
+      Backtracked  ///< Child failed, should try alternative
+    };
+    ChildResult child_result = ChildResult::None;
+
+    // For symbol nodes: iteration state over e-nodes
+    // Span directly into EClass::nodes() - safe because EGraph is const during matching
+    // nullopt = not initialized, empty span = exhausted, use subspan(1) to advance
+    std::optional<std::span<ENodeId const>> enode_ids;  ///< Remaining e-nodes to try
+
+    // For symbol nodes: parallel iteration over pattern children and e-node children
+    // Both spans advance together; empty = all children matched for current e-node
+    std::optional<std::span<PatternNodeId const>> pattern_children;
+    std::optional<std::span<EClassId const>> enode_children;
+
+    // Binding state - track all bindings made by this frame and its children
+    // so we can unbind them all when backtracking to try next e-node
+    boost::container::small_vector<std::size_t, 4> bindings;  ///< Slots bound during this e-node attempt
+
+    /// Bind a slot and track it for later unbinding during backtrack
+    void bind_and_track(PartialMatch &partial, std::size_t slot) {
+      partial.bind(slot, eclass_id);
+      bindings.push_back(slot);
+    }
+
+    /// Unbind all tracked bindings and clear the list
+    void unbind_all(PartialMatch &partial) {
+      for (auto slot : bindings) {
+        partial.unbind(slot);
+      }
+      bindings.clear();
+    }
+
+    /// Advance to the next e-node in the iteration
+    void advance_enode() { enode_ids = enode_ids->subspan(1); }
+
+    /// Get the current e-node ID being processed
+    [[nodiscard]] auto current_enode_id() const -> ENodeId { return enode_ids->front(); }
+
+    /// Advance to the next child in both pattern and e-node children spans
+    void advance_child() {
+      pattern_children = pattern_children->subspan(1);
+      enode_children = enode_children->subspan(1);
+    }
+
+    /// Check if all children have been processed for current e-node
+    [[nodiscard]] auto children_exhausted() const -> bool { return pattern_children->empty(); }
+
+    /// Initialize e-node iteration for this frame (call once per frame)
+    void init_enodes(std::span<ENodeId const> nodes) { enode_ids = nodes; }
+
+    /// Initialize children iteration for current e-node match
+    void init_children(std::span<PatternNodeId const> pattern_kids, std::span<EClassId const> enode_kids) {
+      pattern_children = pattern_kids;
+      enode_children = enode_kids;
+    }
+  };
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
 
   /// Result of processing a single frame - tells the outer loop exactly what to do
   struct StepOutcome {
     enum class Action : uint8_t {
       YieldMatchAndContinue,  ///< Root match found, save to results, keep iterating (symbol nodes)
       YieldMatchAndPop,       ///< Root match found, save to results, pop frame (wildcards/variables)
+<<<<<<< HEAD
       ChildYielded,           ///< Child completed, pop frame
+=======
+      ChildYielded,           ///< Child completed, transfer bindings and pop
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
       PushChild,              ///< Push child_frame onto stack
       PopAndContinue,         ///< Pop current frame, no retry needed
       PopAndRetryParent       ///< Pop current frame, parent should retry
@@ -225,12 +297,31 @@ void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMat
     return;
   }
 
+<<<<<<< HEAD
   ctx.prepare_for_pattern(pattern.num_vars());
   results.clear();
 
   auto &partial = ctx.partial();
   auto &processed = ctx.processed();
   auto &stack = ctx.match_stack();
+=======
+  PartialMatch partial(pattern.num_vars());
+  boost::container::small_vector<MatchFrame, 32> stack;
+
+  ctx.clear_temporaries();
+  results.clear();
+  auto &processed = ctx.processed();
+  processed.clear();
+
+  // Helper to transfer bindings from child to parent
+  auto transfer_bindings = [](boost::container::small_vector<MatchFrame, 32> &s) {
+    auto &child = s.back();
+    if (!child.bindings.empty() && s.size() > 1) {
+      auto &parent = s[s.size() - 2];
+      parent.bindings.insert(parent.bindings.end(), child.bindings.begin(), child.bindings.end());
+    }
+  };
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
 
   // Process a single root candidate through the backtracking matcher
   auto process_candidate = [&](EClassId root_eclass) {
@@ -241,7 +332,11 @@ void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMat
       return;
     }
 
+<<<<<<< HEAD
     stack.push_back(MatchFrame{.pnode_id = pattern.root(), .eclass_id = canonical_root, .binding_start = 0});
+=======
+    stack.push_back(MatchFrame{.pnode_id = pattern.root(), .eclass_id = canonical_root});
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
 
     // Simple dispatch loop - step_frame tells us exactly what to do
     while (!stack.empty()) {
@@ -254,12 +349,20 @@ void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMat
 
         case Action::YieldMatchAndPop:
           results.push_back(ctx.commit(partial));
+<<<<<<< HEAD
           partial.rewind_to(stack.back().binding_start);
+=======
+          stack.back().unbind_all(partial);
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
           stack.pop_back();
           break;
 
         case Action::ChildYielded:
+<<<<<<< HEAD
           // No binding transfer needed - bindings are in partial's undo log
+=======
+          transfer_bindings(stack);
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
           stack.pop_back();
           if (!stack.empty()) {
             stack.back().child_result = MatchFrame::ChildResult::Yielded;
@@ -267,18 +370,29 @@ void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMat
           break;
 
         case Action::PushChild:
+<<<<<<< HEAD
           // Record current checkpoint for the new frame
           outcome.child_frame->binding_start = partial.checkpoint();
+=======
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
           stack.push_back(*outcome.child_frame);
           break;
 
         case Action::PopAndContinue:
+<<<<<<< HEAD
           partial.rewind_to(stack.back().binding_start);
+=======
+          stack.back().unbind_all(partial);
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
           stack.pop_back();
           break;
 
         case Action::PopAndRetryParent:
+<<<<<<< HEAD
           partial.rewind_to(stack.back().binding_start);
+=======
+          stack.back().unbind_all(partial);
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
           stack.pop_back();
           if (!stack.empty()) {
             stack.back().child_result = MatchFrame::ChildResult::Backtracked;
@@ -330,7 +444,11 @@ auto EMatcher<Symbol, Analysis>::step_variable(Pattern<Symbol> const &pattern, M
 
   if (!partial.is_bound(slot)) {
     // New binding
+<<<<<<< HEAD
     partial.bind(slot, frame.eclass_id);
+=======
+    frame.bind_and_track(partial, slot);
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
     return {is_root ? Action::YieldMatchAndPop : Action::ChildYielded, std::nullopt};
   }
   // Already bound - check consistency
@@ -363,8 +481,12 @@ auto EMatcher<Symbol, Analysis>::step_symbol(Pattern<Symbol> const &pattern, Mat
   // Handle child result
   switch (child_result) {
     case ChildResult::Backtracked:
+<<<<<<< HEAD
       // Rewind bindings made during this e-node attempt
       partial.rewind_to(frame.binding_start);
+=======
+      frame.unbind_all(partial);
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
       frame.advance_enode();
       break;
     case ChildResult::Yielded:
@@ -397,10 +519,17 @@ auto EMatcher<Symbol, Analysis>::step_symbol(Pattern<Symbol> const &pattern, Mat
       continue;
     }
 
+<<<<<<< HEAD
     // Found match - rewind to frame start and bind if needed
     partial.rewind_to(frame.binding_start);
     if (binding) {
       partial.bind(pattern.var_slot(*binding), frame.eclass_id);
+=======
+    // Found match - bind if needed
+    frame.unbind_all(partial);
+    if (binding) {
+      frame.bind_and_track(partial, pattern.var_slot(*binding));
+>>>>>>> 9c543cc64 (feat(planner): Add e-graph rewrite system for planner v2)
     }
 
     if (sym_node.children.empty()) {
