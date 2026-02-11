@@ -3883,12 +3883,12 @@ antlrcpp::Any CypherMainVisitor::visitSetParameter(MemgraphCypher::SetParameterC
   auto *parameter_query = storage_->Create<ParameterQuery>();
   parameter_query->action_ = ParameterQuery::Action::SET_PARAMETER;
   parameter_query->parameter_name_ = std::any_cast<std::string>(ctx->parameterName()->symbolicName()->accept(this));
-  if (ctx->parameterValue()->literal() && ctx->parameterValue()->literal()->StringLiteral()) {
+  if (ctx->parameterValue()->literal()) {
     parameter_query->parameter_value_ = std::any_cast<Expression *>(ctx->parameterValue()->accept(this));
   } else if (ctx->parameterValue()->parameter()) {
     parameter_query->parameter_value_ = std::any_cast<ParameterLookup *>(ctx->parameterValue()->accept(this));
   } else {
-    throw SemanticException("Parameter value should be a string literal");
+    throw SemanticException("Parameter value must be a literal or a parameter");
   }
   return parameter_query;
 }
