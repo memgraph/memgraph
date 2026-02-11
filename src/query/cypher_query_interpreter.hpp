@@ -86,6 +86,7 @@ struct CachedQuery {
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cypher_read{false};
+  bool using_schema_assert{false};
 };
 
 struct QueryCacheEntry {
@@ -113,6 +114,7 @@ struct ParsedQuery {
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cypher_read{false};
+  bool using_schema_assert{false};
   bool is_cacheable{true};
   UserParameters user_parameters;
   Parameters parameters;

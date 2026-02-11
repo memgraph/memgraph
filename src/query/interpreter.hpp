@@ -344,7 +344,6 @@ class Interpreter final {
   struct ParseInfo {
     ParsedQuery parsed_query;
     double parsing_time;
-    bool is_schema_assert_query;
   };
 
   enum class TransactionQuery : uint8_t { BEGIN, COMMIT, ROLLBACK };

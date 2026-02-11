@@ -99,6 +99,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
     result.is_cypher_read = cached_query.is_cypher_read;
+    result.using_schema_assert = cached_query.using_schema_assert;
   };
 
   if (it == accessor.end()) {
@@ -137,7 +138,8 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       CachedQuery cached_query{.ast_storage = std::move(ast_storage),
                                .query = visitor.query(),
                                .required_privileges = query::GetRequiredPrivileges(visitor.query()),
-                               .is_cypher_read = read_check()};
+                               .is_cypher_read = read_check(),
+                               .using_schema_assert = visitor.GetQueryInfo().has_schema_assert};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);
@@ -148,6 +150,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       result.ast_storage = std::move(ast_storage);
 
       result.is_cypher_read = read_check();
+      result.using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
       is_cacheable = false;
     }
   } else {
@@ -155,15 +158,16 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   }
 
   return ParsedQuery{
-      query_string,
-      std::move(stripped_query),
-      std::move(result.ast_storage),
-      result.query,
-      std::move(result.required_privileges),
-      result.is_cypher_read,
-      is_cacheable,
-      user_parameters,
-      std::move(query_parameters),
+      .query_string = query_string,
+      .stripped_query = std::move(stripped_query),
+      .ast_storage = std::move(result.ast_storage),
+      .query = result.query,
+      .required_privileges = std::move(result.required_privileges),
+      .is_cypher_read = result.is_cypher_read,
+      .using_schema_assert = result.using_schema_assert,
+      .is_cacheable = is_cacheable,
+      .user_parameters = user_parameters,
+      .parameters = std::move(query_parameters),
   };
 }
 

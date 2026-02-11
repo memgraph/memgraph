@@ -266,7 +266,6 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
 
 namespace memgraph::query {
 
-constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
 constexpr int kSystemTxTryMS = 100;  //!< Duration of the unique try_lock_for
 
 template <typename>
@@ -7881,7 +7880,6 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
       current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
     }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
-    bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
     ParsedQuery parsed_query = ParseQuery(query_string,
@@ -7891,7 +7889,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
                                           interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
-    return Interpreter::ParseInfo{std::move(parsed_query), parsing_time, is_schema_assert_query};
+    return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
   } catch (const utils::BasicException &e) {
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
@@ -8112,7 +8110,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
-    if (parse_info.is_schema_assert_query) {
+    if (parse_info.parsed_query.using_schema_assert) {
       throw SchemaAssertInMulticommandTxException();
     }
 
@@ -8199,8 +8197,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements =
-          QueryTransactionRequirements{parse_info.is_schema_assert_query, parsed_query.is_cypher_read, storage_mode};
+      auto transaction_requirements = QueryTransactionRequirements{
+          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
