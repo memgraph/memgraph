@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 #include "storage/v2/property_value.hpp"
 #include "strong_type/strong_type.hpp"
@@ -31,14 +33,15 @@ struct egraph {
   egraph &operator=(egraph &&) noexcept;
   ~egraph();  // required because pimpl
 
-  auto MakeSymbol(int32_t sym_pos, std::string_view name) -> eclass;
-  auto MakeBind(eclass input, eclass sym, eclass expr) -> eclass;
-  auto MakeLiteral(storage::ExternalPropertyValue const &value) -> eclass;
+  // Public API for creating egraph nodes
   auto MakeOnce() -> eclass;
-  auto MakeParameterLookup(int32_t param_pos) -> eclass;
-  auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
-  auto MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass;
+  auto MakeSymbol(int32_t position, std::string_view name) -> eclass;
+  auto MakeLiteral(storage::ExternalPropertyValue const &value) -> eclass;
+  auto MakeParameterLookup(int32_t position) -> eclass;
+  auto MakeBind(eclass input, eclass sym, eclass expr) -> eclass;
   auto MakeIdentifier(eclass sym) -> eclass;
+  auto MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass;
+  auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
 
  private:
   struct impl;

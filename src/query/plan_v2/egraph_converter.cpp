@@ -197,7 +197,9 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root)
   auto const selection = planner::core::Extractor{impl.egraph_, CostModel{}}.Extract(true_root);
 
   /// STAGE: Build selected (LogicalOperator, Expression *, Symbol, NamedExpression *, etc)
-  auto builder = Builder{impl.literal_store_, impl.name_store_, impl.symbol_name_store_};
+  auto builder = Builder{impl.storage<symbol::Literal>().store,
+                         impl.storage<symbol::NamedOutput>().store,
+                         impl.storage<symbol::Symbol>().store};
   auto build_cache = std::map<planner::core::EClassId, BuildResult>{};
   auto const cache_lookup = [&](const planner::core::EClassId id) {
     auto const it = build_cache.find(id);
