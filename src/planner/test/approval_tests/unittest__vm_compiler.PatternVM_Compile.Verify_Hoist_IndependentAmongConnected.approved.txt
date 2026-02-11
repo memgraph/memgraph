@@ -1,0 +1,40 @@
+0:	IterSymbolEClasses rc0, F (sym[0]), @38
+1:	Jump @4
+2:	MarkSeen slot[1]
+3:	NextSymbolEClass rc0, @38
+4:	BindSlot slot[1], rc0, @3
+5:	IterParents rn0, rc0, @2
+6:	Jump @8
+7:	NextParent rn0, @2
+8:	CheckSymbol rn0, H (sym[1]), @7
+9:	CheckArity rn0, 1, @7
+10:	GetENodeEClass rc1, rn0
+11:	BindSlot slot[3], rc1, @7
+12:	Jump @15
+13:	MarkSeen slot[3]
+14:	Jump @7
+15:	IterParents rn1, rc1, @13
+16:	Jump @18
+17:	NextParent rn1, @13
+18:	CheckSymbol rn1, F2 (sym[2]), @17
+19:	CheckArity rn1, 2, @17
+20:	LoadChild rc2, rn1, 1
+21:	CheckEClassEq rc2, rc1, @17
+22:	LoadChild rc3, rn1, 0
+23:	BindSlot slot[2], rc3, @17
+24:	IterParents rn2, rc3, @17
+25:	Jump @27
+26:	NextParent rn2, @17
+27:	CheckSymbol rn2, G (sym[3]), @26
+28:	CheckArity rn2, 1, @26
+29:	IterENodes rn3, rc0
+30:	Jump @32
+31:	NextENode rn3, @17
+32:	CheckSymbol rn3, F (sym[0]), @31
+33:	CheckArity rn3, 1, @31
+34:	LoadChild rc4, rn3, 0
+35:	BindSlot slot[0], rc4, @31
+36:	Yield (mark slot[0])
+37:	Jump @31
+38:	Halt
+

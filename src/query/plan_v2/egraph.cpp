@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,43 +25,35 @@ egraph &egraph::operator=(egraph &&other) noexcept {
 
 egraph::~egraph() = default;  // required because pimpl
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
-auto egraph::MakeSymbol(int32_t sym_pos) -> eclass { return pimpl_->make<symbol::Symbol>(sym_pos); }
+// ========================================================================
+// Public API implementations - delegate to impl::Make<S>()
+// ========================================================================
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
-auto egraph::MakeBind(eclass input, eclass sym, eclass expr) -> eclass {
-  return pimpl_->make<symbol::Bind>(input, sym, expr);
+auto egraph::MakeOnce() -> eclass { return pimpl_->Make<symbol::Once>(); }
+
+auto egraph::MakeSymbol(int32_t position, std::string_view name) -> eclass {
+  return pimpl_->Make<symbol::Symbol>(position, name);
 }
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
 auto egraph::MakeLiteral(storage::ExternalPropertyValue const &value) -> eclass {
-  auto const disambiguator = pimpl_->store_literal(value);
-  return pimpl_->make<symbol::Literal>(disambiguator);
+  return pimpl_->Make<symbol::Literal>(value);
 }
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
-auto egraph::MakeOnce() -> eclass {
-  auto const disambiguator = pimpl_->next_once_disambiguator_++;
-  return pimpl_->make<symbol::Once>(disambiguator);
+auto egraph::MakeParameterLookup(int32_t position) -> eclass { return pimpl_->Make<symbol::ParamLookup>(position); }
+
+auto egraph::MakeBind(eclass input, eclass sym, eclass expr) -> eclass {
+  return pimpl_->Make<symbol::Bind>(input, sym, expr);
 }
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
-auto egraph::MakeParameterLookup(int32_t param_pos) -> eclass { return pimpl_->make<symbol::ParamLookup>(param_pos); }
+auto egraph::MakeIdentifier(eclass sym) -> eclass { return pimpl_->Make<symbol::Identifier>(sym); }
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
-auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass {
-  auto disambiguator = pimpl_->store_name(name);
-  return pimpl_->make<symbol::NamedOutput>(disambiguator, sym, expr);
-}
-
-// NOLINTNEXTLINE(readability-make-member-function-const)
 auto egraph::MakeOutputs(eclass input, std::vector<eclass> named_outputs) -> eclass {
-  named_outputs.insert(named_outputs.begin(), input);
-  return pimpl_->make<symbol::Output>(std::move(named_outputs));
+  return pimpl_->Make<symbol::Output>(input, std::move(named_outputs));
 }
 
-// NOLINTNEXTLINE(readability-make-member-function-const)
-auto egraph::MakeIdentifier(eclass sym) -> eclass { return pimpl_->make<symbol::Identifier>(sym); }
+auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass {
+  return pimpl_->Make<symbol::NamedOutput>(name, sym, expr);
+}
 
 // ========================================================================
 // Internal accessor implementations
