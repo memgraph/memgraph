@@ -134,7 +134,7 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
   bool deleted = vertex.deleted;
   bool has_label = std::ranges::contains(vertex.labels, label);
   Delta *delta = vertex.delta;
-  detail::ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
+  ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
         if (delta.label.value == label) {
@@ -173,7 +173,7 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
   bool deleted = vertex.deleted;
   PropertyValue value = vertex.properties.GetProperty(property);
   Delta *delta = vertex.delta;
-  detail::ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
+  ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
