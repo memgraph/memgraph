@@ -1846,6 +1846,9 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
   call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
+  if (utils::ToLowerCase(call_proc->procedure_name_) == "schema.assert") {
+    query_info_.has_schema_assert = true;
+  }
   call_proc->arguments_.reserve(ctx->expression().size());
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(std::any_cast<Expression *>(expr->accept(this)));
