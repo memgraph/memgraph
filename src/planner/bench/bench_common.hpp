@@ -1,0 +1,547 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <benchmark/benchmark.h>
+
+#include <cstdint>
+#include <vector>
+
+#include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/rewriter.hpp"
+
+namespace memgraph::planner::bench {
+
+// ============================================================================
+// Common Types
+// ============================================================================
+
+enum class Op : uint8_t { Add, Mul, Neg, Var, Const, F, F2, F3, Bind, Ident, Test };
+
+struct NoAnalysis {};
+
+using namespace memgraph::planner::core;
+
+using TestEGraph = EGraph<Op, NoAnalysis>;
+using TestPattern = Pattern<Op>;
+using TestMatcherIndex = MatcherIndex<Op, NoAnalysis>;
+using TestMatches = std::vector<PatternMatch>;
+using TestRewriteRule = RewriteRule<Op, NoAnalysis>;
+using TestRuleSet = RuleSet<Op, NoAnalysis>;
+using TestRewriter = Rewriter<Op, NoAnalysis>;
+using TestRuleContext = RuleContext<Op, NoAnalysis>;
+using TestRewriteContext = RewriteContext<Op, NoAnalysis>;
+
+// ============================================================================
+// Pattern Variables
+// ============================================================================
+
+constexpr PatternVar kX{0};
+constexpr PatternVar kY{1};
+constexpr PatternVar kZ{2};
+constexpr PatternVar kRootDoubleNeg{10};
+constexpr PatternVar kRootAdd{11};
+constexpr PatternVar kRootMul{12};
+constexpr PatternVar kRootNeg{13};
+
+// Variables for Bind/Ident join tests
+constexpr PatternVar kVarSym{20};
+constexpr PatternVar kVarExpr{21};
+constexpr PatternVar kBindRoot{22};
+constexpr PatternVar kIdentRoot{23};
+
+// ============================================================================
+// Benchmark Size Constants
+// ============================================================================
+
+namespace sizes {
+constexpr int64_t kSmall = 10;
+constexpr int64_t kMedium = 100;
+constexpr int64_t kLarge = 1000;
+constexpr int64_t kXLarge = 5000;
+constexpr int64_t kHuge = 10000;
+constexpr int64_t kMassive = 50000;
+
+constexpr int64_t kFreshCtx = 0;
+constexpr int64_t kReusedCtx = 1;
+}  // namespace sizes
+
+// Make size constants available without prefix in bench namespace
+using namespace sizes;
+
+// ============================================================================
+// E-Graph Builders
+// ============================================================================
+
+// N independent Add(Var, Var) expressions - no shared structure
+inline void BuildIndependentAdds(TestEGraph &g, int64_t n) {
+  for (int64_t i = 0; i < n; ++i) {
+    auto x = g.emplace(Op::Var, static_cast<uint64_t>(i * 2)).eclass_id;
+    auto y = g.emplace(Op::Var, static_cast<uint64_t>(i * 2 + 1)).eclass_id;
+    g.emplace(Op::Add, {x, y});
+  }
+}
+
+// NegChain: Neg(Neg(Neg(...Var(0)...))) - single chain of Neg nodes
+inline auto BuildNegChain(TestEGraph &g, int64_t depth) -> EClassId {
+  auto cur = g.emplace(Op::Var, 0).eclass_id;
+  for (int64_t i = 0; i < depth; ++i) {
+    cur = g.emplace(Op::Neg, {cur}).eclass_id;
+  }
+  return cur;
+}
+
+// NegChains: Multiple independent Neg chains of given depth
+inline void BuildNegChains(TestEGraph &g, int64_t num_chains, int64_t depth) {
+  for (int64_t i = 0; i < num_chains; ++i) {
+    auto cur = g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id;
+    for (int64_t j = 0; j < depth; ++j) {
+      cur = g.emplace(Op::Neg, {cur}).eclass_id;
+    }
+  }
+}
+
+// MixedAdds: Half Add(x,x), half Add(x,y) for testing same-variable patterns
+inline void BuildMixedAdds(TestEGraph &g, int64_t n) {
+  std::vector<EClassId> vars;
+  for (int64_t i = 0; i < n; ++i) {
+    vars.push_back(g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id);
+  }
+  for (int64_t i = 0; i < n / 2; ++i) {
+    g.emplace(Op::Add, {vars[static_cast<size_t>(i)], vars[static_cast<size_t>(i)]});
+  }
+  for (int64_t i = 0; i < n / 2; ++i) {
+    auto j = (i + 1) % (n / 2);
+    if (i != j) g.emplace(Op::Add, {vars[static_cast<size_t>(i)], vars[static_cast<size_t>(j)]});
+  }
+}
+
+// AddMulPairs: Add(x,y) and Mul(x,y) sharing operands
+inline void BuildAddMulPairs(TestEGraph &g, int64_t n) {
+  for (int64_t i = 0; i < n; ++i) {
+    auto x = g.emplace(Op::Var, static_cast<uint64_t>(i * 2)).eclass_id;
+    auto y = g.emplace(Op::Var, static_cast<uint64_t>(i * 2 + 1)).eclass_id;
+    g.emplace(Op::Add, {x, y});
+    g.emplace(Op::Mul, {x, y});
+  }
+}
+
+// MergedAddMul: Add and Mul nodes merged together (multiple e-nodes per class)
+inline void BuildMergedAddMul(TestEGraph &g, int64_t n) {
+  ProcessingContext<Op> pctx;
+  std::vector<EClassId> vars;
+  for (int64_t i = 0; i < n; ++i) {
+    vars.push_back(g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id);
+  }
+  std::vector<EClassId> adds, muls;
+  for (int64_t i = 0; i < n - 1; ++i) {
+    adds.push_back(g.emplace(Op::Add, {vars[static_cast<size_t>(i)], vars[static_cast<size_t>(i + 1)]}).eclass_id);
+    muls.push_back(g.emplace(Op::Mul, {vars[static_cast<size_t>(i)], vars[static_cast<size_t>(i + 1)]}).eclass_id);
+  }
+  for (size_t i = 0; i < adds.size(); ++i) {
+    g.merge(adds[i], muls[i]);
+  }
+  g.rebuild(pctx);
+}
+
+// AddsWithOneNeg: Many Adds but only ONE Neg - for testing selective patterns
+inline void BuildAddsWithOneNeg(TestEGraph &g, int64_t n) {
+  std::vector<EClassId> vars;
+  for (int64_t i = 0; i < n; ++i) {
+    vars.push_back(g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id);
+  }
+  for (int64_t i = 0; i < n - 1; ++i) {
+    g.emplace(Op::Add, {vars[static_cast<size_t>(i)], vars[static_cast<size_t>(i + 1)]});
+  }
+  auto neg = g.emplace(Op::Neg, {vars[0]}).eclass_id;
+  g.emplace(Op::Add, {neg, vars[1]});
+}
+
+// AddMulNegTriples: Add(x,y), Mul(x,z), Neg(x) for each x
+inline void BuildAddMulNegTriples(TestEGraph &g, int64_t n) {
+  for (int64_t i = 0; i < n; ++i) {
+    auto x = g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id;
+    auto y = g.emplace(Op::Var, static_cast<uint64_t>(10000 + i)).eclass_id;
+    auto z = g.emplace(Op::Var, static_cast<uint64_t>(20000 + i)).eclass_id;
+    g.emplace(Op::Add, {x, y});
+    g.emplace(Op::Mul, {x, z});
+    g.emplace(Op::Neg, {x});
+  }
+}
+
+// AddMulFewSharedX: Add(x,y) and Mul(x,z) sharing a small pool of x variables.
+// Creates O(n²/k) join matches where k = num_shared_x.
+inline void BuildAddMulFewSharedX(TestEGraph &g, int64_t n, int64_t num_shared_x) {
+  std::vector<EClassId> shared_x_vars;
+  shared_x_vars.reserve(static_cast<std::size_t>(num_shared_x));
+  for (int64_t i = 0; i < num_shared_x; ++i) {
+    shared_x_vars.push_back(g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id);
+  }
+  for (int64_t i = 0; i < n; ++i) {
+    auto x = shared_x_vars[static_cast<std::size_t>(i % num_shared_x)];
+    auto y = g.emplace(Op::Var, static_cast<uint64_t>(1000 + i)).eclass_id;
+    g.emplace(Op::Add, {x, y});
+  }
+  for (int64_t i = 0; i < n; ++i) {
+    auto x = shared_x_vars[static_cast<std::size_t>(i % num_shared_x)];
+    auto z = g.emplace(Op::Var, static_cast<uint64_t>(2000 + i)).eclass_id;
+    g.emplace(Op::Mul, {x, z});
+  }
+}
+
+// AddNegDisjoint: Add(x,y) and Neg(x) with no shared variables between patterns.
+// Creates O(n²) Cartesian product join matches.
+inline void BuildAddNegDisjoint(TestEGraph &g, int64_t n) {
+  for (int64_t i = 0; i < n; ++i) {
+    auto x = g.emplace(Op::Var, static_cast<uint64_t>(i * 2)).eclass_id;
+    auto y = g.emplace(Op::Var, static_cast<uint64_t>(i * 2 + 1)).eclass_id;
+    g.emplace(Op::Add, {x, y});
+    g.emplace(Op::Neg, {x});
+  }
+}
+
+// HighParentCount: A "hub" leaf with many parents of different symbols.
+// Tests symbol index filtering effectiveness.
+// Creates 1 hub + parents_f F(hub, other) nodes + parents_neg Neg(hub) nodes.
+inline void BuildHighParentHub(TestEGraph &g, int64_t parents_f, int64_t parents_neg) {
+  auto hub = g.emplace(Op::Const, 0).eclass_id;
+
+  // Create F parents (binary op using hub and unique leaves)
+  for (int64_t i = 0; i < parents_f; ++i) {
+    auto other = g.emplace(Op::Const, static_cast<uint64_t>(i + 1)).eclass_id;
+    g.emplace(Op::F, {hub, other});
+  }
+
+  // Create Neg parents (unary op using hub)
+  for (int64_t i = 0; i < parents_neg; ++i) {
+    g.emplace(Op::Neg, {hub});
+  }
+}
+
+// SelfReferentialEClass: Creates a self-referential e-class via merge.
+// n0 = Const(seed), n1 = F(n0), n2 = F(n1), merge(n1, n2) => EC1 = {F(n0), F(EC1)}
+inline auto BuildSelfReferential(TestEGraph &g, uint64_t seed = 42) -> EClassId {
+  ProcessingContext<Op> pctx;
+  auto n0 = g.emplace(Op::Const, seed).eclass_id;
+  auto n1 = g.emplace(Op::F, {n0}).eclass_id;
+  auto n2 = g.emplace(Op::F, {n1}).eclass_id;
+  g.merge(n1, n2);
+  g.rebuild(pctx);
+  return g.find(n1);  // Return canonical ID of self-referential class
+}
+
+// NestedJoinGraph: Creates scenario for (F ?v0) JOIN (F (F (F (F ?v0)))) pattern.
+// For each of num_leaves leaves, creates:
+//   - A shallow F node: F(leaf)
+//   - A deep F chain: F(F(F(F(leaf))))
+// This creates num_leaves matches where ?v0 binds to each leaf.
+inline void BuildNestedJoinGraph(TestEGraph &g, int64_t num_leaves) {
+  for (int64_t i = 0; i < num_leaves; ++i) {
+    auto leaf = g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id;
+
+    // Create shallow F(leaf)
+    g.emplace(Op::F, {leaf});
+
+    // Create deep chain F(F(F(F(leaf))))
+    auto f1 = g.emplace(Op::F, {leaf}).eclass_id;
+    auto f2 = g.emplace(Op::F, {f1}).eclass_id;
+    auto f3 = g.emplace(Op::F, {f2}).eclass_id;
+    g.emplace(Op::F, {f3});
+  }
+}
+
+// ParentDiversity: Many leaves each with diverse parents of various symbols.
+// num_leaves leaves, parents_per_leaf parents randomly distributed among Add, Mul, Neg, F.
+inline void BuildParentDiversity(TestEGraph &g, int64_t num_leaves, int64_t parents_per_leaf, uint64_t seed = 42) {
+  std::vector<EClassId> leaves;
+  leaves.reserve(static_cast<std::size_t>(num_leaves));
+
+  for (int64_t i = 0; i < num_leaves; ++i) {
+    leaves.push_back(g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id);
+  }
+
+  // Simple deterministic "random" distribution
+  std::array<Op, 4> symbols = {Op::Add, Op::Mul, Op::Neg, Op::F};
+  uint64_t rng = seed;
+  auto next_rng = [&rng]() {
+    rng = rng * 6364136223846793005ULL + 1442695040888963407ULL;
+    return rng;
+  };
+
+  for (auto leaf_id : leaves) {
+    for (int64_t p = 0; p < parents_per_leaf; ++p) {
+      auto sym = symbols[next_rng() % 4];
+      if (sym == Op::Neg) {
+        g.emplace(Op::Neg, {leaf_id});
+      } else {
+        // Binary ops need two children
+        auto other_idx = next_rng() % static_cast<uint64_t>(leaves.size());
+        auto other_leaf = leaves[other_idx];
+        g.emplace(sym, {leaf_id, other_leaf});
+      }
+    }
+  }
+}
+
+// ComplexGraph: Realistic e-graph structure matching egglog benchmark
+// Creates: 180 Const leaves, 60 Var leaves, 320 layers of Add/Neg/Mul/F/F2 nodes
+// with periodic unions to create non-trivial e-classes.
+inline void BuildComplexGraph(TestEGraph &g) {
+  ProcessingContext<Op> pctx;
+  constexpr std::size_t kNumConsts = 180;
+  constexpr std::size_t kNumVars = 60;
+  constexpr std::size_t kNumLayers = 320;
+
+  std::vector<EClassId> consts;
+  std::vector<EClassId> vars;
+  consts.reserve(kNumConsts);
+  vars.reserve(kNumVars);
+
+  for (std::size_t i = 0; i < kNumConsts; ++i) {
+    consts.push_back(g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id);
+  }
+  for (std::size_t i = 0; i < kNumVars; ++i) {
+    vars.push_back(g.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id);
+  }
+
+  for (std::size_t i = 0; i < kNumLayers; ++i) {
+    auto const c1 = consts[i % consts.size()];
+    auto const c2 = consts[(i * 7 + 11) % consts.size()];
+    auto const v1 = vars[(i * 13 + 3) % vars.size()];
+
+    auto const add = g.emplace(Op::Add, {c1, c2}).eclass_id;
+    auto const neg = g.emplace(Op::Neg, {c2}).eclass_id;
+    auto const mul = g.emplace(Op::Mul, {add, neg}).eclass_id;
+    auto const f = g.emplace(Op::F, {mul, v1}).eclass_id;
+    g.emplace(Op::F2, {f});
+
+    // Periodic unions to create non-trivial e-classes
+    if ((i % 5) == 0) {
+      auto const add_swapped = g.emplace(Op::Add, {c2, c1}).eclass_id;
+      g.merge(add, add_swapped);
+    }
+    if ((i % 9) == 0) {
+      auto const neg2 = g.emplace(Op::Neg, {c2}).eclass_id;
+      g.merge(neg, neg2);
+    }
+  }
+  g.rebuild(pctx);
+}
+
+// BindIdentGraph: N Bind nodes, each with M Ident nodes referencing same symbol.
+// Creates N * M join matches for multi-pattern join benchmarks.
+inline void BuildBindIdentGraph(TestEGraph &g, int64_t num_binds, int64_t idents_per_sym) {
+  for (int64_t i = 0; i < num_binds; ++i) {
+    auto placeholder = g.emplace(Op::Const, static_cast<uint64_t>(i * 1000)).eclass_id;
+    auto sym_val = g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id;
+    auto expr_val = g.emplace(Op::Const, static_cast<uint64_t>(i + 10000)).eclass_id;
+    g.emplace(Op::Bind, {placeholder, sym_val, expr_val});
+
+    for (int64_t j = 0; j < idents_per_sym; ++j) {
+      g.emplace(Op::Ident, {sym_val});
+    }
+  }
+}
+
+// ============================================================================
+// Pattern Builders
+// ============================================================================
+
+using memgraph::planner::core::dsl::Sym;
+using memgraph::planner::core::dsl::Var;
+using memgraph::planner::core::dsl::Wildcard;
+
+inline auto PatternAdd() { return TestPattern::build(Op::Add, {Var{kX}, Var{kY}}); }
+
+inline auto PatternAddSameVar() { return TestPattern::build(Op::Add, {Var{kX}, Var{kX}}); }
+
+inline auto PatternDoubleNeg() { return TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kX})}, kRootDoubleNeg); }
+
+inline auto PatternSelective() { return TestPattern::build(Op::Add, {Sym(Op::Neg, Var{kX}), Var{kY}}); }
+
+inline auto PatternNestedNeg(int depth) -> TestPattern {
+  auto b = TestPattern::Builder{};
+  auto cur = b.var(kX);
+  for (int i = 0; i < depth; ++i) cur = b.sym(Op::Neg, {cur});
+  return std::move(b).build();
+}
+
+inline auto PatternNeg() { return TestPattern::build(Op::Neg, {Var{kX}}); }
+
+inline auto PatternNestedF() { return TestPattern::build(Op::F, {Sym(Op::F, Var{kX})}); }
+
+// Pattern for shallow F: F(?x)
+inline auto PatternShallowF() { return TestPattern::build(Op::F, {Var{kX}}); }
+
+// Pattern for deep nested F: F(F(F(F(?x)))) - 4 levels deep
+inline auto PatternDeepNestedF() { return TestPattern::build(Op::F, {Sym(Op::F, Sym(Op::F, Sym(Op::F, Var{kX})))}); }
+
+// Egglog benchmark patterns (from benchmark__egglog.cpp)
+// These patterns are used to compare against egglog reference implementation.
+inline auto PatternEgglogNeg() { return TestPattern::build(Op::Neg, {Var{kX}}); }
+
+inline auto PatternEgglogAddSame() { return TestPattern::build(Op::Add, {Var{kX}, Var{kX}}); }
+
+inline auto PatternEgglogFAddNeg() {
+  return TestPattern::build(Op::F, {Sym(Op::Add, Var{kX}, Var{kY}), Sym(Op::Neg, Var{kZ})});
+}
+
+inline auto PatternEgglogF2FMul() {
+  return TestPattern::build(Op::F2, {Sym(Op::F, Sym(Op::Mul, Var{kX}, Var{kY}), Var{kZ})});
+}
+
+inline auto PatternEgglogTest() { return TestPattern::build(Op::Test, {Var{kX}}); }
+
+// Bind/Ident patterns for multi-pattern join benchmarks
+inline auto PatternBind() { return TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kBindRoot); }
+
+inline auto PatternIdent() { return TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot); }
+
+// ============================================================================
+// Rule Builders
+// ============================================================================
+
+inline auto RuleDoubleNeg() {
+  return TestRewriteRule::Builder{"double_neg"}
+      .pattern(PatternDoubleNeg())
+      .apply([](TestRuleContext &ctx, Match const &m) { ctx.merge(m[kRootDoubleNeg], m[kX]); });
+}
+
+inline auto RuleNoOp() {
+  return TestRewriteRule::Builder{"noop"}.pattern(PatternAdd()).apply([](TestRuleContext &, Match const &) {});
+}
+
+inline auto RuleMergeAddMul() {
+  return TestRewriteRule::Builder{"merge_add_mul"}
+      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
+      .pattern(TestPattern::build(Op::Mul, {Var{kX}, Var{kY}}, kRootMul), "mul")
+      .apply([](TestRuleContext &ctx, Match const &m) { ctx.merge(m[kRootAdd], m[kRootMul]); });
+}
+
+inline auto RuleThreePattern() {
+  return TestRewriteRule::Builder{"three"}
+      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
+      .pattern(TestPattern::build(Op::Mul, {Var{kX}, Var{kZ}}, kRootMul), "mul")
+      .pattern(TestPattern::build(Op::Neg, {Var{kX}}, kRootNeg), "neg")
+      .apply([](TestRuleContext &, Match const &) {});
+}
+
+inline auto RuleCartesian() {
+  return TestRewriteRule::Builder{"cartesian"}
+      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
+      .pattern(TestPattern::build(Op::Neg, {Var{kZ}}), "neg")
+      .apply([](TestRuleContext &, Match const &) {});
+}
+
+inline auto RuleWideJoin() {
+  return TestRewriteRule::Builder{"wide"}
+      .pattern(TestPattern::build(Op::Add, {Var{kX}, Var{kY}}, kRootAdd), "add")
+      .pattern(TestPattern::build(Op::Mul, {Var{kX}, Var{kZ}}, kRootMul), "mul")
+      .apply([](TestRuleContext &, Match const &) {});
+}
+
+// ============================================================================
+// Benchmark Abstractions
+// ============================================================================
+
+// Run a matching benchmark with fresh or reused EMatchContext.
+// ApplyFn signature: void(EMatchContext&)
+template <typename ApplyFn>
+void BenchmarkWithMatchContext(benchmark::State &state, int64_t context_mode, EMatchContext &reusable_context,
+                               ApplyFn &&apply_fn) {
+  if (context_mode == sizes::kReusedCtx) {
+    for (auto _ : state) {
+      reusable_context.clear();
+      apply_fn(reusable_context);
+    }
+  } else {
+    for (auto _ : state) {
+      EMatchContext fresh_context;
+      apply_fn(fresh_context);
+    }
+  }
+}
+
+// Base fixture providing common e-graph and matcher setup.
+class MatcherFixtureBase : public benchmark::Fixture {
+ protected:
+  TestEGraph egraph_;
+  std::unique_ptr<TestMatcherIndex> matcher_;
+  EMatchContext match_context_;
+  TestMatches matches_;
+
+  void ResetEGraph() { egraph_ = TestEGraph{}; }
+
+  void CreateMatcher() { matcher_ = std::make_unique<TestMatcherIndex>(egraph_); }
+
+  template <typename BuilderFn>
+  void SetupGraphAndMatcher(BuilderFn &&build_fn) {
+    ResetEGraph();
+    build_fn(egraph_);
+    CreateMatcher();
+  }
+};
+
+// Base fixture for VM benchmarks.
+class VMFixtureBase : public benchmark::Fixture {
+ protected:
+  TestEGraph egraph_;
+  std::unique_ptr<TestMatcherIndex> matcher_;
+  EMatchContext match_context_;
+  TestMatches matches_;
+  vm::PatternCompiler<Op> compiler_;
+
+  void ResetEGraph() {
+    egraph_ = TestEGraph{};
+    matcher_.reset();
+  }
+
+  template <typename BuilderFn>
+  void SetupGraph(BuilderFn &&build_fn) {
+    ResetEGraph();
+    build_fn(egraph_);
+    matcher_ = std::make_unique<TestMatcherIndex>(egraph_);
+    matcher_->rebuild_index();
+  }
+};
+
+// Base fixture for rewrite benchmarks.
+class RewriterFixtureBase : public benchmark::Fixture {
+ protected:
+  TestEGraph egraph_;
+  std::unique_ptr<TestMatcherIndex> matcher_;
+  std::unique_ptr<TestRewriter> rewriter_;
+  TestRewriteContext rewrite_context_{egraph_};
+
+  void ResetEGraph() { egraph_ = TestEGraph{}; }
+
+  void CreateMatcher() { matcher_ = std::make_unique<TestMatcherIndex>(egraph_); }
+
+  void CreateRewriter(TestRuleSet const &rules) { rewriter_ = std::make_unique<TestRewriter>(egraph_, rules); }
+
+  template <typename BuilderFn>
+  void SetupGraphAndMatcher(BuilderFn &&build_fn) {
+    ResetEGraph();
+    build_fn(egraph_);
+    CreateMatcher();
+  }
+
+  template <typename BuilderFn>
+  void SetupGraphAndRewriter(BuilderFn &&build_fn, TestRuleSet const &rules) {
+    ResetEGraph();
+    build_fn(egraph_);
+    CreateRewriter(rules);
+  }
+};
+
+}  // namespace memgraph::planner::bench

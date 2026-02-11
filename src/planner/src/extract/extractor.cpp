@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "planner/core/extractor.hpp"
+#include "planner/extract/extractor.hpp"
 
 #include <numeric>
 #include <queue>

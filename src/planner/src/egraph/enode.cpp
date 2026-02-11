@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "planner/core/enode.hpp"
+#include "planner/egraph/enode.hpp"
 
-#include "planner/core/egraph.hpp"
-#include "planner/core/processing_context.hpp"
+#include "planner/egraph/egraph.hpp"
+#include "planner/egraph/processing_context.hpp"
 import memgraph.planner.core.union_find;
 
 namespace memgraph::planner::core::detail {

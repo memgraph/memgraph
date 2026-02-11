@@ -1,16 +1,120 @@
-## Core Infrastructure
-- [x] UnionFind datastructure
+# Planner Module TODO
+
+## Completed
+
+### Core Infrastructure
+- [x] UnionFind data structure
 - [x] E-node representation
 - [x] E-class representation
-- [x] E-graph structure
+- [x] E-graph structure with congruence closure
 - [x] E-graph fuzzer
-- [ ] Pattern matching engine
-- [ ] Cost model
+- [x] Pattern representation (variables, symbols, wildcards)
+- [x] Pattern builder with fluent DSL
+- [x] E-matching engine with symbol index
+- [x] Cost-based extractor
+- [x] Directory restructure (egraph/, pattern/, rewrite/, extract/)
 
-## Optimizations
-- [ ] Rule system for rewrites
+### VM Executor
+- [x] Bytecode compiler for patterns
+- [x] VM executor with computed goto dispatch
+- [x] Dynamic register allocation
+- [x] Yield-time deduplication
+- [x] Parent chain traversal optimization
+- [x] Multi-pattern join support
+- [x] VM fuzzer for correctness verification
 
-## Integration
-- [ ] Bridge to existing planner
-- [ ] Performance benchmarks
+### Rewrite System
+- [x] RewriteRule with multi-pattern support
+- [x] Hash-join for multi-pattern matching
+- [x] Greedy join ordering to minimize Cartesian products
+- [x] Rewriter with equality saturation loop
+- [x] Configurable limits (iterations, e-nodes, timeout)
+- [x] Incremental matcher rebuild
+- [x] Buffer reuse (JoinContext, RewriteContext, EMatchContext)
+- [x] RuleSet immutable rule collection
+- [x] C++23 ranges for join operations
+
+### Testing & Benchmarks
+- [x] E-graph unit tests
+- [x] E-matching unit tests
+- [x] Rewrite system unit tests
+- [x] E-graph fuzzer
+- [x] E-matching fuzzer (with ground truth verification)
+- [x] Performance benchmarks
+
+### Performance Optimizations
+- [x] Watermark optimization for seen set clearing (~5% speedup)
+- [x] Skip dedup when no merges occurred (eliminates sorting overhead)
+- [x] Use absl::flat_hash_set for VM deduplication (~3.7% speedup)
+
+---
+
+## In Progress
+
+### Rewrite Rules
+- [x] Inline rewrite rule (Identifier inlining)
+- [ ] Constant folding (e.g., 1+1 -> 2)
+- [ ] Dead store elimination with cost model + extraction
+
+---
+
+## Not Started
+
+### Query Integration
+- [ ] Full plan_v2 pipeline integration
+- [ ] Bridge to existing v1 planner
 - [ ] Migration strategy
+
+### Query Plan Optimization Rules
+- [ ] Match ordering (Match -> Scan transformation)
+- [ ] Expansion ordering optimization
+- [ ] Symbol usage analysis (used/needed symbols per operator)
+
+### Future Optimizations
+- [ ] Analysis-guided rewrites (e-class analysis)
+- [ ] Parallel rule application
+
+---
+
+## Known Performance Characteristics
+
+### E-Matching: O(n²) Chain Pattern
+
+For patterns like `Neg(Neg(Neg(...?x...)))` with depth n against a similarly-
+structured e-graph, matching takes O(n²) time.
+
+**Root cause:** Matcher iterates ALL e-classes containing root symbol as candidates.
+Each candidate k does O(k) work before failing. Total: 1+2+...+n = O(n²).
+
+**Benchmark evidence:**
+```
+depth:1   ~0.17 µs (1x)
+depth:10  ~2.2 µs  (13x)
+depth:50  ~43 µs   (250x)
+depth:100 ~169 µs  (1000x)
+```
+
+**Potential mitigations (if needed):**
+
+1. **Grounded subpattern lookup**
+   Direct hash lookup for subpatterns where all variables are already bound.
+   Helps: `Add(?x, Const(0))` where `Const(0)` is ground.
+   Does NOT help chains with variables at leaves.
+
+2. **Inverted parent index**
+   Maintain: `child_eclass -> Set<(parent_eclass, symbol)>`
+   Enables bottom-up matching: O(n) for depth-n chains.
+   See `parent_index.hpp` for existing implementation.
+
+3. **Generic relational e-matching**
+   Treat matching as database join with selectivity-based ordering.
+   Most general but significant implementation effort.
+
+### Parent Index Consideration
+
+With equality saturation, shared nodes may accumulate many parents as equivalent
+plans are added. If parent traversal becomes a bottleneck:
+- Add index: `eclass -> symbol -> [parent_enodes]`
+- Enables O(1) lookup vs O(n) iterate+filter
+- See `parent_index.hpp` for implementation
+- Profile first to confirm this is actually a bottleneck
