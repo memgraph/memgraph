@@ -23,19 +23,19 @@
 
 namespace memgraph::storage {
 
-namespace detail {
-
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
 /// the currently visible version of the object. When the function finds a delta
 /// that should be applied it calls the callback function with the delta that
 /// should be applied passed as a parameter to the callback. It is up to the
 /// caller to apply the deltas.
-/// WARNING If you are calling this function directly, be very careful about
-/// object lock lifetime. The MvccRead class wraps this, using the correct and
-/// optimal locks, so you should probably be using that. The only reason this is
-/// still a free function is that on-disk uses it with its own locking
-/// mechanisms.
+/// WARNING: If you are calling this function directly, be very careful about
+/// object lock lifetime. When reading deltas on a vertex with
+/// `has_uncommitted_non_sequential_deltas`, the vertex lock must be held whilst
+/// deltas are being read. The MvccRead class wraps this functionality using the
+/// correct and optimal locks, so you should probably be using that. The only
+/// reason this is still a free function is that on-disk uses it with its own
+/// locking mechanisms.
 /// @return number of deltas that were processed
 template <typename TCallback>
 inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delta *delta, View view,
@@ -111,13 +111,11 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   return n_processed;
 }
 
-}  // namespace detail
-
 /// RAII wrapper for reading MVCC-versioned objects.  Acquires the appropriate
 /// shared lock, snapshots the delta pointer, and provides ApplyDeltasForRead to
 /// reconstruct the visible version. For objects with uncommitted non-sequential
 /// deltas, the lock is held during delta traversal; otherwise it is released
-/// early for better concurrency.
+/// early for better concurrency (or can be manually released once safe to.)
 template <typename TObject>
 class MvccRead {
  public:
@@ -153,7 +151,7 @@ class MvccRead {
 
   template <typename TCallback>
   std::size_t ApplyDeltasForRead(TCallback const &callback) {
-    return detail::ApplyDeltasForRead(transaction_, delta_, view_, callback);
+    return memgraph::storage::ApplyDeltasForRead(transaction_, delta_, view_, callback);
   }
 
  private:
