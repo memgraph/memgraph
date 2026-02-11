@@ -14,8 +14,8 @@
 
 #include "range/v3/all.hpp"
 
-#include "planner/core/egraph.hpp"
-#include "planner/core/processing_context.hpp"
+#include "planner/egraph/egraph.hpp"
+#include "planner/egraph/processing_context.hpp"
 
 using namespace memgraph::planner::core;
 
@@ -41,9 +41,9 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
     std::vector<EClassId> chain_head;
     for (auto chain_num = 0; chain_num != 5; ++chain_num) {
       auto previous = egraph.emplace(TestSymbol::A, static_cast<uint64_t>(chain_num));
-      chain_head.emplace_back(previous.current_eclassid);
+      chain_head.emplace_back(previous.eclass_id);
       for (auto i = 0; i != chain_length; ++i) {
-        previous = egraph.emplace(TestSymbol::F, {previous.current_eclassid});
+        previous = egraph.emplace(TestSymbol::F, {previous.eclass_id});
       }
     }
     // merge the chains

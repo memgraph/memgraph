@@ -9,25 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+// This file exists to provide clangd with correct module dependencies for ematch.hpp.
+// The header is template-only, so this compilation unit is intentionally minimal.
 
-#include <cstdint>
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
-
-namespace memgraph::planner::core {
-
-template <typename Symbol>
-  requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis>
-struct EClass;
-
-template <typename Symbol, typename Analysis>
-struct EGraph;
-
-template <typename Symbol>
-struct ProcessingContext;
-
-}  // namespace memgraph::planner::core
+#include "planner/pattern/matcher.hpp"

@@ -14,18 +14,39 @@ target_sources(mg-planner
     FILE_SET HEADERS
     BASE_DIRS include
     FILES
-    include/planner/core/eclass.hpp
-    include/planner/core/egraph.hpp
-    include/planner/core/enode.hpp
-    include/planner/core/extractor.hpp
-    include/planner/core/fwd.hpp
-    include/planner/core/processing_context.hpp
+    # New organized headers by concept
+    # egraph/ - Core e-graph data structure
+    include/planner/egraph/eclass.hpp
+    include/planner/egraph/egraph.hpp
+    include/planner/egraph/enode.hpp
+    include/planner/egraph/fwd.hpp
+    include/planner/egraph/processing_context.hpp
+
+    # pattern/ - Pattern definition and matching
+    include/planner/pattern/match.hpp
+    include/planner/pattern/matcher.hpp
+    include/planner/pattern/pattern.hpp
+
+    # rewrite/ - Rewriting/saturation engine
+    include/planner/rewrite/join.hpp
+    include/planner/rewrite/rewriter.hpp
+    include/planner/rewrite/rule.hpp
+
+    # extract/ - Cost extraction
+    include/planner/extract/extractor.hpp
 
     PRIVATE
-    src/core/eclass.cpp
-    src/core/enode.cpp
-    src/core/egraph.cpp
-    src/core/extractor.cpp
+    # egraph/
+    src/egraph/eclass.cpp
+    src/egraph/egraph.cpp
+    src/egraph/enode.cpp
+    # pattern/
+    src/pattern/matcher.cpp
+    src/pattern/pattern.cpp
+    # rewrite/
+    src/rewrite/rewriter.cpp
+    # extract/
+    src/extract/extractor.cpp
 )
 target_include_directories(mg-planner PUBLIC include)
 

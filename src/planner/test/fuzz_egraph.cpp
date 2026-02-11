@@ -21,8 +21,10 @@
 
 #include <fmt/format.h>
 
-#include "planner/core/egraph.hpp"
-#include "planner/core/processing_context.hpp"
+#include "planner/egraph/egraph.hpp"
+#include "planner/egraph/processing_context.hpp"
+
+import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core {
 
@@ -194,9 +196,9 @@ class FuzzerState {
 
     auto sym = static_cast<FuzzSymbol>(symbol);
     auto info = egraph.emplace(sym, disambiguator);
-    created_ids.push_back(info.current_eclassid);
+    created_ids.push_back(info.eclass_id);
 
-    VERBOSE_OUT << "Created leaf: " << (char)('A' + symbol) << "(D" << disambiguator << ") -> " << info.current_eclassid
+    VERBOSE_OUT << "Created leaf: " << (char)('A' + symbol) << "(D" << disambiguator << ") -> " << info.eclass_id
                 << "\n";
     VERBOSE_OUT << "Total classes: " << egraph.num_classes() << ", Total nodes: " << egraph.num_nodes() << "\n";
     return true;
@@ -218,7 +220,7 @@ class FuzzerState {
 
     auto sym = static_cast<FuzzSymbol>(symbol);
     auto info = egraph.emplace(sym, utils::small_vector<EClassId>(children.begin(), children.end()));
-    created_ids.push_back(info.current_eclassid);
+    created_ids.push_back(info.eclass_id);
     return true;
   }
 
@@ -232,7 +234,7 @@ class FuzzerState {
     auto id2 = created_ids[idx2];
 
     VERBOSE_OUT << "Merging class " << id1 << " with " << id2 << "\n";
-    auto merged_id = egraph.merge(id1, id2);
+    auto [merged_id, _] = egraph.merge(id1, id2);
     VERBOSE_OUT << "Merge result: " << merged_id << "\n";
     VERBOSE_OUT << "Total classes: " << egraph.num_classes() << ", Worklist size: " << egraph.worklist_size() << "\n";
     return true;
@@ -264,8 +266,8 @@ class FuzzerState {
 
     auto leaf_a_info = egraph.emplace(static_cast<FuzzSymbol>(symbol_a), pos);
     auto leaf_b_info = egraph.emplace(static_cast<FuzzSymbol>(symbol_b), pos + 1);
-    auto leaf_a = leaf_a_info.current_eclassid;
-    auto leaf_b = leaf_b_info.current_eclassid;
+    auto leaf_a = leaf_a_info.eclass_id;
+    auto leaf_b = leaf_b_info.eclass_id;
     created_ids.push_back(leaf_a);
     created_ids.push_back(leaf_b);
 
@@ -274,8 +276,8 @@ class FuzzerState {
       uint8_t compound_symbol = 10 + (data[pos++] % 5);  // F-Mul
       auto fa_info = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_a});
       auto fb_info = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_b});
-      created_ids.push_back(fa_info.current_eclassid);
-      created_ids.push_back(fb_info.current_eclassid);
+      created_ids.push_back(fa_info.eclass_id);
+      created_ids.push_back(fb_info.eclass_id);
 
       // Now merge the leaves - this should make f(a) and f(b) congruent after rebuild
       egraph.merge(leaf_a, leaf_b);
