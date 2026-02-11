@@ -246,28 +246,14 @@ if(NOT DEFINED MGCONSOLE_GIT_TAG)
     set(MGCONSOLE_GIT_TAG "v1.5.0")
 endif()
 
-set(mgconsole_prefix ${CMAKE_BINARY_DIR}/mgconsole)
-set(mgconsole_source_dir ${mgconsole_prefix}/src/mgconsole-proj)
-set(mgconsole_build_dir ${mgconsole_prefix}/src/mgconsole-proj-build)
+# Skip building mgconsole with ExternalProject when using CPack
+# Instead, it will be built using tools/ci/build-mgconsole.sh during packaging
 
-ExternalProject_Add(mgconsole-proj
-    PREFIX ${mgconsole_prefix}
-    GIT_REPOSITORY https://github.com/memgraph/mgconsole.git
-    GIT_TAG ${MGCONSOLE_GIT_TAG}
-    SOURCE_DIR ${mgconsole_source_dir}
-    BINARY_DIR ${mgconsole_build_dir}
-    CMAKE_ARGS
-        -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
-        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target mgconsole
-    INSTALL_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target install
-    BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/bin/mgconsole
-)
-
-add_custom_target(mgconsole DEPENDS mgconsole-proj)
+# When using CPack, create dummy targets so dependencies don't break
+# mgconsole will be built via CPack install script instead
+add_custom_target(mgconsole-proj)
+add_custom_target(mgconsole)
+message(STATUS "Skipping mgconsole ExternalProject build - will be built via CPack install script")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
