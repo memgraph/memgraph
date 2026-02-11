@@ -82,6 +82,9 @@ def test_bfs_cost_based_selection(memgraph):
         "CREATE (a)-[:NEXT]->(b);"
     )
 
+    # create nodes with a different label so ScanAll isn't considered cheaper than ScanAllByLabelProperties
+    memgraph.execute("UNWIND range(1, 100) AS id CREATE (n:Node1 {id: id});")
+
     # Both have ScanAllByLabelProperties but with large cardinality (~50 each)
     # Expected: BFSExpand (SingleSourceShortestPath from source) with Filter for destination
     expected_plan_4 = [
@@ -100,7 +103,7 @@ def test_bfs_cost_based_selection(memgraph):
     expected_plan_5 = [
         " * Produce {r}",
         " * Filter (n :Node1), {n.id}",
-        " * BFSExpand (n)-[r]-(m)",
+        " * BFSExpand (m)-[r]-(n)",
         " * ScanAllByLabelProperties (m :Node {id})",
         " * Once",
     ]
@@ -144,7 +147,7 @@ def test_bfs_cost_based_selection(memgraph):
     expected_plan_8 = [
         " * Produce {r}",
         " * Filter (n :Node1), {n.id}",
-        " * BFSExpand (n)-[r]-(m)",
+        " * BFSExpand (m)-[r]-(n)",
         " * Filter (m :Node:Node1), {m.filler}",  # shouldn't have filter on :Node
         " * ScanAllByLabelProperties (m :Node {id})",
         " * Once",
@@ -160,7 +163,7 @@ def test_bfs_cost_based_selection(memgraph):
     # Test 9: Destination has index, source does not
     expected_plan_9 = [
         " * Produce {r}",
-        " * BFSExpand (n)-[r]-(m)",
+        " * BFSExpand (m)-[r]-(n)",
         " * Filter {m.filler}",
         " * ScanAllByLabelProperties (m :Node {id})",
         " * Once",
@@ -173,13 +176,42 @@ def test_bfs_cost_based_selection(memgraph):
     expected_plan_10 = [
         " * Produce {r}",
         " * Filter (n :Node1), {n.id}",
-        " * BFSExpand (n)-[r]-(m)",
+        " * BFSExpand (m)-[r]-(n)",
         " * ScanAllByLabelProperties (m :Node {id})",
         " * Once",
     ]
     results = list(memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node1 {id: 1})-[r *BFS]-(m:Node {id: 0}) RETURN r;"))
     actual_explain = [x[QUERY_PLAN] for x in results]
-    assert expected_plan_10 == actual_explain, f"Expected plan 9, got: {actual_explain}"
+    assert expected_plan_10 == actual_explain, f"Expected plan 10, got: {actual_explain}"
+
+    # Test 11: Direction gets changed
+    expected_plan_11 = [
+        " * Produce {r}",
+        " * Filter (n :Node1), {n.id}",
+        " * BFSExpand (m)<-[r]-(n)",
+        " * ScanAllByLabelProperties (m :Node {id})",
+        " * Once",
+    ]
+    results = list(memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node1 {id: 1})-[r *BFS]->(m:Node {id: 0}) RETURN r;"))
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_plan_11 == actual_explain, f"Expected plan 11, got: {actual_explain}"
+
+    # Test 12: Accumulated path is used and direction can't change - must expand from n to m
+    expected_plan_12 = [
+        " * Produce {r}",
+        " * Filter (m :Node), {m.id}",
+        " * BFSExpand (n)-[r]->(m)",
+        " * Filter (n :Node1), {n.id}",
+        " * ScanAll (n)",
+        " * Once",
+    ]
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (n:Node1 {id: 1})-[r *BFS (e, n, p | (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(m:Node {id: 0}) RETURN r;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_plan_12 == actual_explain, f"Expected plan 12, got: {actual_explain}"
 
 
 if __name__ == "__main__":

@@ -81,10 +81,10 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
 
       // if we are expanding from an edge, we will not do any change, but at some point need to throw
       // as expanding from edge in a path is invalid
-      if (is_expanding_from_node2 && expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST &&
-          !expansion.edge->filter_lambda_.accumulated_path) {
-        // BFS must *not* be flipped. Doing that changes the BFS results.
-        // When filter lambda uses accumulated path, path must not be flipped.
+      if (is_expanding_from_node2 && (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST ||
+                                      !expansion.edge->filter_lambda_.accumulated_path)) {
+        // BFS can be flipped when there's no accumulated path (path order doesn't matter for filtering).
+        // When a filter lambda uses accumulated path, path order matters during traversal, so no flip.
         std::swap(expansion.node1, expansion.node2);
         expansion.is_flipped = true;
         if (expansion.direction != EdgeAtom::Direction::BOTH) {

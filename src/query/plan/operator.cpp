@@ -1797,7 +1797,11 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
                bool existing_node, storage::View view)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node, false},
+      common_{.node_symbol = node_symbol,
+              .edge_symbol = edge_symbol,
+              .direction = direction,
+              .edge_types = edge_types,
+              .existing_node = existing_node},
       view_(view) {}
 
 ACCEPT_WITH_INPUT(Expand)
@@ -2065,8 +2069,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
               .edge_symbol = edge_symbol,
               .direction = direction,
               .edge_types = edge_types,
-              .existing_node = existing_node,
-              .use_bidirectional_bfs_ = false},
+              .existing_node = existing_node},
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
@@ -2080,7 +2083,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                  type_ == EdgeAtom::Type::KSHORTEST,
              "ExpandVariable can only be used with breadth first, depth first, "
              "weighted shortest path, all shortest paths or bfs all paths type");
-  DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
+  // Note: BFS can be reversed - when is_reverse is true, edges are ordered from node_symbol to input_symbol
   DMG_ASSERT(type_ == EdgeAtom::Type::KSHORTEST || limit_ == nullptr,
              "Limit is only supported for KSHORTEST path expansion");
 }
@@ -2873,7 +2876,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       frame_writer.Write(self_.common_.node_symbol, curr_vertex);
 
       // place edges on the frame in the correct order
-      std::reverse(edge_list.begin(), edge_list.end());
+      // If is_reverse_ is false, reverse to get source-to-destination order (input_symbol -> node_symbol)
+      // If is_reverse_ is true, keep as-is to get destination-to-source order (node_symbol -> input_symbol)
+      if (!self_.is_reverse_) {
+        std::ranges::reverse(edge_list);
+      }
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
 
       return true;
@@ -4226,8 +4233,8 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
 
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
-      return common_.use_bidirectional_bfs_ ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem)
-                                            : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
+      return common_.existing_node ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem)
+                                   : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
     case EdgeAtom::Type::DEPTH_FIRST:
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
@@ -4283,7 +4290,7 @@ std::string_view ExpandVariable::OperatorName() const {
     case Type::DEPTH_FIRST:
       return "ExpandVariable"sv;
     case Type::BREADTH_FIRST:
-      return (common_.use_bidirectional_bfs_ ? "STShortestPath"sv : "BFSExpand"sv);
+      return (common_.existing_node ? "STShortestPath"sv : "BFSExpand"sv);
     case Type::WEIGHTED_SHORTEST_PATH:
       return "WeightedShortestPath"sv;
     case Type::ALL_SHORTEST_PATHS:
