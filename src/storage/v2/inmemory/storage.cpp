@@ -196,47 +196,6 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
-void UnlinkAndRemoveDeltas(delta_container &deltas, CommitInfo const *commit_info,
-                           std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
-                           IndexPerformanceTracker &impact_tracker) {
-  for (auto &delta : deltas) {
-    DMG_ASSERT(
-        [&delta]() {
-          Delta *next = delta.next.load(std::memory_order_acquire);
-          if (next == nullptr) return true;
-          auto next_ts = next->commit_info->timestamp.load(std::memory_order_acquire);
-          return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
-        }(),
-        "downstream active non-sequential delta found during rapid cleanup");
-    impact_tracker.update(delta.action);
-    auto prev = delta.prev.Get();
-    switch (prev.type) {
-      case PreviousPtr::Type::NULL_PTR:
-      case PreviousPtr::Type::DELTA:
-        break;
-      case PreviousPtr::Type::VERTEX: {
-        auto &vertex = *prev.vertex;
-        vertex.delta = nullptr;
-        vertex.has_uncommitted_non_sequential_deltas = false;
-        if (vertex.deleted) {
-          DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          current_deleted_vertices.push_back(vertex.gid);
-        }
-        break;
-      }
-      case PreviousPtr::Type::EDGE: {
-        auto &edge = *prev.edge;
-        edge.delta = nullptr;
-        if (edge.deleted) {
-          DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          current_deleted_edges.push_back(edge.gid);
-        }
-        break;
-      }
-    }
-  }
-}
-
 /** When we have non-sequential deltas, we can no longer use the shortcut of
  * only processing deltas downstream from a "head" delta, i.e., one whose `prev`
  * is a vertex. Instead, we have to walk upstream, following `prev` pointers
@@ -1228,6 +1187,45 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
                                                             IndexPerformanceTracker &impact_tracker) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  auto const unlink_and_remove_deltas = [&](delta_container &deltas) {
+    for (auto &delta : deltas) {
+      DMG_ASSERT(
+          [&delta]() {
+            Delta *next = delta.next.load(std::memory_order_acquire);
+            if (next == nullptr) return true;
+            auto next_ts = next->commit_info->timestamp.load(std::memory_order_acquire);
+            return !(next_ts >= kTransactionInitialId && IsDeltaNonSequential(*next));
+          }(),
+          "downstream active non-sequential delta found during rapid cleanup");
+      impact_tracker.update(delta.action);
+      auto prev = delta.prev.Get();
+      switch (prev.type) {
+        case PreviousPtr::Type::NULL_PTR:
+        case PreviousPtr::Type::DELTA:
+          break;
+        case PreviousPtr::Type::VERTEX: {
+          auto &vertex = *prev.vertex;
+          vertex.delta = nullptr;
+          vertex.has_uncommitted_non_sequential_deltas = false;
+          if (vertex.deleted) {
+            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+            current_deleted_vertices.push_back(vertex.gid);
+          }
+          break;
+        }
+        case PreviousPtr::Type::EDGE: {
+          auto &edge = *prev.edge;
+          edge.delta = nullptr;
+          if (edge.deleted) {
+            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+            current_deleted_edges.push_back(edge.gid);
+          }
+          break;
+        }
+      }
+    }
+  };
+
   // STEP 1) ensure everything in GC is gone
 
   // 1.a) old garbage_undo_buffers are safe to remove
@@ -1244,19 +1242,11 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_,
-                          gc_deltas.commit_info_.get(),
-                          current_deleted_edges,
-                          current_deleted_vertices,
-                          impact_tracker);
+    unlink_and_remove_deltas(gc_deltas.deltas_);
   }
 
-  // STEP 2) this transaction's deltas
-  UnlinkAndRemoveDeltas(transaction_.deltas,
-                        transaction_.commit_info.get(),
-                        current_deleted_edges,
-                        current_deleted_vertices,
-                        impact_tracker);
+  // STEP 2) this transaction's deltas also minimal unlinking + remove
+  unlink_and_remove_deltas(transaction_.deltas);
 
   // STEP 3) clear all deltas after unlinking is complete
   linked_undo_buffers.clear();
