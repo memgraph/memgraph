@@ -4,6 +4,10 @@ add_unit_test(planner
         unittest__enode.cpp
         unittest__egraph.cpp
         unittest__extractor.cpp
+        unittest__pattern.cpp
+        unittest__ematch.cpp
+        unittest__rewrite.cpp
+        unittest__join_order.cpp
     LINK_TARGETS mg::planner
 )
 

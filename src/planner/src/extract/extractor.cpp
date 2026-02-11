@@ -9,4 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "planner/core/egraph.hpp"
+#include "planner/extract/extractor.hpp"
+
+#include <numeric>
+#include <queue>
+#include <vector>
+
+namespace memgraph::planner::core {}  // namespace memgraph::planner::core

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,9 @@
 
 import memgraph.planner.core.eids;
 
+#include <span>
+
+#include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
 namespace memgraph::planner::core {
@@ -27,22 +30,37 @@ struct EClassBase {
   void add_parent(ENodeId parent_enode_id) { parents_.insert(parent_enode_id); }
 
   /**
+   * @brief Remove a parent reference
+   */
+  void remove_parent(ENodeId parent_enode_id) { parents_.erase(parent_enode_id); }
+
+  /**
+   * @brief Remove an e-node from this class (used for duplicate removal)
+   */
+  void remove_node(ENodeId enode_id);
+
+  /**
    * @brief Get the number of e-nodes in this class
    */
   [[nodiscard]] auto size() const -> size_t { return nodes_.size(); }
 
-  auto nodes() const -> boost::unordered_flat_set<ENodeId> const & { return nodes_; }
+  [[nodiscard]] auto nodes() const -> std::span<ENodeId const> { return nodes_; }
 
-  auto representative() const -> ENodeId { return *nodes_.begin(); }
+  [[nodiscard]] auto representative() const -> ENodeId { return nodes_.front(); }
 
   // TODO: does this need to be a set? do we use O(1) contains/lookup?
   //       maybe needed for ematching later, leave for now
-  auto parents() const -> boost::unordered_flat_set<ENodeId> const & { return parents_; }
+  [[nodiscard]] auto parents() const -> boost::unordered_flat_set<ENodeId> const & { return parents_; }
 
   void merge_with(EClassBase &other);
 
  private:
-  boost::unordered_flat_set<ENodeId> nodes_;
+  // E-nodes owned by this e-class. Each e-node belongs to exactly one canonical
+  // e-class (structural invariant of the e-graph):
+  // - Creation: each e-node is created with its own e-class
+  // - Merge: nodes transfer from "loser" e-class to "winner", loser is deleted
+  // - No path exists to add an e-node to multiple e-classes
+  boost::container::small_vector<ENodeId, 4> nodes_;
   boost::unordered_flat_set<ENodeId> parents_;
 };
 }  // namespace detail
@@ -61,6 +79,8 @@ struct EClass : private detail::EClassBase {
   using EClassBase::add_parent;
   using EClassBase::nodes;
   using EClassBase::parents;
+  using EClassBase::remove_node;
+  using EClassBase::remove_parent;
   using EClassBase::representative;
   using EClassBase::size;
 

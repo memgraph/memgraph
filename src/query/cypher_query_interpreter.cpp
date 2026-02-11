@@ -30,6 +30,7 @@
 
 #include "parameters/parameters.hpp"
 #include "query/plan_v2/ast_converter.hpp"
+#include "query/plan_v2/rewrites.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -187,7 +188,9 @@ auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameter
       //  SymTbl: tmp result
       auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table);
 
-      // TODO: rewrite
+      // Apply e-graph rewrites (inline identifiers, etc.)
+      plan::v2::ApplyAllRewrites(egraph);
+
       // TODO: new ast_storage + symbol_table
       auto [plan, cost, new_ast_storage] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
       return std::tuple{std::move(plan), cost, std::move(new_ast_storage)};
