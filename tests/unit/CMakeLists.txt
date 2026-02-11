@@ -78,7 +78,7 @@ add_unit_test(event_map
 
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
-    LINK_TARGETS mg-communication mg-query mg-glue
+    LINK_TARGETS mg-communication mg-query mg-glue mg-utils
 )
 
 add_unit_test(plan_pretty_print

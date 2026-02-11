@@ -83,6 +83,7 @@
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/procedure/module.hpp"
+#include "utils/worker_yield_signal.hpp"
 #include "query/query_user.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/stream.hpp"
@@ -2776,6 +2777,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
     // Allow the cursor to store its suspended handle for scheduler-driven yield.
     ctx_.suspended_task_handle_ptr = &suspended_handle_;
+    // Connect to current worker's yield signal when running in a pool (no-op if not set).
+    ctx_.stopping_context.yield_requested = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
 
     // Returns std::optional<bool>: true = has row, false = done, nullopt = yielded (caller should return and resume
     // later).
