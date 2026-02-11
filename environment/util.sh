@@ -178,12 +178,13 @@ function install_all_apt() {
 function install_custom_golang() {
     # NOTE: The official https://go.dev/doc/manage-install doesn't seem to be working.
     GOVERSION="$1"
+    GOARCH=$([ "$(uname -m)" = "aarch64" ] && echo "arm64" || echo "amd64")
     GOINSTALLDIR="/opt/go$GOVERSION"
     GOROOT="$GOINSTALLDIR/go" # GOPATH=$HOME/go
     if [ ! -f "$GOROOT/bin/go" ]; then
-      curl -LO https://go.dev/dl/go$GOVERSION.linux-amd64.tar.gz
+      curl -LO https://go.dev/dl/go$GOVERSION.linux-$GOARCH.tar.gz
       mkdir -p "$GOINSTALLDIR"
-      tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-amd64.tar.gz
+      tar -C "$GOINSTALLDIR" -xzf go$GOVERSION.linux-$GOARCH.tar.gz
     fi
     echo "go $GOVERSION installed under $GOROOT"
 }
