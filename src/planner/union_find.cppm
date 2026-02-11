@@ -26,6 +26,8 @@ export module memgraph.planner.core.union_find;
 
 export namespace memgraph::planner::core {
 
+struct UnionFind;
+
 /**
  * @brief Processing context for UnionFind operations
  *

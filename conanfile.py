@@ -133,6 +133,7 @@ class Memgraph(ConanFile):
         # force=True overrides older gtest pinned by transitive dependencies
         self.test_requires("gtest/[>=1.17 <2]", force=True)
         self.test_requires("rapidcheck/cci.20231215")
+        self.test_requires("approvaltests.cpp/10.13.0")
 
     def validate(self):
         """Validate configuration before generation"""

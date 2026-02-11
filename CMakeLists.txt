@@ -204,6 +204,7 @@ include(functions)
 
 # Load conan dependencies in the correct order using explicit find_package calls
 # Load dependencies that don't depend on others first
+find_package(ApprovalTests REQUIRED)
 find_package(benchmark REQUIRED)
 find_package(GTest REQUIRED)
 find_package(rapidcheck REQUIRED)
