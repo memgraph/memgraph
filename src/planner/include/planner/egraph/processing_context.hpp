@@ -17,7 +17,7 @@ import memgraph.planner.core.constants;
 import memgraph.planner.core.eids;
 import memgraph.planner.core.union_find;
 
-#include "planner/core/enode.hpp"
+#include "planner/egraph/enode.hpp"
 
 #include <boost/container/flat_set.hpp>
 #include <unordered_map>
