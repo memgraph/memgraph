@@ -10,14 +10,16 @@
 // licenses/APL.txt.
 
 #include <fmt/format.h>
-#include <shared_mutex>
 
+#include "flags/general.hpp"
 #include "parameters/parameters.hpp"
 #include "parameters/parameters_rpc.hpp"
 #include "replication/include/replication/replication_client.hpp"
 #include "replication/include/replication/state.hpp"
 #include "system/include/system/action.hpp"
 #include "system/include/system/transaction.hpp"
+#include "utils/file.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::parameters {
 
@@ -53,28 +55,29 @@ std::string_view ParameterScopeToString(ParameterScope scope) {
   return "GLOBAL";
 }
 
-Parameters::Parameters(std::filesystem::path storage_path) { storage_.emplace(std::move(storage_path)); }
+Parameters::Parameters(const std::filesystem::path &storage_path) {
+  if (!FLAGS_data_recovery_on_startup && utils::DirExists(storage_path)) {
+    utils::DeleteDir(storage_path);
+  }
+  storage_.emplace(storage_path);
+}
 
 bool Parameters::SetParameter(std::string_view name, std::string_view value, ParameterScope scope) {
-  std::lock_guard parameters_guard{parameters_lock_};
-  if (!storage_) return false;
+  MG_ASSERT(storage_);
   return storage_->Put(MakeKey(scope, name), value);
 }
 
 std::optional<std::string> Parameters::GetParameter(std::string_view name, ParameterScope scope) const {
-  std::shared_lock parameters_guard{parameters_lock_};
   if (!storage_) return std::nullopt;
   return storage_->Get(MakeKey(scope, name));
 }
 
 bool Parameters::UnsetParameter(std::string_view name, ParameterScope scope) {
-  std::lock_guard parameters_guard{parameters_lock_};
-  if (!storage_) return false;
+  MG_ASSERT(storage_);
   return storage_->Delete(MakeKey(scope, name));
 }
 
 std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) const {
-  std::shared_lock parameters_guard{parameters_lock_};
   std::vector<ParameterInfo> parameters;
   if (!storage_) return parameters;
   std::string prefix(ScopePrefix(scope));
@@ -87,21 +90,24 @@ std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) co
 }
 
 bool Parameters::DeleteAllParameters() {
-  std::lock_guard parameters_guard{parameters_lock_};
-  if (!storage_) return false;
+  MG_ASSERT(storage_);
+  std::vector<std::string> keys_to_delete;
   for (const auto scope : {ParameterScope::GLOBAL, ParameterScope::DATABASE, ParameterScope::SESSION}) {
-    if (!storage_->DeletePrefix(std::string(ScopePrefix(scope)))) {
-      return false;
+    std::string prefix(ScopePrefix(scope));
+    for (auto it = storage_->begin(prefix); it != storage_->end(prefix); ++it) {
+      keys_to_delete.push_back(it->first);
     }
   }
-  return true;
+  return storage_->DeleteMultiple(keys_to_delete);
 }
 
 bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
+  MG_ASSERT(storage_);
+  std::map<std::string, std::string> items;
   for (const auto &p : params) {
-    SetParameter(p.name, p.value, p.scope);
+    items[MakeKey(p.scope, p.name)] = p.value;
   }
-  return true;
+  return storage_->PutMultiple(items);
 }
 
 std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {

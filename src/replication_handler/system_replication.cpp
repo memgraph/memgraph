@@ -16,7 +16,6 @@
 #include "auth/replication_handlers.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
-#include "parameters/replication_handlers.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "system/rpc.hpp"
@@ -60,7 +59,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   /*
    * PARAMETERS
    */
-  if (!parameters.ApplyRecovery(req.parameters)) return;
+  if (!parameters.ApplyRecovery(req.parameters)) return;  // Failure sent on exit
 
   /*
    * SUCCESSFUL RECOVERY

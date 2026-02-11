@@ -2614,6 +2614,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         if (!parameters->SetParameter(parameter_name, value_str, kParamScope)) {
           throw utils::BasicException("Failed to set parameter '{}'", parameter_name);
         }
+        spdlog::info("Set parameter '{}' with value '{}'", parameter_name, value_str);
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
         parameters::AddSetParameterAction(*interpreter->system_transaction_, parameter_name, value_str, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
@@ -2630,6 +2631,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         if (!parameters->UnsetParameter(parameter_name, kParamScope)) {
           throw utils::BasicException("Parameter '{}' does not exist", parameter_name);
         }
+        spdlog::info("Unset parameter '{}'", parameter_name);
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
         parameters::AddUnsetParameterAction(*interpreter->system_transaction_, parameter_name, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
@@ -2662,6 +2664,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         if (!parameters->DeleteAllParameters()) {
           throw utils::BasicException("Failed to delete all parameters");
         }
+        spdlog::info("Deleted all parameters");
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
         parameters::AddDeleteAllParametersAction(*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};

@@ -73,6 +73,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     uint64_t last_committed_timestamp;
   };
 
+  const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
+
   DbInfo db_info = std::invoke([&] {
     auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
       if constexpr (REQUIRE_LOCK) {
@@ -81,7 +83,6 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       return std::nullopt;
     });
 
-    bool const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
       dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
@@ -96,7 +97,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE
-      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+      if (!is_enterprise) {
         return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                             db_info.last_committed_timestamp,
                                                             std::move(db_info.configs),

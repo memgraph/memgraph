@@ -720,7 +720,7 @@ parameterValue : literal | parameter ;
 
 setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
 
-unsetParameter : UNSET PARAMETER parameterName ;
+unsetParameter : UNSET GLOBAL PARAMETER parameterName ;
 
 showParameters : SHOW PARAMETERS ;
 

@@ -19,7 +19,6 @@
 #include "replication/state.hpp"
 #include "system/state.hpp"
 #include "system/transaction.hpp"
-#include "utils/rw_lock.hpp"
 
 namespace memgraph::parameters {
 
@@ -43,7 +42,7 @@ struct Parameters {
    * @brief Construct Parameters with storage path.
    * @param storage_path Path to the storage directory for parameters
    */
-  explicit Parameters(std::filesystem::path storage_path);
+  explicit Parameters(const std::filesystem::path &storage_path);
 
   /**
    * @brief Set a parameter with a given name, value, and scope.
@@ -72,6 +71,8 @@ struct Parameters {
 
   /**
    * @brief Apply parameter recovery snapshot from main (used by SystemRecoveryHandler).
+   * Applied atomically: either all parameters are written or none.
+   * @return true on success, false on storage error.
    */
   bool ApplyRecovery(const std::vector<ParameterInfo> &params);
 
@@ -87,7 +88,6 @@ struct Parameters {
                                    system::ReplicaHandlerAccessToState &system_state_access);
 
  private:
-  mutable utils::RWLock parameters_lock_{utils::RWLock::Priority::WRITE};
   std::optional<kvstore::KVStore> storage_;
 };
 

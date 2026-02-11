@@ -137,7 +137,7 @@ class MultiTenantTest : public ::testing::Test {
     memgraph::utils::Settings settings;
     memgraph::auth::SynchedAuth auth;
     memgraph::system::System system;
-    memgraph::utils::Parameters parameters;
+    memgraph::parameters::Parameters parameters;
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
     memgraph::dbms::DbmsHandler dbms;
     memgraph::query::InterpreterContext interpreter_context;

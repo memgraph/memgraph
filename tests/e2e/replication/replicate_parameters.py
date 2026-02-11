@@ -60,6 +60,7 @@ def clean_dirs(test_name):
 def show_replicas_func(cursor):
     def func():
         return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+
     return func
 
 
@@ -91,8 +92,20 @@ def _instances(test_name):
 
 def _expected_replicas_ts(ts):
     return [
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", {"behind": None, "status": "ready", "ts": ts}, {"memgraph": {"behind": 0, "status": "ready", "ts": 0}}),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", {"behind": None, "status": "ready", "ts": ts}, {"memgraph": {"behind": 0, "status": "ready", "ts": 0}}),
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"behind": None, "status": "ready", "ts": ts},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"behind": None, "status": "ready", "ts": ts},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
     ]
 
 
@@ -122,7 +135,7 @@ def test_unset_parameter_replication(connection, test_name, clean_dirs):
     execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER x="value";')
     mg_sleep_and_assert_collection(_expected_replicas_ts(3), show_replicas_func(cursor))
 
-    execute_and_fetch_all(cursor, "UNSET PARAMETER x;")
+    execute_and_fetch_all(cursor, "UNSET GLOBAL PARAMETER x;")
     mg_sleep_and_assert_collection(_expected_replicas_ts(4), show_replicas_func(cursor))
 
     for port in (BOLT_PORTS["replica_1"], BOLT_PORTS["replica_2"]):

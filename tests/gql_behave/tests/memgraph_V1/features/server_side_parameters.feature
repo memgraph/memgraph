@@ -43,7 +43,7 @@ Feature: Server-side parameters
             """
         When executing query:
             """
-            UNSET PARAMETER x
+            UNSET GLOBAL PARAMETER x
             """
         When executing query:
             """

@@ -279,7 +279,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
                                                                 std::vector<memgraph::auth::User>{},
                                                                 std::vector<memgraph::auth::Role>{},
                                                                 std::vector<memgraph::auth::UserProfiles::Profile>{},
-                                                                std::vector<memgraph::utils::ParameterInfo>{});
+                                                                std::vector<memgraph::parameters::ParameterInfo>{});
     auto reply = stream.SendAndWait();
     EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }

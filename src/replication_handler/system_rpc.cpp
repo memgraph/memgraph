@@ -19,19 +19,18 @@
 
 namespace memgraph::slk {
 
-// ParameterInfo SLK (for SystemRecoveryReq::parameters), here to avoid replication_handler linking mg-parameters
+// ParameterInfo SLK (for SystemRecoveryReq::parameters); defined here so replication_handler stays independent of
+// mg-parameters.
 void Save(const memgraph::parameters::ParameterInfo &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.name, builder);
   memgraph::slk::Save(self.value, builder);
-  memgraph::slk::Save(static_cast<uint8_t>(self.scope), builder);
+  memgraph::slk::Save(self.scope, builder);
 }
 
 void Load(memgraph::parameters::ParameterInfo *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->name, reader);
   memgraph::slk::Load(&self->value, reader);
-  uint8_t scope = 0;
-  memgraph::slk::Load(&scope, reader);
-  self->scope = static_cast<parameters::ParameterScope>(scope);
+  memgraph::slk::Load(&self->scope, reader);
 }
 
 // Serialize code for SystemRecoveryReqV1

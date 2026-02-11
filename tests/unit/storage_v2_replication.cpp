@@ -176,7 +176,7 @@ struct MinMemgraph {
 
   memgraph::auth::SynchedAuth auth;
   memgraph::system::System system_;
-  memgraph::utils::Parameters parameters_;
+  memgraph::parameters::Parameters parameters_;
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::dbms::DatabaseAccess db_acc;
