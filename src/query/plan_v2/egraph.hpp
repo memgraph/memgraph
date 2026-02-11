@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <string_view>
 
 #include "storage/v2/property_value.hpp"
 #include "strong_type/strong_type.hpp"
@@ -30,7 +31,7 @@ struct egraph {
   egraph &operator=(egraph &&) noexcept;
   ~egraph();  // required because pimpl
 
-  auto MakeSymbol(int32_t sym_pos) -> eclass;
+  auto MakeSymbol(int32_t sym_pos, std::string_view name) -> eclass;
   auto MakeBind(eclass input, eclass sym, eclass expr) -> eclass;
   auto MakeLiteral(storage::ExternalPropertyValue const &value) -> eclass;
   auto MakeOnce() -> eclass;

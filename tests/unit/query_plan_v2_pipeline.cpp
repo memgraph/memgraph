@@ -210,28 +210,28 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "WithLiteralReturnAlias",
             .query = "WITH 1 AS a RETURN a;",
-            .expected_details = {"Produce {a`0:1}", "Produce {TODO`1:1}", "Once"},
+            .expected_details = {"Produce {a`0:1}", "Produce {a`1:1}", "Once"},
             .min_rewrites = 1,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "WithMultipleLiterals",
             .query = "WITH 1 AS a, 2 AS b RETURN a, b;",
-            .expected_details = {"Produce {a`2:1, b`1:2}", "Produce {TODO`0:1, TODO`3:2}", "Once"},
+            .expected_details = {"Produce {a`2:1, b`1:2}", "Produce {a`0:1, b`3:2}", "Once"},
             .min_rewrites = 2,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "ChainedAliases",
             .query = "WITH 1 AS a WITH a AS b RETURN b;",
-            .expected_details = {"Produce {b`1:1}", "Produce {TODO`0:1, TODO`2:1}", "Once"},
+            .expected_details = {"Produce {b`1:1}", "Produce {a`0:1, b`2:1}", "Once"},
             .min_rewrites = 1,
             .should_saturate = true,
         },
         PipelineTestCase{
             .name = "SameNameDifferentSymbols",
             .query = "WITH 1 AS a RETURN a AS a;",
-            .expected_details = {"Produce {a`0:1}", "Produce {TODO`1:1}", "Once"},
+            .expected_details = {"Produce {a`0:1}", "Produce {a`1:1}", "Once"},
             .min_rewrites = 1,
             .should_saturate = true,
         }

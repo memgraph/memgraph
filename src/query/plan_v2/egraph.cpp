@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,10 @@ egraph &egraph::operator=(egraph &&other) noexcept {
 egraph::~egraph() = default;  // required because pimpl
 
 // NOLINTNEXTLINE(readability-make-member-function-const)
-auto egraph::MakeSymbol(int32_t sym_pos) -> eclass { return pimpl_->make<symbol::Symbol>(sym_pos); }
+auto egraph::MakeSymbol(int32_t sym_pos, std::string_view name) -> eclass {
+  pimpl_->store_symbol_name(sym_pos, name);
+  return pimpl_->make<symbol::Symbol>(sym_pos);
+}
 
 // NOLINTNEXTLINE(readability-make-member-function-const)
 auto egraph::MakeBind(eclass input, eclass sym, eclass expr) -> eclass {

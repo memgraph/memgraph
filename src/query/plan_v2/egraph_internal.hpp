@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -133,12 +133,17 @@ struct egraph::impl {
     return it->second;
   }
 
+  auto store_symbol_name(int32_t position, std::string_view name) -> void {
+    symbol_name_store_.try_emplace(position, std::string{name});
+  }
+
   memgraph::planner::core::EGraph<symbol, analysis> egraph_;
   uint64_t next_literal_disambiguator_ = 0;
   uint64_t next_once_disambiguator_ = 0;
   uint64_t next_name_disambiguator_ = 0;
   std::map<storage::ExternalPropertyValue, uint64_t> literal_store_;
   std::map<std::string, uint64_t> name_store_;
+  std::map<int32_t, std::string> symbol_name_store_;  // position -> name
 };
 
 }  // namespace memgraph::query::plan::v2
