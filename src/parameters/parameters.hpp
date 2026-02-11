@@ -16,15 +16,14 @@
 #include <vector>
 
 #include "kvstore/kvstore.hpp"
+#include "replication/state.hpp"
+#include "system/state.hpp"
+#include "system/transaction.hpp"
 #include "utils/rw_lock.hpp"
 
-namespace memgraph::system {
-struct Transaction;
-}  // namespace memgraph::system
+namespace memgraph::parameters {
 
-namespace memgraph::utils {
-
-enum class ParameterScope { GLOBAL, DATABASE, SESSION };
+enum class ParameterScope : uint8_t { GLOBAL, DATABASE, SESSION };
 
 std::string_view ParameterScopeToString(ParameterScope scope);
 
@@ -41,9 +40,8 @@ struct ParameterInfo {
  */
 struct Parameters {
   /**
-   * @brief Construct Parameters with storage path and recovery flag.
+   * @brief Construct Parameters with storage path.
    * @param storage_path Path to the storage directory for parameters
-   * @param recovery_on_startup If false, clears all existing parameters on startup
    */
   explicit Parameters(std::filesystem::path storage_path);
 
@@ -72,8 +70,24 @@ struct Parameters {
    */
   bool DeleteAllParameters();
 
+  /**
+   * @brief Apply parameter recovery snapshot from main (used by SystemRecoveryHandler).
+   */
+  bool ApplyRecovery(const std::vector<ParameterInfo> &params);
+
+  /**
+   * @brief Return snapshot of all parameters for SystemRecoveryReq (main side).
+   */
+  std::vector<ParameterInfo> GetSnapshotForRecovery() const;
+
+  /**
+   * @brief Register replication RPC handlers for parameters on the replica.
+   */
+  void RegisterReplicationHandlers(replication::RoleReplicaData const &data,
+                                   system::ReplicaHandlerAccessToState &system_state_access);
+
  private:
-  mutable utils::RWLock parameters_lock_{RWLock::Priority::WRITE};
+  mutable utils::RWLock parameters_lock_{utils::RWLock::Priority::WRITE};
   std::optional<kvstore::KVStore> storage_;
 };
 
@@ -85,4 +99,4 @@ void AddUnsetParameterAction(system::Transaction &txn, std::string_view name,
 
 void AddDeleteAllParametersAction(system::Transaction &txn);
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::parameters

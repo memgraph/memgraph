@@ -26,11 +26,11 @@
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/typed_value.hpp"
 #include "utils/flag_validation.hpp"
 
+#include "parameters/parameters.hpp"
 #include "query/plan_v2/ast_converter.hpp"
-#include "query/serialization/typed_value.hpp"
-#include "utils/parameters.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -42,7 +42,7 @@ namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
-                            utils::Parameters const *global_parameters) -> Parameters {
+                            parameters::Parameters const *global_parameters) -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
@@ -54,9 +54,10 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
     }
     // Fallback to global parameter if available.
     if (global_parameters) {
-      auto opt = global_parameters->GetParameter(param_key, utils::ParameterScope::GLOBAL);
+      auto opt = global_parameters->GetParameter(param_key, parameters::ParameterScope::GLOBAL);
       if (opt) {
-        auto value = serialization::DeserializeTypedValue(nlohmann::json::parse(*opt));
+        TypedValue value;
+        query::from_json(nlohmann::json::parse(*opt), value);
         parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
         continue;
       }
@@ -68,7 +69,7 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       utils::Parameters const *global_parameters) {
+                       parameters::Parameters const *global_parameters) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <variant>
@@ -3789,7 +3790,7 @@ class ParameterQuery : public memgraph::query::Query {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SET_PARAMETER, UNSET_PARAMETER, SHOW_PARAMETERS, DELETE_ALL_PARAMETERS };
+  enum class Action : uint8_t { SET_PARAMETER, UNSET_PARAMETER, SHOW_PARAMETERS, DELETE_ALL_PARAMETERS };
 
   ParameterQuery() = default;
 

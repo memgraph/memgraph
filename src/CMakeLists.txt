@@ -3,6 +3,7 @@
 # add memgraph sub libraries, ordered by dependency
 add_subdirectory(csv)
 add_subdirectory(utils)
+add_subdirectory(parameters)
 add_subdirectory(requests)
 add_subdirectory(io)
 add_subdirectory(kvstore)

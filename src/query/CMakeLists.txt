@@ -87,7 +87,6 @@ target_sources(mg-query
     query_logger.cpp
     query_user.cpp
     serialization/property_value.cpp
-    serialization/typed_value.cpp
     stream/common.cpp
     stream/sources.cpp
     stream/streams.cpp

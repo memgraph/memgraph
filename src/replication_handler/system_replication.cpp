@@ -16,10 +16,10 @@
 #include "auth/replication_handlers.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
+#include "parameters/replication_handlers.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "system/rpc.hpp"
-#include "utils/replication_handlers.hpp"
 
 namespace memgraph::rpc {
 class FileReplicationHandler;
@@ -30,7 +30,7 @@ namespace memgraph::replication {
 #ifdef MG_ENTERPRISE
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
-                           auth::SynchedAuth &auth, utils::Parameters &parameters, uint64_t const request_version,
+                           auth::SynchedAuth &auth, parameters::Parameters &parameters, uint64_t const request_version,
                            slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
@@ -60,7 +60,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   /*
    * PARAMETERS
    */
-  if (!utils::ApplyParametersRecovery(parameters, req.parameters)) return;
+  if (!parameters.ApplyRecovery(req.parameters)) return;
 
   /*
    * SUCCESSFUL RECOVERY
@@ -71,7 +71,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
 }
 #else
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                           const std::optional<utils::UUID> &current_main_uuid, utils::Parameters &parameters,
+                           const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
                            uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
@@ -90,7 +90,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   /*
    * PARAMETERS
    */
-  if (!utils::ApplyParametersRecovery(parameters, req.parameters)) return;
+  if (!parameters.ApplyRecovery(req.parameters)) return;
 
   /*
    * SUCCESSFUL RECOVERY
@@ -137,7 +137,7 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
 
 #ifdef MG_ENTERPRISE
 void Register(replication::RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
-              auth::SynchedAuth &auth, utils::Parameters &parameters) {
+              auth::SynchedAuth &auth, parameters::Parameters &parameters) {
   // NOTE: Register even without license as the user could add a license at run-time
 
   auto system_state_access = system.CreateSystemStateAccess();
@@ -169,10 +169,10 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   auth::Register(data, system_state_access, auth);
 
   // Parameters
-  utils::Register(data, system_state_access, parameters);
+  parameters.RegisterReplicationHandlers(data, system_state_access);
 }
 #else
-void Register(replication::RoleReplicaData const &data, system::System &system, utils::Parameters &parameters) {
+void Register(replication::RoleReplicaData const &data, system::System &system, parameters::Parameters &parameters) {
   auto system_state_access = system.CreateSystemStateAccess();
 
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
@@ -194,7 +194,7 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
       });
 
   // Parameters
-  utils::Register(data, system_state_access, parameters);
+  parameters.RegisterReplicationHandlers(data, system_state_access);
 }
 #endif
 
@@ -203,7 +203,7 @@ bool StartRpcServer(
     dbms::DbmsHandler &dbms_handler,
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     replication::RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system,
-    utils::Parameters &parameters) {
+    parameters::Parameters &parameters) {
   // Register storage handlers
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
   // Register system handlers (dbms, auth, parameters)
@@ -219,7 +219,7 @@ bool StartRpcServer(
 bool StartRpcServer(
     dbms::DbmsHandler &dbms_handler,
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-    replication::RoleReplicaData &data, system::System &system, utils::Parameters &parameters) {
+    replication::RoleReplicaData &data, system::System &system, parameters::Parameters &parameters) {
   // Register storage handlers
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
   // Register system handlers (parameters only)

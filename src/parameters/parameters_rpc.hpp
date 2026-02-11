@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include "parameters/parameters.hpp"
 #include "rpc/messages.hpp"
 #include "slk/streams.hpp"
-#include "utils/parameters.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
@@ -28,7 +28,7 @@ struct SetParameterReq {
   SetParameterReq() = default;
 
   SetParameterReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
-                  utils::ParameterInfo parameter)
+                  parameters::ParameterInfo parameter)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_group_timestamp},
         new_group_timestamp{new_group_timestamp},
@@ -37,7 +37,7 @@ struct SetParameterReq {
   utils::UUID main_uuid;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
-  utils::ParameterInfo parameter;
+  parameters::ParameterInfo parameter;
 };
 
 struct SetParameterRes {
@@ -64,7 +64,7 @@ struct UnsetParameterReq {
   UnsetParameterReq() = default;
 
   UnsetParameterReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
-                    std::string name, utils::ParameterScope scope)
+                    std::string name, parameters::ParameterScope scope)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_group_timestamp},
         new_group_timestamp{new_group_timestamp},
@@ -75,7 +75,7 @@ struct UnsetParameterReq {
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   std::string name;
-  utils::ParameterScope scope;
+  parameters::ParameterScope scope;
 };
 
 struct UnsetParameterRes {

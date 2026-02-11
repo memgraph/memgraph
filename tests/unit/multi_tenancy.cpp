@@ -25,6 +25,7 @@
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -41,7 +42,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
-#include "utils/parameters.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.csv.parsing;

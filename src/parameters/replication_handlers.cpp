@@ -9,16 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/replication_handlers.hpp"
+#include "parameters/replication_handlers.hpp"
 
 #include <spdlog/spdlog.h>
 
+#include "parameters/parameters.hpp"
+#include "parameters/parameters_rpc.hpp"
 #include "replication_handler/system_replication.hpp"
-#include "utils/parameters.hpp"
-#include "utils/parameters_rpc.hpp"
 #include "rpc/utils.hpp"
 
-namespace memgraph::utils {
+namespace memgraph::parameters {
 
 namespace {
 
@@ -115,25 +115,9 @@ void DeleteAllParametersHandler(system::ReplicaHandlerAccessToState &system_stat
 
 }  // namespace
 
-bool ApplyParametersRecovery(Parameters &parameters, const std::vector<ParameterInfo> &params) {
-  for (const auto &p : params) {
-    parameters.SetParameter(p.name, p.value, p.scope);
-  }
-  return true;
-}
-
-std::vector<ParameterInfo> GetParametersSnapshotForRecovery(Parameters &parameters) {
-  std::vector<ParameterInfo> out;
-  for (const auto scope : {ParameterScope::GLOBAL, ParameterScope::DATABASE, ParameterScope::SESSION}) {
-    for (const auto &p : parameters.GetAllParameters(scope)) {
-      out.push_back(p);
-    }
-  }
-  return out;
-}
-
-void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
-              Parameters &parameters) {
+void Parameters::RegisterReplicationHandlers(replication::RoleReplicaData const &data,
+                                             system::ReplicaHandlerAccessToState &system_state_access) {
+  Parameters &parameters = *this;
   data.server->rpc_server_.Register<storage::replication::SetParameterRpc>(
       [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
                                                 uint64_t const request_version,
@@ -158,4 +142,4 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
       });
 }
 
-}  // namespace memgraph::utils
+}  // namespace memgraph::parameters

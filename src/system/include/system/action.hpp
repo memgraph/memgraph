@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,9 +26,9 @@ struct ISystemAction {
   /// Durability step which is defered until commit time
   virtual void DoDurability() = 0;
 
-  /// If true, replication is only performed when the enterprise license is valid.
-  /// If false (community feature), replication is always attempted.
-  virtual bool IsEnterpriseOnly() const = 0;
+  /// If true, this action may be replicated (e.g. parameter changes). If false, replication is skipped (e.g. auth,
+  /// dbms).
+  virtual bool ShouldReplicateInCommunity() const = 0;
 
   /// Prepare the RPC payload that will be sent to all replicas clients
   virtual bool DoReplication(memgraph::replication::ReplicationClient &client, const utils::UUID &main_uuid,

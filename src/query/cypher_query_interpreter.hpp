@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "parameters/parameters.hpp"
 #include "plan/read_write_type_checker.hpp"
 #include "query/config.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -19,7 +20,6 @@
 #include "query/parameters.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
-#include "utils/parameters.hpp"
 #include "utils/synchronized.hpp"
 
 #include "gflags/gflags.h"
@@ -61,7 +61,7 @@ class LogicalPlan {
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
-                            utils::Parameters const *global_parameters = nullptr) -> Parameters;
+                            parameters::Parameters const *global_parameters = nullptr) -> Parameters;
 
 class PlanWrapper {
  public:
@@ -120,7 +120,7 @@ struct ParsedQuery {
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       utils::Parameters const *global_parameters = nullptr);
+                       parameters::Parameters const *global_parameters = nullptr);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:

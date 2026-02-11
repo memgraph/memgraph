@@ -235,7 +235,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
-  bool IsEnterpriseOnly() const override { return true; }
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -259,7 +259,7 @@ struct RenameDatabase : memgraph::system::ISystemAction {
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
-  bool IsEnterpriseOnly() const override { return true; }
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -416,7 +416,7 @@ struct CreateDatabase : memgraph::system::ISystemAction {
     // Done during dbms execution
   }
 
-  bool IsEnterpriseOnly() const override { return true; }
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {

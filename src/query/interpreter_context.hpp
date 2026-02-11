@@ -19,6 +19,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "parameters/parameters.hpp"
 #include "query/config.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
@@ -29,7 +30,6 @@
 #include "system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/parameters.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
@@ -62,7 +62,7 @@ struct QueryUserOrRole;
  */
 struct InterpreterContext {
   memgraph::utils::Settings *settings;
-  memgraph::utils::Parameters *parameters;
+  memgraph::parameters::Parameters *parameters;
   dbms::DbmsHandler *dbms_handler;
 
   // Internal
@@ -107,7 +107,7 @@ struct InterpreterContext {
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-                     memgraph::utils::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+                     memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
                      utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
 #ifdef MG_ENTERPRISE
                      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
@@ -127,8 +127,8 @@ class InterpreterContextHolder {
   }
 
  private:
-  static void Initialize(InterpreterConfig interpreter_config, utils::Settings *settings, utils::Parameters *parameters,
-                         dbms::DbmsHandler *dbms_handler,
+  static void Initialize(InterpreterConfig interpreter_config, utils::Settings *settings,
+                         parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
                          system::System &system,
 #ifdef MG_ENTERPRISE
@@ -170,7 +170,7 @@ class InterpreterContextHolder {
 struct InterpreterContextLifetimeControl {
   InterpreterContextLifetimeControl(
       InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
-      memgraph::utils::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
+      memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
       utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, system::System &system,
 #ifdef MG_ENTERPRISE
       std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,

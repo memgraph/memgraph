@@ -16,9 +16,9 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "parameters/parameters.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/config.hpp"
-#include "utils/parameters.hpp"
 
 namespace memgraph::replication {
 
@@ -58,11 +58,12 @@ struct SystemRecoveryReq {
   static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
   SystemRecoveryReq() = default;
+
   SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
                     std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
                     std::vector<auth::User> users, std::vector<auth::Role> roles,
                     std::vector<auth::UserProfiles::Profile> profiles,
-                    std::vector<utils::ParameterInfo> parameters = {})
+                    std::vector<parameters::ParameterInfo> parameters = {})
       : main_uuid(main_uuid),
         forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
@@ -73,9 +74,14 @@ struct SystemRecoveryReq {
         parameters{std::move(parameters)} {}
 
   static SystemRecoveryReq Upgrade(SystemRecoveryReqV1 const &v1) {
-    return SystemRecoveryReq{v1.main_uuid,       v1.forced_group_timestamp, v1.database_configs,
-                             v1.auth_config,    v1.users,                  v1.roles,
-                             v1.profiles,        {}};
+    return SystemRecoveryReq{v1.main_uuid,
+                             v1.forced_group_timestamp,
+                             v1.database_configs,
+                             v1.auth_config,
+                             v1.users,
+                             v1.roles,
+                             v1.profiles,
+                             {}};
   }
 
   utils::UUID main_uuid;
@@ -85,7 +91,22 @@ struct SystemRecoveryReq {
   std::vector<auth::User> users;
   std::vector<auth::Role> roles;
   std::vector<auth::UserProfiles::Profile> profiles;
-  std::vector<utils::ParameterInfo> parameters;
+  std::vector<parameters::ParameterInfo> parameters;
+};
+
+struct SystemRecoveryResV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_RES, .name = "SystemRecoveryResV1"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(SystemRecoveryResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryResV1 &self, memgraph::slk::Builder *builder);
+  SystemRecoveryResV1() = default;
+
+  explicit SystemRecoveryResV1(Result res) : result(res) {}
+
+  Result result;
 };
 
 struct SystemRecoveryRes {
@@ -100,10 +121,15 @@ struct SystemRecoveryRes {
 
   explicit SystemRecoveryRes(Result res) : result(res) {}
 
+  SystemRecoveryResV1 Downgrade() const {
+    return SystemRecoveryResV1{static_cast<SystemRecoveryResV1::Result>(result)};
+  }
+
   Result result;
 };
 
 using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecoveryRes>;
+using SystemRecoveryRpcV1 = rpc::RequestResponse<SystemRecoveryReqV1, SystemRecoveryResV1>;
 
 }  // namespace memgraph::replication
 
@@ -112,6 +138,8 @@ void Save(const memgraph::replication::SystemRecoveryReqV1 &self, memgraph::slk:
 void Load(memgraph::replication::SystemRecoveryReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication::SystemRecoveryResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::SystemRecoveryResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader);
 }  // namespace memgraph::slk

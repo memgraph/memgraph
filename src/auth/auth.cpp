@@ -128,7 +128,7 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
 
   void DoDurability() override { /* Done during Auth execution */ }
 
-  bool IsEnterpriseOnly() const override { return true; }
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -165,7 +165,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   void DoDurability() override { /* Done during Auth execution */ }
 
-  bool IsEnterpriseOnly() const override { return true; }
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {

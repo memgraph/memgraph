@@ -55,6 +55,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/common.hpp"
 #include "query/config.hpp"
@@ -90,7 +91,6 @@
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
-#include "serialization/typed_value.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -117,7 +117,6 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/parameters.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
@@ -2595,13 +2594,15 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
   evaluation_context.parameters = query_parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-  constexpr auto kParamScope = utils::ParameterScope::GLOBAL;
+  constexpr auto kParamScope = parameters::ParameterScope::GLOBAL;
 
   Callback callback;
   switch (parameter_query->action_) {
     case ParameterQuery::Action::SET_PARAMETER: {
       const auto parameter_value = EvaluateOptionalExpression(parameter_query->parameter_value_, evaluator);
-      auto value_str = serialization::SerializeTypedValue(parameter_value).dump();
+      nlohmann::json j;
+      query::to_json(j, parameter_value);
+      auto value_str = j.dump();
 
       callback.fn = [parameter_name = parameter_query->parameter_name_,
                      value_str,
@@ -2614,7 +2615,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
           throw utils::BasicException("Failed to set parameter '{}'", parameter_name);
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        utils::AddSetParameterAction(*interpreter->system_transaction_, parameter_name, value_str, kParamScope);
+        parameters::AddSetParameterAction(*interpreter->system_transaction_, parameter_name, value_str, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -2630,7 +2631,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
           throw utils::BasicException("Parameter '{}' does not exist", parameter_name);
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        utils::AddUnsetParameterAction(*interpreter->system_transaction_, parameter_name, kParamScope);
+        parameters::AddUnsetParameterAction(*interpreter->system_transaction_, parameter_name, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -2641,12 +2642,13 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        auto all_params = parameters->GetAllParameters(utils::ParameterScope::GLOBAL);
+        auto all_params = parameters->GetAllParameters(parameters::ParameterScope::GLOBAL);
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
         for (const auto &param : all_params) {
-          results.emplace_back(std::vector<TypedValue>{
-              TypedValue(param.name), TypedValue(param.value), TypedValue(utils::ParameterScopeToString(param.scope))});
+          results.emplace_back(std::vector<TypedValue>{TypedValue(param.name),
+                                                       TypedValue(param.value),
+                                                       TypedValue(parameters::ParameterScopeToString(param.scope))});
         }
         return results;
       };
@@ -2661,7 +2663,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
           throw utils::BasicException("Failed to delete all parameters");
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        utils::AddDeleteAllParametersAction(*interpreter->system_transaction_);
+        parameters::AddDeleteAllParametersAction(*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -8820,13 +8822,17 @@ void Interpreter::Commit() {
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
-    // Only enterprise can do system replication
+      // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
+      bool can_replicate =
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast()) {
-        return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
-      }
+          license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity();
+#else
+          system_transaction_->CanReplicateInCommunity();  // Community: no license, only parameters replicate
 #endif
-      return system_transaction_->Commit(memgraph::system::DoNothing{});
+      if (!can_replicate) {
+        return system_transaction_->Commit(memgraph::system::DoNothing{});
+      }
+      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
     };
 
     auto const replica_commit = [&](replication::RoleReplicaData &) {

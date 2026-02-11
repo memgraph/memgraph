@@ -28,11 +28,11 @@ inline void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, co
 #ifdef MG_ENTERPRISE
 void SystemRecoveryHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
-                           auth::SynchedAuth &auth, utils::Parameters &parameters, uint64_t request_version,
+                           auth::SynchedAuth &auth, parameters::Parameters &parameters, uint64_t request_version,
                            slk::Reader *req_reader, slk::Builder *res_builder);
 #else
 void SystemRecoveryHandler(system::ReplicaHandlerAccessToState &system_state_access,
-                           const std::optional<utils::UUID> &current_main_uuid, utils::Parameters &parameters,
+                           const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
                            uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 #endif
 
@@ -42,21 +42,21 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
 
 #ifdef MG_ENTERPRISE
 void Register(RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
-              auth::SynchedAuth &auth, utils::Parameters &parameters);
+              auth::SynchedAuth &auth, parameters::Parameters &parameters);
 #else
-void Register(RoleReplicaData const &data, system::System &system, utils::Parameters &parameters);
+void Register(RoleReplicaData const &data, system::System &system, parameters::Parameters &parameters);
 #endif
 
 #ifdef MG_ENTERPRISE
 bool StartRpcServer(
     dbms::DbmsHandler &dbms_handler,
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-    RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system, utils::Parameters &parameters);
+    RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system, parameters::Parameters &parameters);
 #else
 bool StartRpcServer(
     dbms::DbmsHandler &dbms_handler,
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-    RoleReplicaData &data, system::System &system, utils::Parameters &parameters);
+    RoleReplicaData &data, system::System &system, parameters::Parameters &parameters);
 #endif
 
 }  // namespace memgraph::replication

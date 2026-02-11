@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/parameters_rpc.hpp"
+#include "parameters/parameters_rpc.hpp"
 
 #include "slk/streams.hpp"
 
@@ -80,7 +80,7 @@ void Load(memgraph::storage::replication::SetParameterReq *self, memgraph::slk::
   memgraph::slk::Load(&self->parameter.value, reader);
   uint8_t scope = 0;
   memgraph::slk::Load(&scope, reader);
-  self->parameter.scope = static_cast<utils::ParameterScope>(scope);
+  self->parameter.scope = static_cast<parameters::ParameterScope>(scope);
 }
 
 void Save(const memgraph::storage::replication::SetParameterRes &self, memgraph::slk::Builder *builder) {
@@ -106,7 +106,7 @@ void Load(memgraph::storage::replication::UnsetParameterReq *self, memgraph::slk
   memgraph::slk::Load(&self->name, reader);
   uint8_t scope = 0;
   memgraph::slk::Load(&scope, reader);
-  self->scope = static_cast<utils::ParameterScope>(scope);
+  self->scope = static_cast<parameters::ParameterScope>(scope);
 }
 
 void Save(const memgraph::storage::replication::UnsetParameterRes &self, memgraph::slk::Builder *builder) {

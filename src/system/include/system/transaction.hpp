@@ -15,7 +15,6 @@
 #include <memory>
 #include <mutex>
 
-#include "license/license.hpp"
 #include "replication/state.hpp"
 #include "system/action.hpp"
 #include "system/rpc.hpp"
@@ -89,6 +88,13 @@ struct Transaction {
     actions_.clear();
   }
 
+  /// True if every action in this transaction is replicable (e.g. only parameter actions). Auth and dbms actions are
+  /// not.
+  [[nodiscard]] bool CanReplicateInCommunity() const {
+    return !actions_.empty() &&
+           std::ranges::all_of(actions_, [](auto const &action) { return action->ShouldReplicateInCommunity(); });
+  }
+
   auto last_committed_system_timestamp() const -> uint64_t {
     return state_->last_committed_system_timestamp_.load(std::memory_order_acquire);
   }
@@ -111,10 +117,6 @@ struct DoReplication {
   explicit DoReplication(replication::RoleMainData &main_data) : main_data_{main_data} {}
 
   auto ApplyAction(ISystemAction const &action, Transaction const &system_tx) -> AllSyncReplicaStatus {
-    if (action.IsEnterpriseOnly() && !license::global_license_checker.IsEnterpriseValidFast()) {
-      return AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-    }
-
     auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
 
     for (auto &client : main_data_.registered_replicas_) {

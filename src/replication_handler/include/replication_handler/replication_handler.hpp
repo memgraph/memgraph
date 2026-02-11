@@ -17,6 +17,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
 #include "license/license.hpp"
+#include "parameters/replication_handlers.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
@@ -24,7 +25,6 @@
 #include "replication_handler/system_rpc.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
-#include "utils/replication_handlers.hpp"
 
 namespace memgraph::metrics {
 extern const Event SystemRecoveryRpc_us;
@@ -37,10 +37,10 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
 
 #ifdef MG_ENTERPRISE
 void StartReplicaClient(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
-                        utils::UUID main_uuid, auth::SynchedAuth &auth, utils::Parameters &parameters);
+                        utils::UUID main_uuid, auth::SynchedAuth &auth, parameters::Parameters &parameters);
 #else
-void StartReplicaClient(replication::ReplicationClient &client, system::System &system,
-                        dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid, utils::Parameters &parameters);
+void StartReplicaClient(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
+                        utils::UUID main_uuid, parameters::Parameters &parameters);
 #endif
 
 // TODO: Split into 2 functions: dbms and auth
@@ -49,11 +49,11 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
 #ifdef MG_ENTERPRISE
 template <bool REQUIRE_LOCK = false>
 void SystemRestore(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
-                   const utils::UUID &main_uuid, auth::SynchedAuth &auth, utils::Parameters &parameters) {
+                   const utils::UUID &main_uuid, auth::SynchedAuth &auth, parameters::Parameters &parameters) {
 #else
 template <bool REQUIRE_LOCK = false>
 void SystemRestore(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
-                   const utils::UUID &main_uuid, utils::Parameters &parameters) {
+                   const utils::UUID &main_uuid, parameters::Parameters &parameters) {
 #endif
   // If the state was BEHIND, change it to RECOVERY, do the recovery process and change it to READY.
   // If the state was something else than BEHIND, return immediately.
@@ -93,7 +93,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   });
   try {
     utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
-    auto const params_snapshot = utils::GetParametersSnapshotForRecovery(parameters);
+    auto const params_snapshot = parameters.GetSnapshotForRecovery();
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -143,11 +143,11 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
   explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
-                              memgraph::auth::SynchedAuth &auth, memgraph::utils::Parameters &parameters);
+                              memgraph::auth::SynchedAuth &auth, memgraph::parameters::Parameters &parameters);
 #else
   explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
-                              memgraph::utils::Parameters &parameters);
+                              memgraph::parameters::Parameters &parameters);
 #endif
 
   // as REPLICA, become MAIN
@@ -387,7 +387,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
   auth::SynchedAuth &auth_;
 #endif
-  utils::Parameters &parameters_;
+  parameters::Parameters &parameters_;
 };
 
 }  // namespace memgraph::replication

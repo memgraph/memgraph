@@ -12,26 +12,26 @@
 #include "replication_handler/system_rpc.hpp"
 
 #include "auth/rpc.hpp"
+#include "parameters/parameters.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
-#include "utils/parameters.hpp"
 
 namespace memgraph::slk {
 
 // ParameterInfo SLK (for SystemRecoveryReq::parameters), here to avoid replication_handler linking mg-parameters
-void Save(const memgraph::utils::ParameterInfo &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::parameters::ParameterInfo &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.name, builder);
   memgraph::slk::Save(self.value, builder);
   memgraph::slk::Save(static_cast<uint8_t>(self.scope), builder);
 }
 
-void Load(memgraph::utils::ParameterInfo *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::parameters::ParameterInfo *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->name, reader);
   memgraph::slk::Load(&self->value, reader);
   uint8_t scope = 0;
   memgraph::slk::Load(&scope, reader);
-  self->scope = static_cast<utils::ParameterScope>(scope);
+  self->scope = static_cast<parameters::ParameterScope>(scope);
 }
 
 // Serialize code for SystemRecoveryReqV1
@@ -78,6 +78,19 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->parameters, reader);
 }
 
+// Serialize code for SystemRecoveryResV1 (same layout as Res)
+void Save(const memgraph::replication::SystemRecoveryResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(std::to_underlying(self.result), builder);
+}
+
+void Load(memgraph::replication::SystemRecoveryResV1 *self, memgraph::slk::Reader *reader) {
+  uint8_t res = 0;
+  memgraph::slk::Load(&res, reader);
+  if (!utils::NumToEnum(res, self->result)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
+}
+
 // Serialize code for SystemRecoveryRes
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(std::to_underlying(self.result), builder);
@@ -98,6 +111,7 @@ namespace memgraph::replication {
 void SystemRecoveryReqV1::Save(const SystemRecoveryReqV1 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void SystemRecoveryReqV1::Load(SystemRecoveryReqV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
@@ -115,6 +129,14 @@ void SystemRecoveryRes::Save(const SystemRecoveryRes &self, memgraph::slk::Build
 }
 
 void SystemRecoveryRes::Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void SystemRecoveryResV1::Save(const SystemRecoveryResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void SystemRecoveryResV1::Load(SystemRecoveryResV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
