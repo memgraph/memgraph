@@ -778,17 +778,16 @@ package_memgraph() {
 
   # check for mgconsole inside package
   if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
-    package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
-    check_command="dpkg -c $package_name"
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
+    check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
   else
-    package_name="$(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
-    check_command="rpm -ql $package_name"
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
+    check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
   fi
-  if ! docker exec -i -u mg $build_container bash -c "$check_command" | grep -q "mgconsole"; then
+  if ! echo "$check_output" | grep -q "mgconsole"; then
     echo "Error: mgconsole not found in package"
     echo "Package: $package_name"
-    echo "Check command: $check_command"
-    echo "Output: $(docker exec -i -u mg $build_container bash -c "$check_command")"
+    echo "Check output: $check_output"
     exit 1
   fi
 }
