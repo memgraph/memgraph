@@ -63,7 +63,7 @@ class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
       : utils::BasicException(
-            "Cannot get shared access storage. Try stopping other queries that are running in parallel. "
+            "Cannot get shared access to the storage. Try stopping other queries that are running in parallel. "
             "You can increase the storage timeout (--storage-access-timeout-sec) to give your query more time to "
             "complete. "
             "For more information, see "
