@@ -30,4 +30,18 @@ struct EGraph;
 template <typename Symbol>
 struct ProcessingContext;
 
+// Pattern matching types
+struct PatternVar;
+
+template <typename Symbol>
+  requires ENodeSymbol<Symbol>
+struct PatternNode;
+
+template <typename Symbol>
+  requires ENodeSymbol<Symbol>
+class Pattern;
+
+template <typename Symbol, typename Analysis>
+class EMatcher;
+
 }  // namespace memgraph::planner::core
