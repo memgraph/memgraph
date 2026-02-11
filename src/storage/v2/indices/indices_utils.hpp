@@ -223,19 +223,15 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
                     current_value_equal_to_value = e.properties.IsPropertyEqual(key, value);
                   }};
 
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the edge is correct.
-  if (reader.HasDeltas() && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    reader.ApplyDeltasForRead([&, key](Delta const &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Deleted_ActionMethod(deleted),
-        Exists_ActionMethod(exists),
-        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key, value)
-      });
-      // clang-format on
+  reader.ApplyDeltasForRead([&, key](Delta const &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Deleted_ActionMethod(deleted),
+      Exists_ActionMethod(exists),
+      PropertyValueMatch_ActionMethod(current_value_equal_to_value, key, value)
     });
-  }
+    // clang-format on
+  });
 
   return exists && !deleted && current_value_equal_to_value;
 }
