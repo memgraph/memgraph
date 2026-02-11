@@ -371,7 +371,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      expand.common_.use_bidirectional_bfs_ = false;
       auto destination_result = FindBestScanByIndex(dst_scan);
       bool destination_has_index = destination_result.has_value();
       bool source_has_index = HasIndexedSource(expand.input());
@@ -387,64 +386,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           ApplyScanByIndex(destination_result->metadata_);
           expand.set_input(std::move(destination_result->operator_));
           expand.common_.existing_node = true;
-          expand.common_.use_bidirectional_bfs_ = true;
-        }
-      } else if (destination_has_index && !source_has_index) {
-        // Only destination has index - use single source BFS from destination
-        ApplyScanByIndex(destination_result->metadata_);
-        // this is ScanAllByIndex on destination symbol but the input is the chain: Filter(n) -> ScanAll(n) -> Once
-        // from the source
-        auto indexed_scan = std::move(destination_result->operator_);
-
-        // Extract source filter before removing the chain
-        // The source chain is: Filter(n) -> ScanAll(n) -> Once
-        // TODO: can something else be after scanall?
-        Expression *source_filter_expr = nullptr;
-        Filters source_filter_filters;
-        std::vector<std::shared_ptr<LogicalOperator>> source_filter_pattern_filters;
-        std::shared_ptr<LogicalOperator> scanall_operator = nullptr;
-        if (indexed_scan->input() && indexed_scan->input()->GetTypeInfo() == Filter::kType) {
-          auto *source_filter = dynamic_cast<Filter *>(indexed_scan->input().get());
-          source_filter_expr = source_filter->expression_;
-          source_filter_filters = source_filter->all_filters_;
-          source_filter_pattern_filters = source_filter->pattern_filters_;
-          // filter -> scanall: get ScanAll(n) -> Once chain
-          scanall_operator = source_filter->input();
-        } else {
-          // scanall: keep ScanAll(n) -> Once chain
-          scanall_operator = indexed_scan->input();
-        }
-        // TODO: is move ok here?
-        indexed_scan->set_input(std::move(scanall_operator->input()));
-
-        // ApplyScanByIndex removed filters satisfied by the index
-        // keep the remaining filters
-        const auto &destination_symbol = expand.common_.node_symbol;
-        auto bfs_input = WrapWithRemainingFilters(std::move(indexed_scan), destination_symbol);
-
-        // reverse direction when expanding from destination
-        switch (expand.common_.direction) {
-          case EdgeAtom::Direction::IN:
-            expand.common_.direction = EdgeAtom::Direction::OUT;
-            break;
-          case EdgeAtom::Direction::OUT:
-            expand.common_.direction = EdgeAtom::Direction::IN;
-            break;
-          default:
-            break;
-        }
-        expand.set_input(std::move(bfs_input));
-        expand.common_.existing_node = true;
-
-        // Modify the filter above BFSExpand to filter on source instead of destination
-        // After popping BFSExpand, prev_ops_.back() is the filter above it
-        // A filter should always exist because if we managed to use index, we must have had a filter above it
-        // TODO: does this hold true for point filters?
-        if (source_filter_expr && !prev_ops_.empty() && prev_ops_.back()->GetTypeInfo() == Filter::kType) {
-          auto *filter_to_modify = dynamic_cast<Filter *>(prev_ops_.back());
-          filter_to_modify->expression_ = source_filter_expr;
-          filter_to_modify->all_filters_ = source_filter_filters;
-          filter_to_modify->pattern_filters_ = source_filter_pattern_filters;
         }
       }
     } else {
