@@ -23,6 +23,7 @@
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 namespace memgraph::utils {
 // Thread-safe mask that returns the position of first set bit
@@ -124,7 +125,8 @@ class PriorityThreadPool {
   using ThreadInitCallback = std::function<void()>;
 
   PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
-                     ThreadInitCallback thread_init_callback = nullptr);
+                     ThreadInitCallback thread_init_callback = nullptr,
+                     WorkerYieldRegistry *yield_registry = nullptr);
 
   ~PriorityThreadPool();
 
@@ -174,7 +176,8 @@ class PriorityThreadPool {
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads);
+    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads,
+                    WorkerYieldRegistry *yield_registry);
 
    private:
     mutable std::mutex mtx_;
@@ -204,6 +207,8 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+
+  WorkerYieldRegistry *yield_registry_{nullptr};
 };
 
 class CollectionScheduler {

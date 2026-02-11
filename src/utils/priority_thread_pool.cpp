@@ -70,8 +70,11 @@ std::optional<uint16_t> HotMask::GetHotElement() {
 }
 
 PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
-                                       ThreadInitCallback thread_init_callback)
-    : hot_threads_{mixed_work_threads_count}, task_id_{kMaxLowPriorityId}, last_wid_{0} {
+                                       ThreadInitCallback thread_init_callback, WorkerYieldRegistry *yield_registry)
+    : hot_threads_{mixed_work_threads_count},
+      task_id_{kMaxLowPriorityId},
+      last_wid_{0},
+      yield_registry_{yield_registry} {
   MG_ASSERT(mixed_work_threads_count > 0, "PriorityThreadPool requires at least one mixed work thread");
   MG_ASSERT(mixed_work_threads_count <= kMaxWorkers,
             "PriorityThreadPool supports a maximum of 1024 mixed work threads");
@@ -93,7 +96,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
       if (thread_init_callback) {
         thread_init_callback();
       }
-      workers_[i]->operator()<Priority::LOW>(i, workers_, hot_threads_);
+      workers_[i]->operator()<Priority::LOW>(i, workers_, hot_threads_, yield_registry_);
     });
   }
 
@@ -105,7 +108,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
       if (thread_init_callback) {
         thread_init_callback();
       }
-      hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
+      hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_, nullptr);
     });
   }
 
@@ -219,7 +222,7 @@ void PriorityThreadPool::Worker::stop() {
 template <Priority ThreadPriority>
 void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
                                             const std::vector<std::unique_ptr<Worker>> &workers_pool,
-                                            HotMask &hot_threads) {
+                                            HotMask &hot_threads, WorkerYieldRegistry *yield_registry) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
@@ -261,6 +264,18 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     // Phase 1A - already picked a task, needs to be executed
     if (task) {
       working_.store(true, std::memory_order_release);
+      // TODO Look over this logic
+      // I think we can set it once (it will be stored in the tls)
+      // There might also be some logic that check if it did yield and is not doen. In that case rescheduler it. NOTE:
+      // Current imeplementation must re-run on the same thread.
+      if (yield_registry && worker_id < yield_registry->MaxWorkers()) {
+        yield_registry->SetCurrentWorker(worker_id);
+      }
+      utils::OnScopeExit clear_yield{[&]() {
+        if (yield_registry) {
+          WorkerYieldRegistry::ClearCurrentWorker();
+        }
+      }};
       task.value()(ThreadPriority);
       task.reset();
     }
@@ -399,7 +414,7 @@ void TaskCollection::WaitOrSteal() {
 
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads);
+    memgraph::utils::HotMask &hot_threads, memgraph::utils::WorkerYieldRegistry *yield_registry);
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads);
+    memgraph::utils::HotMask &hot_threads, memgraph::utils::WorkerYieldRegistry *yield_registry);

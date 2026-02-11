@@ -9,6 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <barrier>
+#include <thread>
+
 #include <gtest/gtest.h>
 
 #include "disk_test_utils.hpp"
@@ -16,6 +19,7 @@
 #include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/operator.hpp"
 #include "query_plan_common.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
@@ -111,6 +115,76 @@ TEST_F(YieldFixture, ScanAllYields) {
   }
 
   EXPECT_EQ(rows, 30);
+}
+
+// Test that an external thread can trigger yield via WorkerYieldRegistry and the query
+// completes successfully after resume (partial results + recalls).
+TEST_F(YieldFixture, ScanAllYieldsViaRegistryExternalThread) {
+  AddVertices(50);
+  dba.AdvanceCommand();
+
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  registry.SetCurrentWorker(0);
+
+  ExecutionContext context = MakeContext(storage, symbol_table, &dba);
+  context.stopping_context.yield_requested = memgraph::utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+  std::coroutine_handle<> stored;
+  context.suspended_task_handle_ptr = &stored;
+
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto cursor = scan_all.op_->MakeCursor(memgraph::utils::NewDeleteResource());
+  Frame frame(symbol_table.max_position());
+
+  // Semaphores start at 0 (locked/unavailable)
+  std::binary_semaphore start_external{0};
+  std::binary_semaphore external_finished{0};
+
+  std::jthread external([&]() {
+    // 1. Wait for Main thread to signal that we hit row 10
+    start_external.acquire();
+
+    // 2. Perform the yield request
+    registry.RequestYieldForWorker(0);
+
+    // 3. Signal to Main thread that it can resume
+    external_finished.release();
+  });
+
+  int rows = 0;
+  bool yielded = false;
+  const int kMaxIterations = 1000;
+  int iterations = 0;
+
+  auto awaitable = cursor->Pull(frame, context);
+
+  while (iterations++ < kMaxIterations) {
+    auto result = RunPullToCompletion(awaitable, context);
+
+    if (result.status == PullRunResult::Status::Yielded) {
+      yielded = true;
+      registry.GetSignalForWorker(0)->store(false, std::memory_order_release);
+      continue;
+    }
+
+    if (result.status == PullRunResult::Status::HasRow) {
+      rows++;
+      if (rows == 10) {
+        // Ping the external thread to do its work
+        start_external.release();
+
+        // Wait for the external thread to confirm it's done
+        external_finished.acquire();
+      }
+      awaitable = cursor->Pull(frame, context);
+    } else {
+      break;
+    }
+  }
+
+  memgraph::utils::WorkerYieldRegistry::ClearCurrentWorker();
+
+  EXPECT_TRUE(yielded);
+  EXPECT_EQ(rows, 50);
 }
 
 TEST_F(YieldFixture, ScanAllAborts) {
