@@ -82,7 +82,9 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
     // clang-format on
   });
 
-  vertex_reader.Unlock();
+  if (vertex_reader.OwnsLock()) {
+    vertex_reader.Unlock();
+  }
 
   if (!exists || deleted || edges.empty()) {
     return;
