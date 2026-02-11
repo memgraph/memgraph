@@ -253,7 +253,6 @@ TEST(CursorAwaitable, SingleCoroutine_YieldAtFirstOpportunity) {
   EXPECT_TRUE(stored);
 
   yield_requested_flag.store(false);
-  stored.resume();
 
   auto r2 = RunPullToCompletion(awaitable, ctx);
   EXPECT_EQ(r2.status, PullRunResult::Status::HasRow);
