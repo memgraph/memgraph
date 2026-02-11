@@ -34,6 +34,8 @@ static const auto kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{
 static const auto kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
 static const auto kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
+static const auto kSmallestVectorIndexId = PropertyValue(
+    PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{}, .vector = utils::small_vector<float>{}});
 static const auto kLargestProperty = PropertyValue(Point3d{CoordinateReferenceSystem::Cartesian_3d,
                                                            std::numeric_limits<double>::infinity(),
                                                            std::numeric_limits<double>::infinity(),
@@ -51,4 +53,5 @@ static_assert(PropertyValue::Type::TemporalData < PropertyValue::Type::ZonedTemp
 static_assert(PropertyValue::Type::ZonedTemporalData < PropertyValue::Type::Enum);
 static_assert(PropertyValue::Type::Enum < PropertyValue::Type::Point2d);
 static_assert(PropertyValue::Type::Point2d < PropertyValue::Type::Point3d);
+static_assert(PropertyValue::Type::Point3d < PropertyValue::Type::VectorIndexId);
 }  // namespace memgraph::storage

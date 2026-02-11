@@ -69,7 +69,8 @@ std::optional<uint16_t> HotMask::GetHotElement() {
   return {};
 }
 
-PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count)
+PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
+                                       ThreadInitCallback thread_init_callback)
     : hot_threads_{mixed_work_threads_count}, task_id_{kMaxLowPriorityId}, last_wid_{0} {
   MG_ASSERT(mixed_work_threads_count > 0, "PriorityThreadPool requires at least one mixed work thread");
   MG_ASSERT(mixed_work_threads_count <= kMaxWorkers,
@@ -84,18 +85,26 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   SimpleBarrier barrier{nthreads};
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
-    pool_.emplace_back([this, i, &barrier]() {
+    pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
       // Divide work by each thread
       workers_[i] = std::make_unique<Worker>();
       barrier.arrive_and_wait();
+      // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
+      if (thread_init_callback) {
+        thread_init_callback();
+      }
       workers_[i]->operator()<Priority::LOW>(i, workers_, hot_threads_);
     });
   }
 
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
-    pool_.emplace_back([this, i, &barrier]() {
+    pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
       hp_workers_[i] = std::make_unique<Worker>();
       barrier.arrive_and_wait();
+      // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
+      if (thread_init_callback) {
+        thread_init_callback();
+      }
       hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
     });
   }
@@ -181,7 +190,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     // Limit the number of directly used threads when there are more workers than hw threads.
     // Gives better overall performance.
     static const auto max_wakeup_thread =
-        std::min(static_cast<TaskID>(std::thread::hardware_concurrency()), workers_.size());
+        std::max(1UL, std::min(static_cast<TaskID>(std::thread::hardware_concurrency()), workers_.size()));
     // If no hot thread found, give it to the next thread
     tid = last_wid_++ % max_wakeup_thread;
   }

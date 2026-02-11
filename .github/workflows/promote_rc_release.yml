@@ -361,6 +361,8 @@ jobs:
             image_ext: "-relwithdebinfo-cuda"
           - build_type: "RelWithDebInfo"
             image_ext: "-relwithdebinfo-malloc"
+          - build_type: "RelWithDebInfo"
+            image_ext: "-relwithdebinfo-cugraph"
     runs-on: ubuntu-latest
     steps:
       - name: Validate “use_test_rc” only with test

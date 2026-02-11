@@ -12,6 +12,7 @@ target_link_libraries(memgraph__e2e__replication__read_write_benchmark gflags nl
 copy_e2e_python_files(replication common.py)
 copy_e2e_python_files(replication conftest.py)
 copy_e2e_python_files(replication show.py)
+copy_e2e_python_files(replication bolt_exception_handling.py)
 copy_e2e_python_files(replication show_while_creating_invalid_state.py)
 copy_e2e_python_files(replication edge_delete.py)
 copy_e2e_python_files(replication replicate_enum.py)

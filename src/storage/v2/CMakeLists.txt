@@ -122,6 +122,7 @@ target_sources(mg-storage-v2
         point_functions.hpp
         property_constants.hpp
         property_store.hpp
+        indexed_property_decoder.hpp
         property_value.hpp
         property_value_utils.hpp
         replication/replication_transaction.hpp

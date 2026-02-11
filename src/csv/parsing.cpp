@@ -389,8 +389,12 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
 std::istream &FileCsvSource::GetStream() { return stream_; }
 
 S3CsvSource::S3CsvSource(std::string uri, utils::S3Config const &s3_config) {
-  if (!utils::GetS3Object(std::move(uri), s3_config, stream_)) {
-    throw utils::BasicException("Failed to download CSV file");
+  if (auto const res = s3_config.Validate(); res.has_value()) {
+    throw utils::BasicException(utils::AwsValidationErrorToStr(*res));
+  }
+
+  if (auto const res = utils::GetS3Object(std::move(uri), s3_config, stream_); !res.has_value()) {
+    throw utils::BasicException(res.error().message);
   }
 }
 

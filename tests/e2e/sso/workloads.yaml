@@ -22,3 +22,7 @@ workloads:
   - name: "SSO basic auth permissions"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_sso_basic_auth_permissions.py"]
+
+  - name: "SSO pipe stale response (drain fix)"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["sso/test_sso_pipe_stale_response.py"]

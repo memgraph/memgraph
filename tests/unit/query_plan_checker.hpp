@@ -204,6 +204,23 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(LoadCsv);
   PRE_VISIT(LoadParquet);
 
+  PRE_VISIT(AggregateParallel);
+  PRE_VISIT(OrderByParallel);
+  PRE_VISIT(ParallelMerge);
+  PRE_VISIT(ScanParallel);
+  PRE_VISIT(ScanParallelByLabel);
+  PRE_VISIT(ScanParallelByLabelProperties);
+  PRE_VISIT(ScanParallelByEdge);
+  PRE_VISIT(ScanParallelByEdgeType);
+  PRE_VISIT(ScanParallelByEdgeTypeProperty);
+  PRE_VISIT(ScanParallelByEdgeTypePropertyValue);
+  PRE_VISIT(ScanParallelByEdgeTypePropertyRange);
+  PRE_VISIT(ScanParallelByEdgeProperty);
+  PRE_VISIT(ScanParallelByEdgePropertyValue);
+  PRE_VISIT(ScanParallelByEdgePropertyRange);
+  PRE_VISIT(ScanChunk);
+  PRE_VISIT(ScanChunkByEdge);
+
   bool PreVisit(PeriodicSubquery &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -265,6 +282,22 @@ using ExpectLoadParquet = OpChecker<LoadParquet>;
 using ExpectBasicCallProcedure = OpChecker<CallProcedure>;
 using ExpectSetNestedProperty = OpChecker<SetNestedProperty>;
 using ExpectRemoveNestedProperty = OpChecker<RemoveNestedProperty>;
+using ExpectAggregateParallel = OpChecker<AggregateParallel>;
+using ExpectOrderByParallel = OpChecker<OrderByParallel>;
+using ExpectParallelMerge = OpChecker<ParallelMerge>;
+using ExpectScanParallel = OpChecker<ScanParallel>;
+using ExpectScanParallelByLabel = OpChecker<ScanParallelByLabel>;
+using ExpectScanParallelByLabelProperties = OpChecker<ScanParallelByLabelProperties>;
+using ExpectScanParallelByEdge = OpChecker<ScanParallelByEdge>;
+using ExpectScanParallelByEdgeType = OpChecker<ScanParallelByEdgeType>;
+using ExpectScanParallelByEdgeTypeProperty = OpChecker<ScanParallelByEdgeTypeProperty>;
+using ExpectScanParallelByEdgeTypePropertyValue = OpChecker<ScanParallelByEdgeTypePropertyValue>;
+using ExpectScanParallelByEdgeTypePropertyRange = OpChecker<ScanParallelByEdgeTypePropertyRange>;
+using ExpectScanParallelByEdgeProperty = OpChecker<ScanParallelByEdgeProperty>;
+using ExpectScanParallelByEdgePropertyValue = OpChecker<ScanParallelByEdgePropertyValue>;
+using ExpectScanParallelByEdgePropertyRange = OpChecker<ScanParallelByEdgePropertyRange>;
+using ExpectScanChunk = OpChecker<ScanChunk>;
+using ExpectScanChunkByEdge = OpChecker<ScanChunkByEdge>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:

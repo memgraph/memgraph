@@ -607,12 +607,14 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Number, String>>("toFloat", args, nargs);
+  FType<Or<Null, Bool, Number, String>>("toFloat", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (value.IsInt()) {
     return TypedValue(static_cast<double>(value.ValueInt()), ctx.memory);
+  } else if (value.IsBool()) {
+    return TypedValue(value.ValueBool() ? 1.0 : 0.0, ctx.memory);
   } else if (value.IsDouble()) {
     return TypedValue(value, ctx.memory);
   } else {
@@ -644,6 +646,45 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue(ctx.memory);
     }
   }
+}
+
+TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toBooleanList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  for (const auto &element : list) values.emplace_back(ToBoolean(&element, 1, ctx));
+  return TypedValue(std::move(values));
+}
+
+TypedValue ToFloatList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toFloatList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  for (const auto &element : list) values.emplace_back(ToFloat(&element, 1, ctx));
+  return TypedValue(std::move(values));
+}
+
+TypedValue ToIntegerList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toIntegerList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  for (const auto &element : list) values.emplace_back(ToInteger(&element, 1, ctx));
+  return TypedValue(std::move(values));
 }
 
 TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1850,10 +1891,12 @@ TypedValue GetHopsCounter(const TypedValue * /*args*/, int64_t /*nargs*/, const 
 
 TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
   FType<void>("username", /*args*/ nullptr, /*nargs*/ 0);
-  if (!ctx.user_or_role) {
+  // In triggers, use triggering_user (invoker), otherwise use user_or_role
+  const auto &user = ctx.triggering_user ? ctx.triggering_user : ctx.user_or_role;
+  if (!user) {
     return TypedValue(ctx.memory);
   }
-  const auto &username = ctx.user_or_role->username();
+  const auto &username = user->username();
   if (!username) {
     return TypedValue(ctx.memory);
   }
@@ -1862,7 +1905,9 @@ TypedValue Username(const TypedValue * /*args*/, int64_t /*nargs*/, const Functi
 
 TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<String>>("db_name", args, nargs);
-  if (!ctx.user_or_role) {
+  // In triggers, use triggering_user (invoker), otherwise use user_or_role
+  const auto &user = ctx.triggering_user ? ctx.triggering_user : ctx.user_or_role;
+  if (!user) {
     return TypedValue(TypedValue::TVector(ctx.memory));
   }
 
@@ -1872,7 +1917,7 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   // nullopt = show all roles
-  auto const rolenames = ctx.user_or_role->GetRolenames(db_name);
+  auto const rolenames = user->GetRolenames(db_name);
   TypedValue::TVector roles_list(ctx.memory);
   roles_list.reserve(rolenames.size());
   for (auto const &rolename : rolenames) {
@@ -1903,6 +1948,9 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
     {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
     {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
+    {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
+    {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
+    {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
     {"TYPE", func_info{.func_ = Type, .is_pure_ = true}},
     {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 

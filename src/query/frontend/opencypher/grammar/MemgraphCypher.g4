@@ -77,6 +77,7 @@ memgraphCypherKeyword : cypherKeyword
                       | EVERY
                       | EXACTLY
                       | EXECUTE
+                      | EXECUTION
                       | FAILOVER
                       | FLOAT
                       | FOR
@@ -136,6 +137,8 @@ memgraphCypherKeyword : cypherKeyword
                       | OFF
                       | ON
                       | ON_DISK_TRANSACTIONAL
+                      | PARALLEL
+                      | PARALLEL_EXECUTION
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
@@ -367,7 +370,7 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -376,6 +379,8 @@ indexHints: INDEX indexHint ( ',' indexHint )* ;
 indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+parallelExecution : PARALLEL EXECUTION ( num_threads=literal )? ;
 
 periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
@@ -524,6 +529,7 @@ privilege : CREATE
           | COORDINATOR
           | IMPERSONATE_USER
           | PROFILE_RESTRICTION
+          | PARALLEL_EXECUTION
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;

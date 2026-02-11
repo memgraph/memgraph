@@ -14,6 +14,7 @@
 import argparse
 import json
 import multiprocessing
+import os
 import pathlib
 import platform
 import random
@@ -228,6 +229,22 @@ def parse_args():
     )
 
     benchmark_parser.add_argument(
+        "--use-parallel-execution",
+        action="store_true",
+        default=False,
+        help="Prepend 'USING PARALLEL EXECUTION' to all Cypher queries (Memgraph only)",
+    )
+
+    benchmark_parser.add_argument(
+        "--database-workers",
+        type=int,
+        default=None,
+        help="Number of database worker threads (bolt_num_workers for Memgraph). "
+        "If not specified, uses --num-workers-for-benchmark value. "
+        "Useful when --use-parallel-execution is enabled to separate database workers from client workers.",
+    )
+
+    benchmark_parser.add_argument(
         "--databases",
         default="memgraph",
         help="Comma-separated list of databases",
@@ -236,8 +253,9 @@ def parse_args():
     benchmark_parser.add_argument(
         "--vendor-binary",
         type=str,
-        help="Vendor binary used for benchmarking, by default it is memgraph",
-        default=helpers.get_binary_path(GraphVendors.MEMGRAPH),
+        help="Path to vendor binary executable (e.g., path to your local memgraph build). "
+        "Required for native installation type. If not specified, attempts to auto-detect from build directory or PATH.",
+        default=None,
     )
 
     benchmark_parser.add_argument(
@@ -268,12 +286,73 @@ def sanitize_args(args):
         args.workload_realistic is None or args.workload_mixed is None
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
 
+    # Auto-detect vendor binary if not specified and installation type is native
+    if args.installation_type == BenchmarkInstallationType.NATIVE and args.vendor_binary is None:
+        args.vendor_binary = helpers.get_binary_path(GraphVendors.MEMGRAPH)
+        log.log(f"Auto-detected vendor binary: {args.vendor_binary}")
 
-def get_queries(gen, count):
+    # Validate vendor binary path if specified (after auto-detection)
+    if args.installation_type == BenchmarkInstallationType.NATIVE and args.vendor_binary is not None:
+        if not os.path.isfile(args.vendor_binary):
+            raise FileNotFoundError(
+                f"Vendor binary not found at specified path: {args.vendor_binary}\n"
+                f"Please provide a valid path to your local build using --vendor-binary <path>"
+            )
+        if not os.access(args.vendor_binary, os.X_OK):
+            log.warning(f"Vendor binary at {args.vendor_binary} is not executable")
+        else:
+            log.log(f"Using vendor binary: {args.vendor_binary}")
+
+    # Validate database_workers if specified
+    if args.database_workers is not None:
+        if args.database_workers <= 0:
+            raise ValueError("--database-workers must be greater than 0")
+        if args.use_parallel_execution:
+            log.log(
+                f"Parallel execution enabled: Using {args.database_workers} database workers and {args.num_workers_for_benchmark} client workers"
+            )
+        else:
+            log.log(
+                f"Using {args.database_workers} database workers (separate from {args.num_workers_for_benchmark} client workers)"
+            )
+
+
+def modify_query_for_parallel_execution(query_tuple, benchmark_context):
+    """
+    Prepend 'USING PARALLEL EXECUTION' to query if parallel execution is enabled and vendor is Memgraph.
+
+    Args:
+        query_tuple: Tuple of (query_string, params_dict)
+        benchmark_context: BenchmarkContext instance
+
+    Returns:
+        Modified query tuple with parallel execution prefix if applicable
+    """
+    if not benchmark_context.use_parallel_execution:
+        return query_tuple
+
+    if benchmark_context.vendor_name != GraphVendors.MEMGRAPH:
+        return query_tuple
+
+    query, params = query_tuple
+
+    # Check if query already has USING PARALLEL EXECUTION
+    if query.strip().upper().startswith("USING PARALLEL EXECUTION"):
+        return query_tuple
+
+    # Prepend USING PARALLEL EXECUTION
+    modified_query = "USING PARALLEL EXECUTION " + query
+    return (modified_query, params)
+
+
+def get_queries(gen, count, benchmark_context=None):
     random.seed(gen.__name__)
     ret = []
     for _ in range(count):
-        ret.append(gen())
+        query_tuple = gen()
+        if benchmark_context is not None:
+            query_tuple = modify_query_for_parallel_execution(query_tuple, benchmark_context)
+        ret.append(query_tuple)
     return ret
 
 
@@ -357,7 +436,8 @@ def realistic_workload(
         # Get the appropriate functions with same probability
         funcname = random.choices(queries_by_type[t], k=1)[0]
         additional_query = getattr(dataset, funcname)
-        prepared_queries.append(additional_query())
+        query_tuple = additional_query()
+        prepared_queries.append(modify_query_for_parallel_execution(query_tuple, benchmark_context))
 
     rss_db = dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
     vendor.start_db(rss_db)
@@ -428,11 +508,13 @@ def mixed_workload(
         base_query = getattr(dataset, funcname)
         for t in function_type:
             if t == QUERY:
-                prepared_queries.append(base_query())
+                query_tuple = base_query()
+                prepared_queries.append(modify_query_for_parallel_execution(query_tuple, benchmark_context))
             else:
                 funcname = random.choices(queries_by_type[t], k=1)[0]
                 additional_query = getattr(dataset, funcname)
-                prepared_queries.append(additional_query())
+                query_tuple = additional_query()
+                prepared_queries.append(modify_query_for_parallel_execution(query_tuple, benchmark_context))
 
         rss_db = dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
         vendor.start_db(rss_db)
@@ -495,7 +577,7 @@ def get_query_cache_count(
         client.execute(queries=queries, num_workers=1)
         count = 1
         while True:
-            augmented_queries = get_queries(func, count)
+            augmented_queries = get_queries(func, count, benchmark_context)
             ret = client.execute(queries=augmented_queries, num_workers=1)
             duration = ret[0][DURATION]
             expected_throughput_for_count = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
@@ -579,7 +661,7 @@ def save_to_results(results, ret, workload, group, query, authorization_mode):
 
 
 def run_isolated_workload_with_authorization(
-    vendor_runner, client, queries, group, workload, results, memory_usage_with_imported_data
+    vendor_runner, client, queries, group, workload, results, memory_usage_with_imported_data, benchmark_context
 ):
     log.init("Running isolated workload with authorization")
 
@@ -593,15 +675,22 @@ def run_isolated_workload_with_authorization(
         log.init("Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION))
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
+            vendor_runner,
+            client,
+            get_queries(func, 1, benchmark_context),
+            benchmark_context,
+            workload,
+            group,
+            query,
+            func,
         )
 
         vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
         start_time = time.time()
-        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
 
         ret = client.execute(
-            queries=get_queries(func, count),
+            queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
         usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
@@ -622,7 +711,7 @@ def run_isolated_workload_with_authorization(
 
 
 def run_isolated_workload_without_authorization(
-    vendor_runner, client, queries, group, workload, results, memory_usage_with_imported_data
+    vendor_runner, client, queries, group, workload, results, memory_usage_with_imported_data, benchmark_context
 ):
     log.init("Running isolated workload without authorization")
     for query, funcname in queries[group]:
@@ -631,11 +720,18 @@ def run_isolated_workload_without_authorization(
         )
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
+            vendor_runner,
+            client,
+            get_queries(func, 1, benchmark_context),
+            benchmark_context,
+            workload,
+            group,
+            query,
+            func,
         )
 
         # Benchmark run.
-        sample_query = get_queries(func, 1)[0][0]
+        sample_query = get_queries(func, 1, benchmark_context)[0][0]
         log.info("Sample query:{}".format(sample_query))
         log.log(
             "Executing benchmark with {} queries that should yield a single-threaded runtime of {} seconds.".format(
@@ -647,10 +743,10 @@ def run_isolated_workload_without_authorization(
         start_time = time.time()
         rss_db = workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
         vendor_runner.start_db(rss_db)
-        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
         log.init("Executing benchmark queries...")
         ret = client.execute(
-            queries=get_queries(func, count),
+            queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
             time_dependent_execution=benchmark_context.time_dependent_execution,
         )[0]
@@ -770,12 +866,26 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
             )
         else:
             run_isolated_workload_without_authorization(
-                vendor_runner, client, bench_queries, group, workload, results, memory_usage_with_imported_data
+                vendor_runner,
+                client,
+                bench_queries,
+                group,
+                workload,
+                results,
+                memory_usage_with_imported_data,
+                benchmark_context,
             )
 
         if benchmark_context.no_authorization:
             run_isolated_workload_with_authorization(
-                vendor_runner, client, bench_queries, group, workload, results, memory_usage_with_imported_data
+                vendor_runner,
+                client,
+                bench_queries,
+                group,
+                workload,
+                results,
+                memory_usage_with_imported_data,
+                benchmark_context,
             )
 
 
@@ -984,6 +1094,8 @@ if __name__ == "__main__":
         no_authorization=args.no_authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
+        use_parallel_execution=args.use_parallel_execution,
+        database_workers=args.database_workers,
     )
 
     log_benchmark_arguments(benchmark_context)

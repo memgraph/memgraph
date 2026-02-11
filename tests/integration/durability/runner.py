@@ -95,11 +95,11 @@ def execute_test(memgraph_binary: Path, test_directory, test_type, write_expecte
         with open(expected_dump_file, "w") as expected:
             expected.writelines(queries_got)
     else:
-        # Compare dump files
+        # Compare dump files (sort so that non-deterministic order, e.g. of indices, does not fail the test)
         expected_dump_file = os.path.join(test_directory, dump_file_name)
         assert os.path.exists(expected_dump_file), "Could not find expected dump path {}".format(expected_dump_file)
-        queries_got = read_content(dump_output_file.name)
-        queries_expected = read_content(expected_dump_file)
+        queries_got = sorted(read_content(dump_output_file.name))
+        queries_expected = sorted(read_content(expected_dump_file))
         assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" "{}".format(
             list_to_string(queries_got), list_to_string(queries_expected)
         )

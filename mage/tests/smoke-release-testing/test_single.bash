@@ -7,12 +7,25 @@ START_TIME=$(date +%s)
 START_TIME_READABLE=$(date)
 echo "Script execution started at: $START_TIME_READABLE"
 
+# Set image type
+IMAGE_TYPE=${1:-"mage"}
+# exit if not memgraph or mage
+if [[ "$IMAGE_TYPE" != "mage" && "$IMAGE_TYPE" != "memgraph" ]]; then
+  echo "Error: Invalid image type '$IMAGE_TYPE'"
+  exit 1
+fi
+echo "Testing container with image type: $IMAGE_TYPE"
+
 # NOTE: 1st arg is how to pull LAST image, 2nd arg is how to pull NEXT image.
 spinup_and_cleanup_memgraph_dockers Dockerhub RC
 echo "Waiting for memgraph to initialize..."
 wait_for_memgraph $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_LAST_DATA_BOLT_PORT
 wait_for_memgraph $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_NEXT_DATA_BOLT_PORT
 echo "Memgraph is up and running!"
+
+# check memgraph logs inside the container for errors loading query modules
+source $SCRIPT_DIR/check_container_logs.sh
+check_container_logs
 
 # Test features using mgconsole.
 for test_file_path in "$SCRIPT_DIR/mgconsole/"*; do
@@ -26,7 +39,7 @@ done
 test_auth_roles
 test_basic_auth
 test_query
-test_query_modules
+test_query_modules $IMAGE_TYPE
 test_session_trace
 test_show_schema_info
 test_spatial
@@ -48,7 +61,11 @@ test_or_expression_for_labels
 test_shortest_paths
 test_text_search
 test_durability
+test_load_csv
+test_load_jsonl
 test_load_parquet
+test_parallel_runtime
+test_mgconsole "1.5"
 
 # NOTE: If the testing container is NOT restarted (each test having their own
 # container), all the auth test have to come after all tests that assume there
@@ -64,6 +81,7 @@ test_show_database_settings
 test_auth_roles
 test_impersonate_user
 test_user_profiles
+test_user_role_functions
 
 # End timing and calculate execution time
 END_TIME=$(date +%s)

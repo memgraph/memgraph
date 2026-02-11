@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,8 @@
 #include <cstddef>
 #include <mutex>
 #include <queue>
+
+#include "utils/logging.hpp"
 
 // Same as rocksdb/util/work_queue.h but moves in the pop()
 
@@ -120,7 +122,7 @@ class DataQueue {
   void finish() {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      MG_ASSERT(!done_, "Queue already finished");
+      if (done_) return;
       done_ = true;
     }
     readerCv_.notify_all();

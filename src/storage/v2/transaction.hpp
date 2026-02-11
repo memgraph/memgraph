@@ -136,10 +136,10 @@ struct Transaction {
 
   bool IsDiskStorage() const { return storage_mode == StorageMode::ON_DISK_TRANSACTIONAL; }
 
-  /// @throw std::bad_alloc if failed to create the `commit_timestamp`
-  void EnsureCommitTimestampExists() {
-    if (commit_timestamp != nullptr) return;
-    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
+  /// @throw std::bad_alloc if failed to create the `commit_info`
+  void EnsureCommitInfoExists() {
+    if (commit_info != nullptr) return;
+    commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
 
   bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
@@ -164,19 +164,24 @@ struct Transaction {
     manyDeltasCache.Invalidate(vertex);
   }
 
+  void SetParallelExecution() { parallel_execution_ = true; }
+
+  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   std::optional<uint64_t> original_start_timestamp{};
-  // The `Transaction` object is stack allocated, but the `commit_timestamp`
+  // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
   // `commited_transactions_` list for GC.
-  std::unique_ptr<std::atomic<uint64_t>> commit_timestamp{};
+  std::unique_ptr<CommitInfo> commit_info{};
   uint64_t command_id{};
 
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
   bool has_serialization_error{};
+  bool has_non_sequential_deltas{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};
@@ -232,6 +237,8 @@ struct Transaction {
 
   /// Auto indexing infomation gathering
   AsyncIndexHelper async_index_helper_;
+
+  bool parallel_execution_{false};  // For now just disable for the whole query
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

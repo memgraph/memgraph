@@ -71,14 +71,17 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   bool has_label = false;
   auto current_values_equal_to_value = std::vector<bool>{};
   const Delta *delta = nullptr;
-  {
-    auto const guard = std::shared_lock{vertex.lock};
-    delta = vertex.delta;
-    deleted = vertex.deleted;
-    if (!delta && deleted) return false;
-    has_label = std::ranges::contains(vertex.labels, label);
-    if (!delta && !has_label) return false;
-    current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+  auto guard = std::shared_lock{vertex.lock};
+  delta = vertex.delta;
+  deleted = vertex.deleted;
+  if (!delta && deleted) return false;
+  has_label = std::ranges::contains(vertex.labels, label);
+  if (!delta && !has_label) return false;
+  current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+
+  // If vertex has non-sequential deltas, hold lock while applying them
+  if (!vertex.has_uncommitted_non_sequential_deltas) {
+    guard.unlock();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -86,7 +89,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = use_cache && transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    auto const useCache = use_cache && transaction->UseCache();
     if (useCache) {
       auto const &cache = transaction->manyDeltasCache;
       if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
@@ -126,6 +129,11 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
           });
       // clang-format on
     });
+
+    // If vertex has non-sequential deltas, we have now processed the delta and can unlock now
+    if (vertex.has_uncommitted_non_sequential_deltas) {
+      guard.unlock();
+    }
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction->manyDeltasCache;
@@ -382,19 +390,25 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     delta = vertex.delta;
     has_label = std::ranges::contains(vertex.labels, label);
     properties = props.Extract(vertex.properties);
-  }
-  // Create and drop index will always use snapshot isolation
-  if (delta) {
-    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Exists_ActionMethod(exists),
-        Deleted_ActionMethod(deleted),
-        HasLabel_ActionMethod(has_label, label),
-        PropertyValuesUpdate_ActionMethod(props, properties)
+
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!vertex.has_uncommitted_non_sequential_deltas) {
+      guard.unlock();
+    }
+
+    // Create and drop index will always use snapshot isolation
+    if (delta) {
+      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+        // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Exists_ActionMethod(exists),
+          Deleted_ActionMethod(deleted),
+          HasLabel_ActionMethod(has_label, label),
+          PropertyValuesUpdate_ActionMethod(props, properties)
+        });
+        // clang-format on
       });
-      // clang-format on
-    });
+    }
   }
   if (!exists || deleted || !has_label) {
     return;

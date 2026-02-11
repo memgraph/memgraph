@@ -94,6 +94,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(ConstraintQuery & /*constraint_query*/) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
 
   void Visit(CypherQuery &query) override {
+    if (query.pre_query_directives_.parallel_execution_) {
+      AddPrivilege(AuthQuery::Privilege::PARALLEL_EXECUTION);
+    }
     query.single_query_->Accept(*this);
     for (auto *cypher_union : query.cypher_unions_) {
       cypher_union->Accept(*this);

@@ -34,7 +34,7 @@ on:
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
-        default: '0'
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -52,6 +52,7 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
   core:
@@ -74,11 +75,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -124,14 +130,14 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "GQL Behave Tests(Release build)-${{ github.run_id }}"
+          name: "GQL Behave Tests(Release build)${{ env.RUN_ID }}"
           path: build/memgraph-logs-gql-behave-tests
 
       - name: Save quality assurance status
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "GQL Behave Status-${{ inputs.run_id }}"
+          name: "GQL Behave Status${{ env.RUN_ID }}"
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
@@ -163,10 +169,11 @@ jobs:
           copy --package --dest-dir build/output/${{ env.OS }}
 
       - name: Save enterprise DEB package
+        if: ${{ env.RUN_ID == '' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package-${{ inputs.run_id }}"
+          name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Stop mgbuild container
@@ -204,11 +211,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -333,11 +345,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -412,7 +429,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "Test data(Release build)-${{ inputs.run_id }}"
+          name: "Test data(Release build)${{ env.RUN_ID }}"
           path: build/e2e/logs
 
       - name: Stop mgbuild container
@@ -450,11 +467,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -537,7 +559,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "Stress and Durability Test Logs-${{ inputs.run_id }}"
+          name: "Stress and Durability Test Logs${{ env.RUN_ID }}"
           path: build/stress/logs
 
       - name: Stop mgbuild container
@@ -575,11 +597,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -633,7 +660,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "Query modules tests(Release build)-${{ github.run_id }}"
+          name: "Query modules tests(Release build)${{ env.RUN_ID }}"
           path: build/memgraph-logs-query-modules
 
       - name: Stop mgbuild container

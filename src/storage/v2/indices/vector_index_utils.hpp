@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,28 @@
 
 #pragma once
 
+#include <concepts>
+#include <optional>
 #include "flags/bolt.hpp"
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"
-#include "storage/v2/snapshot_observer_info.hpp"
+#include "range/v3/algorithm/remove.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "usearch/index_plugins.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+// Suppress usearch library warnings
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-W#warnings"
+#endif
+
+#include "usearch/index_plugins.hpp"
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace memgraph::storage {
 
@@ -31,7 +46,6 @@ enum class VectorIndexType : uint8_t {
 /// @brief Converts a VectorIndexType to a string representation.
 /// @param type The VectorIndexType to convert.
 /// @return A string representation of the VectorIndexType.
-/// @throws query::VectorSearchException if the type is unsupported.
 constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
   switch (type) {
     case VectorIndexType::ON_NODES:
@@ -257,32 +271,41 @@ inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double
   }
 }
 
-/// @brief Converts a property value to a float vector for vector index operations.
-/// @param property The property value to convert (must be a list of numeric values).
-/// @param expected_dimension The expected dimension of the vector.
-/// @return A vector of floats representing the property value.
-/// @throws query::VectorSearchException if the property is not a valid vector.
-[[nodiscard]] inline std::vector<float> PropertyToFloatVector(const PropertyValue &property,
-                                                              std::uint16_t expected_dimension) {
-  if (!property.IsAnyList()) {
-    throw query::VectorSearchException("Vector index property must be a list.");
-  }
+/// @brief Converts a PropertyValue list to a vector of floats.
+/// @param value The PropertyValue to convert. Must be a list of numeric values (floats or integers).
+/// @return A vector of float values.
+/// @throws query::VectorSearchException if the value is not a list or contains non-numeric values.
+inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
+  if (value.IsNull()) return {};
+  if (!value.IsAnyList())
+    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
 
-  const auto vector_size = GetListSize(property);
-  if (expected_dimension != vector_size) {
-    throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
-  }
-
-  std::vector<float> vector;
-  vector.reserve(vector_size);
-  for (size_t i = 0; i < vector_size; ++i) {
-    const auto numeric_value = GetNumericValueAt(property, i);
+  const auto list_size = value.ListSize();
+  utils::small_vector<float> vector;
+  vector.reserve(list_size);
+  for (std::size_t i = 0; i < list_size; i++) {
+    auto numeric_value = GetNumericValueAt(value, i);
     if (!numeric_value) {
-      throw query::VectorSearchException("Vector index property must be a list of numeric values.");
+      throw query::VectorSearchException(
+          "Vector index property must be a list of floats or integers; found non-numeric value at index.");
     }
-    vector.push_back(std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value));
+    auto float_value = std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value);
+    vector.push_back(float_value);
   }
   return vector;
+}
+
+/// @brief Removes an index ID from a property's vector index ID list.
+/// @param property_value The property value to modify (must be a VectorIndexId).
+/// @param index_id The index ID to remove.
+/// @return true if the property should be restored (no more index IDs), false otherwise.
+inline bool ShouldUnregisterFromIndex(PropertyValue &property_value, uint64_t index_id) {
+  if (!property_value.IsVectorIndexId()) {
+    return true;  // Not a vector index ID, should restore
+  }
+  auto &ids = property_value.ValueVectorIndexIds();
+  ids.erase(ranges::remove(ids, index_id), ids.end());
+  return ids.empty();  // Return true if should restore (no more IDs)
 }
 
 /// @brief Returns the maximum number of concurrent threads for vector index operations.
@@ -291,24 +314,35 @@ inline std::size_t GetVectorIndexThreadCount() {
                   static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
 }
 
-/// @brief Adds an entry to the vector index with automatic resize if the index is full.
-/// No need to throw if the error occurred because it will be raised on result destruction.
+/// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
+/// If vector is empty, only removes the entry (if it exists) and returns.
+/// Automatically resizes the index if full during add.
 /// @tparam Index The usearch index type (e.g., index_dense_gt<Key, ...>).
 /// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
 /// @tparam Spec The index specification type.
 /// @param mg_index The synchronized index wrapper.
 /// @param spec The index specification (will be updated if resize occurs).
-/// @param key The key to add to the index.
-/// @param vector_data Pointer to the float vector data.
+/// @param key The key to add/update in the index.
+/// @param vector The vector to insert into the index.
 /// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
-/// @throws query::VectorSearchException if add fails for reasons other than capacity.
+/// @throws query::VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
 template <typename Index, typename Key, typename Spec>
-void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
-                      const float *vector_data, std::optional<std::size_t> thread_id = std::nullopt) {
-  const auto thread_id_for_adding = thread_id ? *thread_id : Index::any_thread();
+void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, Spec &spec, const Key &key,
+                       const utils::small_vector<float> &vector, std::optional<std::size_t> thread_id = std::nullopt) {
+  if (!vector.empty() && vector.size() != spec.dimension) {
+    throw query::VectorSearchException(
+        "Vector index property must have the same number of dimensions as specified in the index.");
+  }
+
+  auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
   {
     auto locked_index = mg_index.MutableSharedLock();
-    auto result = locked_index->add(key, vector_data, thread_id_for_adding);
+    if (locked_index->contains(key)) {
+      locked_index->remove(key);
+    }
+    if (vector.empty()) return;
+
+    auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
     if (!result.error) return;
     if (locked_index->size() >= locked_index->capacity()) {
       // Error is due to capacity, release the error because we will resize the index.
@@ -326,56 +360,55 @@ void AddToVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, S
       }
       spec.capacity = exclusively_locked_index->capacity();
     }
-    auto result = exclusively_locked_index->add(key, vector_data, thread_id_for_adding);
+    auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
   }
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
-/// @tparam SyncIndex The synchronized index wrapper type.
-/// @tparam Spec The index specification type.
-/// @tparam ProcessFunc Callable with signature void(SyncIndex&, Spec&, Vertex&, const
-/// std::optional<SnapshotObserverInfo>&, std::optional<std::size_t> thread_id).
-/// @param mg_index The synchronized index wrapper.
-/// @param spec The index specification (may be modified if resize occurs).
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
 /// @param vertices The vertices accessor to iterate over.
-/// @param snapshot_info Optional snapshot observer info.
-/// @param process The function to call for each vertex.
-template <typename SyncIndex, typename Spec, typename ProcessFunc>
-void PopulateVectorIndexSingleThreaded(SyncIndex &mg_index, Spec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                                       std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                       const ProcessFunc &process) {
+/// @param process The function to call for each vertex (thread_id is std::nullopt).
+template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
+void PopulateVectorIndexSingleThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   for (auto &vertex : vertices) {
-    process(mg_index, spec, vertex, snapshot_info, std::nullopt);
+    std::forward<ProcessFunc>(process)(vertex, std::nullopt);
   }
 }
 
 /// @brief Populates a vector index by iterating over vertices using multiple threads.
-/// @tparam SyncIndex The synchronized index wrapper type.
-/// @tparam Spec The index specification type (must have resize_coefficient and capacity).
-/// @tparam ProcessFunc Callable with signature void(SyncIndex&, Spec&, Vertex&, const
-/// std::optional<SnapshotObserverInfo>&, std::optional<std::size_t> thread_id).
-/// @param mg_index The synchronized index wrapper.
-/// @param spec The index specification (may be modified if resize occurs).
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
 /// @param vertices The vertices accessor to iterate over.
-/// @param snapshot_info Optional snapshot observer info.
-/// @param process The function to call for each vertex.
-template <typename SyncIndex, typename Spec, typename ProcessFunc>
-void PopulateVectorIndexMultiThreaded(SyncIndex &mg_index, Spec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                                      std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                      const ProcessFunc &process) {
-  const auto thread_count = FLAGS_storage_recovery_thread_count;
-  auto vertices_chunks = vertices.create_chunks(thread_count);
-  std::vector<std::jthread> threads;
-  threads.reserve(thread_count);
-
-  for (std::size_t i = 0; i < thread_count; ++i) {
-    threads.emplace_back([&, i]() {
-      auto &chunk = vertices_chunks[i];
-      for (auto &vertex : chunk) {
-        process(mg_index, spec, vertex, snapshot_info, i);
-      }
-    });
+/// @param process The function to call for each vertex (thread_id is the chunk index).
+template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
+void PopulateVectorIndexMultiThreaded(utils::SkipList<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
+  const auto actual_chunk_count = vertices_chunks.size();
+  utils::Synchronized<std::exception_ptr, utils::SpinLock> first_exception{};
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(actual_chunk_count);
+    for (std::size_t i = 0; i < actual_chunk_count; ++i) {
+      threads.emplace_back([&vertices_chunks, &process, &first_exception, i]() {
+        try {
+          auto &chunk = vertices_chunks[i];
+          for (auto &vertex : chunk) {
+            std::forward<ProcessFunc>(process)(vertex, std::optional<std::size_t>(i));
+          }
+        } catch (...) {
+          first_exception.WithLock([captured = std::current_exception()](auto &ex) {
+            if (!ex) ex = captured;
+          });
+        }
+      });
+    }
   }
+  first_exception.WithLock([](auto &ex) {
+    if (ex) std::rethrow_exception(ex);
+  });
 }
 
 }  // namespace memgraph::storage

@@ -180,18 +180,16 @@ auto RaftState::InitRaftServer() -> void {
     throw RaftServerStartException("Failed to allocate coordinator server on port {}", coordinator_port_);
   }
 
-  auto const coord_endpoint = raft_server_->get_srv_config(coordinator_id_)->get_endpoint();
-
-  spdlog::trace("Raft server allocated on {}", coord_endpoint);
+  spdlog::trace("Raft server allocated on port {}", coordinator_port_);
 
   // If set to true, server won't be created and exception will be thrown.
   // By setting it to false, all coordinators are started as leaders.
   bool constexpr skip_initial_election_timeout{false};
   raft_server_->start_server(skip_initial_election_timeout);
-  spdlog::trace("Raft server started on {}", coord_endpoint);
+  spdlog::trace("Raft server started on port {}", coordinator_port_);
 
   asio_listener_->listen(raft_server_);
-  spdlog::trace("Asio listener active on {}", coord_endpoint);
+  spdlog::trace("Asio listener active on port {}", coordinator_port_);
 
   // If we don't get initialized in 2min, we throw an exception and abort coordinator initialization.
   // When the follower gets back, it waits for the leader to ping it.
@@ -207,8 +205,8 @@ auto RaftState::InitRaftServer() -> void {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   if (!raft_server_->is_initialized()) {
-    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator with endpoint {}",
-                                   coord_endpoint);
+    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator with port {}",
+                                   coordinator_port_);
   }
 }
 
@@ -256,12 +254,6 @@ RaftState::~RaftState() {
 
   spdlog::trace("RaftState destruction complete for coordinator_{}", coordinator_id_);
 }
-
-auto RaftState::GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string {
-  return raft_server_->get_srv_config(coordinator_id)->get_endpoint();
-}
-
-auto RaftState::GetMyCoordinatorEndpoint() const -> std::string { return GetCoordinatorEndpoint(coordinator_id_); }
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 

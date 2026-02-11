@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,6 +33,7 @@ enum class Marker : uint8_t {
   TYPE_ENUM = 0x1a,
   TYPE_POINT_2D = 0x1b,
   TYPE_POINT_3D = 0x1c,
+  TYPE_VECTOR_INDEX_ID = 0x1d,
 
   SECTION_VERTEX = 0x20,
   SECTION_EDGE = 0x21,
@@ -111,6 +112,7 @@ static constexpr std::array kMarkersAll = {
     Marker::TYPE_ENUM,
     Marker::TYPE_POINT_2D,
     Marker::TYPE_POINT_3D,
+    Marker::TYPE_VECTOR_INDEX_ID,
     Marker::SECTION_VERTEX,
     Marker::SECTION_EDGE,
     Marker::SECTION_MAPPER,

@@ -41,7 +41,7 @@ struct ActionSet {
 template <ActionSet interesting, typename TCallback>
 inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
-    const auto ts = delta->timestamp->load(std::memory_order_acquire);
+    const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     // This is a committed change that we see so we shouldn't undo it.
     if (ts < timestamp) {
       break;

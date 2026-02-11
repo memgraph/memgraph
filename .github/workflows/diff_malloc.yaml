@@ -18,7 +18,7 @@ on:
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
-        default: '0'
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -35,6 +35,7 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
   build:
@@ -57,11 +58,16 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: Build release binary
         run: |
@@ -92,10 +98,11 @@ jobs:
           copy --package --dest-dir build/output/${{ env.OS }}
 
       - name: Save enterprise DEB package
+        if: ${{ env.RUN_ID == '' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package-${{ inputs.run_id }}"
+          name: "Enterprise DEB package${{ env.RUN_ID }} (malloc)"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Stop mgbuild container

@@ -1367,6 +1367,50 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
   ASSERT_EQ(found_nodes[0].ValueList()[0].ValueNode().Id(), node1.Id());
 }
 
+TYPED_TEST(CppApiTestFixture, TestVectorIndexPropertyFetchedAsList) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "TestVectorIndexPropertyFetchedAsList runs only on InMemoryStorage.";
+  }
+  constexpr auto index_name = "vec_idx";
+  constexpr auto label_name = "Item";
+  constexpr auto property_name = "embedding";
+  constexpr auto metric = unum::usearch::metric_kind_t::l2sq_k;
+  constexpr auto dimension = 3;
+  constexpr auto resize_coefficient = 2;
+  constexpr auto max_elements = 10;
+  constexpr auto scalar_kind = unum::usearch::scalar_kind_t::f32_k;
+
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    auto label = db_acc->NameToLabel(label_name);
+    auto property = db_acc->NameToProperty(property_name);
+    auto spec = memgraph::storage::VectorIndexSpec{
+        index_name, label, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
+    ASSERT_TRUE(db_acc->CreateVectorIndex(spec).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto storage_acc = this->storage->Access(AccessorType::WRITE);
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  auto graph = mgp::Graph(&raw_graph);
+  auto node = graph.CreateNode();
+  node.AddLabel(label_name);
+  const std::vector<double> embedding_values = {0.5, 1.0, -0.25};
+  node.SetProperty(
+      property_name,
+      mgp::Value(mgp::List(
+          {mgp::Value(embedding_values[0]), mgp::Value(embedding_values[1]), mgp::Value(embedding_values[2])})));
+
+  auto retrieved = node.GetProperty(property_name);
+  ASSERT_TRUE(retrieved.IsList()) << "Vector index property should be exposed as a list of doubles";
+  ASSERT_EQ(retrieved.ValueList().Size(), dimension);
+  for (size_t i = 0; i < dimension; ++i) {
+    ASSERT_DOUBLE_EQ(retrieved.ValueList()[i].ValueDouble(), embedding_values[i]);
+  }
+}
+
 TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
   if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
     GTEST_SKIP() << "TestVectorSearchOnEdges runs only on InMemoryStorage.";

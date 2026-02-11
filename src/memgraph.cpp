@@ -687,6 +687,25 @@ int main(int argc, char **argv) {
 
   auto db_acc = dbms_handler.Get();
 
+  // Global worker pool!
+  // Used by sessions to schedule tasks.
+  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
+  unsigned io_n_threads = FLAGS_bolt_num_workers;
+
+  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
+    // Register each worker thread with the Python interpreter at startup.
+    // This pre-initializes Python thread states to prevent "PyGILState_Ensure: Couldn't create
+    // thread-state for new thread" errors when many threads simultaneously try to call Python
+    // procedures during parallel execution.
+    // NOTE: We should also register cleanup, but since threads exist until the end of the program,
+    //       everyhting will be cleaned up anyway at program exit.
+    auto python_thread_init = []() { memgraph::query::procedure::RegisterPyThread(); };
+    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+                         /* high priority */ 1U,
+                         python_thread_init);
+    io_n_threads = 1U;
+  }
+
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
       settings.get(),
@@ -701,7 +720,8 @@ int main(int argc, char **argv) {
 #endif
       auth_handler.get(),
       auth_checker.get(),
-      &replication_handler);
+      &replication_handler,
+      worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   MG_ASSERT(db_acc, "Failed to access the main database");
@@ -740,17 +760,6 @@ int main(int argc, char **argv) {
     spdlog::trace("Triggers restored.");
     dbms_handler.RestoreStreams(&interpreter_context_);
     spdlog::trace("Streams restored.");
-  }
-
-  // Global worker pool!
-  // Used by sessions to schedule tasks.
-  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
-  unsigned io_n_threads = FLAGS_bolt_num_workers;
-
-  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
-    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
-                         /* high priority */ 1U);
-    io_n_threads = 1U;
   }
 
   ServerContext context;

@@ -3,10 +3,21 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../utils.bash"
 
 test_query_modules() {
-  echo "FEATURE: All MAGE query modules"
-  run_next_csv "CALL mg.procedures() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e 322
-  run_next "CREATE (a), (b), (c), (d), (a)-[:ET]->(b), (c)-[:ET]->(d);"
-  run_next "CALL leiden_community_detection.get() YIELD * RETURN communities, community_id, node;"
+  IMAGE_TYPE=${1:-"mage"}
+  if [ "$IMAGE_TYPE" == "mage" ]; then
+    expected_procedure_count=323
+  elif [ "$IMAGE_TYPE" == "memgraph" ]; then
+    expected_procedure_count=138
+  else
+    echo "Invalid image type: $IMAGE_TYPE"
+    exit 1
+  fi
+  echo "FEATURE: All Memgraph/MAGE query modules"
+  run_next_csv "CALL mg.procedures() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e $expected_procedure_count
+  if [ "$IMAGE_TYPE" == "mage" ]; then
+    run_next "CREATE (a), (b), (c), (d), (a)-[:ET]->(b), (c)-[:ET]->(d);"
+    run_next "CALL leiden_community_detection.get() YIELD * RETURN communities, community_id, node;"
+  fi
 }
 
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then

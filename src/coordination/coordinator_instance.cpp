@@ -766,15 +766,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     auto const maybe_current_main = FindReplicationInstance(*main_name, repl_instances_);
     DMG_ASSERT(maybe_current_main.has_value(), "Couldn't find instance {} in local storage.", *main_name);
 
-    // Find main's config from Raft logs
-    auto const raft_main_cache = std::ranges::find_if(
-        data_instances_cache, [&](auto const &instance) { return instance.config.instance_name == *main_name; });
-
-    DMG_ASSERT(raft_main_cache != std::ranges::end(data_instances_cache),
-               "Couldn't find main instance in Raft logs cache.");
-
-    if (auto const &current_main = maybe_current_main->get(); !current_main.SendRpc<RegisterReplicaOnMainRpc>(
-            curr_main_uuid, raft_main_cache->config.replication_client_info)) {
+    if (auto const &current_main = maybe_current_main->get();
+        !current_main.SendRpc<RegisterReplicaOnMainRpc>(curr_main_uuid, config.replication_client_info)) {
       spdlog::error("Failed to register instance {} on main instance {}.", config.instance_name, main_name);
       repl_instances_.pop_back();
       return RegisterInstanceCoordinatorStatus::RPC_FAILED;

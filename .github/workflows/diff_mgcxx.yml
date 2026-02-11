@@ -12,9 +12,14 @@ on:
         required: false
         default: ''
         type: string
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: ''
 
 env:
   CARGO_TERM_COLOR: always
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
   MGCXXTest:

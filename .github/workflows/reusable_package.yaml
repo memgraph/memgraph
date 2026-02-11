@@ -47,7 +47,10 @@ on:
         type: boolean
         description: "Generate SBOM"
         default: false
-
+      run_smoke_tests:
+        type: boolean
+        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
     outputs:
       package_s3_url:
         description: "The URL of the package in the S3 bucket."
@@ -135,11 +138,16 @@ jobs:
 
       - name: "Spin up mgbuild container"
         run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
-          run
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: "Build Memgraph binaries"
         run: |
@@ -236,6 +244,11 @@ jobs:
           if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
             malloc=true
           fi
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
@@ -245,7 +258,7 @@ jobs:
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_ARTIFACT_DIR \
           --generate-sbom $GENERATE_SBOM \
-          --malloc $malloc
+          --malloc $malloc --custom-mirror $USE_CUSTOM_MIRROR
 
       - name: "Generate Build SBOM"
         if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
@@ -347,3 +360,44 @@ jobs:
         continue-on-error: true
         run: |
           ./tools/ci/docker_cleanup.sh
+
+  SetupSmokeTest:
+    runs-on: [self-hosted]
+    needs: [PackageAndUpload]
+    if: ${{ inputs.run_smoke_tests && inputs.push_to_s3 }}
+    outputs:
+      last_version: ${{ steps.get-latest-tag.outputs.last_version }}
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Get Latest Tag
+        id: get-latest-tag
+        run: |
+          tag="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          clean_tag="${tag#v}"
+          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+            clean_tag="${clean_tag}-relwithdebinfo"
+          fi
+          echo "Found latest tag: ${clean_tag}"
+          echo "last_version=$clean_tag" >> $GITHUB_OUTPUT
+
+  RunSmokeTests:
+    if: ${{ inputs.run_smoke_tests }}
+    needs: [PackageAndUpload, SetupSmokeTest]
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
+    with:
+      arch: "${{ inputs.arch }}"
+      next_version: "${{ needs.PackageAndUpload.outputs.package_s3_url }}"
+      last_version: "${{ needs.SetupSmokeTest.outputs.last_version }}"
+      malloc: false
+      cuda: false
+      relwithdebinfo: ${{ inputs.build_type == 'RelWithDebInfo' }}
+      ref: ${{ inputs.ref }}
+      image_type: "memgraph"
+    secrets: inherit
