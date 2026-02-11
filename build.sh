@@ -17,6 +17,7 @@ OPTIONS:
     --keep-build            Keep existing build directory for incremental builds
     --config-only           Only configure CMake, don't build
     --dev                   Developer mode: enables --skip-init --skip-os-deps --keep-build
+    --update-lockfile       Update conan.lock before installing dependencies
     --help                  Show this help message
 
 ENVIRONMENT VARIABLES:
@@ -62,6 +63,7 @@ keep_build=false
 skip_os_deps=false
 VENV_DIR="${VENV_DIR:-env}"
 offline=false
+update_lockfile=false
 RESERVE_CORES=0
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -100,6 +102,10 @@ while [[ $# -gt 0 ]]; do
         --offline)
             skip_os_deps=true
             offline=true
+            shift
+            ;;
+        --update-lockfile)
+            update_lockfile=true
             shift
             ;;
         --reserve-cores)
@@ -227,6 +233,18 @@ if [[ -n "$MG_SANITIZERS" ]]; then
     export MG_SANITIZERS="$MG_SANITIZERS"
 else
     echo "No sanitizers enabled"
+fi
+
+# update lockfile if requested
+if [[ "$update_lockfile" = true ]]; then
+    echo "Updating conan.lock"
+    MG_TOOLCHAIN_ROOT="/opt/toolchain-v7" conan lock create \
+      . \
+      -pr:h memgraph_template_profile \
+      -pr:b memgraph_build_profile \
+      -s build_type="$BUILD_TYPE" \
+      -s os.distro="$DISTRO" \
+      --lockfile-out=conan.lock
 fi
 
 # install conan dependencies
