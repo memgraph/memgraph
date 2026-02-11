@@ -239,17 +239,7 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
   "${MG_TOOLCHAIN_ROOT}/include"
 )
 
-# Build mgconsole in isolation using ExternalProject to avoid target conflicts
-# with memgraph's dependencies (e.g., gflags)
-# Default to v1.5.0 if not specified
-if(NOT DEFINED MGCONSOLE_GIT_TAG)
-    set(MGCONSOLE_GIT_TAG "v1.5.0")
-endif()
-
-# Skip building mgconsole with ExternalProject when using CPack
-# Instead, it will be built using tools/ci/build-mgconsole.sh during packaging
-
-# When using CPack, create dummy targets so dependencies don't break
+# create dummy targets so dependencies don't break
 # mgconsole will be built via CPack install script instead
 add_custom_target(mgconsole-proj)
 add_custom_target(mgconsole)
