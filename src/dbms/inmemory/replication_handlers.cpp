@@ -1224,34 +1224,30 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           // don't allow direct access to the edges through the public API.
           {
             bool is_visible = true;
-            Delta *local_delta = nullptr;
-            {
-              auto guard = std::shared_lock{edge->lock};
-              is_visible = !edge->deleted;
-              local_delta = edge->delta;
-            }
-            ApplyDeltasForRead(
-                &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
-                  switch (delta.action) {
-                    case Delta::Action::ADD_LABEL:
-                    case Delta::Action::REMOVE_LABEL:
-                    case Delta::Action::SET_PROPERTY:
-                    case Delta::Action::ADD_IN_EDGE:
-                    case Delta::Action::ADD_OUT_EDGE:
-                    case Delta::Action::REMOVE_IN_EDGE:
-                    case Delta::Action::REMOVE_OUT_EDGE:
-                      break;
-                    case Delta::Action::RECREATE_OBJECT: {
-                      is_visible = true;
-                      break;
-                    }
-                    case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                    case Delta::Action::DELETE_OBJECT: {
-                      is_visible = false;
-                      break;
-                    }
-                  }
-                });
+            storage::MvccRead reader{&*edge, &transaction->GetTransaction(), View::NEW, [&](storage::Edge const &e) {
+                                       is_visible = !e.deleted;
+                                     }};
+            reader.ApplyDeltasForRead([&is_visible](Delta const &delta) {
+              switch (delta.action) {
+                case Delta::Action::ADD_LABEL:
+                case Delta::Action::REMOVE_LABEL:
+                case Delta::Action::SET_PROPERTY:
+                case Delta::Action::ADD_IN_EDGE:
+                case Delta::Action::ADD_OUT_EDGE:
+                case Delta::Action::REMOVE_IN_EDGE:
+                case Delta::Action::REMOVE_OUT_EDGE:
+                  break;
+                case Delta::Action::RECREATE_OBJECT: {
+                  is_visible = true;
+                  break;
+                }
+                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                case Delta::Action::DELETE_OBJECT: {
+                  is_visible = false;
+                  break;
+                }
+              }
+            });
             if (!is_visible) {
               throw utils::BasicException("Edge {} isn't visible when setting property.", edge_gid);
             }
