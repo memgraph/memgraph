@@ -4,4 +4,7 @@
 
 workloads:
   - config: workloads/rag/workload.yaml
+    enabled: false
+
+  - config: workloads/publications_import/workload.yaml
     enabled: true
