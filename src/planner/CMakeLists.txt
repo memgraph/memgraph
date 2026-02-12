@@ -16,10 +16,13 @@ target_sources(mg-planner
     FILES
     include/planner/core/eclass.hpp
     include/planner/core/egraph.hpp
+    include/planner/core/ematch.hpp
     include/planner/core/enode.hpp
     include/planner/core/extractor.hpp
     include/planner/core/fwd.hpp
+    include/planner/core/pattern.hpp
     include/planner/core/processing_context.hpp
+    include/planner/core/rewrite.hpp
 
     PRIVATE
     src/core/eclass.cpp

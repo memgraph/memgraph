@@ -11,17 +11,19 @@
 
 #include "query/plan_v2/rewrites.hpp"
 
-#include "planner/core/ematch.hpp"
-#include "planner/core/pattern.hpp"
+#include "planner/core/rewrite.hpp"
 #include "query/plan_v2/egraph_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
 
 using planner::core::EMatchContext;
 using planner::core::EMatcher;
+using planner::core::Match;
 using planner::core::Pattern;
 using planner::core::PatternVar;
 using planner::core::ProcessingContext;
+using planner::core::Rewriter;
+using planner::core::RewriteRule;
 
 namespace {
 
@@ -57,138 +59,96 @@ auto BuildIdentifierPattern() -> Pattern<symbol> {
   return std::move(builder).build(ident);
 }
 
-// Internal helper that takes shared ematcher and context for reuse across iterations
-auto ApplyInlineRewriteImpl(egraph &eg, EMatcher<symbol, analysis> &ematcher, EMatchContext &ctx) -> std::size_t {
-  auto &impl = internal::get_impl(eg);
-  auto &core_egraph = impl.egraph_;
+/**
+ * @brief Create the inline rewrite rule
+ *
+ * This rule correlates Bind patterns with Identifier patterns:
+ * - For each Bind(?input, ?sym, ?expr), find all Identifier(?sym)
+ * - Merge each Identifier's e-class with expr's e-class
+ */
+auto MakeInlineRule() -> RewriteRule<symbol> {
+  auto builder = RewriteRule<symbol>::Builder{};
+  builder.pattern(BuildBindPattern(), "Bind")
+      .pattern(BuildIdentifierPattern(), "Identifier")
+      .apply<analysis>([](planner::core::EGraph<symbol, analysis> &core_egraph,
+                          std::span<std::vector<Match> const>
+                              matches_per_pattern,
+                          ProcessingContext<symbol> & /*proc_ctx*/) -> std::size_t {
+        auto const &bind_matches = matches_per_pattern[0];
+        auto const &identifier_matches = matches_per_pattern[1];
 
-  // Build patterns
-  auto bind_pattern = BuildBindPattern();
-  auto identifier_pattern = BuildIdentifierPattern();
+        // Build map from sym e-class -> expr e-class for all bindings
+        boost::unordered_flat_map<planner::core::EClassId, planner::core::EClassId> sym_to_expr;
 
-  // Find all Bind matches
-  ctx.clear();
-  auto bind_matches = ematcher.match(bind_pattern, ctx);
+        for (auto const &match : bind_matches) {
+          auto sym_var = PatternVar{1};
+          auto expr_var = PatternVar{2};
 
-  // Build map from sym e-class -> expr e-class for all bindings
-  // Key: canonical sym e-class ID
-  // Value: canonical expr e-class ID
-  boost::unordered_flat_map<planner::core::EClassId, planner::core::EClassId> sym_to_expr;
+          auto sym_eclass = core_egraph.find(match.subst.at(sym_var));
+          auto expr_eclass = core_egraph.find(match.subst.at(expr_var));
 
-  for (auto const &match : bind_matches) {
-    auto sym_var = PatternVar{1};
-    auto expr_var = PatternVar{2};
+          // Store mapping (first binding wins if multiple bindings exist)
+          sym_to_expr.try_emplace(sym_eclass, expr_eclass);
+        }
 
-    auto sym_eclass = core_egraph.find(match.subst.at(sym_var));
-    auto expr_eclass = core_egraph.find(match.subst.at(expr_var));
+        if (sym_to_expr.empty()) {
+          return 0;  // No bindings found
+        }
 
-    // Store mapping (first binding wins if multiple bindings exist)
-    sym_to_expr.try_emplace(sym_eclass, expr_eclass);
-  }
+        std::size_t merges = 0;
 
-  if (sym_to_expr.empty()) {
-    return 0;  // No bindings found
-  }
+        // For each Identifier, check if its sym has a binding, and merge with expr
+        for (auto const &match : identifier_matches) {
+          auto sym_var = PatternVar{1};
+          auto sym_eclass = core_egraph.find(match.subst.at(sym_var));
 
-  // Find all Identifier matches
-  ctx.clear();
-  auto identifier_matches = ematcher.match(identifier_pattern, ctx);
+          auto it = sym_to_expr.find(sym_eclass);
+          if (it == sym_to_expr.end()) {
+            continue;  // No binding for this symbol
+          }
 
-  std::size_t merges = 0;
+          auto expr_eclass = it->second;
+          auto identifier_eclass = match.matched_eclass;
 
-  // For each Identifier, check if its sym has a binding, and merge with expr
-  for (auto const &match : identifier_matches) {
-    auto sym_var = PatternVar{1};
-    auto sym_eclass = core_egraph.find(match.subst.at(sym_var));
+          // Merge Identifier's e-class with expr's e-class
+          if (core_egraph.find(identifier_eclass) != core_egraph.find(expr_eclass)) {
+            core_egraph.merge(identifier_eclass, expr_eclass);
+            ++merges;
+          }
+        }
 
-    auto it = sym_to_expr.find(sym_eclass);
-    if (it == sym_to_expr.end()) {
-      continue;  // No binding for this symbol
-    }
-
-    auto expr_eclass = it->second;
-    auto identifier_eclass = match.matched_eclass;
-
-    // Merge Identifier's e-class with expr's e-class
-    // This makes Identifier(sym) equivalent to expr
-    if (core_egraph.find(identifier_eclass) != core_egraph.find(expr_eclass)) {
-      core_egraph.merge(identifier_eclass, expr_eclass);
-      ++merges;
-    }
-  }
-
-  // Rebuild the e-graph if any merges occurred
-  if (merges > 0) {
-    ProcessingContext<symbol> proc_ctx;
-    core_egraph.rebuild(proc_ctx);
-    ematcher.rebuild();  // Refresh index after e-graph rebuild
-  }
-
-  return merges;
+        return merges;
+      });
+  return std::move(builder).build("inline");
 }
 
 }  // namespace
 
-// Public API: creates its own matcher and context for standalone use
+// Public API: creates its own rewriter for standalone use
 auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
   auto &impl = internal::get_impl(eg);
   auto &core_egraph = impl.egraph_;
 
-  EMatcher<symbol, analysis> ematcher(core_egraph);
-  EMatchContext ctx;
+  Rewriter<symbol, analysis> rewriter(core_egraph);
+  rewriter.add_rule(MakeInlineRule());
 
-  return ApplyInlineRewriteImpl(eg, ematcher, ctx);
+  // Single iteration - not full saturation
+  return rewriter.apply_once();
 }
 
 auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult {
-  RewriteResult result;
-  auto const start_time = std::chrono::steady_clock::now();
-
   auto &impl = internal::get_impl(eg);
   auto &core_egraph = impl.egraph_;
 
-  // Create shared matcher and context for all iterations
-  EMatcher<symbol, analysis> ematcher(core_egraph);
-  EMatchContext ctx;
+  Rewriter<symbol, analysis> rewriter(core_egraph);
+  rewriter.add_rule(MakeInlineRule());
 
-  for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
-    result.iterations = iter + 1;
+  // Add more rules here as they are implemented
+  // rewriter.add_rule(MakeConstantFoldingRule());
+  // rewriter.add_rule(MakeDeadCodeEliminationRule());
+  // etc.
 
-    // Check timeout
-    auto const elapsed = std::chrono::steady_clock::now() - start_time;
-    if (elapsed >= config.timeout) {
-      result.stop_reason = RewriteResult::StopReason::Timeout;
-      return result;
-    }
-
-    // Check e-node limit
-    if (core_egraph.num_nodes() > config.max_enodes) {
-      result.stop_reason = RewriteResult::StopReason::ENodeLimit;
-      return result;
-    }
-
-    std::size_t rewrites_this_iter = 0;
-
-    // Apply inline rewrite
-    rewrites_this_iter += ApplyInlineRewriteImpl(eg, ematcher, ctx);
-
-    // Add more rewrites here as they are implemented
-    // rewrites_this_iter += ApplyConstantFoldingRewrite(eg);
-    // rewrites_this_iter += ApplyDeadCodeEliminationRewrite(eg);
-    // etc.
-
-    result.rewrites_applied += rewrites_this_iter;
-
-    // Fixed point reached
-    if (rewrites_this_iter == 0) {
-      result.stop_reason = RewriteResult::StopReason::Saturated;
-      return result;
-    }
-  }
-
-  // Reached iteration limit
-  result.stop_reason = RewriteResult::StopReason::IterationLimit;
-  return result;
+  return rewriter.saturate(config);
 }
 
 }  // namespace memgraph::query::plan::v2

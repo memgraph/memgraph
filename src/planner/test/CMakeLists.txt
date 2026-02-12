@@ -6,6 +6,7 @@ add_unit_test(planner
         unittest__extractor.cpp
         unittest__pattern.cpp
         unittest__ematch.cpp
+        unittest__rewrite.cpp
     LINK_TARGETS mg::planner
 )
 
