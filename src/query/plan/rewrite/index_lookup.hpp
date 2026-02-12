@@ -1394,45 +1394,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
            type_info == ScanAllById::kType;
   }
 
-  // Extracts filters for a symbol from filters_ and creates a Filter operator if needed.
-  // Returns the operator wrapped in Filter if filters exist, otherwise returns the operator as-is.
-  std::shared_ptr<LogicalOperator> WrapWithRemainingFilters(std::unique_ptr<LogicalOperator> op, const Symbol &symbol) {
-    Expression *filter_expr = nullptr;
-    std::vector<FilterInfo> filter_infos;
-
-    // Collect remaining filters for this symbol
-    for (auto filter_it = filters_.begin(); filter_it != filters_.end();) {
-      if (filter_it->used_symbols.contains(symbol)) {
-        if (filter_expr) {
-          filter_expr = ast_storage_->Create<AndOperator>(filter_expr, filter_it->expression);
-        } else {
-          filter_expr = filter_it->expression;
-        }
-        filter_infos.push_back(*filter_it);
-        filter_exprs_for_removal_.insert(filter_it->expression);
-        filter_it = filters_.erase(filter_it);
-      } else {
-        ++filter_it;
-      }
-    }
-
-    if (!filter_expr) {
-      // TODO: why can't make_shared?
-      return std::shared_ptr<LogicalOperator>(std::move(op));
-    }
-
-    Filters filter_filters;
-    if (!filter_infos.empty()) {
-      filter_filters.SetFilters(std::move(filter_infos));
-    }
-
-    std::shared_ptr<LogicalOperator> op_shared(std::move(op));
-    return std::make_shared<Filter>(
-        op_shared, std::vector<std::shared_ptr<LogicalOperator>>(), filter_expr, filter_filters);
-  }
-
   // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
-  // compared to SingleSourceShortestPath (multi-source BFS).
+  // compared to SingleSourceShortestPath.
   bool ShouldUseSTShortestPath(double source_cnt, double target_cnt, EdgeAtom::Direction direction) {
     if (source_cnt == 0 || target_cnt == 0) return false;
 
