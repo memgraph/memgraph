@@ -4,11 +4,9 @@
 # Note: When CPack runs install scripts, CMAKE_SOURCE_DIR and CMAKE_BINARY_DIR
 # may not be set, so we derive them from this script's location.
 
-# Determine source directory (parent of release/)
 get_filename_component(SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
-# Determine build directory
-# Try to find it from CPack variables, otherwise use standard layout
+# Determine build directory from CPack variables or use standard layout
 if(DEFINED CPACK_TOPLEVEL_DIRECTORY)
     get_filename_component(CPACK_PACKAGE_DIR "${CPACK_TOPLEVEL_DIRECTORY}" DIRECTORY)
     if(EXISTS "${CPACK_PACKAGE_DIR}/CPackConfig.cmake")
@@ -25,7 +23,6 @@ if(NOT EXISTS "${SOURCE_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "Source directory not found: ${SOURCE_DIR}")
 endif()
 
-# Configuration
 set(BUILD_MGCONSOLE_SCRIPT "${SOURCE_DIR}/tools/ci/build-mgconsole.sh")
 if(NOT DEFINED MGCONSOLE_GIT_TAG)
     set(MGCONSOLE_GIT_TAG "v1.5.0")
