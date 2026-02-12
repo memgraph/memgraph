@@ -15,6 +15,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"
+#include "utils/pointer_pack.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
@@ -22,7 +23,7 @@ namespace memgraph::storage {
 struct Vertex;
 
 struct Edge {
-  Edge(Gid gid, Delta *delta) : gid(gid), delta(delta) {
+  Edge(Gid gid, Delta *delta) : gid(gid), delta_(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Edge must be created with an initial DELETE_OBJECT delta!");
@@ -33,11 +34,19 @@ struct Edge {
   PropertyStore properties{};
 
   mutable utils::RWSpinLock lock;
-  bool deleted{false};
-  // uint8_t PAD;
-  // uint16_t PAD;
 
-  Delta *delta{};
+  Delta *delta() const { return delta_.get_ptr(); }
+
+  void set_delta(Delta *d) { delta_.set_ptr(d); }
+
+  bool deleted() const { return delta_.get<kDeletedBit>() != 0; }
+
+  void set_deleted(bool b) { delta_.set<kDeletedBit>(b ? 1 : 0); }
+
+ private:
+  static constexpr int kDeletedBit = 0;
+
+  utils::PointerPack<Delta, 1> delta_{};
 };
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");

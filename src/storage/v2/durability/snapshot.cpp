@@ -10294,8 +10294,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       Delta *delta = nullptr;
       {
         auto guard = std::shared_lock{edge.lock};
-        is_visible = !edge.deleted;
-        delta = edge.delta;
+        is_visible = !edge.deleted();
+        delta = edge.delta();
       }
       ApplyDeltasForRead(transaction, delta, View::OLD, [&is_visible](const Delta &delta) {
         switch (delta.action) {
