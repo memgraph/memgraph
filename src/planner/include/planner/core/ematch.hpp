@@ -89,6 +89,8 @@ struct EMatchContext {
       bufs.current.clear();
       bufs.next.clear();
     }
+    processed_.clear();
+    child_matches_.clear();
   }
 
   /**
@@ -96,8 +98,20 @@ struct EMatchContext {
    */
   [[nodiscard]] auto pool_depth() const -> std::size_t { return depth_pool_.size(); }
 
+  /**
+   * @brief Reusable set for tracking processed e-classes in match()
+   */
+  auto processed() -> boost::unordered_flat_set<EClassId> & { return processed_; }
+
+  /**
+   * @brief Reusable buffer for child matching results in match()
+   */
+  auto child_matches() -> std::vector<Substitution> & { return child_matches_; }
+
  private:
   std::vector<DepthBuffers> depth_pool_;
+  boost::unordered_flat_set<EClassId> processed_;
+  std::vector<Substitution> child_matches_;
 };
 
 /**
@@ -385,11 +399,10 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
     return {};  // No e-classes contain this symbol
   }
 
-  // Track which canonical e-classes we've already processed to avoid duplicates
-  boost::unordered_flat_set<EClassId> processed;
-
-  // Reusable buffer for child matching results
-  std::vector<Substitution> child_matches;
+  // Get reusable buffers from context
+  auto &processed = ctx.processed();
+  auto &child_matches = ctx.child_matches();
+  processed.clear();
 
   for (auto eclass_id : *candidates) {
     auto canonical_id = egraph.find(eclass_id);
