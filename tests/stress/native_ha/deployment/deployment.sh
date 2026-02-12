@@ -19,7 +19,7 @@ fi
 
 # Try to find mgconsole: first in build dir, then in toolchain, then in PATH
 if [[ -x "$BUILD_DIR/mgconsole" ]]; then
-    MGCONSOLE_BINARY="$BUILD_DIR/mgconsole"
+    MGCONSOLE_BINARY="$BUILD_DIR/bin/mgconsole"
 elif [[ -n "$MG_TOOLCHAIN_ROOT" && -x "$MG_TOOLCHAIN_ROOT/bin/mgconsole" ]]; then
     MGCONSOLE_BINARY="$MG_TOOLCHAIN_ROOT/bin/mgconsole"
 elif [[ -x "/opt/toolchain-v7/bin/mgconsole" ]]; then

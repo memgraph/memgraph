@@ -775,6 +775,21 @@ package_memgraph() {
   if [[ "$os" == "centos-10" ]]; then
     docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
   fi
+
+  # check for mgconsole inside package
+  if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
+    check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
+  else
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
+    check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
+  fi
+  if ! echo "$check_output" | grep -q "mgconsole"; then
+    echo "Error: mgconsole not found in package"
+    echo "Package: $package_name"
+    echo "Check output: $check_output"
+    exit 1
+  fi
 }
 
 package_docker() {
