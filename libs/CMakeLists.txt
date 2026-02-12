@@ -250,22 +250,14 @@ set(BUILD_MGCONSOLE_SCRIPT "${CMAKE_SOURCE_DIR}/tools/ci/build-mgconsole.sh")
 set(MGCONSOLE_SOURCE "${CMAKE_SOURCE_DIR}/build/mgconsole/bin/mgconsole")
 set(MGCONSOLE_BINARY "${CMAKE_BINARY_DIR}/bin/mgconsole")
 
-# Build mgconsole using the same script as CPack
-add_custom_target(mgconsole-proj
-    COMMAND bash -c "unset DESTDIR && export MGCONSOLE_TAG=\"${MGCONSOLE_GIT_TAG}\" && bash \"${BUILD_MGCONSOLE_SCRIPT}\""
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Building mgconsole using ${BUILD_MGCONSOLE_SCRIPT}"
-    BYPRODUCTS "${MGCONSOLE_SOURCE}"
-)
+# Create dummy targets for build-time dependencies
+# mgconsole will be built during install/packaging stage
+add_custom_target(mgconsole-proj)
+add_custom_target(mgconsole)
 
-# Copy mgconsole to the expected location
-add_custom_target(mgconsole
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MGCONSOLE_SOURCE}" "${MGCONSOLE_BINARY}"
-    DEPENDS mgconsole-proj
-    COMMENT "Copying mgconsole to ${MGCONSOLE_BINARY}"
-    BYPRODUCTS "${MGCONSOLE_BINARY}"
-)
+# Build mgconsole during install stage (before the install(FILES) command runs)
+# This runs during cmake --install
+install(SCRIPT "${CMAKE_CURRENT_LIST_DIR}/install_mgconsole.cmake")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
