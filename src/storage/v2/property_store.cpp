@@ -32,12 +32,23 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/compressor.hpp"
+#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_property_store_compression_enabled, false,
             "Controls whether the properties should be compressed in the storage.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(storage_floating_point_resolution_bits, 64,
+                        "Max bits for floating-point property storage (16, 32, or 64). "
+                        "Smaller values save space but reduce precision (32=float, 16=half).",
+                        {
+                          if (value == 16 || value == 32 || value == 64) return true;
+                          std::cout << "Expected --" << flagname << " to be one of 16, 32, 64\n";
+                          return false;
+                        });
 
 namespace memgraph::storage {
 
@@ -128,6 +139,12 @@ constexpr uint32_t SizeToByteSize(Size size) {
       return 8;
   }
 }
+
+inline double HalfToDouble(uint16_t bits) { return static_cast<double>(std::bit_cast<_Float16>(bits)); }
+
+inline uint16_t DoubleToHalf(double value) { return std::bit_cast<uint16_t>(static_cast<_Float16>(value)); }
+
+inline uint64_t FloatingPointResolution() { return FLAGS_storage_floating_point_resolution_bits; }
 
 using Type = PropertyStoreType;
 
@@ -301,7 +318,15 @@ class Writer {
 
   std::optional<Size> WriteDouble(double value) { return WriteUint(std::bit_cast<uint64_t>(value)); }
 
+  std::optional<Size> WriteFloat(float value) { return WriteUint(std::bit_cast<uint32_t>(value)); }
+
+  std::optional<Size> WriteHalf(uint16_t value) { return WriteUint(value); }
+
   bool WriteDoubleForceInt64(double value) { return InternalWriteInt<uint64_t>(std::bit_cast<uint64_t>(value)); }
+
+  bool WriteFloatForceInt32(float value) { return InternalWriteInt<uint32_t>(std::bit_cast<uint32_t>(value)); }
+
+  bool WriteHalfForceInt16(double value) { return InternalWriteInt<uint16_t>(DoubleToHalf(value)); }
 
   bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
 
@@ -449,6 +474,18 @@ class Reader {
     return std::bit_cast<double>(*value);
   }
 
+  std::optional<double> ReadFloat(Size size) {
+    auto value = ReadUint(size);
+    if (!value) return std::nullopt;
+    return static_cast<double>(std::bit_cast<float>(static_cast<uint32_t>(*value)));
+  }
+
+  std::optional<double> ReadHalf(Size size) {
+    auto value = ReadUint(size);
+    if (!value) return std::nullopt;
+    return HalfToDouble(static_cast<uint16_t>(*value));
+  }
+
   std::optional<double> ReadDoubleForce64() {
     auto value = InternalReadInt<uint64_t>();
     if (!value) return std::nullopt;
@@ -579,7 +616,16 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       return {{Type::INT, *size}};
     }
     case PropertyValue::Type::Double: {
-      auto size = writer->WriteDouble(value.ValueDouble());
+      double val = value.ValueDouble();
+      auto const res = FloatingPointResolution();
+      std::optional<Size> size;
+      if (res <= 16) {
+        size = writer->WriteHalf(DoubleToHalf(val));
+      } else if (res <= 32) {
+        size = writer->WriteFloat(static_cast<float>(val));
+      } else {
+        size = writer->WriteDouble(val);
+      }
       if (!size) return std::nullopt;
       return {{Type::DOUBLE, *size}};
     }
@@ -619,7 +665,16 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
           if (!ret) return std::nullopt;
           metadata->Set({.type = Type::INT, .id_size = Size::INT8, .payload_size = *ret});
         } else {
-          auto ret = writer->WriteDouble(std::get<double>(item));
+          double val = std::get<double>(item);
+          auto const res = FloatingPointResolution();
+          std::optional<Size> ret;
+          if (res <= 16) {
+            ret = writer->WriteHalf(DoubleToHalf(val));
+          } else if (res <= 32) {
+            ret = writer->WriteFloat(static_cast<float>(val));
+          } else {
+            ret = writer->WriteDouble(val);
+          }
           if (!ret) return std::nullopt;
           metadata->Set({.type = Type::DOUBLE, .id_size = Size::INT8, .payload_size = *ret});
         }
@@ -643,8 +698,15 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       const auto &list = value.ValueDoubleList();
       auto size = writer->WriteUint(list.size());
       if (!size) return std::nullopt;
+      auto const res = FloatingPointResolution();
       for (const auto &item : list) {
-        if (!writer->WriteDoubleForceInt64(item)) return std::nullopt;
+        if (res <= 16) {
+          if (!writer->WriteHalfForceInt16(item)) return std::nullopt;
+        } else if (res <= 32) {
+          if (!writer->WriteFloatForceInt32(static_cast<float>(item))) return std::nullopt;
+        } else {
+          if (!writer->WriteDoubleForceInt64(item)) return std::nullopt;
+        }
       }
       return {{Type::LIST, *size}};
     }
@@ -884,8 +946,16 @@ bool DecodeList(Reader *reader, ListType list_type, uint32_t size, PropertyValue
     case ListType::DOUBLE: {
       PropertyValue::double_list_t list;
       list.reserve(size);
+      auto const res = FloatingPointResolution();
       for (uint32_t i = 0; i < size; ++i) {
-        auto double_v = reader->ReadDouble(Size::INT64);
+        std::optional<double> double_v;
+        if (res <= 16) {
+          double_v = reader->ReadHalf(Size::INT16);
+        } else if (res <= 32) {
+          double_v = reader->ReadFloat(Size::INT32);
+        } else {
+          double_v = reader->ReadDouble(Size::INT64);
+        }
         if (!double_v) return false;
         list.emplace_back(*double_v);
       }
@@ -903,7 +973,15 @@ bool DecodeList(Reader *reader, ListType list_type, uint32_t size, PropertyValue
           if (!int_v) return false;
           list.emplace_back(static_cast<int>(*int_v));
         } else if (metadata->type == Type::DOUBLE) {
-          auto double_v = reader->ReadDouble(metadata->payload_size);
+          auto const res = FloatingPointResolution();
+          std::optional<double> double_v;
+          if (res <= 16) {
+            double_v = reader->ReadHalf(metadata->payload_size);
+          } else if (res <= 32) {
+            double_v = reader->ReadFloat(metadata->payload_size);
+          } else {
+            double_v = reader->ReadDouble(metadata->payload_size);
+          }
           if (!double_v) return false;
           list.emplace_back(*double_v);
         } else {
@@ -936,9 +1014,9 @@ bool SkipList(Reader *reader, ListType list_type, uint32_t size) {
       return true;
     }
     case ListType::DOUBLE: {
-      for (uint32_t i = 0; i < size; ++i) {
-        if (!reader->SkipBytes(SizeToByteSize(Size::INT64))) return false;
-      }
+      auto const res = FloatingPointResolution();
+      uint32_t elem_size = (res <= 16) ? sizeof(uint16_t) : (res <= 32) ? sizeof(float) : SizeToByteSize(Size::INT64);
+      if (!reader->SkipBytes(size * elem_size)) return false;
       return true;
     }
     case ListType::NUMERIC: {
@@ -999,7 +1077,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
           return static_cast<int>(*int_v);
         }
         if (metadata->type == Type::DOUBLE) {
-          auto double_v = reader->ReadDouble(metadata->payload_size);
+          auto const r1 = FloatingPointResolution();
+          auto double_v = (r1 <= 16)   ? reader->ReadHalf(metadata->payload_size)
+                          : (r1 <= 32) ? reader->ReadFloat(metadata->payload_size)
+                                       : reader->ReadDouble(metadata->payload_size);
           if (!double_v) return std::nullopt;
           return *double_v;
         }
@@ -1011,7 +1092,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         return static_cast<int>(*int_v);
       }
       case ListType::DOUBLE: {
-        auto double_v = reader->ReadDouble(Size::INT64);
+        auto const r2 = FloatingPointResolution();
+        auto double_v = (r2 <= 16)   ? reader->ReadHalf(Size::INT16)
+                        : (r2 <= 32) ? reader->ReadFloat(Size::INT32)
+                                     : reader->ReadDouble(Size::INT64);
         if (!double_v) return std::nullopt;
         return *double_v;
       }
@@ -1024,7 +1108,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
           return static_cast<int>(*int_v);
         }
         if (metadata->type == Type::DOUBLE) {
-          auto double_v = reader->ReadDouble(metadata->payload_size);
+          auto const r3 = FloatingPointResolution();
+          auto double_v = (r3 <= 16)   ? reader->ReadHalf(metadata->payload_size)
+                          : (r3 <= 32) ? reader->ReadFloat(metadata->payload_size)
+                                       : reader->ReadDouble(metadata->payload_size);
           if (!double_v) return std::nullopt;
           return *double_v;
         }
@@ -1085,7 +1172,15 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return true;
     }
     case Type::DOUBLE: {
-      auto double_v = reader->ReadDouble(payload_size);
+      auto const res = FloatingPointResolution();
+      std::optional<double> double_v;
+      if (res <= 16) {
+        double_v = reader->ReadHalf(payload_size);
+      } else if (res <= 32) {
+        double_v = reader->ReadFloat(payload_size);
+      } else {
+        double_v = reader->ReadDouble(payload_size);
+      }
       if (!double_v) return false;
       value = PropertyValue(*double_v);
       return true;
@@ -1195,7 +1290,15 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return std::optional<PropertyValue>{std::in_place, *int_v};
     }
     case Type::DOUBLE: {
-      auto double_v = reader->ReadDouble(payload_size);
+      auto const res = FloatingPointResolution();
+      std::optional<double> double_v;
+      if (res <= 16) {
+        double_v = reader->ReadHalf(payload_size);
+      } else if (res <= 32) {
+        double_v = reader->ReadFloat(payload_size);
+      } else {
+        double_v = reader->ReadDouble(payload_size);
+      }
       if (!double_v) return std::nullopt;
       return std::optional<PropertyValue>{std::in_place, *double_v};
     }
@@ -1279,6 +1382,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
           PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = utils::small_vector<float>{}}};
     }
   }
+  return std::nullopt;
 }
 
 [[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint32_t &property_size) {
@@ -1334,10 +1438,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
           break;
         }
         case ListType::DOUBLE: {
-          // Each double is stored as int64_t (forced)
-          auto double_bytes = *size * SizeToByteSize(Size::INT64);
-          if (!reader->SkipBytes(double_bytes)) return false;
-          list_property_size += double_bytes;
+          auto const res = FloatingPointResolution();
+          auto elem_sz = (res <= 16) ? sizeof(uint16_t) : (res <= 32) ? sizeof(float) : SizeToByteSize(Size::INT64);
+          auto total_bytes = *size * elem_sz;
+          if (!reader->SkipBytes(total_bytes)) return false;
+          list_property_size += total_bytes;
           break;
         }
         case ListType::NUMERIC: {
@@ -1420,6 +1525,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return true;
     }
   }
+  return false;
 }
 
 // Function used to skip a PropertyValue from a byte stream.
@@ -1438,7 +1544,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return reader->ReadInt(payload_size).has_value();
     }
     case Type::DOUBLE: {
-      return reader->ReadDouble(payload_size).has_value();
+      return reader->SkipBytes(SizeToByteSize(payload_size));
     }
     case Type::STRING: {
       auto size = reader->ReadUint(payload_size);
@@ -1488,6 +1594,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return reader->SkipBytes(*count * SizeToByteSize(Size::INT64));
     }
   }
+  return false;
 }
 
 // Function used to compare a PropertyValue to the one stored in the byte
@@ -1530,7 +1637,15 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       // double values here and use the `operator==` between them to verify that
       // they are the same.
       if (!value.IsInt() && !value.IsDouble()) return false;
-      auto double_v = reader->ReadDouble(payload_size);
+      auto const res = FloatingPointResolution();
+      std::optional<double> double_v;
+      if (res <= 16) {
+        double_v = reader->ReadHalf(payload_size);
+      } else if (res <= 32) {
+        double_v = reader->ReadFloat(payload_size);
+      } else {
+        double_v = reader->ReadDouble(payload_size);
+      }
       if (!double_v) return false;
       if (value.IsDouble()) {
         return value.ValueDouble() == double_v;
@@ -1633,6 +1748,7 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return read_ids == expected_sorted;
     }
   }
+  return false;
 }
 
 // Function used to encode a property (PropertyId, PropertyValue) into a byte
