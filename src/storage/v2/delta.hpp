@@ -145,6 +145,80 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
   }
 }
 
+/// Generic pointer packing: stores a pointer of type \p T with low bits used for flags.
+/// The pointer must be aligned so the low \p NumFlagBits are zero (e.g. 8-byte aligned ⇒ 3 bits free).
+template <typename T, int NumFlagBits>
+class PointerPack {
+  static_assert(NumFlagBits > 0 && NumFlagBits <= static_cast<int>(8 * sizeof(uintptr_t)));
+  static constexpr uintptr_t kFlagsMask = (1UL << NumFlagBits) - 1;
+  static constexpr uintptr_t kPtrMask = ~kFlagsMask;
+
+  uintptr_t storage_{0};
+
+ public:
+  PointerPack() = default;
+
+  explicit PointerPack(T *ptr, uintptr_t flags = 0)
+      : storage_(reinterpret_cast<uintptr_t>(ptr) | (flags & kFlagsMask)) {
+    MG_ASSERT((reinterpret_cast<uintptr_t>(ptr) & kFlagsMask) == 0, "Pointer must be aligned!");
+  }
+
+  T *get_ptr() const { return reinterpret_cast<T *>(storage_ & kPtrMask); }
+
+  /// Extracts the bit field at position \p Pos with \p Size bits (0-based bit index, \p Size in bits).
+  template <int Pos, int Size = 1>
+  uintptr_t get() const {
+    static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
+    return (storage_ >> Pos) & ((1UL << Size) - 1);
+  }
+
+  /// Sets the bit field at position \p Pos with \p Size bits to \p value.
+  template <int Pos, int Size = 1>
+  void set(uintptr_t value) {
+    static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
+    const uintptr_t field_mask = ((1UL << Size) - 1) << Pos;
+    storage_ = (storage_ & ~field_mask) | ((value << Pos) & field_mask);
+  }
+
+  void set_ptr(T *ptr) {
+    MG_ASSERT((reinterpret_cast<uintptr_t>(ptr) & kFlagsMask) == 0, "Pointer must be aligned!");
+    storage_ = reinterpret_cast<uintptr_t>(ptr) | (storage_ & kFlagsMask);
+  }
+
+  operator T *() const { return get_ptr(); }
+
+  PointerPack &operator=(T *ptr) {
+    set_ptr(ptr);
+    return *this;
+  }
+};
+
+/// Packs the \c deleted flag and (on Vertex) \c has_uncommitted_non_sequential_deltas into the low bits
+/// of the Delta* pointer (8-byte aligned, so bits 0–2 are free). Uses PointerPack with bit 0 = deleted,
+/// bit 1 = has_uncommitted_non_sequential_deltas.
+using DeltaPtrPack = PointerPack<Delta, 2>;
+
+namespace delta_ptr_pack {
+constexpr int kDeletedBit = 0;
+constexpr int kHasUncommittedNonSeqDeltasBit = 1;
+}  // namespace delta_ptr_pack
+
+inline Delta *get(DeltaPtrPack const &p) { return p.get_ptr(); }
+
+inline bool deleted(DeltaPtrPack const &p) { return p.get<delta_ptr_pack::kDeletedBit, 1>() != 0; }
+
+inline void set_deleted(DeltaPtrPack &p, bool b) { p.set<delta_ptr_pack::kDeletedBit, 1>(b ? 1 : 0); }
+
+inline bool has_uncommitted_non_sequential_deltas(DeltaPtrPack const &p) {
+  return p.get<delta_ptr_pack::kHasUncommittedNonSeqDeltasBit, 1>() != 0;
+}
+
+inline void set_has_uncommitted_non_sequential_deltas(DeltaPtrPack &p, bool b) {
+  p.set<delta_ptr_pack::kHasUncommittedNonSeqDeltasBit, 1>(b ? 1 : 0);
+}
+
+inline void set_delta(DeltaPtrPack &p, Delta *d) { p.set_ptr(d); }
+
 struct opt_str {
   opt_str(std::optional<std::string_view> other, utils::PageSlabMemoryResource *res)
       : str_{other ? new_cstr(*other, res) : nullptr} {}

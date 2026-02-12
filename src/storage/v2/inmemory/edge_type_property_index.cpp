@@ -30,12 +30,12 @@ namespace {
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
                                            auto &&index_accessor,
                                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  if (from_vertex.deleted) {
+  if (from_vertex.deleted()) {
     return;
   }
 
   for (auto const &[type, to_vertex, edge_ref] : from_vertex.out_edges) {
-    if (type != edge_type || to_vertex->deleted) continue;
+    if (type != edge_type || to_vertex->deleted()) continue;
     auto property_value = edge_ref.ptr->properties.GetProperty(property);
     if (property_value.IsNull()) {
       continue;
@@ -60,12 +60,12 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
   auto matches_edge_type = [edge_type](auto const &each) { return std::get<EdgeTypeId>(each) == edge_type; };
   {
     auto guard = std::shared_lock{from_vertex.lock};
-    deleted = from_vertex.deleted;
-    delta = from_vertex.delta;
+    deleted = from_vertex.deleted();
+    delta = from_vertex.delta();
     edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
 
     // If vertex has non-sequential deltas, hold lock while applying them
-    if (!from_vertex.has_uncommitted_non_sequential_deltas) {
+    if (!from_vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 
@@ -92,7 +92,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       auto guard = std::shared_lock{edge_ref.ptr->lock};
       exists = true;
       deleted = false;
-      delta = edge_ref.ptr->delta;
+      delta = edge_ref.ptr->delta();
       property_value = edge_ref.ptr->properties.GetProperty(property);
     }
 

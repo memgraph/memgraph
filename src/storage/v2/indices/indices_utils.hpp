@@ -66,8 +66,8 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   {
     auto guard = std::shared_lock{vertex.lock};
     has_label = std::ranges::contains(vertex.labels, label);
-    deleted = vertex.deleted;
-    delta = vertex.delta;
+    deleted = vertex.deleted();
+    delta = vertex.delta();
   }
   if (!deleted && has_label) {
     return true;
@@ -119,8 +119,8 @@ inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge->lock};
-    deleted = edge->deleted;
-    delta = edge->delta;
+    deleted = edge->deleted();
+    delta = edge->delta();
   }
   if (!deleted) {
     return true;
@@ -163,8 +163,8 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
   bool current_value_equal_to_value;
   {
     auto guard = std::shared_lock{edge.lock};
-    delta = edge.delta;
-    deleted = edge.deleted;
+    delta = edge.delta();
+    deleted = edge.deleted();
     // Avoid IsPropertyEqual if already not possible
     if (delta == nullptr && deleted) return false;
     current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
@@ -220,9 +220,9 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge.lock};
-    deleted = edge.deleted;
+    deleted = edge.deleted();
     current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
-    delta = edge.delta;
+    delta = edge.delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
