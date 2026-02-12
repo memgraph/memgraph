@@ -1,0 +1,7 @@
+query: >
+  RETURN mg_semantics.rdf_has_lang_tag("en", "Hello@en") AS hasEnglish,
+         mg_semantics.rdf_has_lang_tag("es", "Hello@en") AS hasSpanish;
+
+output:
+  - hasEnglish: true
+    hasSpanish: false
