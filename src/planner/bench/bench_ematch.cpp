@@ -69,7 +69,7 @@ static auto BuildNestedNegPattern(int depth) -> TestPattern {
 }
 
 // ============================================================================
-// Benchmark: Index Building
+// Benchmark: Index Building (via rebuild)
 // ============================================================================
 
 // Measure time to build symbol index on e-graphs of varying sizes
@@ -79,12 +79,11 @@ static void BM_EMatcher_BuildIndex(benchmark::State &state) {
   TestEGraph egraph;
   BuildWideEGraph(egraph, num_nodes);
 
-  TestEMatcher ematcher;
+  TestEMatcher ematcher(egraph);
 
   for (auto _ : state) {
-    ematcher.clear_index();
-    ematcher.build_index(egraph);
-    benchmark::DoNotOptimize(ematcher.index());
+    ematcher.rebuild();
+    benchmark::ClobberMemory();
   }
 
   state.SetItemsProcessed(state.iterations() * num_nodes);
@@ -105,8 +104,8 @@ static void BM_EMatcher_MatchSimplePattern(benchmark::State &state) {
   TestEGraph egraph;
   BuildWideEGraph(egraph, num_adds);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, ?y)
   auto builder = TestPattern::Builder{};
@@ -116,7 +115,7 @@ static void BM_EMatcher_MatchSimplePattern(benchmark::State &state) {
   auto pattern = std::move(builder).build(add);
 
   for (auto _ : state) {
-    auto matches = ematcher.match(egraph, pattern);
+    auto matches = ematcher.match(pattern, ctx);
     benchmark::DoNotOptimize(matches);
   }
 
@@ -130,20 +129,20 @@ BENCHMARK(BM_EMatcher_MatchSimplePattern)->Range(100, 50'000)->Unit(benchmark::k
 // Benchmark: Deep Pattern Matching (varying pattern depth)
 // ============================================================================
 
-// Match Neg(Neg(...Neg(?x)...)) pattern of varying depths
+// Match Neg(Neg(...Neg(?x)...)) pattern of varying depths (fresh context each time)
 static void BM_EMatcher_MatchDeepPattern(benchmark::State &state) {
   auto depth = state.range(0);
 
   TestEGraph egraph;
   BuildDeepEGraph(egraph, depth);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
 
   auto pattern = BuildNestedNegPattern(static_cast<int>(depth));
 
   for (auto _ : state) {
-    auto matches = ematcher.match(egraph, pattern);
+    EMatchContext ctx;  // Fresh context each iteration
+    auto matches = ematcher.match(pattern, ctx);
     benchmark::DoNotOptimize(matches);
   }
 
@@ -160,8 +159,7 @@ static void BM_EMatcher_MatchDeepPatternWithContext(benchmark::State &state) {
   TestEGraph egraph;
   BuildDeepEGraph(egraph, depth);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
 
   auto pattern = BuildNestedNegPattern(static_cast<int>(depth));
 
@@ -170,7 +168,7 @@ static void BM_EMatcher_MatchDeepPatternWithContext(benchmark::State &state) {
 
   for (auto _ : state) {
     ctx.clear();  // Reset buffers but keep capacity
-    auto matches = ematcher.match(egraph, pattern, ctx);
+    auto matches = ematcher.match(pattern, ctx);
     benchmark::DoNotOptimize(matches);
   }
 
@@ -209,8 +207,8 @@ static void BM_EMatcher_MatchSameVariable(benchmark::State &state) {
     }
   }
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, ?x) - same variable twice
   auto builder = TestPattern::Builder{};
@@ -219,7 +217,7 @@ static void BM_EMatcher_MatchSameVariable(benchmark::State &state) {
   auto pattern = std::move(builder).build(add);
 
   for (auto _ : state) {
-    auto matches = ematcher.match(egraph, pattern);
+    auto matches = ematcher.match(pattern, ctx);
     benchmark::DoNotOptimize(matches);
   }
 
@@ -238,7 +236,7 @@ static void BM_EMatcher_MatchMergedEGraph(benchmark::State &state) {
   auto num_vars = state.range(0);
 
   TestEGraph egraph;
-  ProcessingContext<Op> ctx;
+  ProcessingContext<Op> pctx;
 
   // Create variables and expressions
   std::vector<EClassId> vars;
@@ -260,10 +258,10 @@ static void BM_EMatcher_MatchMergedEGraph(benchmark::State &state) {
   for (size_t i = 0; i < adds.size(); ++i) {
     egraph.merge(adds[i], muls[i]);
   }
-  egraph.rebuild(ctx);
+  egraph.rebuild(pctx);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, ?y) - will match merged e-classes
   auto builder = TestPattern::Builder{};
@@ -273,7 +271,7 @@ static void BM_EMatcher_MatchMergedEGraph(benchmark::State &state) {
   auto pattern = std::move(builder).build(add);
 
   for (auto _ : state) {
-    auto matches = ematcher.match(egraph, pattern);
+    auto matches = ematcher.match(pattern, ctx);
     benchmark::DoNotOptimize(matches);
   }
 
@@ -294,8 +292,7 @@ static void BM_EMatcher_IncrementalUpdate(benchmark::State &state) {
   TestEGraph egraph;
   BuildWideEGraph(egraph, initial_size);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
 
   for (auto _ : state) {
     state.PauseTiming();
@@ -311,7 +308,7 @@ static void BM_EMatcher_IncrementalUpdate(benchmark::State &state) {
     }
     state.ResumeTiming();
 
-    ematcher.update_index(egraph, new_eclasses);
+    ematcher.rebuild(new_eclasses);
   }
 
   state.SetItemsProcessed(state.iterations() * increment_size);
@@ -347,8 +344,8 @@ static void BM_EMatcher_SelectivePattern(benchmark::State &state) {
   auto add_neg = egraph.emplace(Op::Add, {neg.current_eclassid, vars[1]});
   (void)add_neg;
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(Neg(?x), ?y) - only matches the single Add(Neg(...), ...) we created
   auto builder = TestPattern::Builder{};
@@ -359,7 +356,7 @@ static void BM_EMatcher_SelectivePattern(benchmark::State &state) {
   auto pattern = std::move(builder).build(padd);
 
   for (auto _ : state) {
-    auto matches = ematcher.match(egraph, pattern);
+    auto matches = ematcher.match(pattern, ctx);
     benchmark::DoNotOptimize(matches);
   }
 
@@ -381,8 +378,7 @@ static void BM_EMatcher_MultiplePatternsSameContext(benchmark::State &state) {
   TestEGraph egraph;
   BuildWideEGraph(egraph, 100);  // Fixed size e-graph
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
 
   // Create patterns of varying depth
   std::vector<TestPattern> patterns;
@@ -398,7 +394,7 @@ static void BM_EMatcher_MultiplePatternsSameContext(benchmark::State &state) {
     size_t total_matches = 0;
     for (auto const &pattern : patterns) {
       ctx.clear();
-      auto matches = ematcher.match(egraph, pattern, ctx);
+      auto matches = ematcher.match(pattern, ctx);
       total_matches += matches.size();
     }
     benchmark::DoNotOptimize(total_matches);
@@ -409,15 +405,14 @@ static void BM_EMatcher_MultiplePatternsSameContext(benchmark::State &state) {
 
 BENCHMARK(BM_EMatcher_MultiplePatternsSameContext)->Range(10, 100)->Unit(benchmark::kMicrosecond);
 
-// Compare: multiple patterns without shared context
+// Compare: multiple patterns without shared context (fresh context each time)
 static void BM_EMatcher_MultiplePatternsNoContext(benchmark::State &state) {
   auto num_patterns = state.range(0);
 
   TestEGraph egraph;
   BuildWideEGraph(egraph, 100);  // Fixed size e-graph
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
 
   // Create patterns of varying depth
   std::vector<TestPattern> patterns;
@@ -429,7 +424,8 @@ static void BM_EMatcher_MultiplePatternsNoContext(benchmark::State &state) {
   for (auto _ : state) {
     size_t total_matches = 0;
     for (auto const &pattern : patterns) {
-      auto matches = ematcher.match(egraph, pattern);  // No context - allocates fresh each time
+      EMatchContext ctx;  // Fresh context - allocates fresh each time
+      auto matches = ematcher.match(pattern, ctx);
       total_matches += matches.size();
     }
     benchmark::DoNotOptimize(total_matches);

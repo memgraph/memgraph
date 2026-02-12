@@ -142,8 +142,8 @@ struct Match {
  *
  * Usage:
  * @code
- *   EMatcher<Symbol, Analysis> ematcher;
- *   ematcher.build_index(egraph);
+ *   EMatchContext ctx;
+ *   EMatcher<Symbol, Analysis> ematcher(egraph);
  *
  *   // Create pattern Add(?x, ?x)
  *   auto builder = Pattern<Symbol>::Builder{};
@@ -152,10 +152,13 @@ struct Match {
  *   auto pattern = std::move(builder).build(add);
  *
  *   // Find all matches
- *   auto matches = ematcher.match(egraph, pattern);
+ *   auto matches = ematcher.match(pattern, ctx);
  *   for (auto& [eclass_id, subst] : matches) {
- *     // Process match...
+ *     // Process match, apply rewrites...
  *   }
+ *
+ *   // After adding new e-classes, update index incrementally
+ *   ematcher.rebuild(new_eclasses);
  * @endcode
  *
  * @tparam Symbol Must satisfy ENodeSymbol concept
@@ -164,34 +167,30 @@ struct Match {
 template <typename Symbol, typename Analysis>
 class EMatcher {
  public:
-  using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
+  /**
+   * @brief Construct EMatcher with e-graph reference and build initial index
+   *
+   * @param egraph The e-graph to match against (reference must remain valid)
+   */
+  explicit EMatcher(EGraph<Symbol, Analysis> const &egraph);
 
   /**
-   * @brief Build symbol index from entire e-graph (initial setup)
+   * @brief Full rebuild of the symbol index
    *
-   * Scans all e-nodes in the e-graph and builds a mapping from symbols
-   * to the e-classes containing nodes with that symbol.
-   *
-   * @param egraph The e-graph to index
-   * @note Call this once before matching, or after major e-graph changes
+   * Call after major e-graph changes or merges that may have invalidated
+   * the index.
    */
-  void build_index(EGraph<Symbol, Analysis> const &egraph);
+  void rebuild();
 
   /**
-   * @brief Incrementally update index with newly added e-classes
+   * @brief Incremental update for newly added e-classes
    *
-   * More efficient than rebuilding when adding small numbers of new e-classes
-   * during a saturation loop.
+   * More efficient than full rebuild during saturation loops.
+   * Only updates index entries for the specified new e-classes.
    *
-   * @param egraph The e-graph (must contain the new e-classes)
-   * @param new_eclasses E-class IDs that were added since last index update
+   * @param new_eclasses E-class IDs that were added since last rebuild
    */
-  void update_index(EGraph<Symbol, Analysis> const &egraph, std::span<EClassId const> new_eclasses);
-
-  /**
-   * @brief Clear the symbol index
-   */
-  void clear_index() { index_.clear(); }
+  void rebuild(std::span<EClassId const> new_eclasses);
 
   /**
    * @brief Find all matches of a pattern in the e-graph
@@ -199,62 +198,14 @@ class EMatcher {
    * Searches the entire e-graph for expressions matching the pattern.
    * Returns all valid matches with their variable bindings.
    *
-   * @param egraph The e-graph to search
-   * @param pattern The pattern to match
-   * @return Vector of all matches found
-   */
-  auto match(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern) const -> std::vector<Match>;
-
-  /**
-   * @brief Find all matches of a pattern in the e-graph (with reusable context)
-   *
-   * More efficient for repeated calls - reuses internal buffers from context.
-   *
-   * @param egraph The e-graph to search
    * @param pattern The pattern to match
    * @param ctx Reusable context with pre-allocated buffers
    * @return Vector of all matches found
    */
-  auto match(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern, EMatchContext &ctx) const
-      -> std::vector<Match>;
+  auto match(Pattern<Symbol> const &pattern, EMatchContext &ctx) const -> std::vector<Match>;
 
-  /**
-   * @brief Find matches of a pattern starting from a specific e-class
-   *
-   * Only searches within the specified e-class and its descendants.
-   * Useful for targeted matching during rule application.
-   *
-   * @param egraph The e-graph to search
-   * @param pattern The pattern to match
-   * @param root The e-class to match against the pattern root
-   * @return Vector of matches found (all will have matched_eclass == root's canonical form)
-   */
-  auto match_in(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern, EClassId root) const
-      -> std::vector<Match>;
-
-  /**
-   * @brief Find matches of a pattern starting from a specific e-class (with reusable context)
-   *
-   * More efficient for repeated calls - reuses internal buffers from context.
-   *
-   * @param egraph The e-graph to search
-   * @param pattern The pattern to match
-   * @param root The e-class to match against the pattern root
-   * @param ctx Reusable context with pre-allocated buffers
-   * @return Vector of matches found
-   */
-  auto match_in(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern, EClassId root,
-                EMatchContext &ctx) const -> std::vector<Match>;
-
-  /**
-   * @brief Get the symbol index (for debugging/testing)
-   */
-  [[nodiscard]] auto index() const -> IndexType const & { return index_; }
-
-  /**
-   * @brief Check if the index contains a symbol
-   */
-  [[nodiscard]] auto has_symbol(Symbol const &sym) const -> bool { return index_.contains(sym); }
+ private:
+  using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
 
   /**
    * @brief Get e-classes containing a specific symbol
@@ -265,63 +216,21 @@ class EMatcher {
     return it != index_.end() ? &it->second : nullptr;
   }
 
- private:
-  /**
-   * @brief Try to match a pattern node against an e-class, collecting all valid substitutions
-   *
-   * Core recursive algorithm that tries to match a pattern node against all e-nodes
-   * in an e-class. For variables, binds or checks consistency. For symbols, tries
-   * each e-node and recursively matches children.
-   *
-   * @param egraph The e-graph
-   * @param pattern The full pattern
-   * @param pnode_id Pattern node to match
-   * @param eclass_id E-class to match against (should be canonical)
-   * @param subst Current variable bindings
-   * @return All valid substitutions that extend the input substitution
-   */
-  auto match_node(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern, PatternNodeId pnode_id,
-                  EClassId eclass_id, Substitution const &subst) const -> std::vector<Substitution>;
-
   /**
    * @brief Match a pattern node and append results to output vector
-   *
-   * Optimized version that uses context buffers and appends directly to output,
-   * eliminating per-call allocations.
-   *
-   * @param egraph The e-graph
-   * @param pattern The full pattern
-   * @param pnode_id Pattern node to match
-   * @param eclass_id E-class to match against (should be canonical)
-   * @param subst Current variable bindings
-   * @param out Output vector to append results to
-   * @param ctx Context with reusable buffers
-   * @param depth Current recursion depth (for buffer pool indexing)
    */
-  void match_node_into(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern, PatternNodeId pnode_id,
-                       EClassId eclass_id, Substitution const &subst, std::vector<Substitution> &out,
-                       EMatchContext &ctx, std::size_t depth) const;
+  void match_node_into(Pattern<Symbol> const &pattern, PatternNodeId pnode_id, EClassId eclass_id,
+                       Substitution const &subst, std::vector<Substitution> &out, EMatchContext &ctx,
+                       std::size_t depth) const;
 
   /**
    * @brief Match children of a pattern node against children of an e-node
-   *
-   * Helper that handles the child matching loop: iterates through pattern children,
-   * recursively matches each against the corresponding e-node child's e-class,
-   * and collects all valid substitution extensions.
-   *
-   * @param egraph The e-graph
-   * @param pattern The full pattern
-   * @param pnode Pattern node (must be non-leaf symbol node)
-   * @param enode E-node to match against (symbol and arity already verified)
-   * @param subst Starting variable bindings
-   * @param out Output vector to append results to
-   * @param ctx Context with reusable buffers
-   * @param depth Current depth for buffer indexing
    */
-  void match_children_into(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern,
-                           PatternNode<Symbol> const &pnode, ENode<Symbol> const &enode, Substitution const &subst,
-                           std::vector<Substitution> &out, EMatchContext &ctx, std::size_t depth) const;
+  void match_children_into(Pattern<Symbol> const &pattern, PatternNode<Symbol> const &pnode, ENode<Symbol> const &enode,
+                           Substitution const &subst, std::vector<Substitution> &out, EMatchContext &ctx,
+                           std::size_t depth) const;
 
+  EGraph<Symbol, Analysis> const *egraph_;
   IndexType index_;
 };
 
@@ -330,48 +239,43 @@ class EMatcher {
 // ========================================================================
 
 template <typename Symbol, typename Analysis>
-void EMatcher<Symbol, Analysis>::build_index(EGraph<Symbol, Analysis> const &egraph) {
+EMatcher<Symbol, Analysis>::EMatcher(EGraph<Symbol, Analysis> const &egraph) : egraph_(&egraph) {
+  rebuild();
+}
+
+template <typename Symbol, typename Analysis>
+void EMatcher<Symbol, Analysis>::rebuild() {
   index_.clear();
 
   // Scan all canonical e-classes
-  for (auto const &[eclass_id, eclass] : egraph.canonical_classes()) {
+  for (auto const &[eclass_id, eclass] : egraph_->canonical_classes()) {
     // Each e-node in the e-class contributes its symbol to the index
     for (auto const &enode_id : eclass.nodes()) {
-      auto const &enode = egraph.get_enode(enode_id);
+      auto const &enode = egraph_->get_enode(enode_id);
       index_[enode.symbol()].insert(eclass_id);
     }
   }
 }
 
 template <typename Symbol, typename Analysis>
-void EMatcher<Symbol, Analysis>::update_index(EGraph<Symbol, Analysis> const &egraph,
-                                              std::span<EClassId const> new_eclasses) {
+void EMatcher<Symbol, Analysis>::rebuild(std::span<EClassId const> new_eclasses) {
   for (auto eclass_id : new_eclasses) {
     // Get canonical form in case merges happened
-    auto canonical_id = egraph.find(eclass_id);
-    if (!egraph.has_class(canonical_id)) {
+    auto canonical_id = egraph_->find(eclass_id);
+    if (!egraph_->has_class(canonical_id)) {
       continue;  // E-class was merged away
     }
 
-    auto const &eclass = egraph.eclass(canonical_id);
+    auto const &eclass = egraph_->eclass(canonical_id);
     for (auto const &enode_id : eclass.nodes()) {
-      auto const &enode = egraph.get_enode(enode_id);
+      auto const &enode = egraph_->get_enode(enode_id);
       index_[enode.symbol()].insert(canonical_id);
     }
   }
 }
 
 template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern) const
-    -> std::vector<Match> {
-  // Non-context version: create temporary context
-  EMatchContext ctx;
-  return match(egraph, pattern, ctx);
-}
-
-template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern,
-                                       EMatchContext &ctx) const -> std::vector<Match> {
+auto EMatcher<Symbol, Analysis>::match(Pattern<Symbol> const &pattern, EMatchContext &ctx) const -> std::vector<Match> {
   if (pattern.empty()) {
     return {};
   }
@@ -385,7 +289,7 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
 
   if (root_pnode.is_variable()) {
     // Variable pattern matches any e-class
-    for (auto const &[eclass_id, _] : egraph.canonical_classes()) {
+    for (auto const &[eclass_id, _] : egraph_->canonical_classes()) {
       Substitution subst;
       subst[root_pnode.variable()] = eclass_id;
       results.push_back({eclass_id, std::move(subst)});
@@ -405,17 +309,17 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
   processed.clear();
 
   for (auto eclass_id : *candidates) {
-    auto canonical_id = egraph.find(eclass_id);
+    auto canonical_id = egraph_->find(eclass_id);
     if (!processed.insert(canonical_id).second) {
       continue;  // Already processed this canonical e-class
     }
 
-    auto const &eclass = egraph.eclass(canonical_id);
+    auto const &eclass = egraph_->eclass(canonical_id);
 
     // Inline root matching: iterate e-nodes filtering by symbol
     // (We know from index this e-class has at least one match)
     for (auto enode_id : eclass.nodes()) {
-      auto const &enode = egraph.get_enode(enode_id);
+      auto const &enode = egraph_->get_enode(enode_id);
 
       // Symbol must match
       if (root_pnode.symbol() != enode.symbol()) {
@@ -435,7 +339,7 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
 
       // Non-leaf root: match children
       child_matches.clear();
-      match_children_into(egraph, pattern, root_pnode, enode, Substitution{}, child_matches, ctx, 0);
+      match_children_into(pattern, root_pnode, enode, Substitution{}, child_matches, ctx, 0);
 
       for (auto &subst : child_matches) {
         results.push_back({canonical_id, std::move(subst)});
@@ -447,54 +351,8 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
 }
 
 template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::match_in(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern,
-                                          EClassId root) const -> std::vector<Match> {
-  // Non-context version: create temporary context
-  EMatchContext ctx;
-  return match_in(egraph, pattern, root, ctx);
-}
-
-template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::match_in(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern,
-                                          EClassId root, EMatchContext &ctx) const -> std::vector<Match> {
-  if (pattern.empty()) {
-    return {};
-  }
-
-  auto canonical_root = egraph.find(root);
-  if (!egraph.has_class(canonical_root)) {
-    return {};
-  }
-
-  // Pre-allocate depth buffers to avoid invalidation during recursion
-  ctx.ensure_depth(pattern.size());
-
-  std::vector<Match> results;
-  std::vector<Substitution> substitutions;
-  Substitution empty_subst;
-  match_node_into(egraph, pattern, pattern.root(), canonical_root, empty_subst, substitutions, ctx, 0);
-
-  for (auto &subst : substitutions) {
-    results.push_back({canonical_root, std::move(subst)});
-  }
-
-  return results;
-}
-
-template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::match_node(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern,
-                                            PatternNodeId pnode_id, EClassId eclass_id, Substitution const &subst) const
-    -> std::vector<Substitution> {
-  // Legacy API: use temporary context
-  EMatchContext ctx;
-  std::vector<Substitution> results;
-  match_node_into(egraph, pattern, pnode_id, eclass_id, subst, results, ctx, 0);
-  return results;
-}
-
-template <typename Symbol, typename Analysis>
-void EMatcher<Symbol, Analysis>::match_node_into(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern,
-                                                 PatternNodeId pnode_id, EClassId eclass_id, Substitution const &subst,
+void EMatcher<Symbol, Analysis>::match_node_into(Pattern<Symbol> const &pattern, PatternNodeId pnode_id,
+                                                 EClassId eclass_id, Substitution const &subst,
                                                  std::vector<Substitution> &out, EMatchContext &ctx,
                                                  std::size_t depth) const {
   auto const &pnode = pattern[pnode_id];
@@ -505,7 +363,7 @@ void EMatcher<Symbol, Analysis>::match_node_into(EGraph<Symbol, Analysis> const 
     auto it = subst.find(var);
     if (it != subst.end()) {
       // Variable already bound: must match same e-class (canonical comparison)
-      if (egraph.find(it->second) == egraph.find(eclass_id)) {
+      if (egraph_->find(it->second) == egraph_->find(eclass_id)) {
         out.push_back(subst);  // Consistent binding
       }
       // Else: inconsistent binding, don't add anything
@@ -519,10 +377,10 @@ void EMatcher<Symbol, Analysis>::match_node_into(EGraph<Symbol, Analysis> const 
   }
 
   // Symbol node: try to match against each e-node in the e-class
-  auto const &eclass = egraph.eclass(eclass_id);
+  auto const &eclass = egraph_->eclass(eclass_id);
 
   for (auto enode_id : eclass.nodes()) {
-    auto const &enode = egraph.get_enode(enode_id);
+    auto const &enode = egraph_->get_enode(enode_id);
 
     // Symbol must match
     if (pnode.symbol() != enode.symbol()) {
@@ -541,13 +399,12 @@ void EMatcher<Symbol, Analysis>::match_node_into(EGraph<Symbol, Analysis> const 
     }
 
     // Non-leaf: match children
-    match_children_into(egraph, pattern, pnode, enode, subst, out, ctx, depth);
+    match_children_into(pattern, pnode, enode, subst, out, ctx, depth);
   }
 }
 
 template <typename Symbol, typename Analysis>
-void EMatcher<Symbol, Analysis>::match_children_into(EGraph<Symbol, Analysis> const &egraph,
-                                                     Pattern<Symbol> const &pattern, PatternNode<Symbol> const &pnode,
+void EMatcher<Symbol, Analysis>::match_children_into(Pattern<Symbol> const &pattern, PatternNode<Symbol> const &pnode,
                                                      ENode<Symbol> const &enode, Substitution const &subst,
                                                      std::vector<Substitution> &out, EMatchContext &ctx,
                                                      std::size_t depth) const {
@@ -558,11 +415,11 @@ void EMatcher<Symbol, Analysis>::match_children_into(EGraph<Symbol, Analysis> co
 
   for (std::size_t i = 0; i < pnode.arity(); ++i) {
     auto pattern_child_id = pnode.children[i];
-    auto enode_child_eclass = egraph.find(enode.children()[i]);
+    auto enode_child_eclass = egraph_->find(enode.children()[i]);
 
     bufs.next.clear();  // Reuse existing capacity
     for (auto const &current_subst : bufs.current) {
-      match_node_into(egraph, pattern, pattern_child_id, enode_child_eclass, current_subst, bufs.next, ctx, depth + 1);
+      match_node_into(pattern, pattern_child_id, enode_child_eclass, current_subst, bufs.next, ctx, depth + 1);
     }
     std::swap(bufs.current, bufs.next);
 

@@ -62,94 +62,6 @@ auto make_binary_pattern(Op op, uint32_t var_x, uint32_t var_y) -> TestPattern {
   return std::move(builder).build(s);
 }
 
-// --- Symbol Index Tests ---
-
-TEST(EMatcher, EmptyIndexOnConstruction) {
-  TestEMatcher ematcher;
-
-  EXPECT_FALSE(ematcher.has_symbol(Op::Add));
-  EXPECT_EQ(ematcher.eclasses_with_symbol(Op::Add), nullptr);
-}
-
-TEST(EMatcher, BuildIndexOnEmptyEGraph) {
-  TestEGraph egraph;
-  TestEMatcher ematcher;
-
-  ematcher.build_index(egraph);
-
-  EXPECT_FALSE(ematcher.has_symbol(Op::Add));
-}
-
-TEST(EMatcher, BuildIndexWithSingleLeaf) {
-  TestEGraph egraph;
-  auto x = egraph.emplace(Op::Var, 1);
-
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
-
-  EXPECT_TRUE(ematcher.has_symbol(Op::Var));
-  EXPECT_FALSE(ematcher.has_symbol(Op::Add));
-
-  auto const *eclasses = ematcher.eclasses_with_symbol(Op::Var);
-  ASSERT_NE(eclasses, nullptr);
-  EXPECT_EQ(eclasses->size(), 1);
-  EXPECT_TRUE(eclasses->contains(x.current_eclassid));
-}
-
-TEST(EMatcher, BuildIndexWithMultipleNodes) {
-  TestEGraph egraph;
-  auto x = egraph.emplace(Op::Var, 1);
-  auto y = egraph.emplace(Op::Var, 2);
-  auto add = egraph.emplace(Op::Add, {x.current_eclassid, y.current_eclassid});
-
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
-
-  EXPECT_TRUE(ematcher.has_symbol(Op::Var));
-  EXPECT_TRUE(ematcher.has_symbol(Op::Add));
-
-  auto const *var_eclasses = ematcher.eclasses_with_symbol(Op::Var);
-  ASSERT_NE(var_eclasses, nullptr);
-  EXPECT_EQ(var_eclasses->size(), 2);
-
-  auto const *add_eclasses = ematcher.eclasses_with_symbol(Op::Add);
-  ASSERT_NE(add_eclasses, nullptr);
-  EXPECT_EQ(add_eclasses->size(), 1);
-  EXPECT_TRUE(add_eclasses->contains(add.current_eclassid));
-}
-
-TEST(EMatcher, ClearIndex) {
-  TestEGraph egraph;
-  egraph.emplace(Op::Var, 1);
-
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
-  EXPECT_TRUE(ematcher.has_symbol(Op::Var));
-
-  ematcher.clear_index();
-  EXPECT_FALSE(ematcher.has_symbol(Op::Var));
-}
-
-TEST(EMatcher, UpdateIndexWithNewEClasses) {
-  TestEGraph egraph;
-  [[maybe_unused]] auto x = egraph.emplace(Op::Var, 1);
-
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
-
-  // Add new node
-  auto y = egraph.emplace(Op::Const, 42);
-
-  // Update index with new e-class
-  std::vector<EClassId> new_eclasses = {y.current_eclassid};
-  ematcher.update_index(egraph, new_eclasses);
-
-  EXPECT_TRUE(ematcher.has_symbol(Op::Const));
-  auto const *const_eclasses = ematcher.eclasses_with_symbol(Op::Const);
-  ASSERT_NE(const_eclasses, nullptr);
-  EXPECT_TRUE(const_eclasses->contains(y.current_eclassid));
-}
-
 // --- Variable Pattern Matching Tests ---
 
 TEST(EMatcher, MatchVariablePatternMatchesAll) {
@@ -157,11 +69,11 @@ TEST(EMatcher, MatchVariablePatternMatchesAll) {
   [[maybe_unused]] auto x = egraph.emplace(Op::Var, 1);
   [[maybe_unused]] auto y = egraph.emplace(Op::Var, 2);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_var_pattern(0);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Variable pattern should match all e-classes
   EXPECT_EQ(matches.size(), 2);
@@ -171,11 +83,11 @@ TEST(EMatcher, MatchVariablePatternBindsCorrectly) {
   TestEGraph egraph;
   auto x = egraph.emplace(Op::Var, 1);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_var_pattern(42);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   ASSERT_EQ(matches.size(), 1);
   EXPECT_EQ(matches[0].matched_eclass, x.current_eclassid);
@@ -191,11 +103,11 @@ TEST(EMatcher, MatchLeafSymbolPattern) {
   [[maybe_unused]] auto c2 = egraph.emplace(Op::Const, 2);
   [[maybe_unused]] auto v = egraph.emplace(Op::Var, 1);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_leaf_pattern(Op::Const);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Should match both Const nodes
   EXPECT_EQ(matches.size(), 2);
@@ -205,11 +117,11 @@ TEST(EMatcher, MatchLeafSymbolNoMatches) {
   TestEGraph egraph;
   [[maybe_unused]] auto v = egraph.emplace(Op::Var, 1);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_leaf_pattern(Op::Const);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   EXPECT_TRUE(matches.empty());
 }
@@ -221,11 +133,11 @@ TEST(EMatcher, MatchUnaryPattern) {
   auto x = egraph.emplace(Op::Var, 1);
   auto neg_x = egraph.emplace(Op::Neg, {x.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_unary_pattern(Op::Neg, 0);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   ASSERT_EQ(matches.size(), 1);
   EXPECT_EQ(matches[0].matched_eclass, neg_x.current_eclassid);
@@ -238,11 +150,11 @@ TEST(EMatcher, MatchUnaryPatternNoMatch) {
   auto y = egraph.emplace(Op::Var, 2);
   [[maybe_unused]] auto add = egraph.emplace(Op::Add, {x.current_eclassid, y.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_unary_pattern(Op::Neg, 0);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   EXPECT_TRUE(matches.empty());
 }
@@ -255,11 +167,11 @@ TEST(EMatcher, MatchBinaryPattern) {
   auto y = egraph.emplace(Op::Var, 2);
   auto add = egraph.emplace(Op::Add, {x.current_eclassid, y.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_binary_pattern(Op::Add, 0, 1);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   ASSERT_EQ(matches.size(), 1);
   EXPECT_EQ(matches[0].matched_eclass, add.current_eclassid);
@@ -275,11 +187,11 @@ TEST(EMatcher, MatchBinaryPatternMultipleMatches) {
   [[maybe_unused]] auto add1 = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
   [[maybe_unused]] auto add2 = egraph.emplace(Op::Add, {b.current_eclassid, c.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto pattern = make_binary_pattern(Op::Add, 0, 1);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   EXPECT_EQ(matches.size(), 2);
 }
@@ -294,8 +206,8 @@ TEST(EMatcher, MatchSameVariableTwice) {
   auto add_aa = egraph.emplace(Op::Add, {a.current_eclassid, a.current_eclassid});
   [[maybe_unused]] auto add_ab = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, ?x)
   auto builder = TestPattern::Builder{};
@@ -303,7 +215,7 @@ TEST(EMatcher, MatchSameVariableTwice) {
   auto add = builder.sym(Op::Add, {x, x});
   auto pattern = std::move(builder).build(add);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Only Add(a, a) should match, not Add(a, b)
   ASSERT_EQ(matches.size(), 1);
@@ -314,7 +226,7 @@ TEST(EMatcher, MatchSameVariableTwice) {
 TEST(EMatcher, MatchSameVariableAfterMerge) {
   // After merging a and b, Add(?x, ?x) should also match Add(a, b)
   TestEGraph egraph;
-  ProcessingContext<Op> ctx;
+  ProcessingContext<Op> pctx;
 
   auto a = egraph.emplace(Op::Var, 1);
   auto b = egraph.emplace(Op::Var, 2);
@@ -322,10 +234,10 @@ TEST(EMatcher, MatchSameVariableAfterMerge) {
 
   // Merge a and b
   egraph.merge(a.current_eclassid, b.current_eclassid);
-  egraph.rebuild(ctx);
+  egraph.rebuild(pctx);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, ?x)
   auto builder = TestPattern::Builder{};
@@ -333,7 +245,7 @@ TEST(EMatcher, MatchSameVariableAfterMerge) {
   auto add = builder.sym(Op::Add, {x, x});
   auto pattern = std::move(builder).build(add);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Now Add(a, b) should match since a == b
   EXPECT_EQ(matches.size(), 1);
@@ -349,8 +261,8 @@ TEST(EMatcher, MatchNestedPattern) {
   auto neg_x = egraph.emplace(Op::Neg, {x.current_eclassid});
   auto add = egraph.emplace(Op::Add, {neg_x.current_eclassid, y.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto builder = TestPattern::Builder{};
   auto px = builder.var(0);
@@ -359,7 +271,7 @@ TEST(EMatcher, MatchNestedPattern) {
   auto padd = builder.sym(Op::Add, {pneg, py});
   auto pattern = std::move(builder).build(padd);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   ASSERT_EQ(matches.size(), 1);
   EXPECT_EQ(matches[0].matched_eclass, add.current_eclassid);
@@ -377,8 +289,8 @@ TEST(EMatcher, MatchDeeplyNestedPattern) {
   auto mul = egraph.emplace(Op::Mul, {neg_x.current_eclassid, y.current_eclassid});
   auto add = egraph.emplace(Op::Add, {mul.current_eclassid, z.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   auto builder = TestPattern::Builder{};
   auto px = builder.var(0);
@@ -389,7 +301,7 @@ TEST(EMatcher, MatchDeeplyNestedPattern) {
   auto padd = builder.sym(Op::Add, {pmul, pz});
   auto pattern = std::move(builder).build(padd);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   ASSERT_EQ(matches.size(), 1);
   EXPECT_EQ(matches[0].matched_eclass, add.current_eclassid);
@@ -398,40 +310,66 @@ TEST(EMatcher, MatchDeeplyNestedPattern) {
   EXPECT_EQ(matches[0].subst.at(PatternVar{2}), z.current_eclassid);
 }
 
-// --- match_in Tests ---
+// --- Incremental Rebuild Tests ---
 
-TEST(EMatcher, MatchInSpecificEClass) {
-  TestEGraph egraph;
-  auto a = egraph.emplace(Op::Var, 1);
-  auto b = egraph.emplace(Op::Var, 2);
-  auto add1 = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
-  [[maybe_unused]] auto add2 = egraph.emplace(Op::Add, {b.current_eclassid, a.current_eclassid});
-
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
-
-  auto pattern = make_binary_pattern(Op::Add, 0, 1);
-
-  // Match only in add1's e-class
-  auto matches = ematcher.match_in(egraph, pattern, add1.current_eclassid);
-
-  ASSERT_EQ(matches.size(), 1);
-  EXPECT_EQ(matches[0].matched_eclass, add1.current_eclassid);
-}
-
-TEST(EMatcher, MatchInNonMatchingEClass) {
+TEST(EMatcher, IncrementalRebuildFindsNewNodes) {
   TestEGraph egraph;
   auto x = egraph.emplace(Op::Var, 1);
-  auto neg = egraph.emplace(Op::Neg, {x.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
-  // Try to match Add pattern against Neg e-class
-  auto pattern = make_binary_pattern(Op::Add, 0, 1);
-  auto matches = ematcher.match_in(egraph, pattern, neg.current_eclassid);
+  // Initially only Var pattern matches
+  auto var_pattern = make_leaf_pattern(Op::Var);
+  EXPECT_EQ(ematcher.match(var_pattern, ctx).size(), 1);
 
-  EXPECT_TRUE(matches.empty());
+  auto const_pattern = make_leaf_pattern(Op::Const);
+  EXPECT_TRUE(ematcher.match(const_pattern, ctx).empty());
+
+  // Add new Const node
+  auto c = egraph.emplace(Op::Const, 42);
+
+  // Before rebuild, Const pattern still doesn't match
+  EXPECT_TRUE(ematcher.match(const_pattern, ctx).empty());
+
+  // Incremental rebuild with new e-class
+  std::vector<EClassId> new_eclasses = {c.current_eclassid};
+  ematcher.rebuild(new_eclasses);
+
+  // Now Const pattern matches
+  auto const_matches = ematcher.match(const_pattern, ctx);
+  ASSERT_EQ(const_matches.size(), 1);
+  EXPECT_EQ(const_matches[0].matched_eclass, c.current_eclassid);
+}
+
+TEST(EMatcher, FullRebuildAfterMerge) {
+  TestEGraph egraph;
+  ProcessingContext<Op> pctx;
+
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  [[maybe_unused]] auto add = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Add(?x, ?x) - doesn't match initially
+  auto builder = TestPattern::Builder{};
+  auto x = builder.var(0);
+  auto padd = builder.sym(Op::Add, {x, x});
+  auto pattern = std::move(builder).build(padd);
+
+  EXPECT_TRUE(ematcher.match(pattern, ctx).empty());
+
+  // Merge a and b
+  egraph.merge(a.current_eclassid, b.current_eclassid);
+  egraph.rebuild(pctx);
+
+  // Full rebuild to pick up merge
+  ematcher.rebuild();
+
+  // Now should match
+  EXPECT_EQ(ematcher.match(pattern, ctx).size(), 1);
 }
 
 // --- Multiple E-nodes in Same E-class Tests ---
@@ -439,7 +377,7 @@ TEST(EMatcher, MatchInNonMatchingEClass) {
 TEST(EMatcher, MatchWithMergedEClasses) {
   // After merge, an e-class might have multiple e-nodes, pattern should match any
   TestEGraph egraph;
-  ProcessingContext<Op> ctx;
+  ProcessingContext<Op> pctx;
 
   auto x = egraph.emplace(Op::Var, 1);
   auto y = egraph.emplace(Op::Var, 2);
@@ -448,37 +386,23 @@ TEST(EMatcher, MatchWithMergedEClasses) {
 
   // Merge Add and Mul e-classes (pretend they're equivalent)
   [[maybe_unused]] auto merged = egraph.merge(add_xy.current_eclassid, mul_xy.current_eclassid);
-  egraph.rebuild(ctx);
+  egraph.rebuild(pctx);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern for Add should still match
   auto add_pattern = make_binary_pattern(Op::Add, 0, 1);
-  auto add_matches = ematcher.match(egraph, add_pattern);
+  auto add_matches = ematcher.match(add_pattern, ctx);
   EXPECT_EQ(add_matches.size(), 1);
 
   // Pattern for Mul should also match (same e-class)
   auto mul_pattern = make_binary_pattern(Op::Mul, 0, 1);
-  auto mul_matches = ematcher.match(egraph, mul_pattern);
+  auto mul_matches = ematcher.match(mul_pattern, ctx);
   EXPECT_EQ(mul_matches.size(), 1);
 
   // Both should match the same merged e-class
   EXPECT_EQ(add_matches[0].matched_eclass, mul_matches[0].matched_eclass);
-}
-
-// --- Empty Pattern Tests ---
-
-TEST(EMatcher, MatchEmptyPattern) {
-  TestEGraph egraph;
-  egraph.emplace(Op::Var, 1);
-
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
-
-  // Create an "empty" pattern by building with no nodes
-  // Actually we can't create an empty pattern with the builder API
-  // So we skip this test - the API prevents empty patterns
 }
 
 // --- Arity Mismatch Tests ---
@@ -492,8 +416,8 @@ TEST(EMatcher, NoMatchOnArityMismatch) {
   // Create 3-ary F(x, y, z)
   [[maybe_unused]] auto f3 = egraph.emplace(Op::F, {x.current_eclassid, y.current_eclassid, z.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: F(?a, ?b) - 2-ary
   auto builder = TestPattern::Builder{};
@@ -502,7 +426,7 @@ TEST(EMatcher, NoMatchOnArityMismatch) {
   auto pf = builder.sym(Op::F, {pa, pb});
   auto pattern = std::move(builder).build(pf);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Should not match because arity is different
   EXPECT_TRUE(matches.empty());
@@ -521,8 +445,8 @@ TEST(EMatcher, ComplexExpressionGraph) {
   auto add2 = egraph.emplace(Op::Add, {c.current_eclassid, d.current_eclassid});
   auto mul = egraph.emplace(Op::Mul, {add1.current_eclassid, add2.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Mul(Add(?x, ?y), ?z)
   auto builder = TestPattern::Builder{};
@@ -533,7 +457,7 @@ TEST(EMatcher, ComplexExpressionGraph) {
   auto pmul = builder.sym(Op::Mul, {padd, pz});
   auto pattern = std::move(builder).build(pmul);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Should match with first Add
   ASSERT_EQ(matches.size(), 1);
@@ -550,12 +474,12 @@ TEST(EMatcher, MultipleMatchesSameExpression) {
   auto inner_add = egraph.emplace(Op::Add, {y.current_eclassid, z.current_eclassid});
   [[maybe_unused]] auto outer_add = egraph.emplace(Op::Add, {x.current_eclassid, inner_add.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?a, ?b) - should match both Add nodes
   auto pattern = make_binary_pattern(Op::Add, 0, 1);
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   EXPECT_EQ(matches.size(), 2);
 }
@@ -579,8 +503,8 @@ TEST(EMatcher, SameVariableAtDifferentDepths) {
   auto inner_nomatch = egraph.emplace(Op::Add, {c.current_eclassid, b.current_eclassid});
   [[maybe_unused]] auto outer_nomatch = egraph.emplace(Op::Add, {a.current_eclassid, inner_nomatch.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, Add(?x, ?y))
   auto builder = TestPattern::Builder{};
@@ -591,7 +515,7 @@ TEST(EMatcher, SameVariableAtDifferentDepths) {
   auto outer = builder.sym(Op::Add, {px, inner});
   auto pattern = std::move(builder).build(outer);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Only outer_match should match
   ASSERT_EQ(matches.size(), 1);
@@ -603,7 +527,7 @@ TEST(EMatcher, SameVariableAtDifferentDepths) {
 TEST(EMatcher, SameVariableAtDifferentDepthsAfterMerge) {
   // After merging a and c, Add(a, Add(c, b)) should also match Add(?x, Add(?x, ?y))
   TestEGraph egraph;
-  ProcessingContext<Op> ctx;
+  ProcessingContext<Op> pctx;
 
   auto a = egraph.emplace(Op::Var, 1);
   auto b = egraph.emplace(Op::Var, 2);
@@ -615,10 +539,10 @@ TEST(EMatcher, SameVariableAtDifferentDepthsAfterMerge) {
 
   // Merge a and c
   egraph.merge(a.current_eclassid, c.current_eclassid);
-  egraph.rebuild(ctx);
+  egraph.rebuild(pctx);
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, Add(?x, ?y))
   auto builder = TestPattern::Builder{};
@@ -629,7 +553,7 @@ TEST(EMatcher, SameVariableAtDifferentDepthsAfterMerge) {
   auto pouter = builder.sym(Op::Add, {px, pinner});
   auto pattern = std::move(builder).build(pouter);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Now should match because a == c
   ASSERT_EQ(matches.size(), 1);
@@ -650,8 +574,8 @@ TEST(EMatcher, SameVariableThreeOccurrences) {
   auto inner_aab = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
   [[maybe_unused]] auto outer_aab = egraph.emplace(Op::Add, {a.current_eclassid, inner_aab.current_eclassid});
 
-  TestEMatcher ematcher;
-  ematcher.build_index(egraph);
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
 
   // Pattern: Add(?x, Add(?x, ?x))
   auto builder = TestPattern::Builder{};
@@ -662,12 +586,38 @@ TEST(EMatcher, SameVariableThreeOccurrences) {
   auto outer = builder.sym(Op::Add, {px1, inner});
   auto pattern = std::move(builder).build(outer);
 
-  auto matches = ematcher.match(egraph, pattern);
+  auto matches = ematcher.match(pattern, ctx);
 
   // Only Add(a, Add(a, a)) should match
   ASSERT_EQ(matches.size(), 1);
   EXPECT_EQ(matches[0].matched_eclass, outer_aaa.current_eclassid);
   EXPECT_EQ(matches[0].subst.at(PatternVar{0}), a.current_eclassid);
+}
+
+// --- Context Reuse Tests ---
+
+TEST(EMatcher, ContextReuseAcrossMultipleMatches) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  [[maybe_unused]] auto add = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
+  [[maybe_unused]] auto mul = egraph.emplace(Op::Mul, {a.current_eclassid, b.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Match multiple patterns with same context
+  auto add_pattern = make_binary_pattern(Op::Add, 0, 1);
+  auto mul_pattern = make_binary_pattern(Op::Mul, 0, 1);
+  auto var_pattern = make_var_pattern(0);
+
+  auto add_matches = ematcher.match(add_pattern, ctx);
+  auto mul_matches = ematcher.match(mul_pattern, ctx);
+  auto var_matches = ematcher.match(var_pattern, ctx);
+
+  EXPECT_EQ(add_matches.size(), 1);
+  EXPECT_EQ(mul_matches.size(), 1);
+  EXPECT_EQ(var_matches.size(), 4);  // 4 e-classes total
 }
 
 }  // namespace memgraph::planner::core
