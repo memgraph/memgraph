@@ -204,11 +204,11 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     std::ranges::transform(
         identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
 
-    auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
-                                        utils::Downcast<CypherQuery>(parsed_statements_.query),
-                                        parsed_statements_.parameters,
-                                        db_accessor,
-                                        predefined_identifiers);
+    auto [logical_plan, _] = MakeLogicalPlan(std::move(ast_storage),
+                                             utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                             parsed_statements_.parameters,
+                                             db_accessor,
+                                             predefined_identifiers);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }

@@ -22,6 +22,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "storage/v2/enum.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -873,12 +874,28 @@ class FakeDbAccessor {
     }
   }
 
+  int64_t VerticesCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties,
+                        std::span<memgraph::storage::PropertyValueRange const> bounds) const {
+    // Stub implementation - returns 0
+    return 0;
+  }
+
   bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
     return false;
   }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
     return std::nullopt;
+  }
+
+  int64_t EdgesCount() const {
+    int64_t count = 0;
+    for (const auto &index : edge_type_index_) {
+      count += index.second;
+    }
+    // Return at least 1 to allow cost estimation heuristics to work
+    // This prevents ShouldUseSTShortestPath from returning false early
+    return count > 0 ? count : 1;
   }
 
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type) const {
@@ -1055,6 +1072,20 @@ class FakeDbAccessor {
       -> std::expected<storage::Enum, storage::EnumStorageError> {
     // Does this need to be less fake?
     return memgraph::storage::Enum{memgraph::storage::EnumTypeId{0}, memgraph::storage::EnumValueId{0}};
+  }
+
+  int64_t VerticesCount() const {
+    // Return a small non-zero default for cost estimation heuristics
+    // This prevents ShouldUseSTShortestPath from returning false early
+    // A value of 1 allows the heuristics to work while being minimal
+    return 1;
+  }
+
+  auto GetStorageAccessor() const -> storage::Storage::Accessor * {
+    // Stub implementation - returns nullptr
+    // This will cause a crash if GetNameIdMapper() is called on the result
+    // Tests using FakeDbAccessor should avoid code paths that call this
+    return nullptr;
   }
 
  private:
