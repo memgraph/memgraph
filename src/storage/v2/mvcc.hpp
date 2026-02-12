@@ -147,6 +147,9 @@ class MvccRead {
 
   bool OwnsLock() const { return lock_.owns_lock(); }
 
+  // In functions that use an MvccRead, it is safe to manually `Unlock` (if
+  // we currently `OwnsLock`) once we have read the deltas. This prevents
+  // object locks being held longer than is strictly necessary.
   void Unlock() { lock_.unlock(); }
 
   template <typename TCallback>
