@@ -57,9 +57,8 @@ auto BuildIdentifierPattern() -> Pattern<symbol> {
   return std::move(builder).build(ident);
 }
 
-}  // namespace
-
-auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
+// Internal helper that takes shared ematcher and context for reuse across iterations
+auto ApplyInlineRewriteImpl(egraph &eg, EMatcher<symbol, analysis> &ematcher, EMatchContext &ctx) -> std::size_t {
   auto &impl = internal::get_impl(eg);
   auto &core_egraph = impl.egraph_;
 
@@ -67,15 +66,9 @@ auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
   auto bind_pattern = BuildBindPattern();
   auto identifier_pattern = BuildIdentifierPattern();
 
-  // Create matcher and build index
-  EMatcher<symbol, analysis> ematcher;
-  ematcher.build_index(core_egraph);
-
-  // Reusable context for matching
-  EMatchContext ctx;
-
   // Find all Bind matches
-  auto bind_matches = ematcher.match(core_egraph, bind_pattern, ctx);
+  ctx.clear();
+  auto bind_matches = ematcher.match(bind_pattern, ctx);
 
   // Build map from sym e-class -> expr e-class for all bindings
   // Key: canonical sym e-class ID
@@ -99,7 +92,7 @@ auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
 
   // Find all Identifier matches
   ctx.clear();
-  auto identifier_matches = ematcher.match(core_egraph, identifier_pattern, ctx);
+  auto identifier_matches = ematcher.match(identifier_pattern, ctx);
 
   std::size_t merges = 0;
 
@@ -128,9 +121,23 @@ auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
   if (merges > 0) {
     ProcessingContext<symbol> proc_ctx;
     core_egraph.rebuild(proc_ctx);
+    ematcher.rebuild();  // Refresh index after e-graph rebuild
   }
 
   return merges;
+}
+
+}  // namespace
+
+// Public API: creates its own matcher and context for standalone use
+auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
+  auto &impl = internal::get_impl(eg);
+  auto &core_egraph = impl.egraph_;
+
+  EMatcher<symbol, analysis> ematcher(core_egraph);
+  EMatchContext ctx;
+
+  return ApplyInlineRewriteImpl(eg, ematcher, ctx);
 }
 
 auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult {
@@ -139,6 +146,10 @@ auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult 
 
   auto &impl = internal::get_impl(eg);
   auto &core_egraph = impl.egraph_;
+
+  // Create shared matcher and context for all iterations
+  EMatcher<symbol, analysis> ematcher(core_egraph);
+  EMatchContext ctx;
 
   for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
     result.iterations = iter + 1;
@@ -159,7 +170,7 @@ auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult 
     std::size_t rewrites_this_iter = 0;
 
     // Apply inline rewrite
-    rewrites_this_iter += ApplyInlineRewrite(eg);
+    rewrites_this_iter += ApplyInlineRewriteImpl(eg, ematcher, ctx);
 
     // Add more rewrites here as they are implemented
     // rewrites_this_iter += ApplyConstantFoldingRewrite(eg);
