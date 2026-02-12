@@ -424,7 +424,7 @@ void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::
 }
 
 void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                          const std::set<storage::PropertyId> &properties) {
+                          storage::SortedPropertyIds const &properties) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT ";
   utils::PrintIterable(*os, properties, ", ", [&dba](auto &stream, const auto &property) {
     stream << "u." << EscapeName(dba->PropertyToName(property));

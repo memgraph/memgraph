@@ -1747,9 +1747,10 @@ DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(LabelId labe
 
 [[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>
 DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
-                                                                 const std::set<PropertyId> &properties) const {
+                                                                 SortedPropertyIds const &properties) const {
   std::set<std::vector<PropertyValue>> unique_storage;
   std::vector<std::pair<std::string, std::string>> vertices_for_constraints;
+  auto properties_set = properties.to_set();
 
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
@@ -1765,7 +1766,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
           target_property_values.has_value() && !unique_storage.contains(*target_property_values)) {
         unique_storage.insert(*target_property_values);
         vertices_for_constraints.emplace_back(
-            utils::SerializeVertexAsKeyForUniqueConstraint(label, properties, utils::ExtractGidFromKey(key_str)),
+            utils::SerializeVertexAsKeyForUniqueConstraint(label, properties_set, utils::ExtractGidFromKey(key_str)),
             utils::SerializeVertexAsValueForUniqueConstraint(label, labels, property_store));
       } else {
         return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
@@ -2348,7 +2349,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAc
 }
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, SortedPropertyIds const &properties) {
   MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
@@ -2363,12 +2364,12 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
   if (!disk_unique_constraints->InsertConstraint(label, properties, check.value())) {
     return std::unexpected{StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties.to_set());
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
-UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties) {
+UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(LabelId label,
+                                                                                  SortedPropertyIds const &properties) {
   MG_ASSERT(type() == UNIQUE, "Dropping unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
@@ -2376,7 +2377,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
       ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties.to_set());
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
