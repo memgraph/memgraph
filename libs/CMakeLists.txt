@@ -241,14 +241,10 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
 
 # Build mgconsole in isolation using the build script to avoid target conflicts
 # with memgraph's dependencies (e.g., gflags)
-# Default to v1.5.0 if not specified
+# Default to v1.5.0 if not specified (used by install_mgconsole.cmake)
 if(NOT DEFINED MGCONSOLE_GIT_TAG)
     set(MGCONSOLE_GIT_TAG "v1.5.0")
 endif()
-
-set(BUILD_MGCONSOLE_SCRIPT "${CMAKE_SOURCE_DIR}/tools/ci/build-mgconsole.sh")
-set(MGCONSOLE_SOURCE "${CMAKE_SOURCE_DIR}/build/mgconsole/bin/mgconsole")
-set(MGCONSOLE_BINARY "${CMAKE_BINARY_DIR}/bin/mgconsole")
 
 # Create dummy targets for build-time dependencies
 # mgconsole will be built during install/packaging stage
@@ -257,7 +253,7 @@ add_custom_target(mgconsole)
 
 # Build mgconsole during install stage (before the install(FILES) command runs)
 # This runs during cmake --install
-install(SCRIPT "${CMAKE_CURRENT_LIST_DIR}/install_mgconsole.cmake")
+install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
