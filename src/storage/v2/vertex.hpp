@@ -17,13 +17,14 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/packed_vector.hpp"
 #include "utils/rw_spin_lock.hpp"
-#include "utils/small_vector.hpp"
+#include "utils/small_vector.hpp"  // for in_edges, out_edges
 
 namespace memgraph::storage {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), delta(delta) {
+  Vertex(Gid gid, Delta *delta) : gid(gid), delta_(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
@@ -31,7 +32,7 @@ struct Vertex {
 
   const Gid gid;
 
-  utils::small_vector<LabelId> labels;
+  utils::PackedVarintVector labels;
 
   using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
 
@@ -40,11 +41,21 @@ struct Vertex {
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;
-  bool deleted{false};
-  bool has_uncommitted_non_sequential_deltas{false};
-  // uint16_t PAD;
 
-  Delta *delta;
+  Delta *delta() const { return delta_.get(); }
+
+  void set_delta(Delta *d) { delta_.set_delta(d); }
+
+  bool deleted() const { return delta_.deleted(); }
+
+  void set_deleted(bool b) { delta_.set_deleted(b); }
+
+  bool has_uncommitted_non_sequential_deltas() const { return delta_.has_uncommitted_non_sequential_deltas(); }
+
+  void set_has_uncommitted_non_sequential_deltas(bool b) { delta_.set_has_uncommitted_non_sequential_deltas(b); }
+
+ private:
+  DeltaPtrPack delta_;
 };
 
 static constexpr std::size_t kEdgeTypeIdPos = 0U;
@@ -52,7 +63,8 @@ static constexpr std::size_t kVertexPos = 1U;
 static constexpr std::size_t kEdgeRefPos = 2U;
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
-static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");
+static_assert(sizeof(Vertex) == 80,
+              "If this changes documentation needs changing (deleted + has_uncommitted_non_seq packed into delta ptr)");
 
 inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
 

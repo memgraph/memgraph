@@ -18,6 +18,7 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/disk_utils.hpp"
@@ -29,8 +30,7 @@ namespace {
 
 bool IsVertexUnderConstraint(const Vertex &vertex, const LabelId &constraint_label,
                              const std::set<PropertyId> &constraint_properties) {
-  return std::ranges::contains(vertex.labels, constraint_label) &&
-         vertex.properties.HasAllProperties(constraint_properties);
+  return ContainsLabel(vertex.labels, constraint_label) && vertex.properties.HasAllProperties(constraint_properties);
 }
 
 bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid gid, const LabelId constraint_label) {
@@ -252,7 +252,7 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
     spdlog::trace("Found old disk key {} for vertex {}", maybe_old_disk_key.value(), vertex.gid.ToString());
     if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
       return false;
@@ -263,7 +263,8 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
     if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
       auto key = utils::SerializeVertexAsKeyForUniqueConstraint(
           constraint_label, constraint_properties, vertex.gid.ToString());
-      auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties);
+      auto labels_key = ToVertexKey(vertex.labels);
+      auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, labels_key, vertex.properties);
       if (!disk_transaction->Put(key, value).ok()) {
         return false;
       }

@@ -12,7 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <gflags/gflags.h>
 #include <limits>
+#include <random>
+#include <vector>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
@@ -928,6 +931,113 @@ TEST(PropertyStore, ReplaceWithSameSize) {
   EXPECT_TRUE(store.SetProperty(PropertyId::FromInt(1), PropertyValue(std::string(100, 'a'))));
   EXPECT_FALSE(store.SetProperty(PropertyId::FromInt(1), PropertyValue(std::string(100, 'b'))));
   EXPECT_EQ(store.GetProperty(PropertyId::FromInt(1)), PropertyValue(std::string(100, 'b')));
+}
+
+// Small buffer payload size: one byte is tag, rest fits in size+ptr union (same as in PropertyStore).
+constexpr size_t kSmallBufferPayloadSize = sizeof(uint32_t) + sizeof(uint8_t *) - 1;  // 11 on 64-bit
+
+// Restores FLAGS_storage_floating_point_resolution_bits on scope exit so other tests are not affected.
+struct RestoreFpResolutionGuard {
+  uint64_t saved = FLAGS_storage_floating_point_resolution_bits;
+
+  ~RestoreFpResolutionGuard() { FLAGS_storage_floating_point_resolution_bits = saved; }
+};
+
+TEST(PropertyStore, BoolAndFloatStoredInSmallBuffer_WithResolution32) {
+  RestoreFpResolutionGuard guard;
+  FLAGS_storage_floating_point_resolution_bits = 32;
+
+  PropertyStore store;
+  auto const p_bool = PropertyId::FromInt(1);
+  auto const p_float = PropertyId::FromInt(2);
+  ASSERT_TRUE(store.SetProperty(p_bool, PropertyValue(true)));
+  ASSERT_TRUE(store.SetProperty(p_float, PropertyValue(3.14)));
+
+  EXPECT_TRUE(store.GetProperty(p_bool).ValueBool());
+  EXPECT_NEAR(store.GetProperty(p_float).ValueDouble(), 3.14, 1e-5)
+      << "With resolution 32 (float), 3.14 is not exact; use tolerance";
+  EXPECT_TRUE(store.HasProperty(p_bool));
+  EXPECT_TRUE(store.HasProperty(p_float));
+
+  std::string buf = store.StringBuffer();
+  EXPECT_LE(buf.size(), kSmallBufferPayloadSize)
+      << "Bool + float (32-bit) should fit in the small buffer without heap allocation";
+  EXPECT_EQ(buf.size(), kSmallBufferPayloadSize) << "Small buffer should be fully used (payload only) when data fits";
+}
+
+TEST(PropertyStore, FloatingPointResolution32_Roundtrip) {
+  RestoreFpResolutionGuard guard;
+  FLAGS_storage_floating_point_resolution_bits = 32;
+
+  PropertyStore store;
+  auto const prop = PropertyId::FromInt(1);
+  double const value = 42.5;
+  ASSERT_TRUE(store.SetProperty(prop, PropertyValue(value)));
+
+  PropertyValue got = store.GetProperty(prop);
+  ASSERT_TRUE(got.IsDouble());
+  EXPECT_DOUBLE_EQ(got.ValueDouble(), value);
+}
+
+TEST(PropertyStore, FloatingPointResolution16_Roundtrip) {
+  RestoreFpResolutionGuard guard;
+  FLAGS_storage_floating_point_resolution_bits = 16;
+
+  PropertyStore store;
+  auto const prop = PropertyId::FromInt(1);
+  double const value = 1.5;
+  ASSERT_TRUE(store.SetProperty(prop, PropertyValue(value)));
+
+  PropertyValue got = store.GetProperty(prop);
+  ASSERT_TRUE(got.IsDouble());
+  EXPECT_DOUBLE_EQ(got.ValueDouble(), value);
+}
+
+TEST(PropertyStore, FloatingPointResolution64_Roundtrip) {
+  RestoreFpResolutionGuard guard;
+  FLAGS_storage_floating_point_resolution_bits = 64;
+
+  PropertyStore store;
+  auto const prop = PropertyId::FromInt(1);
+  double const value = 3.14159265358979;
+  ASSERT_TRUE(store.SetProperty(prop, PropertyValue(value)));
+
+  PropertyValue got = store.GetProperty(prop);
+  ASSERT_TRUE(got.IsDouble());
+  EXPECT_DOUBLE_EQ(got.ValueDouble(), value);
+}
+
+TEST(PropertyStore, FloatingPointResolution_LowerPrecisionUsesLessMemory) {
+  RestoreFpResolutionGuard guard;
+
+  // Fixed seed so the same random doubles are used for every precision.
+  std::mt19937 rng(42);
+  std::uniform_real_distribution<double> dist(-1e6, 1e6);
+  constexpr size_t kNumDoubles = 100;
+  std::vector<double> values(kNumDoubles);
+  for (size_t i = 0; i < kNumDoubles; ++i) {
+    values[i] = dist(rng);
+  }
+
+  auto fill_store_with_doubles = [](PropertyStore &store, const std::vector<double> &vals) {
+    for (size_t i = 0; i < vals.size(); ++i) {
+      ASSERT_TRUE(store.SetProperty(PropertyId::FromInt(static_cast<int>(i)), PropertyValue(vals[i])));
+    }
+  };
+
+  auto buffer_size_for_resolution = [&values, &fill_store_with_doubles](uint64_t resolution_bits) -> size_t {
+    FLAGS_storage_floating_point_resolution_bits = resolution_bits;
+    PropertyStore store;
+    fill_store_with_doubles(store, values);
+    return store.StringBuffer().size();
+  };
+
+  const size_t size_64 = buffer_size_for_resolution(64);
+  const size_t size_32 = buffer_size_for_resolution(32);
+  const size_t size_16 = buffer_size_for_resolution(16);
+
+  EXPECT_GT(size_64, size_32) << "64-bit doubles should use strictly more memory than 32-bit (float)";
+  EXPECT_GT(size_32, size_16) << "32-bit should use strictly more memory than 16-bit (half)";
 }
 
 TEST(PropertyStore, PropertiesOfTypes) {

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -32,12 +33,23 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/compressor.hpp"
+#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_property_store_compression_enabled, false,
             "Controls whether the properties should be compressed in the storage.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(storage_floating_point_resolution_bits, 64,
+                        "Max bits for floating-point property storage (16, 32, or 64). "
+                        "Smaller values save space but reduce precision (32=float, 16=half).",
+                        {
+                          if (value == 16 || value == 32 || value == 64) return true;
+                          std::cout << "Expected --" << flagname << " to be one of 16, 32, 64\n";
+                          return false;
+                        });
 
 namespace memgraph::storage {
 
@@ -127,6 +139,51 @@ constexpr uint32_t SizeToByteSize(Size size) {
     case Size::INT64:
       return 8;
   }
+}
+
+// Floating-point resolution: helpers for storing doubles in reduced precision
+// when --storage_floating_point_resolution_bits is 32 (float) or 16 (half).
+
+/// Convert IEEE 754 binary16 (half) to double.
+inline double HalfToDouble(uint16_t bits) {
+  if ((bits & 0x7FFFU) == 0) return (bits & 0x8000U) ? -0.0 : 0.0;
+  uint32_t sign = (bits & 0x8000U) << 16;
+  uint32_t exp = (bits >> 10) & 0x1FU;
+  uint32_t mant = bits & 0x3FFU;
+  if (exp == 0x1F) {
+    if (mant == 0) return (sign ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity());
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (exp == 0) {
+    while ((mant & 0x400U) == 0) {
+      mant <<= 1;
+      exp--;
+    }
+    exp++;
+    mant &= 0x3FFU;
+  }
+  uint64_t dbl = (static_cast<uint64_t>(sign) << 32) | (static_cast<uint64_t>(exp + (1023 - 15)) << 52) |
+                 (static_cast<uint64_t>(mant) << (52 - 10));
+  return std::bit_cast<double>(dbl);
+}
+
+/// Convert double to IEEE 754 binary16. Always returns a value; may lose precision or overflow to inf.
+inline uint16_t DoubleToHalf(double value) {
+  if (std::isnan(value)) return 0x7E00U;
+  if (value >= 65504.0) return 0x7C00U;   // +inf
+  if (value <= -65504.0) return 0xFC00U;  // -inf
+  float f = static_cast<float>(value);
+  uint32_t u = std::bit_cast<uint32_t>(f);
+  uint32_t sign = (u >> 16) & 0x8000U;
+  int32_t exp = ((u >> 23) & 0xFF) - 127;
+  uint32_t mant = u & 0x7FFFFFU;
+  if (exp >= 16) return static_cast<uint16_t>(sign | 0x7C00U);
+  if (exp < -14) {
+    if (exp < -25) return static_cast<uint16_t>(sign);
+    mant = (mant | 0x800000U) >> (14 + exp);
+    return static_cast<uint16_t>(sign | (mant >> 13));
+  }
+  return static_cast<uint16_t>(sign | ((exp + 15) << 10) | (mant >> 13));
 }
 
 using Type = PropertyStoreType;
@@ -299,7 +356,25 @@ class Writer {
     }
   }
 
-  std::optional<Size> WriteDouble(double value) { return WriteUint(std::bit_cast<uint64_t>(value)); }
+  std::optional<Size> WriteDouble(double value) {
+    uint64_t const max_bits = FLAGS_storage_floating_point_resolution_bits;
+    // Check smallest resolution first so 16 uses half, 32 uses float, 64 uses full double.
+    if (max_bits <= 16) {
+      uint16_t half = DoubleToHalf(value);
+      if (data_ && pos_ + sizeof(uint16_t) > size_) return std::nullopt;
+      if (data_) memcpy(data_ + pos_, &half, sizeof(uint16_t));
+      pos_ += sizeof(uint16_t);
+      return Size::INT16;
+    }
+    if (max_bits <= 32) {
+      float f = static_cast<float>(value);
+      if (data_ && pos_ + sizeof(float) > size_) return std::nullopt;
+      if (data_) memcpy(data_ + pos_, &f, sizeof(float));
+      pos_ += sizeof(float);
+      return Size::INT32;
+    }
+    return WriteUint(std::bit_cast<uint64_t>(value));
+  }
 
   bool WriteDoubleForceInt64(double value) { return InternalWriteInt<uint64_t>(std::bit_cast<uint64_t>(value)); }
 
@@ -444,9 +519,27 @@ class Reader {
   }
 
   std::optional<double> ReadDouble(Size size) {
-    auto value = ReadUint(size);
-    if (!value) return std::nullopt;
-    return std::bit_cast<double>(*value);
+    switch (size) {
+      case Size::INT8:
+        // With resolution 64, 0.0 is stored as 1 byte (WriteUint(0) -> INT8); decode as raw bits.
+      case Size::INT64: {
+        auto value = ReadUint(size);
+        if (!value) return std::nullopt;
+        return std::bit_cast<double>(*value);
+      }
+      case Size::INT16: {
+        auto value = InternalReadInt<uint16_t>();
+        if (!value) return std::nullopt;
+        return HalfToDouble(*value);
+      }
+      case Size::INT32: {
+        auto value = InternalReadInt<uint32_t>();
+        if (!value) return std::nullopt;
+        float f = std::bit_cast<float>(*value);
+        return static_cast<double>(f);
+      }
+    }
+    return std::nullopt;
   }
 
   std::optional<double> ReadDoubleForce64() {

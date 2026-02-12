@@ -145,6 +145,52 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
   }
 }
 
+/// Packs the \c deleted flag and (on Vertex) \c has_uncommitted_non_sequential_deltas into the low bits
+/// of the Delta* pointer (8-byte aligned, so bits 0–2 are free). Saves memory per Vertex and Edge.
+class DeltaPtrPack {
+  static constexpr uintptr_t kDeletedBit = 1UL;
+  static constexpr uintptr_t kHasUncommittedNonSeqDeltasBit = 2UL;
+  static constexpr uintptr_t kFlagsMask = kDeletedBit | kHasUncommittedNonSeqDeltasBit;
+  static constexpr uintptr_t kPtrMask = ~kFlagsMask;
+
+  uintptr_t storage_{0};
+
+ public:
+  DeltaPtrPack() = default;
+
+  explicit DeltaPtrPack(Delta *d, bool deleted = false, bool has_uncommitted_non_sequential_deltas = false)
+      : storage_(reinterpret_cast<uintptr_t>(d) | (deleted ? kDeletedBit : 0) |
+                 (has_uncommitted_non_sequential_deltas ? kHasUncommittedNonSeqDeltasBit : 0)) {
+    MG_ASSERT((reinterpret_cast<uintptr_t>(d) & kFlagsMask) == 0, "Delta* must be at least 4-byte aligned!");
+  }
+
+  Delta *get() const { return reinterpret_cast<Delta *>(storage_ & kPtrMask); }
+
+  operator Delta *() const { return get(); }
+
+  bool deleted() const { return (storage_ & kDeletedBit) != 0; }
+
+  void set_deleted(bool b) {
+    storage_ = (storage_ & kPtrMask) | (storage_ & kHasUncommittedNonSeqDeltasBit) | (b ? kDeletedBit : 0);
+  }
+
+  bool has_uncommitted_non_sequential_deltas() const { return (storage_ & kHasUncommittedNonSeqDeltasBit) != 0; }
+
+  void set_has_uncommitted_non_sequential_deltas(bool b) {
+    storage_ = (storage_ & kPtrMask) | (storage_ & kDeletedBit) | (b ? kHasUncommittedNonSeqDeltasBit : 0);
+  }
+
+  void set_delta(Delta *d) {
+    MG_ASSERT((reinterpret_cast<uintptr_t>(d) & kFlagsMask) == 0, "Delta* must be at least 4-byte aligned!");
+    storage_ = reinterpret_cast<uintptr_t>(d) | (storage_ & kFlagsMask);
+  }
+
+  DeltaPtrPack &operator=(Delta *d) {
+    set_delta(d);
+    return *this;
+  }
+};
+
 struct opt_str {
   opt_str(std::optional<std::string_view> other, utils::PageSlabMemoryResource *res)
       : str_{other ? new_cstr(*other, res) : nullptr} {}

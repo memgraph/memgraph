@@ -13,6 +13,7 @@
 #include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
@@ -90,19 +91,20 @@ std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateAllReadingRocksDBTra
 bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const {
   auto disk_transaction = CreateRocksDBTransaction();
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
     if (!disk_transaction->Delete(maybe_old_disk_key.value()).ok()) {
       return false;
     }
   }
 
   for (const LabelId index_label : index_) {
-    if (!std::ranges::contains(vertex.labels, index_label)) {
+    if (!ContainsLabel(vertex.labels, index_label)) {
       continue;
     }
     if (!disk_transaction
-             ->Put(utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
-                   utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, vertex.properties))
+             ->Put(
+                 utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
+                 utils::SerializeVertexAsValueForLabelIndex(index_label, ToVertexKey(vertex.labels), vertex.properties))
              .ok()) {
       return false;
     }

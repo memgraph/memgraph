@@ -12,6 +12,7 @@
 /// TODO: clear dependencies
 
 #include "storage/v2/disk/label_property_index.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -23,7 +24,7 @@ namespace memgraph::storage {
 namespace {
 
 bool IsVertexIndexedByLabelProperty(const Vertex &vertex, LabelId label, PropertyId property) {
-  return std::ranges::contains(vertex.labels, label) && vertex.properties.HasProperty(property);
+  return ContainsLabel(vertex.labels, label) && vertex.properties.HasProperty(property);
 }
 
 [[nodiscard]] bool ClearTransactionEntriesWithRemovedIndexingLabel(
@@ -89,7 +90,7 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
                                                                    uint64_t commit_timestamp) const {
   auto disk_transaction = CreateRocksDBTransaction();
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
     if (!disk_transaction->Delete(maybe_old_disk_key.value()).ok()) {
       return false;
     }
@@ -98,7 +99,8 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
     if (IsVertexIndexedByLabelProperty(vertex, index_label, index_property)) {
       if (!disk_transaction
                ->Put(utils::SerializeVertexAsKeyForLabelPropertyIndex(index_label, index_property, vertex.gid),
-                     utils::SerializeVertexAsValueForLabelPropertyIndex(index_label, vertex.labels, vertex.properties))
+                     utils::SerializeVertexAsValueForLabelPropertyIndex(
+                         index_label, ToVertexKey(vertex.labels), vertex.properties))
                .ok()) {
         return false;
       }

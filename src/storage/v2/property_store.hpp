@@ -26,6 +26,8 @@
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_property_store_compression_enabled);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_floating_point_resolution_bits);
 
 namespace memgraph::storage {
 

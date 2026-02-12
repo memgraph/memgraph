@@ -491,7 +491,7 @@ class VectorIndexRecoveryTest : public testing::Test {
     for (std::size_t i = 0; i < kNumNodes; i++) {
       auto [vertex_iter, inserted] = acc.insert(Vertex{Gid::FromUint(i), nullptr});
       ASSERT_TRUE(inserted);
-      vertex_iter->labels.push_back(LabelId::FromUint(1));
+      vertex_iter->labels.push_back(LabelId::FromUint(1).AsUint());
       PropertyValue property_value(
           DoubleListTag{},
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
