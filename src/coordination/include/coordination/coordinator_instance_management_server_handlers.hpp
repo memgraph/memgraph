@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 namespace memgraph::coordination {
 class CoordinatorInstanceManagementServerHandlers {
  public:
-  static void Register(CoordinatorInstanceManagementServer &server, CoordinatorInstance const &coordinator_instance);
+  static void Register(CoordinatorInstanceManagementServer &server, CoordinatorInstance &coordinator_instance);
 
  private:
   static void ShowInstancesHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
@@ -27,6 +27,27 @@ class CoordinatorInstanceManagementServerHandlers {
 
   static void GetRoutingTableHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
                                      slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void AddCoordinatorHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
+                                    slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void RemoveCoordinatorHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
+                                       slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void RegisterInstanceHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
+                                      slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void UnregisterInstanceHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
+                                        slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void SetInstanceToMainHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
+                                       slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void DemoteInstanceHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
+                                    slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void ForceResetHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
+                                slk::Reader *req_reader, slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::coordination

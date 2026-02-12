@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,10 +12,7 @@
 #pragma once
 
 #include <concepts>
-#include <memory>
-#include <type_traits>
 
-#include "storage/v2/property_constants.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/typeinfo.hpp"
 

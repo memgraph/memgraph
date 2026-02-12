@@ -13,8 +13,22 @@
 
 #include "coordination/coordinator_rpc.hpp"
 
-#include "coordination/coordinator_slk.hpp"
 #include "slk/serialization.hpp"
+
+// NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
+#define SLK_SINGLE_ARG_REQ(Type)                                                                  \
+  void Save(const Type &self, slk::Builder *builder) { memgraph::slk::Save(self.arg_, builder); } \
+  void Load(Type *self, slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
+
+#define SLK_EMPTY_REQ(Type)                                       \
+  void Save(const Type & /*self*/, slk::Builder * /*builder*/) {} \
+  void Load(Type * /*self*/, slk::Reader * /*reader*/) {}
+
+#define SLK_BOOL_RES(Type)                                                                            \
+  void Save(const Type &self, slk::Builder *builder) { memgraph::slk::Save(self.success_, builder); } \
+  void Load(Type *self, slk::Reader *reader) { memgraph::slk::Load(&self->success_, reader); }
+
+// NOLINTEND(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 
 namespace memgraph {
 
@@ -378,6 +392,20 @@ void Save(const coordination::ReplicationLagRes &self, slk::Builder *builder) { 
 
 void Load(coordination::ReplicationLagRes *self, slk::Reader *reader) { slk::Load(&self->lag_info_, reader); }
 
+SLK_SINGLE_ARG_REQ(coordination::AddCoordinatorReq)
+SLK_BOOL_RES(coordination::AddCoordinatorRes)
+SLK_SINGLE_ARG_REQ(coordination::RemoveCoordinatorReq)
+SLK_BOOL_RES(coordination::RemoveCoordinatorRes)
+SLK_SINGLE_ARG_REQ(coordination::RegisterInstanceReq)
+SLK_BOOL_RES(coordination::RegisterInstanceRes)
+SLK_SINGLE_ARG_REQ(coordination::UnregisterInstanceReq)
+SLK_BOOL_RES(coordination::UnregisterInstanceRes)
+SLK_SINGLE_ARG_REQ(coordination::SetInstanceToMainReq)
+SLK_BOOL_RES(coordination::SetInstanceToMainRes)
+SLK_SINGLE_ARG_REQ(coordination::DemoteInstanceReq)
+SLK_BOOL_RES(coordination::DemoteInstanceRes)
+SLK_EMPTY_REQ(coordination::ForceResetReq)
+SLK_BOOL_RES(coordination::ForceResetRes)
 }  // namespace slk
 
 }  // namespace memgraph
