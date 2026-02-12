@@ -73,9 +73,13 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
 
   MvccRead reader{&vertex, transaction, view, [&](Vertex const &v) {
                     deleted = v.deleted;
+                    if (!v.delta && deleted) return;
                     has_label = std::ranges::contains(v.labels, label);
+                    if (!v.delta && !has_label) return;
                     current_values_equal_to_value = helper.MatchesValues(v.properties, values);
                   }};
+
+  if (!reader.HasDeltas() && (deleted || !has_label)) return false;
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
