@@ -72,15 +72,15 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   auto current_values_equal_to_value = std::vector<bool>{};
   const Delta *delta = nullptr;
   auto guard = std::shared_lock{vertex.lock};
-  delta = vertex.delta;
-  deleted = vertex.deleted;
+  delta = vertex.delta();
+  deleted = vertex.deleted();
   if (!delta && deleted) return false;
   has_label = std::ranges::contains(vertex.labels, label);
   if (!delta && !has_label) return false;
   current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
 
   // If vertex has non-sequential deltas, hold lock while applying them
-  if (!vertex.has_uncommitted_non_sequential_deltas) {
+  if (!vertex.has_uncommitted_non_sequential_deltas()) {
     guard.unlock();
   }
 
@@ -131,7 +131,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
     });
 
     // If vertex has non-sequential deltas, we have now processed the delta and can unlock now
-    if (vertex.has_uncommitted_non_sequential_deltas) {
+    if (vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 
@@ -169,8 +169,8 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
   auto current_values_equal_to_value = std::vector<bool>{};
   {
     auto guard = std::shared_lock{vertex.lock};
-    delta = vertex.delta;
-    deleted = vertex.deleted;
+    delta = vertex.delta();
+    deleted = vertex.deleted();
     if (delta == nullptr && deleted) return false;
     has_label = std::ranges::contains(vertex.labels, label);
     if (delta == nullptr && !has_label) return false;
@@ -356,7 +356,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
+  if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
     return;
   }
 
@@ -386,13 +386,13 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   std::vector<PropertyValue> properties;
   {
     auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted;
-    delta = vertex.delta;
+    deleted = vertex.deleted();
+    delta = vertex.delta();
     has_label = std::ranges::contains(vertex.labels, label);
     properties = props.Extract(vertex.properties);
 
     // If vertex has non-sequential deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_non_sequential_deltas) {
+    if (!vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 

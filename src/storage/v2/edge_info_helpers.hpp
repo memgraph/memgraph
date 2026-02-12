@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,8 @@ inline bool IsEdgeVisible(Edge *edge, const Transaction *transaction, View view)
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge->lock};
-    deleted = edge->deleted;
-    delta = edge->delta;
+    deleted = edge->deleted();
+    delta = edge->delta();
   }
   ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
