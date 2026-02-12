@@ -8,15 +8,20 @@ if(DEFINED CPACK_TOPLEVEL_DIRECTORY OR DEFINED CPACK_PROJECT_VERSION)
 endif()
 
 # Determine source directory
+# Always try to derive from script location first (most reliable)
+get_filename_component(SCRIPT_DIR "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
+get_filename_component(SOURCE_DIR_FROM_SCRIPT "${SCRIPT_DIR}/.." ABSOLUTE)
+
 if(IS_CPACK)
-    # CPack: derive from script location
-    get_filename_component(SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+    # CPack: use script location
+    set(SOURCE_DIR "${SOURCE_DIR_FROM_SCRIPT}")
 else()
-    # Regular install: use CMAKE_SOURCE_DIR if available
-    if(NOT DEFINED CMAKE_SOURCE_DIR OR CMAKE_SOURCE_DIR STREQUAL "")
-        get_filename_component(SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-    else()
+    # Regular install: prefer CMAKE_SOURCE_DIR, but validate it
+    if(DEFINED CMAKE_SOURCE_DIR AND NOT CMAKE_SOURCE_DIR STREQUAL "" AND EXISTS "${CMAKE_SOURCE_DIR}/CMakeLists.txt")
         set(SOURCE_DIR "${CMAKE_SOURCE_DIR}")
+    else()
+        # Fallback to script location
+        set(SOURCE_DIR "${SOURCE_DIR_FROM_SCRIPT}")
     endif()
 endif()
 
