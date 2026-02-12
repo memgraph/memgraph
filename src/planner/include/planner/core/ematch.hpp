@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -204,6 +205,40 @@ class EMatcher {
    */
   auto match(Pattern<Symbol> const &pattern, EMatchContext &ctx) const -> std::vector<Match>;
 
+  /**
+   * @brief Find matches with pre-bound variable constraints
+   *
+   * Like match(), but starts with existing variable bindings. Only returns
+   * matches that are consistent with the constraints. Uses parent tracking
+   * for optimization when a pattern child is a constrained variable.
+   *
+   * This is useful for multi-pattern rules where patterns share variables.
+   * Instead of matching all instances and joining later, constrained matching
+   * produces only correlated results.
+   *
+   * Example:
+   * @code
+   *   // Match Bind(?input, ?sym, ?expr)
+   *   auto bind_matches = matcher.match(bind_pattern, ctx);
+   *
+   *   // For each bind match, find correlated Identifier(?sym)
+   *   for (auto& bind_match : bind_matches) {
+   *     Substitution constraints;
+   *     constraints[PatternVar{1}] = bind_match.subst.at(PatternVar{1}); // ?sym
+   *
+   *     auto id_matches = matcher.match_constrained(identifier_pattern, constraints, ctx);
+   *     // id_matches are already correlated with bind_match
+   *   }
+   * @endcode
+   *
+   * @param pattern The pattern to match
+   * @param constraints Pre-bound variable values that must be respected
+   * @param ctx Reusable context with pre-allocated buffers
+   * @return Vector of matches consistent with constraints
+   */
+  auto match_constrained(Pattern<Symbol> const &pattern, Substitution const &constraints, EMatchContext &ctx) const
+      -> std::vector<Match>;
+
  private:
   using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
 
@@ -229,6 +264,25 @@ class EMatcher {
   void match_children_into(Pattern<Symbol> const &pattern, PatternNode<Symbol> const &pnode, ENode<Symbol> const &enode,
                            Substitution const &subst, std::vector<Substitution> &out, EMatchContext &ctx,
                            std::size_t depth) const;
+
+  /**
+   * @brief Check if parent-based matching can be used for optimization
+   *
+   * Returns the index of a constrained variable child if one exists, otherwise nullopt.
+   */
+  [[nodiscard]] auto find_constrained_child(Pattern<Symbol> const &pattern, PatternNode<Symbol> const &root,
+                                            Substitution const &constraints) const -> std::optional<std::size_t>;
+
+  /**
+   * @brief Match using parent tracking (optimization for constrained variables)
+   *
+   * When a pattern's immediate child is a constrained variable, we can use the
+   * parent list of that variable's e-class to find candidates, instead of scanning
+   * all e-classes with the root symbol.
+   */
+  void match_via_parents(Pattern<Symbol> const &pattern, PatternNode<Symbol> const &root, EClassId anchor_eclass,
+                         std::size_t anchor_child_index, Substitution const &constraints, std::vector<Match> &results,
+                         EMatchContext &ctx) const;
 
   EGraph<Symbol, Analysis> const *egraph_;
   IndexType index_;
@@ -432,6 +486,169 @@ void EMatcher<Symbol, Analysis>::match_children_into(Pattern<Symbol> const &patt
   for (auto &s : bufs.current) {
     out.push_back(std::move(s));
   }
+}
+
+template <typename Symbol, typename Analysis>
+auto EMatcher<Symbol, Analysis>::find_constrained_child(Pattern<Symbol> const &pattern, PatternNode<Symbol> const &root,
+                                                        Substitution const &constraints) const
+    -> std::optional<std::size_t> {
+  for (std::size_t i = 0; i < root.arity(); ++i) {
+    auto const &child = pattern[root.children[i]];
+    if (child.is_variable()) {
+      auto it = constraints.find(child.variable());
+      if (it != constraints.end()) {
+        // Found a constrained variable child - verify the e-class exists
+        auto canonical = egraph_->find(it->second);
+        if (egraph_->has_class(canonical)) {
+          return i;
+        }
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+template <typename Symbol, typename Analysis>
+void EMatcher<Symbol, Analysis>::match_via_parents(Pattern<Symbol> const &pattern, PatternNode<Symbol> const &root,
+                                                   EClassId anchor_eclass, std::size_t anchor_child_index,
+                                                   Substitution const &constraints, std::vector<Match> &results,
+                                                   EMatchContext &ctx) const {
+  auto &processed = ctx.processed();
+  auto &child_matches = ctx.child_matches();
+  processed.clear();
+
+  // Get parents of the anchor e-class
+  auto const &anchor_class = egraph_->eclass(anchor_eclass);
+
+  for (auto parent_enode_id : anchor_class.parents()) {
+    auto const &parent_enode = egraph_->get_enode(parent_enode_id);
+
+    // Check symbol matches
+    if (parent_enode.symbol() != root.symbol()) {
+      continue;
+    }
+
+    // Check arity matches
+    if (parent_enode.arity() != root.arity()) {
+      continue;
+    }
+
+    // Check the anchor child position actually points to our anchor e-class
+    if (egraph_->find(parent_enode.children()[anchor_child_index]) != anchor_eclass) {
+      continue;
+    }
+
+    // Get the e-class containing this parent e-node
+    auto parent_eclass = egraph_->find(parent_enode_id);
+    if (!processed.insert(parent_eclass).second) {
+      continue;  // Already processed this e-class
+    }
+
+    // Match all children with the constraints as initial substitution
+    if (root.is_leaf()) {
+      results.push_back({parent_eclass, constraints});
+      continue;
+    }
+
+    child_matches.clear();
+    match_children_into(pattern, root, parent_enode, constraints, child_matches, ctx, 0);
+
+    for (auto &subst : child_matches) {
+      results.push_back({parent_eclass, std::move(subst)});
+    }
+  }
+}
+
+template <typename Symbol, typename Analysis>
+auto EMatcher<Symbol, Analysis>::match_constrained(Pattern<Symbol> const &pattern, Substitution const &constraints,
+                                                   EMatchContext &ctx) const -> std::vector<Match> {
+  if (pattern.empty()) {
+    return {};
+  }
+
+  // Pre-allocate depth buffers
+  ctx.ensure_depth(pattern.size());
+
+  std::vector<Match> results;
+  auto const &root_pnode = pattern[pattern.root()];
+
+  if (root_pnode.is_variable()) {
+    // Variable pattern root
+    auto var = root_pnode.variable();
+    auto it = constraints.find(var);
+    if (it != constraints.end()) {
+      // Variable is constrained - only match if the e-class exists
+      auto constrained_eclass = egraph_->find(it->second);
+      if (egraph_->has_class(constrained_eclass)) {
+        Substitution subst = constraints;
+        subst[var] = constrained_eclass;
+        results.push_back({constrained_eclass, std::move(subst)});
+      }
+    } else {
+      // Unconstrained variable - matches any e-class (but start with constraints)
+      for (auto const &[eclass_id, _] : egraph_->canonical_classes()) {
+        Substitution subst = constraints;
+        subst[var] = eclass_id;
+        results.push_back({eclass_id, std::move(subst)});
+      }
+    }
+    return results;
+  }
+
+  // Symbol pattern root - check if we can use parent-based optimization
+  auto constrained_child_idx = find_constrained_child(pattern, root_pnode, constraints);
+  if (constrained_child_idx.has_value()) {
+    // Use parent tracking for efficient matching
+    auto const &child = pattern[root_pnode.children[*constrained_child_idx]];
+    auto anchor_eclass = egraph_->find(constraints.at(child.variable()));
+    match_via_parents(pattern, root_pnode, anchor_eclass, *constrained_child_idx, constraints, results, ctx);
+    return results;
+  }
+
+  // Fall back to index-based matching (same as match() but with constraints)
+  auto const *candidates = eclasses_with_symbol(root_pnode.symbol());
+  if (candidates == nullptr) {
+    return {};
+  }
+
+  auto &processed = ctx.processed();
+  auto &child_matches = ctx.child_matches();
+  processed.clear();
+
+  for (auto eclass_id : *candidates) {
+    auto canonical_id = egraph_->find(eclass_id);
+    if (!processed.insert(canonical_id).second) {
+      continue;
+    }
+
+    auto const &eclass = egraph_->eclass(canonical_id);
+
+    for (auto enode_id : eclass.nodes()) {
+      auto const &enode = egraph_->get_enode(enode_id);
+
+      if (root_pnode.symbol() != enode.symbol()) {
+        continue;
+      }
+
+      if (root_pnode.arity() != enode.arity()) {
+        continue;
+      }
+
+      if (root_pnode.is_leaf()) {
+        results.push_back({canonical_id, constraints});
+        continue;
+      }
+
+      child_matches.clear();
+      match_children_into(pattern, root_pnode, enode, constraints, child_matches, ctx, 0);
+
+      for (auto &subst : child_matches) {
+        results.push_back({canonical_id, std::move(subst)});
+      }
+    }
+  }
+
+  return results;
 }
 
 }  // namespace memgraph::planner::core

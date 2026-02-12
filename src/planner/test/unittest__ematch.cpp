@@ -620,4 +620,246 @@ TEST(EMatcher, ContextReuseAcrossMultipleMatches) {
   EXPECT_EQ(var_matches.size(), 4);  // 4 e-classes total
 }
 
+// --- Constrained Matching Tests ---
+
+TEST(EMatcher, ConstrainedMatchVariablePattern) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: ?x
+  auto pattern = make_var_pattern(0);
+
+  // Constrain ?x to a's e-class
+  Substitution constraints;
+  constraints[PatternVar{0}] = a.current_eclassid;
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Should only match the constrained e-class
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, a.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{0}), a.current_eclassid);
+}
+
+TEST(EMatcher, ConstrainedMatchUnconstrainedVariable) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: ?x
+  auto pattern = make_var_pattern(0);
+
+  // Empty constraints - should match all
+  Substitution constraints;
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  EXPECT_EQ(matches.size(), 2);
+}
+
+TEST(EMatcher, ConstrainedMatchSymbolPattern) {
+  // Test parent-based optimization for pattern like Neg(?x) with ?x constrained
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto neg_a = egraph.emplace(Op::Neg, {a.current_eclassid});
+  auto neg_b = egraph.emplace(Op::Neg, {b.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Neg(?x)
+  auto pattern = make_unary_pattern(Op::Neg, 0);
+
+  // Constrain ?x to a's e-class
+  Substitution constraints;
+  constraints[PatternVar{0}] = a.current_eclassid;
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Should only find Neg(a), not Neg(b)
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, neg_a.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{0}), a.current_eclassid);
+}
+
+TEST(EMatcher, ConstrainedMatchBinaryPattern) {
+  // Test constrained matching with binary pattern
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto c = egraph.emplace(Op::Var, 3);
+  auto add_ab = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
+  auto add_ac = egraph.emplace(Op::Add, {a.current_eclassid, c.current_eclassid});
+  auto add_bc = egraph.emplace(Op::Add, {b.current_eclassid, c.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Add(?x, ?y)
+  auto pattern = make_binary_pattern(Op::Add, 0, 1);
+
+  // Constrain ?x to a's e-class
+  Substitution constraints;
+  constraints[PatternVar{0}] = a.current_eclassid;
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Should find Add(a, b) and Add(a, c), but not Add(b, c)
+  ASSERT_EQ(matches.size(), 2);
+
+  // Verify both matches have ?x = a
+  for (auto const &match : matches) {
+    EXPECT_EQ(match.subst.at(PatternVar{0}), a.current_eclassid);
+  }
+}
+
+TEST(EMatcher, ConstrainedMatchNoMatches) {
+  // Test constrained matching when constraint excludes all matches
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto neg_a = egraph.emplace(Op::Neg, {a.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Neg(?x)
+  auto pattern = make_unary_pattern(Op::Neg, 0);
+
+  // Constrain ?x to b's e-class (but there's no Neg(b))
+  Substitution constraints;
+  constraints[PatternVar{0}] = b.current_eclassid;
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Should find no matches
+  EXPECT_TRUE(matches.empty());
+}
+
+TEST(EMatcher, ConstrainedMatchMultipleConstraints) {
+  // Test with multiple constrained variables
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto c = egraph.emplace(Op::Var, 3);
+  auto add_ab = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
+  auto add_ac = egraph.emplace(Op::Add, {a.current_eclassid, c.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Add(?x, ?y)
+  auto pattern = make_binary_pattern(Op::Add, 0, 1);
+
+  // Constrain both ?x and ?y
+  Substitution constraints;
+  constraints[PatternVar{0}] = a.current_eclassid;
+  constraints[PatternVar{1}] = b.current_eclassid;
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Should only find Add(a, b)
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, add_ab.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{0}), a.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{1}), b.current_eclassid);
+}
+
+TEST(EMatcher, ConstrainedMatchAfterMerge) {
+  // Test constrained matching works correctly after e-class merges
+  TestEGraph egraph;
+  ProcessingContext<Op> pctx;
+
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto neg_a = egraph.emplace(Op::Neg, {a.current_eclassid});
+  auto neg_b = egraph.emplace(Op::Neg, {b.current_eclassid});
+
+  // Merge a and b
+  egraph.merge(a.current_eclassid, b.current_eclassid);
+  egraph.rebuild(pctx);
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Neg(?x)
+  auto pattern = make_unary_pattern(Op::Neg, 0);
+
+  // Constrain ?x to a's (now merged with b) e-class
+  Substitution constraints;
+  constraints[PatternVar{0}] = a.current_eclassid;
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Both Neg(a) and Neg(b) should match since a == b now
+  // They're now in the same e-class due to congruence
+  EXPECT_GE(matches.size(), 1);
+}
+
+TEST(EMatcher, ConstrainedMatchNestedPattern) {
+  // Test constrained matching with nested pattern
+  TestEGraph egraph;
+  auto x = egraph.emplace(Op::Var, 1);
+  auto y = egraph.emplace(Op::Var, 2);
+  auto neg_x = egraph.emplace(Op::Neg, {x.current_eclassid});
+  auto neg_y = egraph.emplace(Op::Neg, {y.current_eclassid});
+  auto add_negx_y = egraph.emplace(Op::Add, {neg_x.current_eclassid, y.current_eclassid});
+  auto add_negy_x = egraph.emplace(Op::Add, {neg_y.current_eclassid, x.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Add(Neg(?a), ?b)
+  auto builder = TestPattern::Builder{};
+  auto pa = builder.var(0);
+  auto pneg = builder.sym(Op::Neg, {pa});
+  auto pb = builder.var(1);
+  auto padd = builder.sym(Op::Add, {pneg, pb});
+  auto pattern = std::move(builder).build(padd);
+
+  // Constrain ?a to x's e-class
+  Substitution constraints;
+  constraints[PatternVar{0}] = x.current_eclassid;
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Should only find Add(Neg(x), y), not Add(Neg(y), x)
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, add_negx_y.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{0}), x.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{1}), y.current_eclassid);
+}
+
+TEST(EMatcher, ConstrainedMatchFallbackToIndex) {
+  // Test that constrained matching falls back to index when no child is constrained
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto add = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
+
+  TestEMatcher ematcher(egraph);
+  EMatchContext ctx;
+
+  // Pattern: Add(?x, ?y)
+  auto pattern = make_binary_pattern(Op::Add, 0, 1);
+
+  // Constraint on a variable NOT in the pattern children
+  // This should fall back to index-based matching
+  Substitution constraints;
+  constraints[PatternVar{99}] = a.current_eclassid;  // Not in pattern
+
+  auto matches = ematcher.match_constrained(pattern, constraints, ctx);
+
+  // Should still find the Add
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, add.current_eclassid);
+}
+
 }  // namespace memgraph::planner::core

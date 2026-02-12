@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <algorithm>
 #include <any>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <span>
 #include <string>
@@ -202,6 +204,10 @@ class RewriteRule {
    * Matches all patterns against the e-graph using the provided matcher,
    * then invokes the apply function with the collected matches.
    *
+   * For multi-pattern rules with shared variables, uses constrained matching
+   * to efficiently find correlated matches. This avoids O(n²) joins by using
+   * parent tracking to find candidates.
+   *
    * @tparam Analysis The e-graph analysis type
    * @param egraph The e-graph to rewrite
    * @param matcher Pre-built matcher for the e-graph
@@ -212,13 +218,40 @@ class RewriteRule {
   template <typename Analysis>
   auto apply(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, EMatchContext &match_ctx,
              ProcessingContext<Symbol> &proc_ctx) const -> std::size_t {
-    // Match all patterns
+    if (patterns_.empty()) {
+      return 0;
+    }
+
     std::vector<std::vector<Match>> all_matches;
     all_matches.reserve(patterns_.size());
 
-    for (auto const &pattern : patterns_) {
-      match_ctx.clear();
-      all_matches.push_back(matcher.match(pattern, match_ctx));
+    // Match first pattern normally
+    match_ctx.clear();
+    all_matches.push_back(matcher.match(patterns_[0], match_ctx));
+
+    // For subsequent patterns, check for shared variables and use constrained matching
+    for (std::size_t p = 1; p < patterns_.size(); ++p) {
+      auto shared_vars = find_shared_variables(p);
+
+      if (shared_vars.empty() || all_matches[0].empty()) {
+        // No shared variables or no matches to correlate with - match normally
+        match_ctx.clear();
+        all_matches.push_back(matcher.match(patterns_[p], match_ctx));
+      } else {
+        // Use constrained matching with unique constraint sets from previous matches
+        auto constraint_sets = collect_unique_constraints(all_matches, shared_vars);
+        std::vector<Match> constrained_results;
+
+        for (auto const &constraints : constraint_sets) {
+          match_ctx.clear();
+          auto matches = matcher.match_constrained(patterns_[p], constraints, match_ctx);
+          constrained_results.insert(constrained_results.end(),
+                                     std::make_move_iterator(matches.begin()),
+                                     std::make_move_iterator(matches.end()));
+        }
+
+        all_matches.push_back(std::move(constrained_results));
+      }
     }
 
     // Apply the rule
@@ -231,6 +264,65 @@ class RewriteRule {
   }
 
  private:
+  /**
+   * @brief Find variables in pattern p that also appear in earlier patterns
+   */
+  [[nodiscard]] auto find_shared_variables(std::size_t pattern_index) const -> std::vector<PatternVar> {
+    std::vector<PatternVar> shared;
+    boost::unordered_flat_set<PatternVar> earlier_vars;
+
+    // Collect variables from all earlier patterns
+    for (std::size_t i = 0; i < pattern_index; ++i) {
+      for (auto const &node : patterns_[i].nodes()) {
+        if (node.is_variable()) {
+          earlier_vars.insert(node.variable());
+        }
+      }
+    }
+
+    // Find which variables in pattern p are also in earlier patterns
+    for (auto const &node : patterns_[pattern_index].nodes()) {
+      if (node.is_variable() && earlier_vars.contains(node.variable())) {
+        // Avoid duplicates
+        if (std::find(shared.begin(), shared.end(), node.variable()) == shared.end()) {
+          shared.push_back(node.variable());
+        }
+      }
+    }
+
+    return shared;
+  }
+
+  /**
+   * @brief Collect unique constraint sets from previous matches
+   *
+   * Given matches from previous patterns and a set of shared variables,
+   * extracts unique combinations of variable bindings to use as constraints.
+   */
+  [[nodiscard]] static auto collect_unique_constraints(std::vector<std::vector<Match>> const &all_matches,
+                                                       std::vector<PatternVar> const &shared_vars)
+      -> std::vector<Substitution> {
+    boost::unordered_flat_set<Substitution> unique_constraints;
+
+    // For each match in earlier patterns, extract the shared variable bindings
+    for (auto const &pattern_matches : all_matches) {
+      for (auto const &match : pattern_matches) {
+        Substitution constraints;
+        for (auto var : shared_vars) {
+          auto it = match.subst.find(var);
+          if (it != match.subst.end()) {
+            constraints[var] = it->second;
+          }
+        }
+        if (!constraints.empty()) {
+          unique_constraints.insert(std::move(constraints));
+        }
+      }
+    }
+
+    return {unique_constraints.begin(), unique_constraints.end()};
+  }
+
   RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names, std::any apply_fn,
               std::string name)
       : patterns_(std::move(patterns)),
