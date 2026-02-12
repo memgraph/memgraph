@@ -34,6 +34,22 @@ import memgraph.planner.core.concepts;
 namespace memgraph::planner::core {
 
 /**
+ * @brief A unified match across all patterns in a multi-pattern rule
+ *
+ * When a rule has multiple patterns, UnifiedMatch represents a complete
+ * match where all patterns found compatible matches (agreeing on shared
+ * variable bindings). This avoids manual joins in apply functions.
+ */
+struct UnifiedMatch {
+  /// The e-class where each pattern matched (one entry per pattern, in order)
+  std::vector<EClassId> pattern_roots;
+
+  /// Combined variable substitution from all patterns
+  /// For shared variables, this contains the canonicalized e-class ID
+  Substitution subst;
+};
+
+/**
  * @brief Configuration for the rewrite engine
  *
  * Controls limits on rewriting to prevent runaway saturation.
@@ -128,13 +144,13 @@ class RewriteRule {
    * @brief Type signature for rule apply functions
    *
    * @param egraph The e-graph to apply rewrites to
-   * @param matches_per_pattern Matches for each pattern (indexed by pattern order)
+   * @param matches Unified matches where each entry represents a complete match
+   *                across all patterns with compatible variable bindings
    * @param proc_ctx Processing context for rebuild operations
    * @return Number of rewrites applied (typically number of merges)
    */
   template <typename Analysis>
-  using ApplyFn = std::function<std::size_t(EGraph<Symbol, Analysis> &egraph,
-                                            std::span<std::vector<Match> const> matches_per_pattern,
+  using ApplyFn = std::function<std::size_t(EGraph<Symbol, Analysis> &egraph, std::span<UnifiedMatch const> matches,
                                             ProcessingContext<Symbol> &proc_ctx)>;
 
   /**
@@ -202,11 +218,11 @@ class RewriteRule {
    * @brief Apply this rule to an e-graph
    *
    * Matches all patterns against the e-graph using the provided matcher,
-   * then invokes the apply function with the collected matches.
+   * computes unified matches by joining on shared variables, then invokes
+   * the apply function with the unified results.
    *
-   * For multi-pattern rules with shared variables, uses constrained matching
-   * to efficiently find correlated matches. This avoids O(n²) joins by using
-   * parent tracking to find candidates.
+   * The framework handles the join internally using constrained matching
+   * for efficiency. This avoids O(n²) joins in apply functions.
    *
    * @tparam Analysis The e-graph analysis type
    * @param egraph The e-graph to rewrite
@@ -222,36 +238,76 @@ class RewriteRule {
       return 0;
     }
 
-    std::vector<std::vector<Match>> all_matches;
-    all_matches.reserve(patterns_.size());
-
-    // Match first pattern normally
+    // Start with matches from the first pattern
     match_ctx.clear();
-    all_matches.push_back(matcher.match(patterns_[0], match_ctx));
+    auto first_matches = matcher.match(patterns_[0], match_ctx);
 
-    // For subsequent patterns, check for shared variables and use constrained matching
+    std::vector<UnifiedMatch> unified;
+    unified.reserve(first_matches.size());
+    for (auto &m : first_matches) {
+      unified.push_back({{m.matched_eclass}, std::move(m.subst)});
+    }
+
+    // For each subsequent pattern, extend unified matches
     for (std::size_t p = 1; p < patterns_.size(); ++p) {
       auto shared_vars = find_shared_variables(p);
+      std::vector<UnifiedMatch> new_unified;
 
-      if (shared_vars.empty() || all_matches[0].empty()) {
-        // No shared variables or no matches to correlate with - match normally
+      if (shared_vars.empty()) {
+        // No shared variables - Cartesian product
         match_ctx.clear();
-        all_matches.push_back(matcher.match(patterns_[p], match_ctx));
-      } else {
-        // Use constrained matching with unique constraint sets from previous matches
-        auto constraint_sets = collect_unique_constraints(all_matches, shared_vars);
-        std::vector<Match> constrained_results;
+        auto pattern_matches = matcher.match(patterns_[p], match_ctx);
 
-        for (auto const &constraints : constraint_sets) {
-          match_ctx.clear();
-          auto matches = matcher.match_constrained(patterns_[p], constraints, match_ctx);
-          constrained_results.insert(constrained_results.end(),
-                                     std::make_move_iterator(matches.begin()),
-                                     std::make_move_iterator(matches.end()));
+        for (auto const &um : unified) {
+          for (auto const &m : pattern_matches) {
+            UnifiedMatch extended;
+            extended.pattern_roots = um.pattern_roots;
+            extended.pattern_roots.push_back(m.matched_eclass);
+            extended.subst = um.subst;
+            for (auto const &[var, eclass] : m.subst) {
+              extended.subst.insert_or_assign(var, eclass);
+            }
+            new_unified.push_back(std::move(extended));
+          }
+        }
+      } else {
+        // Shared variables - use constrained matching for each unified match
+        // Group by constraint key to avoid redundant matching
+        boost::unordered_flat_map<Substitution, std::vector<std::size_t>> constraint_to_indices;
+        for (std::size_t i = 0; i < unified.size(); ++i) {
+          Substitution constraints;
+          for (auto var : shared_vars) {
+            auto it = unified[i].subst.find(var);
+            if (it != unified[i].subst.end()) {
+              constraints[var] = egraph.find(it->second);
+            }
+          }
+          constraint_to_indices[constraints].push_back(i);
         }
 
-        all_matches.push_back(std::move(constrained_results));
+        // Match once per unique constraint, then extend all unified matches with that constraint
+        for (auto const &[constraints, indices] : constraint_to_indices) {
+          match_ctx.clear();
+          auto pattern_matches = constraints.empty() ? matcher.match(patterns_[p], match_ctx)
+                                                     : matcher.match_constrained(patterns_[p], constraints, match_ctx);
+
+          for (std::size_t idx : indices) {
+            auto const &um = unified[idx];
+            for (auto const &m : pattern_matches) {
+              UnifiedMatch extended;
+              extended.pattern_roots = um.pattern_roots;
+              extended.pattern_roots.push_back(m.matched_eclass);
+              extended.subst = um.subst;
+              for (auto const &[var, eclass] : m.subst) {
+                extended.subst.insert_or_assign(var, eclass);
+              }
+              new_unified.push_back(std::move(extended));
+            }
+          }
+        }
       }
+
+      unified = std::move(new_unified);
     }
 
     // Apply the rule
@@ -260,7 +316,7 @@ class RewriteRule {
       return 0;  // Type mismatch or no apply function set
     }
 
-    return (*fn)(egraph, all_matches, proc_ctx);
+    return (*fn)(egraph, unified, proc_ctx);
   }
 
  private:
@@ -291,36 +347,6 @@ class RewriteRule {
     }
 
     return shared;
-  }
-
-  /**
-   * @brief Collect unique constraint sets from previous matches
-   *
-   * Given matches from previous patterns and a set of shared variables,
-   * extracts unique combinations of variable bindings to use as constraints.
-   */
-  [[nodiscard]] static auto collect_unique_constraints(std::vector<std::vector<Match>> const &all_matches,
-                                                       std::vector<PatternVar> const &shared_vars)
-      -> std::vector<Substitution> {
-    boost::unordered_flat_set<Substitution> unique_constraints;
-
-    // For each match in earlier patterns, extract the shared variable bindings
-    for (auto const &pattern_matches : all_matches) {
-      for (auto const &match : pattern_matches) {
-        Substitution constraints;
-        for (auto var : shared_vars) {
-          auto it = match.subst.find(var);
-          if (it != match.subst.end()) {
-            constraints[var] = it->second;
-          }
-        }
-        if (!constraints.empty()) {
-          unique_constraints.insert(std::move(constraints));
-        }
-      }
-    }
-
-    return {unique_constraints.begin(), unique_constraints.end()};
   }
 
   RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names, std::any apply_fn,

@@ -60,11 +60,12 @@ auto make_double_neg_rule() -> TestRewriteRule {
   builder.pattern(make_double_neg_pattern())
       .apply<NoAnalysis>([](auto &egraph, auto matches, auto & /*proc_ctx*/) -> std::size_t {
         std::size_t count = 0;
-        for (auto const &match : matches[0]) {
+        for (auto const &match : matches) {
           auto x = match.subst.at(PatternVar{0});
+          auto matched_eclass = match.pattern_roots[0];
           // Merge Neg(Neg(?x)) with ?x
-          if (egraph.find(match.matched_eclass) != egraph.find(x)) {
-            egraph.merge(match.matched_eclass, x);
+          if (egraph.find(matched_eclass) != egraph.find(x)) {
+            egraph.merge(matched_eclass, x);
             count++;
           }
         }
@@ -300,11 +301,11 @@ TEST(Rewriter, TimeoutBehavior) {
   slow_builder.pattern(make_double_neg_pattern()).apply<NoAnalysis>([](auto &eg, auto matches, auto &) -> std::size_t {
     std::this_thread::sleep_for(std::chrono::milliseconds{50});
     // Still do the rewrite
-    for (auto const &match : matches[0]) {
+    for (auto const &match : matches) {
       auto var_x = match.subst.at(PatternVar{0});
-      eg.merge(match.matched_eclass, var_x);
+      eg.merge(match.pattern_roots[0], var_x);
     }
-    return matches[0].size();
+    return matches.size();
   });
   auto slow_rule = std::move(slow_builder).build("slow");
 
@@ -437,26 +438,20 @@ TEST(Rewriter, TwoPatternRule) {
   auto mul_pattern = std::move(mul_builder).build(pmul);
 
   // Rule: merge Add and Mul if they have same operands
+  // With unified matches, the framework already joins on shared variables (?x, ?y)
   auto merge_builder = TestRewriteRule::Builder{};
   merge_builder.pattern(std::move(add_pattern), "add")
       .pattern(std::move(mul_pattern), "mul")
       .apply<NoAnalysis>([](auto &eg, auto matches, auto &) -> std::size_t {
         std::size_t count = 0;
-        // For each Add match, find Mul match with same operands
-        for (auto const &add_match : matches[0]) {
-          auto add_x = eg.find(add_match.subst.at(PatternVar{0}));
-          auto add_y = eg.find(add_match.subst.at(PatternVar{1}));
+        // Each match contains a correlated (Add, Mul) pair with same ?x and ?y
+        for (auto const &match : matches) {
+          auto add_eclass = match.pattern_roots[0];
+          auto mul_eclass = match.pattern_roots[1];
 
-          for (auto const &mul_match : matches[1]) {
-            auto mul_x = eg.find(mul_match.subst.at(PatternVar{0}));
-            auto mul_y = eg.find(mul_match.subst.at(PatternVar{1}));
-
-            if (add_x == mul_x && add_y == mul_y) {
-              if (eg.find(add_match.matched_eclass) != eg.find(mul_match.matched_eclass)) {
-                eg.merge(add_match.matched_eclass, mul_match.matched_eclass);
-                count++;
-              }
-            }
+          if (eg.find(add_eclass) != eg.find(mul_eclass)) {
+            eg.merge(add_eclass, mul_eclass);
+            count++;
           }
         }
         return count;

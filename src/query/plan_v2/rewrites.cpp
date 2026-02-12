@@ -18,12 +18,12 @@ namespace memgraph::query::plan::v2 {
 
 using planner::core::EMatchContext;
 using planner::core::EMatcher;
-using planner::core::Match;
 using planner::core::Pattern;
 using planner::core::PatternVar;
 using planner::core::ProcessingContext;
 using planner::core::Rewriter;
 using planner::core::RewriteRule;
+using planner::core::UnifiedMatch;
 
 namespace {
 
@@ -65,50 +65,26 @@ auto BuildIdentifierPattern() -> Pattern<symbol> {
  * This rule correlates Bind patterns with Identifier patterns:
  * - For each Bind(?input, ?sym, ?expr), find all Identifier(?sym)
  * - Merge each Identifier's e-class with expr's e-class
+ *
+ * The framework handles the join on shared variable ?sym automatically,
+ * so each UnifiedMatch contains a correlated (Bind, Identifier) pair.
  */
 auto MakeInlineRule() -> RewriteRule<symbol> {
   auto builder = RewriteRule<symbol>::Builder{};
   builder.pattern(BuildBindPattern(), "Bind")
       .pattern(BuildIdentifierPattern(), "Identifier")
       .apply<analysis>([](planner::core::EGraph<symbol, analysis> &core_egraph,
-                          std::span<std::vector<Match> const>
-                              matches_per_pattern,
+                          std::span<UnifiedMatch const>
+                              matches,
                           ProcessingContext<symbol> & /*proc_ctx*/) -> std::size_t {
-        auto const &bind_matches = matches_per_pattern[0];
-        auto const &identifier_matches = matches_per_pattern[1];
-
-        // Build map from sym e-class -> expr e-class for all bindings
-        boost::unordered_flat_map<planner::core::EClassId, planner::core::EClassId> sym_to_expr;
-
-        for (auto const &match : bind_matches) {
-          auto sym_var = PatternVar{1};
-          auto expr_var = PatternVar{2};
-
-          auto sym_eclass = core_egraph.find(match.subst.at(sym_var));
-          auto expr_eclass = core_egraph.find(match.subst.at(expr_var));
-
-          // Store mapping (first binding wins if multiple bindings exist)
-          sym_to_expr.try_emplace(sym_eclass, expr_eclass);
-        }
-
-        if (sym_to_expr.empty()) {
-          return 0;  // No bindings found
-        }
-
         std::size_t merges = 0;
 
-        // For each Identifier, check if its sym has a binding, and merge with expr
-        for (auto const &match : identifier_matches) {
-          auto sym_var = PatternVar{1};
-          auto sym_eclass = core_egraph.find(match.subst.at(sym_var));
+        for (auto const &match : matches) {
+          // pattern_roots[0] = Bind e-class, pattern_roots[1] = Identifier e-class
+          auto identifier_eclass = match.pattern_roots[1];
 
-          auto it = sym_to_expr.find(sym_eclass);
-          if (it == sym_to_expr.end()) {
-            continue;  // No binding for this symbol
-          }
-
-          auto expr_eclass = it->second;
-          auto identifier_eclass = match.matched_eclass;
+          // ?expr is var 2 in the Bind pattern
+          auto expr_eclass = core_egraph.find(match.subst.at(PatternVar{2}));
 
           // Merge Identifier's e-class with expr's e-class
           if (core_egraph.find(identifier_eclass) != core_egraph.find(expr_eclass)) {
