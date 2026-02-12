@@ -560,4 +560,114 @@ TEST(EMatcher, MultipleMatchesSameExpression) {
   EXPECT_EQ(matches.size(), 2);
 }
 
+// --- Same Variable at Different Depths Tests ---
+
+TEST(EMatcher, SameVariableAtDifferentDepths) {
+  // Pattern: Add(?x, Add(?x, ?y)) - ?x appears at depth 1 and depth 2
+  // Should only match when the first child equals the first child of the inner Add
+
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto c = egraph.emplace(Op::Var, 3);
+
+  // Build: Add(a, Add(a, b)) - should match with ?x=a, ?y=b
+  auto inner_match = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
+  auto outer_match = egraph.emplace(Op::Add, {a.current_eclassid, inner_match.current_eclassid});
+
+  // Build: Add(a, Add(c, b)) - should NOT match (a != c)
+  auto inner_nomatch = egraph.emplace(Op::Add, {c.current_eclassid, b.current_eclassid});
+  [[maybe_unused]] auto outer_nomatch = egraph.emplace(Op::Add, {a.current_eclassid, inner_nomatch.current_eclassid});
+
+  TestEMatcher ematcher;
+  ematcher.build_index(egraph);
+
+  // Pattern: Add(?x, Add(?x, ?y))
+  auto builder = TestPattern::Builder{};
+  auto px = builder.var(0);   // ?x
+  auto py = builder.var(1);   // ?y
+  auto px2 = builder.var(0);  // ?x again (same id!)
+  auto inner = builder.sym(Op::Add, {px2, py});
+  auto outer = builder.sym(Op::Add, {px, inner});
+  auto pattern = std::move(builder).build(outer);
+
+  auto matches = ematcher.match(egraph, pattern);
+
+  // Only outer_match should match
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, outer_match.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{0}), a.current_eclassid);  // ?x = a
+  EXPECT_EQ(matches[0].subst.at(PatternVar{1}), b.current_eclassid);  // ?y = b
+}
+
+TEST(EMatcher, SameVariableAtDifferentDepthsAfterMerge) {
+  // After merging a and c, Add(a, Add(c, b)) should also match Add(?x, Add(?x, ?y))
+  TestEGraph egraph;
+  ProcessingContext<Op> ctx;
+
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+  auto c = egraph.emplace(Op::Var, 3);
+
+  // Build: Add(a, Add(c, b)) - initially won't match
+  auto inner = egraph.emplace(Op::Add, {c.current_eclassid, b.current_eclassid});
+  auto outer = egraph.emplace(Op::Add, {a.current_eclassid, inner.current_eclassid});
+
+  // Merge a and c
+  egraph.merge(a.current_eclassid, c.current_eclassid);
+  egraph.rebuild(ctx);
+
+  TestEMatcher ematcher;
+  ematcher.build_index(egraph);
+
+  // Pattern: Add(?x, Add(?x, ?y))
+  auto builder = TestPattern::Builder{};
+  auto px = builder.var(0);
+  auto py = builder.var(1);
+  auto px2 = builder.var(0);  // same ?x
+  auto pinner = builder.sym(Op::Add, {px2, py});
+  auto pouter = builder.sym(Op::Add, {px, pinner});
+  auto pattern = std::move(builder).build(pouter);
+
+  auto matches = ematcher.match(egraph, pattern);
+
+  // Now should match because a == c
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, egraph.find(outer.current_eclassid));
+}
+
+TEST(EMatcher, SameVariableThreeOccurrences) {
+  // Pattern: Add(?x, Add(?x, ?x)) - ?x appears three times at different depths
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::Var, 1);
+  auto b = egraph.emplace(Op::Var, 2);
+
+  // Build: Add(a, Add(a, a)) - should match
+  auto inner_aaa = egraph.emplace(Op::Add, {a.current_eclassid, a.current_eclassid});
+  auto outer_aaa = egraph.emplace(Op::Add, {a.current_eclassid, inner_aaa.current_eclassid});
+
+  // Build: Add(a, Add(a, b)) - should NOT match (third ?x != b)
+  auto inner_aab = egraph.emplace(Op::Add, {a.current_eclassid, b.current_eclassid});
+  [[maybe_unused]] auto outer_aab = egraph.emplace(Op::Add, {a.current_eclassid, inner_aab.current_eclassid});
+
+  TestEMatcher ematcher;
+  ematcher.build_index(egraph);
+
+  // Pattern: Add(?x, Add(?x, ?x))
+  auto builder = TestPattern::Builder{};
+  auto px1 = builder.var(0);
+  auto px2 = builder.var(0);
+  auto px3 = builder.var(0);
+  auto inner = builder.sym(Op::Add, {px2, px3});
+  auto outer = builder.sym(Op::Add, {px1, inner});
+  auto pattern = std::move(builder).build(outer);
+
+  auto matches = ematcher.match(egraph, pattern);
+
+  // Only Add(a, Add(a, a)) should match
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].matched_eclass, outer_aaa.current_eclassid);
+  EXPECT_EQ(matches[0].subst.at(PatternVar{0}), a.current_eclassid);
+}
+
 }  // namespace memgraph::planner::core

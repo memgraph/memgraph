@@ -356,30 +356,69 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
       subst[root_pnode.variable()] = eclass_id;
       results.push_back({eclass_id, std::move(subst)});
     }
-  } else {
-    // Symbol pattern: use index to find candidate e-classes
-    auto const *candidates = eclasses_with_symbol(root_pnode.symbol());
-    if (candidates == nullptr) {
-      return {};  // No e-classes contain this symbol
+    return results;
+  }
+
+  // Symbol pattern: use index to find candidate e-classes
+  auto const *candidates = eclasses_with_symbol(root_pnode.symbol());
+  if (candidates == nullptr) {
+    return {};  // No e-classes contain this symbol
+  }
+
+  // Track which canonical e-classes we've already processed to avoid duplicates
+  boost::unordered_flat_set<EClassId> processed;
+
+  for (auto eclass_id : *candidates) {
+    auto canonical_id = egraph.find(eclass_id);
+    if (!processed.insert(canonical_id).second) {
+      continue;  // Already processed this canonical e-class
     }
 
-    // Track which canonical e-classes we've already processed to avoid duplicates
-    boost::unordered_flat_set<EClassId> processed;
+    auto const &eclass = egraph.eclass(canonical_id);
 
-    // Use temporary vector for substitutions (could also come from context)
-    std::vector<Substitution> substitutions;
+    // Inline root matching: iterate e-nodes filtering by symbol
+    // (We know from index this e-class has at least one match)
+    for (auto enode_id : eclass.nodes()) {
+      auto const &enode = egraph.get_enode(enode_id);
 
-    for (auto eclass_id : *candidates) {
-      auto canonical_id = egraph.find(eclass_id);
-      if (!processed.insert(canonical_id).second) {
-        continue;  // Already processed this canonical e-class
+      // Symbol must match
+      if (root_pnode.symbol() != enode.symbol()) {
+        continue;
       }
 
-      Substitution empty_subst;
-      substitutions.clear();
-      match_node_into(egraph, pattern, pattern.root(), canonical_id, empty_subst, substitutions, ctx, 0);
+      // Arity must match
+      if (root_pnode.arity() != enode.arity()) {
+        continue;
+      }
 
-      for (auto &subst : substitutions) {
+      // Leaf node with matching symbol: immediate match
+      if (root_pnode.is_leaf()) {
+        results.push_back({canonical_id, Substitution{}});
+        continue;
+      }
+
+      // Non-leaf root: match children using match_node_into
+      auto &bufs = ctx.buffers_at(0);
+      bufs.current.clear();
+      bufs.current.emplace_back();  // Start with empty substitution
+
+      for (std::size_t i = 0; i < root_pnode.arity(); ++i) {
+        auto pattern_child_id = root_pnode.children[i];
+        auto enode_child_eclass = egraph.find(enode.children()[i]);
+
+        bufs.next.clear();
+        for (auto const &current_subst : bufs.current) {
+          match_node_into(egraph, pattern, pattern_child_id, enode_child_eclass, current_subst, bufs.next, ctx, 1);
+        }
+        std::swap(bufs.current, bufs.next);
+
+        if (bufs.current.empty()) {
+          break;  // No way to match this e-node
+        }
+      }
+
+      // All children matched: add successful substitutions
+      for (auto &subst : bufs.current) {
         results.push_back({canonical_id, std::move(subst)});
       }
     }
