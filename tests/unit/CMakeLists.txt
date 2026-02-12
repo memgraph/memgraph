@@ -518,6 +518,11 @@ add_unit_test(utils_static_vector
     LINK_TARGETS mg::utils
 )
 
+add_unit_test(utils_packed_vector
+    SOURCES utils_packed_vector.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_stack
     SOURCES utils_stack.cpp
     LINK_TARGETS mg-utils
@@ -707,6 +712,11 @@ add_unit_test(storage_v2_storage_mode
 
 add_unit_test(storage_v2_schema_info
     SOURCES storage_v2_schema_info.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(storage_v2_schema_info_types
+    SOURCES storage_v2_schema_info_types.cpp
     LINK_TARGETS mg::storage
 )
 

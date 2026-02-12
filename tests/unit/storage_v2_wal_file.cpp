@@ -92,7 +92,7 @@ class DeltaGenerator final {
 
     void AddLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
       auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper().NameToId(label));
-      vertex->labels.push_back(label_id);
+      vertex->labels.push_back(label_id.AsUint());
       memgraph::storage::CreateAndLinkDelta(
           &transaction_, &*vertex, memgraph::storage::Delta::RemoveLabelTag(), label_id);
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
@@ -103,7 +103,8 @@ class DeltaGenerator final {
 
     void RemoveLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
       auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper().NameToId(label));
-      vertex->labels.erase(std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
+      auto it = std::find(vertex->labels.begin(), vertex->labels.end(), label_id.AsUint());
+      if (it != vertex->labels.end()) vertex->labels.erase(it);
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::AddLabelTag(), label_id);
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {

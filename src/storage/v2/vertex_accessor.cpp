@@ -24,6 +24,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/schema_info_glue.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
@@ -204,11 +205,11 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     }
   }
 
-  if (std::ranges::contains(vertex_->labels, label)) return false;
+  if (ContainsLabel(vertex_->labels, label)) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
-    vertex->labels.push_back(label);
+    vertex->labels.push_back(label.AsUint());
   });
 
   storage_->UpdateLabelCount(label, 1);
@@ -278,13 +279,11 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     }
   }
 
-  auto it = r::find(vertex_->labels, label);
-  if (it == vertex_->labels.end()) return false;
+  if (!ContainsLabel(vertex_->labels, label)) return false;
 
-  utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label, &it]() {
+  utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::AddLabelTag(), label);
-    *it = vertex->labels.back();
-    vertex->labels.pop_back();
+    ::memgraph::storage::RemoveLabel(vertex->labels, label);
   });
 
   storage_->UpdateLabelCount(label, -1);
@@ -316,7 +315,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
-    has_label = std::ranges::contains(vertex_->labels, label);
+    has_label = ContainsLabel(vertex_->labels, label);
     delta = vertex_->delta;
   }
 
@@ -364,7 +363,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted;
-    labels = vertex_->labels;
+    labels = ToVertexKey(vertex_->labels);
     delta = vertex_->delta;
   }
 
