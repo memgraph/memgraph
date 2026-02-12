@@ -288,6 +288,26 @@ class EMatcher {
                        EClassId eclass_id, Substitution const &subst, std::vector<Substitution> &out,
                        EMatchContext &ctx, std::size_t depth) const;
 
+  /**
+   * @brief Match children of a pattern node against children of an e-node
+   *
+   * Helper that handles the child matching loop: iterates through pattern children,
+   * recursively matches each against the corresponding e-node child's e-class,
+   * and collects all valid substitution extensions.
+   *
+   * @param egraph The e-graph
+   * @param pattern The full pattern
+   * @param pnode Pattern node (must be non-leaf symbol node)
+   * @param enode E-node to match against (symbol and arity already verified)
+   * @param subst Starting variable bindings
+   * @param out Output vector to append results to
+   * @param ctx Context with reusable buffers
+   * @param depth Current depth for buffer indexing
+   */
+  void match_children_into(EGraph<Symbol, Analysis> const &egraph, Pattern<Symbol> const &pattern,
+                           PatternNode<Symbol> const &pnode, ENode<Symbol> const &enode, Substitution const &subst,
+                           std::vector<Substitution> &out, EMatchContext &ctx, std::size_t depth) const;
+
   IndexType index_;
 };
 
@@ -368,6 +388,9 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
   // Track which canonical e-classes we've already processed to avoid duplicates
   boost::unordered_flat_set<EClassId> processed;
 
+  // Reusable buffer for child matching results
+  std::vector<Substitution> child_matches;
+
   for (auto eclass_id : *candidates) {
     auto canonical_id = egraph.find(eclass_id);
     if (!processed.insert(canonical_id).second) {
@@ -397,28 +420,11 @@ auto EMatcher<Symbol, Analysis>::match(EGraph<Symbol, Analysis> const &egraph, P
         continue;
       }
 
-      // Non-leaf root: match children using match_node_into
-      auto &bufs = ctx.buffers_at(0);
-      bufs.current.clear();
-      bufs.current.emplace_back();  // Start with empty substitution
+      // Non-leaf root: match children
+      child_matches.clear();
+      match_children_into(egraph, pattern, root_pnode, enode, Substitution{}, child_matches, ctx, 0);
 
-      for (std::size_t i = 0; i < root_pnode.arity(); ++i) {
-        auto pattern_child_id = root_pnode.children[i];
-        auto enode_child_eclass = egraph.find(enode.children()[i]);
-
-        bufs.next.clear();
-        for (auto const &current_subst : bufs.current) {
-          match_node_into(egraph, pattern, pattern_child_id, enode_child_eclass, current_subst, bufs.next, ctx, 1);
-        }
-        std::swap(bufs.current, bufs.next);
-
-        if (bufs.current.empty()) {
-          break;  // No way to match this e-node
-        }
-      }
-
-      // All children matched: add successful substitutions
-      for (auto &subst : bufs.current) {
+      for (auto &subst : child_matches) {
         results.push_back({canonical_id, std::move(subst)});
       }
     }
@@ -521,32 +527,40 @@ void EMatcher<Symbol, Analysis>::match_node_into(EGraph<Symbol, Analysis> const 
       continue;
     }
 
-    // Non-leaf: recursively match all children
-    // Get reusable buffers for this depth level (already ensured by caller)
-    auto &bufs = ctx.buffers_at(depth);
-    bufs.current.clear();
-    bufs.current.push_back(subst);
+    // Non-leaf: match children
+    match_children_into(egraph, pattern, pnode, enode, subst, out, ctx, depth);
+  }
+}
 
-    for (std::size_t i = 0; i < pnode.arity(); ++i) {
-      auto pattern_child_id = pnode.children[i];
-      auto enode_child_eclass = egraph.find(enode.children()[i]);
+template <typename Symbol, typename Analysis>
+void EMatcher<Symbol, Analysis>::match_children_into(EGraph<Symbol, Analysis> const &egraph,
+                                                     Pattern<Symbol> const &pattern, PatternNode<Symbol> const &pnode,
+                                                     ENode<Symbol> const &enode, Substitution const &subst,
+                                                     std::vector<Substitution> &out, EMatchContext &ctx,
+                                                     std::size_t depth) const {
+  // Get reusable buffers for this depth level (already ensured by caller)
+  auto &bufs = ctx.buffers_at(depth);
+  bufs.current.clear();
+  bufs.current.push_back(subst);
 
-      bufs.next.clear();  // Reuse existing capacity
-      for (auto const &current_subst : bufs.current) {
-        match_node_into(
-            egraph, pattern, pattern_child_id, enode_child_eclass, current_subst, bufs.next, ctx, depth + 1);
-      }
-      std::swap(bufs.current, bufs.next);
+  for (std::size_t i = 0; i < pnode.arity(); ++i) {
+    auto pattern_child_id = pnode.children[i];
+    auto enode_child_eclass = egraph.find(enode.children()[i]);
 
-      if (bufs.current.empty()) {
-        break;  // No way to match this e-node
-      }
+    bufs.next.clear();  // Reuse existing capacity
+    for (auto const &current_subst : bufs.current) {
+      match_node_into(egraph, pattern, pattern_child_id, enode_child_eclass, current_subst, bufs.next, ctx, depth + 1);
     }
+    std::swap(bufs.current, bufs.next);
 
-    // All children matched: add all successful substitutions to output
-    for (auto &s : bufs.current) {
-      out.push_back(std::move(s));
+    if (bufs.current.empty()) {
+      return;  // No way to match this e-node
     }
+  }
+
+  // All children matched: add successful substitutions to output
+  for (auto &s : bufs.current) {
+    out.push_back(std::move(s));
   }
 }
 
