@@ -380,9 +380,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       auto label_counts_acc = label_counts_.Lock();
       for (auto const &vertex : vertices_.access()) {
         if (vertex.deleted()) continue;
-        for (auto const label : vertex.labels) {
-          ++(*label_counts_acc)[label];
-        }
+        vertex.labels.for_each([&label_counts_acc](uint32_t id) { ++(*label_counts_acc)[LabelId::FromUint(id)]; });
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -1449,10 +1447,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
              current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_.transaction_id) {
         switch (current->action) {
           case Delta::Action::REMOVE_LABEL: {
-            auto it = r::find(vertex->labels, current->label.value);
-            MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
-            std::swap(*it, *vertex->labels.rbegin());
-            vertex->labels.pop_back();
+            MG_ASSERT(ContainsLabel(vertex->labels, current->label.value), "Invalid database state!");
+            RemoveLabel(vertex->labels, current->label.value);
 
             storage_->UpdateLabelCount(current->label.value, -1);
 
@@ -1460,9 +1456,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             break;
           }
           case Delta::Action::ADD_LABEL: {
-            auto it = r::find(vertex->labels, current->label.value);
-            MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
-            vertex->labels.push_back(current->label.value);
+            MG_ASSERT(!ContainsLabel(vertex->labels, current->label.value), "Invalid database state!");
+            vertex->labels.push_back(current->label.value.AsUint());
 
             storage_->UpdateLabelCount(current->label.value, 1);
             index_abort_processor.CollectOnLabelAddition(current->label.value, vertex);
@@ -1526,16 +1521,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             vertex->set_deleted(true);
             my_deleted_vertices.push_back(vertex->gid);
 
-            for (auto const label : vertex->labels) {
-              storage_->UpdateLabelCount(label, -1);
-            }
+            vertex->labels.for_each([this](uint32_t id) { storage_->UpdateLabelCount(LabelId::FromUint(id), -1); });
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
             vertex->set_deleted(false);
-            for (auto const label : vertex->labels) {
-              storage_->UpdateLabelCount(label, 1);
-            }
+            vertex->labels.for_each([this](uint32_t id) { storage_->UpdateLabelCount(LabelId::FromUint(id), 1); });
             break;
           }
         }

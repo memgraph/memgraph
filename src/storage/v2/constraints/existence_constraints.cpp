@@ -13,6 +13,7 @@
 #include <expected>
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -23,7 +24,7 @@ namespace {
 [[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                   const LabelId &label,
                                                                                   const PropertyId &property) {
-  if (!vertex.deleted() && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+  if (!vertex.deleted() && ContainsLabel(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
     return std::unexpected{ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
   }
   return {};

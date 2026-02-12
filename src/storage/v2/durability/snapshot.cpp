@@ -821,11 +821,10 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
       auto labels_size = snapshot.ReadUint();
       if (!labels_size) throw RecoveryFailure("Couldn't read the size of vertex labels!");
       auto &labels = it->labels;
-      labels.reserve(*labels_size);
       for (uint64_t j = 0; j < *labels_size; ++j) {
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vertex label!");
-        labels.emplace_back(get_label_from_id(*label));
+        labels.push_back(get_label_from_id(*label).AsUint());
       }
     }
 
@@ -1267,13 +1266,12 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         auto labels_size = snapshot.ReadUint();
         if (!labels_size) throw RecoveryFailure("Couldn't read the size of labels!");
         auto &labels = it->labels;
-        labels.reserve(*labels_size);
         for (uint64_t j = 0; j < *labels_size; ++j) {
           auto label = snapshot.ReadUint();
           if (!label) throw RecoveryFailure("Couldn't read vertex label!");
           SPDLOG_TRACE(
               "Recovered label \"{}\" for vertex {}.", name_id_mapper->IdToName(snapshot_id_map.at(*label)), *gid);
-          labels.emplace_back(get_label_from_id(*label));
+          labels.push_back(get_label_from_id(*label).AsUint());
         }
       }
 
