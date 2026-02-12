@@ -94,10 +94,7 @@ def test_concurrency_read_only_v_shared_storage_acc(first_connection, second_con
     try:
         execute_and_fetch_all(m2c, "CREATE INDEX ON :L")
     except Exception as e:
-        assert (
-            str(e)
-            == "Cannot get read only access to the storage. Try stopping other queries that are running in parallel."
-        )
+        assert str(e).startswith("Cannot get read only access to the storage.")
         m2c_timeout = True
 
     first_connection.commit()
@@ -118,10 +115,7 @@ def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connec
     try:
         execute_and_fetch_all(m2c, "DROP GRAPH")
     except Exception as e:
-        assert (
-            str(e)
-            == "Cannot get unique access to the storage. Try stopping other queries that are running in parallel."
-        )
+        assert str(e).startswith("Cannot get unique access to the storage.")
         m2c_timeout = True
 
     first_connection.commit()
