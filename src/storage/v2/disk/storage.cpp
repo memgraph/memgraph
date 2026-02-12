@@ -2060,7 +2060,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
 
 void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  uint64_t transaction_id = transaction_.transaction_id;
+  auto const *commit_info = transaction_.commit_info.get();
 
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
@@ -2068,8 +2068,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
         Delta *current = vertex->delta;
-        while (current != nullptr &&
-               current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_id) {
+        while (current != nullptr && current->commit_info == commit_info) {
           switch (current->action) {
             case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
