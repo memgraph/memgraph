@@ -239,11 +239,33 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
   "${MG_TOOLCHAIN_ROOT}/include"
 )
 
-# create dummy targets so dependencies don't break
-# mgconsole will be built via CPack install script instead
-add_custom_target(mgconsole-proj)
-add_custom_target(mgconsole)
-message(STATUS "Skipping mgconsole ExternalProject build - will be built via CPack install script")
+# Build mgconsole in isolation using the build script to avoid target conflicts
+# with memgraph's dependencies (e.g., gflags)
+# Default to v1.5.0 if not specified
+if(NOT DEFINED MGCONSOLE_GIT_TAG)
+    set(MGCONSOLE_GIT_TAG "v1.5.0")
+endif()
+
+set(BUILD_MGCONSOLE_SCRIPT "${CMAKE_SOURCE_DIR}/tools/ci/build-mgconsole.sh")
+set(MGCONSOLE_SOURCE "${CMAKE_SOURCE_DIR}/build/mgconsole/bin/mgconsole")
+set(MGCONSOLE_BINARY "${CMAKE_BINARY_DIR}/bin/mgconsole")
+
+# Build mgconsole using the same script as CPack
+add_custom_target(mgconsole-proj
+    COMMAND bash -c "unset DESTDIR && export MGCONSOLE_TAG=\"${MGCONSOLE_GIT_TAG}\" && bash \"${BUILD_MGCONSOLE_SCRIPT}\""
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Building mgconsole using ${BUILD_MGCONSOLE_SCRIPT}"
+    BYPRODUCTS "${MGCONSOLE_SOURCE}"
+)
+
+# Copy mgconsole to the expected location
+add_custom_target(mgconsole
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MGCONSOLE_SOURCE}" "${MGCONSOLE_BINARY}"
+    DEPENDS mgconsole-proj
+    COMMENT "Copying mgconsole to ${MGCONSOLE_BINARY}"
+    BYPRODUCTS "${MGCONSOLE_BINARY}"
+)
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
