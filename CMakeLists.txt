@@ -482,6 +482,9 @@ add_custom_target(generated_code DEPENDS
   mgcxx_text_search
 )
 
+# Build mgconsole during install stage (before installing the file)
+install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
+
 install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
   PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
   TYPE BIN)

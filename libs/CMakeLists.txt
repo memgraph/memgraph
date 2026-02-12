@@ -251,10 +251,6 @@ endif()
 add_custom_target(mgconsole-proj)
 add_custom_target(mgconsole)
 
-# Build mgconsole during install stage (before the install(FILES) command runs)
-# This runs during cmake --install
-install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
-
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
 
