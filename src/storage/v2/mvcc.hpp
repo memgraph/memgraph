@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 
 #include "storage/v2/transaction.hpp"
@@ -28,6 +29,13 @@ namespace memgraph::storage {
 /// that should be applied it calls the callback function with the delta that
 /// should be applied passed as a parameter to the callback. It is up to the
 /// caller to apply the deltas.
+/// WARNING: If you are calling this function directly, be very careful about
+/// object lock lifetime. When reading deltas on a vertex with
+/// `has_uncommitted_non_sequential_deltas`, the vertex lock must be held whilst
+/// deltas are being read. The MvccRead class wraps this functionality using the
+/// correct and optimal locks, so you should probably be using that. The only
+/// reason this is still a free function is that on-disk uses it with its own
+/// locking mechanisms.
 /// @return number of deltas that were processed
 template <typename TCallback>
 inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delta *delta, View view,
@@ -102,6 +110,59 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   }
   return n_processed;
 }
+
+/// RAII wrapper for reading MVCC-versioned objects.  Acquires the appropriate
+/// shared lock, snapshots the delta pointer, and provides ApplyDeltasForRead to
+/// reconstruct the visible version. For objects with uncommitted non-sequential
+/// deltas, the lock is held during delta traversal; otherwise it is released
+/// early for better concurrency (or can be manually released once safe to.)
+template <typename TObject>
+class MvccRead {
+ public:
+  template <typename TWithLock>
+  MvccRead(TObject const *object, Transaction const *transaction, View view, TWithLock &&with_lock)
+      : transaction_{transaction}, view_{view}, lock_{object->lock} {
+    std::forward<TWithLock>(with_lock)(*object);
+    delta_ = object->delta;
+    if constexpr (requires { object->has_uncommitted_non_sequential_deltas; }) {
+      if (!object->has_uncommitted_non_sequential_deltas) {
+        lock_.unlock();
+      }
+    } else {
+      lock_.unlock();
+    }
+  }
+
+  MvccRead(TObject const *object, Transaction const *transaction, View view)
+      : MvccRead(object, transaction, view, [](TObject const &) {}) {}
+
+  MvccRead(MvccRead const &) = delete;
+  MvccRead(MvccRead &&) = delete;
+  MvccRead &operator=(MvccRead const &) = delete;
+  MvccRead &operator=(MvccRead &&) = delete;
+
+  ~MvccRead() = default;
+
+  bool HasDeltas() const { return delta_ != nullptr; }
+
+  bool OwnsLock() const { return lock_.owns_lock(); }
+
+  // In functions that use an MvccRead, it is safe to manually `Unlock` (if
+  // we currently `OwnsLock`) once we have read the deltas. This prevents
+  // object locks being held longer than is strictly necessary.
+  void Unlock() { lock_.unlock(); }
+
+  template <typename TCallback>
+  std::size_t ApplyDeltasForRead(TCallback const &callback) {
+    return memgraph::storage::ApplyDeltasForRead(transaction_, delta_, view_, callback);
+  }
+
+ private:
+  Transaction const *transaction_;
+  View view_;
+  Delta *delta_;
+  std::shared_lock<utils::RWSpinLock> lock_;
+};
 
 /// This function prepares the object for a write. It checks whether there are
 /// any serialization errors in the process (eg. the object can't be written to
