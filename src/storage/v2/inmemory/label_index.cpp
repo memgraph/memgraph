@@ -13,6 +13,7 @@
 
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "utils/counter.hpp"
 
 namespace r = ranges;
@@ -104,7 +105,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
+  if (vertex.deleted() || !ContainsLabel(vertex.labels, label)) {
     return;
   }
 
@@ -128,7 +129,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted();
     delta = vertex.delta();
-    has_label = std::ranges::contains(vertex.labels, label);
+    has_label = ContainsLabel(vertex.labels, label);
 
     // If vertex has non-sequential deltas, hold lock while applying them
     if (!vertex.has_uncommitted_non_sequential_deltas()) {

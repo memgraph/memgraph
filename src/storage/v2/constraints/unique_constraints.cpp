@@ -14,10 +14,11 @@
 namespace memgraph::storage {
 
 void UniqueConstraints::AbortProcessor::Collect(Vertex const *vertex) {
-  for (const auto &label : vertex->labels) {
+  vertex->labels.for_each([&](uint32_t id) {
+    auto label = LabelId::FromUint(id);
     auto it = abortable_info_.find(label);
     if (it == abortable_info_.end()) {
-      continue;
+      return;
     }
 
     for (auto &[props, collection] : it->second) {
@@ -27,7 +28,7 @@ void UniqueConstraints::AbortProcessor::Collect(Vertex const *vertex) {
       }
       collection.emplace_back(std::move(*values), vertex);
     }
-  }
+  });
 }
 
 }  // namespace memgraph::storage

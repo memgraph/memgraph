@@ -13,12 +13,14 @@
 #include <algorithm>
 #include <array>
 #include <bitset>
+#include <optional>
 #include <ranges>
 #include <tuple>
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/counter.hpp"
@@ -33,7 +35,7 @@ namespace {
 auto DoValidate(const Vertex &vertex, utils::SkipList<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
                 const LabelId &label, const std::set<PropertyId> &properties)
     -> std::expected<void, ConstraintViolation> {
-  if (vertex.deleted() || !std::ranges::contains(vertex.labels, label)) {
+  if (vertex.deleted() || !ContainsLabel(vertex.labels, label)) {
     return {};
   }
   auto values = vertex.properties.ExtractPropertyValues(properties);
@@ -120,7 +122,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     auto guard = std::shared_lock{vertex.lock};
     delta = vertex.delta();
     deleted = vertex.deleted();
-    has_label = std::ranges::contains(vertex.labels, label);
+    has_label = ContainsLabel(vertex.labels, label);
 
     for (const auto &[i, property] : std::views::enumerate(properties)) {
       current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
@@ -205,7 +207,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   Delta *delta;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = std::ranges::contains(vertex.labels, label);
+    has_label = ContainsLabel(vertex.labels, label);
     deleted = vertex.deleted();
     delta = vertex.delta();
 
@@ -334,10 +336,11 @@ auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(uint64_t star
 }
 
 void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
-  for (const auto &label : vertex->labels) {
+  vertex->labels.for_each([&](uint32_t id) {
+    auto label = LabelId::FromUint(id);
     const auto &constraint = container_->find(label);
     if (constraint == container_->end()) {
-      continue;
+      return;
     }
 
     for (const auto &[props, individual_constraint] : constraint->second) {
@@ -355,7 +358,7 @@ void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vert
       auto acc = individual_constraint->skiplist.access();
       acc.insert(Entry{.values = std::move(*values), .vertex = vertex, .timestamp = tx.start_timestamp});
     }
-  }
+  });
 }
 
 auto InMemoryUniqueConstraints::ActiveConstraints::GetAbortProcessor() const -> AbortProcessor {
@@ -583,10 +586,13 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
     if (vertex->deleted()) {
       continue;
     }
-    for (const auto &label : vertex->labels) {
+    std::optional<ConstraintViolation> violation;
+    vertex->labels.for_each([&](uint32_t id) {
+      if (violation) return;
+      auto label = LabelId::FromUint(id);
       const auto &constraint = container->find(label);
       if (constraint == container->end()) {
-        continue;
+        return;
       }
 
       for (const auto &[properties, individual_constraint] : constraint->second) {
@@ -619,11 +625,13 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
 
         for (auto const *v : possible_conflicting) {
           if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
-            return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
+            violation = ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+            return;
           }
         }
       }
-    }
+    });
+    if (violation) return std::unexpected{*violation};
   }
   return {};
 }

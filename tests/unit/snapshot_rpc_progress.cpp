@@ -517,7 +517,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
     for (uint32_t i = 1; i <= 8; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
       vertex.properties.InitProperties(prop_data);
-      vertex.labels.emplace_back(label);
+      vertex.labels.push_back(label.AsUint());
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
@@ -569,7 +569,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 8; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
-      vertex.labels.emplace_back(label);
+      vertex.labels.push_back(label.AsUint());
       vertex.properties.InitProperties(prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
@@ -611,7 +611,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 9; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
-      vertex.labels.emplace_back(label);
+      vertex.labels.push_back(label.AsUint());
       vertex.properties.InitProperties(prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
@@ -640,7 +640,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 6; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
-      vertex.labels.emplace_back(label);
+      vertex.labels.push_back(label.AsUint());
       vertex.properties.InitProperties(prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
@@ -689,7 +689,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 9; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
-      vertex.labels.emplace_back(label);
+      vertex.labels.push_back(label.AsUint());
       const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
           {prop, PropertyValue{static_cast<int>(i)}},
       };
@@ -721,7 +721,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 6; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
-      vertex.labels.emplace_back(label);
+      vertex.labels.push_back(label.AsUint());
       const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
           {prop, PropertyValue{static_cast<int>(i)}},
       };
@@ -774,7 +774,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 9; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
-      vertex.labels.emplace_back(label);
+      vertex.labels.push_back(label.AsUint());
       const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
           {prop, PropertyValue{static_cast<int>(i)}},
       };

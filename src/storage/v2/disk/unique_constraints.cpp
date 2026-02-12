@@ -18,6 +18,7 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/disk_utils.hpp"
@@ -29,8 +30,7 @@ namespace {
 
 bool IsVertexUnderConstraint(const Vertex &vertex, const LabelId &constraint_label,
                              const std::set<PropertyId> &constraint_properties) {
-  return std::ranges::contains(vertex.labels, constraint_label) &&
-         vertex.properties.HasAllProperties(constraint_properties);
+  return ContainsLabel(vertex.labels, constraint_label) && vertex.properties.HasAllProperties(constraint_properties);
 }
 
 bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid gid, const LabelId constraint_label) {
@@ -263,7 +263,8 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
     if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
       auto key = utils::SerializeVertexAsKeyForUniqueConstraint(
           constraint_label, constraint_properties, vertex.gid.ToString());
-      auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties);
+      auto labels_key = ToVertexKey(vertex.labels);
+      auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, labels_key, vertex.properties);
       if (!disk_transaction->Put(key, value).ok()) {
         return false;
       }

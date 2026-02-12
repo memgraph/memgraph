@@ -33,6 +33,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
@@ -1008,12 +1009,13 @@ std::optional<RecoveryInfo> LoadWal(
         if (vertex == vertex_acc.end())
           throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        if (r::contains(vertex->labels, label_id))
+        if (ContainsLabel(vertex->labels, label_id))
           throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
-        if (schema_info) old_labels.emplace(vertex->labels);
-        vertex->labels.push_back(label_id);
-        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
+        std::optional<VertexKey> old_labels{};
+        if (schema_info) old_labels.emplace(ToVertexKey(vertex->labels));
+        vertex->labels.push_back(label_id.AsUint());
+        if (schema_info)
+          schema_info->UpdateLabels(&*vertex, *old_labels, ToVertexKey(vertex->labels), items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelAddition(
             label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
@@ -1022,14 +1024,13 @@ std::optional<RecoveryInfo> LoadWal(
         if (vertex == vertex_acc.end())
           throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto it = r::find(vertex->labels, label_id);
-        if (it == vertex->labels.end())
+        if (!ContainsLabel(vertex->labels, label_id))
           throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
-        if (schema_info) old_labels.emplace(vertex->labels);
-        std::swap(*it, vertex->labels.back());
-        vertex->labels.pop_back();
-        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
+        std::optional<VertexKey> old_labels{};
+        if (schema_info) old_labels.emplace(ToVertexKey(vertex->labels));
+        RemoveLabel(vertex->labels, label_id);
+        if (schema_info)
+          schema_info->UpdateLabels(&*vertex, *old_labels, ToVertexKey(vertex->labels), items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelRemoval(
             label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },

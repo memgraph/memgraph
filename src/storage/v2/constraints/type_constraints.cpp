@@ -17,6 +17,7 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
@@ -30,11 +31,12 @@ namespace {
   if (container->constraints_.empty()) return {};
 
   auto validator = TypeConstraintsValidator{};
-  for (auto label : vertex.labels) {
+  vertex.labels.for_each([&](uint32_t id) {
+    auto label = LabelId::FromUint(id);
     auto it = container->l2p_constraints_.find(label);
-    if (it == container->l2p_constraints_.cend()) continue;
+    if (it == container->l2p_constraints_.cend()) return;
     validator.add(label, it->second);
-  }
+  });
 
   if (validator.empty()) return {};
 
@@ -95,16 +97,20 @@ auto TypeConstraints::ActiveConstraints::Validate(const Vertex &vertex, Property
     -> std::expected<void, ConstraintViolation> {
   if (property_value.IsNull()) return {};  // Type constraints don't enforce existence
 
-  for (auto const label : vertex.labels) {
+  std::optional<ConstraintViolation> violation;
+  vertex.labels.for_each([&](uint32_t id) {
+    if (violation) return;
+    auto label = LabelId::FromUint(id);
     auto constraint_type_it = container_->constraints_.find({label, property_id});
-    if (constraint_type_it == container_->constraints_.end()) continue;
+    if (constraint_type_it == container_->constraints_.end()) return;
 
     auto constraint_type = constraint_type_it->second->type;
-    if (PropertyValueMatchesTypeConstraint(property_value, constraint_type)) continue;
+    if (PropertyValueMatchesTypeConstraint(property_value, constraint_type)) return;
 
-    return std::unexpected{ConstraintViolation{
-        ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}}};
-  }
+    violation = ConstraintViolation{
+        ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}};
+  });
+  if (violation) return std::unexpected{*violation};
   return {};
 }
 
@@ -140,7 +146,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveCons
 
   for (auto const &vertex : vertices) {
     if (vertex.deleted()) continue;
-    if (!std::ranges::contains(vertex.labels, label)) continue;
+    if (!ContainsLabel(vertex.labels, label)) continue;
 
     auto violation = vertex.properties.PropertiesMatchTypes(validator);
     if (!violation) continue;
