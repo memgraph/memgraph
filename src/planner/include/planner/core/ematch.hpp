@@ -206,6 +206,18 @@ class EMatcher {
   auto match(Pattern<Symbol> const &pattern, EMatchContext &ctx) const -> std::vector<Match>;
 
   /**
+   * @brief Find all matches and append to output vector (avoids allocation)
+   *
+   * Like match(), but appends results to an existing vector instead of
+   * returning a new one. Use this when you want to reuse a results buffer.
+   *
+   * @param pattern The pattern to match
+   * @param ctx Reusable context with pre-allocated buffers
+   * @param out Output vector to append matches to (not cleared)
+   */
+  void match_into(Pattern<Symbol> const &pattern, EMatchContext &ctx, std::vector<Match> &out) const;
+
+  /**
    * @brief Find matches with pre-bound variable constraints
    *
    * Like match(), but starts with existing variable bindings. Only returns
@@ -238,6 +250,19 @@ class EMatcher {
    */
   auto match_constrained(Pattern<Symbol> const &pattern, Substitution const &constraints, EMatchContext &ctx) const
       -> std::vector<Match>;
+
+  /**
+   * @brief Find constrained matches and append to output vector (avoids allocation)
+   *
+   * Like match_constrained(), but appends results to an existing vector.
+   *
+   * @param pattern The pattern to match
+   * @param constraints Pre-bound variable values that must be respected
+   * @param ctx Reusable context with pre-allocated buffers
+   * @param out Output vector to append matches to (not cleared)
+   */
+  void match_constrained_into(Pattern<Symbol> const &pattern, Substitution const &constraints, EMatchContext &ctx,
+                              std::vector<Match> &out) const;
 
  private:
   using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
@@ -330,15 +355,22 @@ void EMatcher<Symbol, Analysis>::rebuild(std::span<EClassId const> new_eclasses)
 
 template <typename Symbol, typename Analysis>
 auto EMatcher<Symbol, Analysis>::match(Pattern<Symbol> const &pattern, EMatchContext &ctx) const -> std::vector<Match> {
+  std::vector<Match> results;
+  match_into(pattern, ctx, results);
+  return results;
+}
+
+template <typename Symbol, typename Analysis>
+void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMatchContext &ctx,
+                                            std::vector<Match> &results) const {
   if (pattern.empty()) {
-    return {};
+    return;
   }
 
   // Pre-allocate depth buffers to avoid invalidation during recursion
   // Pattern size is an upper bound on recursion depth
   ctx.ensure_depth(pattern.size());
 
-  std::vector<Match> results;
   auto const &root_pnode = pattern[pattern.root()];
 
   if (root_pnode.is_variable()) {
@@ -348,13 +380,13 @@ auto EMatcher<Symbol, Analysis>::match(Pattern<Symbol> const &pattern, EMatchCon
       subst[root_pnode.variable()] = eclass_id;
       results.push_back({eclass_id, std::move(subst)});
     }
-    return results;
+    return;
   }
 
   // Symbol pattern: use index to find candidate e-classes
   auto const *candidates = eclasses_with_symbol(root_pnode.symbol());
   if (candidates == nullptr) {
-    return {};  // No e-classes contain this symbol
+    return;  // No e-classes contain this symbol
   }
 
   // Get reusable buffers from context
@@ -400,8 +432,6 @@ auto EMatcher<Symbol, Analysis>::match(Pattern<Symbol> const &pattern, EMatchCon
       }
     }
   }
-
-  return results;
 }
 
 template <typename Symbol, typename Analysis>
@@ -562,14 +592,21 @@ void EMatcher<Symbol, Analysis>::match_via_parents(Pattern<Symbol> const &patter
 template <typename Symbol, typename Analysis>
 auto EMatcher<Symbol, Analysis>::match_constrained(Pattern<Symbol> const &pattern, Substitution const &constraints,
                                                    EMatchContext &ctx) const -> std::vector<Match> {
+  std::vector<Match> results;
+  match_constrained_into(pattern, constraints, ctx, results);
+  return results;
+}
+
+template <typename Symbol, typename Analysis>
+void EMatcher<Symbol, Analysis>::match_constrained_into(Pattern<Symbol> const &pattern, Substitution const &constraints,
+                                                        EMatchContext &ctx, std::vector<Match> &results) const {
   if (pattern.empty()) {
-    return {};
+    return;
   }
 
   // Pre-allocate depth buffers
   ctx.ensure_depth(pattern.size());
 
-  std::vector<Match> results;
   auto const &root_pnode = pattern[pattern.root()];
 
   if (root_pnode.is_variable()) {
@@ -592,7 +629,7 @@ auto EMatcher<Symbol, Analysis>::match_constrained(Pattern<Symbol> const &patter
         results.push_back({eclass_id, std::move(subst)});
       }
     }
-    return results;
+    return;
   }
 
   // Symbol pattern root - check if we can use parent-based optimization
@@ -602,13 +639,13 @@ auto EMatcher<Symbol, Analysis>::match_constrained(Pattern<Symbol> const &patter
     auto const &child = pattern[root_pnode.children[*constrained_child_idx]];
     auto anchor_eclass = egraph_->find(constraints.at(child.variable()));
     match_via_parents(pattern, root_pnode, anchor_eclass, *constrained_child_idx, constraints, results, ctx);
-    return results;
+    return;
   }
 
   // Fall back to index-based matching (same as match() but with constraints)
   auto const *candidates = eclasses_with_symbol(root_pnode.symbol());
   if (candidates == nullptr) {
-    return {};
+    return;
   }
 
   auto &processed = ctx.processed();
@@ -647,8 +684,6 @@ auto EMatcher<Symbol, Analysis>::match_constrained(Pattern<Symbol> const &patter
       }
     }
   }
-
-  return results;
 }
 
 }  // namespace memgraph::planner::core

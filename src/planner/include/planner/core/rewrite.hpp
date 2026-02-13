@@ -28,6 +28,7 @@
 #include "planner/core/ematch.hpp"
 #include "planner/core/pattern.hpp"
 #include "planner/core/processing_context.hpp"
+#include "utils/small_vector.hpp"
 
 import memgraph.planner.core.concepts;
 
@@ -42,7 +43,8 @@ namespace memgraph::planner::core {
  */
 struct UnifiedMatch {
   /// The e-class where each pattern matched (one entry per pattern, in order)
-  std::vector<EClassId> pattern_roots;
+  /// Uses small_vector to avoid heap allocation for 1-2 pattern rules (common case)
+  utils::small_vector<EClassId> pattern_roots;
 
   /// Combined variable substitution from all patterns
   /// For shared variables, this contains the canonicalized e-class ID
@@ -57,8 +59,10 @@ struct UnifiedMatch {
  * swaps between current and next buffers.
  */
 struct UnifiedMatchBuffers {
-  std::vector<UnifiedMatch> current;  ///< Current set of unified matches
-  std::vector<UnifiedMatch> next;     ///< Next set after extending with another pattern
+  std::vector<UnifiedMatch> current;   ///< Current set of unified matches
+  std::vector<UnifiedMatch> next;      ///< Next set after extending with another pattern
+  std::vector<Match> pattern_matches;  ///< Reusable buffer for pattern match results
+  Substitution constraints;            ///< Reusable buffer for constraint building
 
   /**
    * @brief Swap current and next buffers
@@ -71,6 +75,8 @@ struct UnifiedMatchBuffers {
   void clear() {
     current.clear();
     next.clear();
+    pattern_matches.clear();
+    constraints.clear();
   }
 };
 
@@ -321,13 +327,17 @@ class RewriteRule {
     UnifiedMatchBuffers &buffers = unified_buffers != nullptr ? *unified_buffers : local_buffers;
     buffers.clear();
 
-    // Start with matches from the first pattern
+    // Start with matches from the first pattern (use buffer to avoid allocation)
     match_ctx.clear();
-    auto first_matches = matcher.match(patterns_[0], match_ctx);
+    buffers.pattern_matches.clear();
+    matcher.match_into(patterns_[0], match_ctx, buffers.pattern_matches);
 
-    buffers.current.reserve(first_matches.size());
-    for (auto &m : first_matches) {
-      buffers.current.push_back({{m.matched_eclass}, std::move(m.subst)});
+    buffers.current.reserve(buffers.pattern_matches.size());
+    for (auto &m : buffers.pattern_matches) {
+      UnifiedMatch um;
+      um.pattern_roots.push_back(m.matched_eclass);
+      um.subst = std::move(m.subst);
+      buffers.current.push_back(std::move(um));
     }
 
     // For each subsequent pattern, extend unified matches using double-buffering
@@ -336,12 +346,13 @@ class RewriteRule {
       buffers.next.clear();                                   // Clear next buffer (keeps capacity)
 
       if (shared_vars.empty()) {
-        // No shared variables - Cartesian product
+        // No shared variables - Cartesian product (use buffer to avoid allocation)
         match_ctx.clear();
-        auto pattern_matches = matcher.match(patterns_[p], match_ctx);
+        buffers.pattern_matches.clear();
+        matcher.match_into(patterns_[p], match_ctx, buffers.pattern_matches);
 
         for (auto const &um : buffers.current) {
-          for (auto const &m : pattern_matches) {
+          for (auto const &m : buffers.pattern_matches) {
             UnifiedMatch extended;
             extended.pattern_roots = um.pattern_roots;
             extended.pattern_roots.push_back(m.matched_eclass);
@@ -357,25 +368,29 @@ class RewriteRule {
         // Group by constraint key to avoid redundant matching
         boost::unordered_flat_map<Substitution, std::vector<std::size_t>> constraint_to_indices;
         for (std::size_t i = 0; i < buffers.current.size(); ++i) {
-          Substitution constraints;
+          buffers.constraints.clear();  // Reuse constraints buffer
           for (auto var : shared_vars) {
             auto it = buffers.current[i].subst.find(var);
             if (it != buffers.current[i].subst.end()) {
-              constraints[var] = egraph.find(it->second);
+              buffers.constraints[var] = egraph.find(it->second);
             }
           }
-          constraint_to_indices[constraints].push_back(i);
+          constraint_to_indices[buffers.constraints].push_back(i);
         }
 
         // Match once per unique constraint, then extend all unified matches with that constraint
         for (auto const &[constraints, indices] : constraint_to_indices) {
           match_ctx.clear();
-          auto pattern_matches = constraints.empty() ? matcher.match(patterns_[p], match_ctx)
-                                                     : matcher.match_constrained(patterns_[p], constraints, match_ctx);
+          buffers.pattern_matches.clear();
+          if (constraints.empty()) {
+            matcher.match_into(patterns_[p], match_ctx, buffers.pattern_matches);
+          } else {
+            matcher.match_constrained_into(patterns_[p], constraints, match_ctx, buffers.pattern_matches);
+          }
 
           for (std::size_t idx : indices) {
             auto const &um = buffers.current[idx];
-            for (auto const &m : pattern_matches) {
+            for (auto const &m : buffers.pattern_matches) {
               UnifiedMatch extended;
               extended.pattern_roots = um.pattern_roots;
               extended.pattern_roots.push_back(m.matched_eclass);
