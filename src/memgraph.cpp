@@ -674,17 +674,6 @@ int main(int argc, char **argv) {
 #endif
   };
 
-#ifdef MG_ENTERPRISE
-  // MAIN or REPLICA instance
-  if (is_valid_data_instance) {
-    spdlog::trace("Starting data instance management server.");
-    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
-                                                                   replication_handler);
-    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
-    spdlog::trace("Data instance management server started.");
-  }
-#endif
-
   auto db_acc = dbms_handler.Get();
 
   // Global worker pool!
@@ -760,6 +749,22 @@ int main(int argc, char **argv) {
     dbms_handler.RestoreStreams(&interpreter_context_);
     spdlog::trace("Streams restored.");
   }
+
+#ifdef MG_ENTERPRISE
+  // MAIN or REPLICA instance
+  // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
+  // This thread takes unique lock on dbms handler and waits for storage write access
+  // Thread serving requests from DataInstanceManagementServer does the demote. Takes READ_ONLY access
+  // on all DBs and tries to acquire unique lock on replication_storage_state_ in order to clear replication
+  // storage clients.
+  if (is_valid_data_instance) {
+    spdlog::trace("Starting data instance management server.");
+    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
+                                                                   replication_handler);
+    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
+    spdlog::trace("Data instance management server started.");
+  }
+#endif
 
   ServerContext context;
   std::string service_name = "Bolt";
