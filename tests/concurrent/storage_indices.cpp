@@ -21,8 +21,6 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/thread.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 const uint64_t kNumVerifiers = 5;
 const uint64_t kNumMutators = 1;
 

@@ -25,6 +25,8 @@
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
+#include "replication_coordination_glue/mode.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/common_function_signatures.hpp"

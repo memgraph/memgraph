@@ -24,8 +24,6 @@
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 using testing::Types;
 using testing::UnorderedElementsAre;
 

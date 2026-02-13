@@ -17,8 +17,6 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 constexpr int kNumThreads = 8;
 
 #define ASSERT_OK(x) ASSERT_TRUE((x).has_value())

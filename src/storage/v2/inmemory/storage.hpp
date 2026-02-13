@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
-#include "flags/run_time_configurable.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"

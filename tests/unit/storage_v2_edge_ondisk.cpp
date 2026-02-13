@@ -15,11 +15,11 @@
 #include <limits>
 
 #include "disk_test_utils.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
 
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {};

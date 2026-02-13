@@ -31,7 +31,6 @@
 
 #include "query_plan_common.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 

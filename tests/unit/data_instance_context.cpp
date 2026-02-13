@@ -20,7 +20,6 @@
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
 using memgraph::replication_coordination_glue::ReplicationMode;
-using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::utils::UUID;
 
 class DataInstanceContextTest : public ::testing::Test {

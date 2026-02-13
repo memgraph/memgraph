@@ -25,8 +25,6 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 using memgraph::query::test_common::ToIntList;
