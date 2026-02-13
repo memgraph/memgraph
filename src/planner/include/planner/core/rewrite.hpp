@@ -50,6 +50,13 @@ struct UnifiedMatch {
   /// For shared variables, this contains the canonicalized e-class ID
   Substitution subst;
 
+  /// Default constructor
+  UnifiedMatch() = default;
+
+  /// Construct from initial pattern match (first pattern in a multi-pattern rule)
+  explicit UnifiedMatch(EClassId initial_root, Substitution initial_subst)
+      : pattern_roots{initial_root}, subst(std::move(initial_subst)) {}
+
   /**
    * @brief Create an extended match by adding a new pattern root and merging substitutions
    * @param new_root The e-class where the new pattern matched
@@ -347,10 +354,7 @@ class RewriteRule {
 
     unified_buffers.current.reserve(unified_buffers.pattern_matches.size());
     for (auto &m : unified_buffers.pattern_matches) {
-      UnifiedMatch um;
-      um.pattern_roots.push_back(m.matched_eclass);
-      um.subst = std::move(m.subst);
-      unified_buffers.current.push_back(std::move(um));
+      unified_buffers.current.emplace_back(m.matched_eclass, std::move(m.subst));
     }
 
     // For each subsequent pattern, extend unified matches using double-buffering
