@@ -209,11 +209,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::NULL_PTR:
-        break;
       case PreviousPtr::Type::DELTA:
-        if (prev.delta->commit_info->timestamp.load(std::memory_order_acquire) != transaction_id) {
-          prev.delta->next.store(nullptr, std::memory_order_release);
-        }
         break;
       case PreviousPtr::Type::VERTEX: {
         auto &vertex = *prev.vertex;
@@ -934,8 +930,7 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-  bool const no_non_sequential_deltas = !transaction_.has_non_sequential_deltas;
-  if (no_older_transactions && no_newer_transactions && no_non_sequential_deltas) [[unlikely]] {
+  if (no_older_transactions && no_newer_transactions) [[unlikely]] {
     // STEP 0) Can only do fast discard if GC is not running
     //         We can't unlink our transactions deltas until all the older deltas in GC have been unlinked
     //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
@@ -1228,9 +1223,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
                                                             std::list<Gid> &current_deleted_vertices,
                                                             IndexPerformanceTracker &impact_tracker) {
-  DMG_ASSERT(!transaction_.has_non_sequential_deltas,
-             "non-sequential deltas are not candidates for rapid delta cleanup");
-
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // STEP 1) ensure everything in GC is gone
@@ -1239,11 +1231,13 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   //      we are the only transaction, no one is reading those unlinked deltas
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
 
-  // 1.b.0) old committed_transactions_ need minimal unlinking + remove + clear
+  // 1.b.0) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
   //      must be done before this transactions delta unlinking
   auto linked_undo_buffers = std::list<GCDeltas>{};
   mem_storage->committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
+  mem_storage->waiting_gc_deltas_.WithLock(
+      [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
@@ -1251,7 +1245,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         gc_deltas.deltas_, gc_deltas.transaction_id_, current_deleted_edges, current_deleted_vertices, impact_tracker);
   }
 
-  // STEP 2) this transaction's deltas also minimal unlinking + remove
+  // STEP 2) this transaction's deltas
   UnlinkAndRemoveDeltas(transaction_.deltas,
                         transaction_.transaction_id,
                         current_deleted_edges,
@@ -1266,26 +1260,12 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // STEP 1 + STEP 2 - delta cleanup (must hold waiting room lock to prevent races)
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
 
-  bool const cleanup_performed = mem_storage->waiting_gc_deltas_.WithLock([&](const auto &waiting_list) -> bool {
-    if (!waiting_list.empty()) {
-      // There are non-sequential transactions in the waiting room that might reference
-      // the same objects we're about to clean up. Skip rapid cleanup to be safe.
-      return false;
-    }
-
-    // Safe to proceed - no waiting transactions can be added while we hold this lock
-    GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
-    return true;
-  });
-
-  if (!cleanup_performed) {
-    return;
-  }
+  // STEP 1 + STEP 2 - delta cleanup
+  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
