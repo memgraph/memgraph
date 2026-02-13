@@ -49,6 +49,23 @@ struct UnifiedMatch {
   /// Combined variable substitution from all patterns
   /// For shared variables, this contains the canonicalized e-class ID
   Substitution subst;
+
+  /**
+   * @brief Create an extended match by adding a new pattern root and merging substitutions
+   * @param new_root The e-class where the new pattern matched
+   * @param new_subst Variable bindings from the new pattern match
+   * @return A new UnifiedMatch with the extended pattern roots and merged substitution
+   */
+  [[nodiscard]] auto extend(EClassId new_root, Substitution const &new_subst) const -> UnifiedMatch {
+    UnifiedMatch extended;
+    extended.pattern_roots = pattern_roots;
+    extended.pattern_roots.push_back(new_root);
+    extended.subst = subst;
+    for (auto const &[var, eclass] : new_subst) {
+      extended.subst.insert_or_assign(var, eclass);
+    }
+    return extended;
+  }
 };
 
 /**
@@ -349,14 +366,7 @@ class RewriteRule {
 
         for (auto const &um : unified_buffers.current) {
           for (auto const &m : unified_buffers.pattern_matches) {
-            UnifiedMatch extended;
-            extended.pattern_roots = um.pattern_roots;
-            extended.pattern_roots.push_back(m.matched_eclass);
-            extended.subst = um.subst;
-            for (auto const &[var, eclass] : m.subst) {
-              extended.subst.insert_or_assign(var, eclass);
-            }
-            unified_buffers.next.push_back(std::move(extended));
+            unified_buffers.next.push_back(um.extend(m.matched_eclass, m.subst));
           }
         }
       } else {
@@ -387,14 +397,7 @@ class RewriteRule {
           for (std::size_t idx : indices) {
             auto const &um = unified_buffers.current[idx];
             for (auto const &m : unified_buffers.pattern_matches) {
-              UnifiedMatch extended;
-              extended.pattern_roots = um.pattern_roots;
-              extended.pattern_roots.push_back(m.matched_eclass);
-              extended.subst = um.subst;
-              for (auto const &[var, eclass] : m.subst) {
-                extended.subst.insert_or_assign(var, eclass);
-              }
-              unified_buffers.next.push_back(std::move(extended));
+              unified_buffers.next.push_back(um.extend(m.matched_eclass, m.subst));
             }
           }
         }
