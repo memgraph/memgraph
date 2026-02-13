@@ -50,6 +50,31 @@ struct UnifiedMatch {
 };
 
 /**
+ * @brief Reusable buffers for multi-pattern rule matching
+ *
+ * Uses double-buffering pattern (like EMatchContext) to avoid repeated
+ * allocations when processing multi-pattern rules. Each rule iteration
+ * swaps between current and next buffers.
+ */
+struct UnifiedMatchBuffers {
+  std::vector<UnifiedMatch> current;  ///< Current set of unified matches
+  std::vector<UnifiedMatch> next;     ///< Next set after extending with another pattern
+
+  /**
+   * @brief Swap current and next buffers
+   */
+  void swap() { std::swap(current, next); }
+
+  /**
+   * @brief Clear both buffers (keeps capacity for reuse)
+   */
+  void clear() {
+    current.clear();
+    next.clear();
+  }
+};
+
+/**
  * @brief Configuration for the rewrite engine
  *
  * Controls limits on rewriting to prevent runaway saturation.
@@ -280,36 +305,42 @@ class RewriteRule {
    * @param matcher Pre-built matcher for the e-graph
    * @param match_ctx Reusable match context
    * @param proc_ctx Processing context for rebuild operations
+   * @param unified_buffers Optional pre-allocated buffers for multi-pattern matching.
+   *                        If nullptr, local vectors are used (less efficient).
    * @return Number of rewrites applied
    */
   template <typename Analysis>
   auto apply(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, EMatchContext &match_ctx,
-             ProcessingContext<Symbol> &proc_ctx) const -> std::size_t {
+             ProcessingContext<Symbol> &proc_ctx, UnifiedMatchBuffers *unified_buffers = nullptr) const -> std::size_t {
     if (patterns_.empty()) {
       return 0;
     }
+
+    // Use provided buffers or fallback to local vectors
+    UnifiedMatchBuffers local_buffers;
+    UnifiedMatchBuffers &buffers = unified_buffers != nullptr ? *unified_buffers : local_buffers;
+    buffers.clear();
 
     // Start with matches from the first pattern
     match_ctx.clear();
     auto first_matches = matcher.match(patterns_[0], match_ctx);
 
-    std::vector<UnifiedMatch> unified;
-    unified.reserve(first_matches.size());
+    buffers.current.reserve(first_matches.size());
     for (auto &m : first_matches) {
-      unified.push_back({{m.matched_eclass}, std::move(m.subst)});
+      buffers.current.push_back({{m.matched_eclass}, std::move(m.subst)});
     }
 
-    // For each subsequent pattern, extend unified matches
+    // For each subsequent pattern, extend unified matches using double-buffering
     for (std::size_t p = 1; p < patterns_.size(); ++p) {
       auto const &shared_vars = shared_vars_per_pattern_[p];  // Use precomputed shared vars
-      std::vector<UnifiedMatch> new_unified;
+      buffers.next.clear();                                   // Clear next buffer (keeps capacity)
 
       if (shared_vars.empty()) {
         // No shared variables - Cartesian product
         match_ctx.clear();
         auto pattern_matches = matcher.match(patterns_[p], match_ctx);
 
-        for (auto const &um : unified) {
+        for (auto const &um : buffers.current) {
           for (auto const &m : pattern_matches) {
             UnifiedMatch extended;
             extended.pattern_roots = um.pattern_roots;
@@ -318,18 +349,18 @@ class RewriteRule {
             for (auto const &[var, eclass] : m.subst) {
               extended.subst.insert_or_assign(var, eclass);
             }
-            new_unified.push_back(std::move(extended));
+            buffers.next.push_back(std::move(extended));
           }
         }
       } else {
         // Shared variables - use constrained matching for each unified match
         // Group by constraint key to avoid redundant matching
         boost::unordered_flat_map<Substitution, std::vector<std::size_t>> constraint_to_indices;
-        for (std::size_t i = 0; i < unified.size(); ++i) {
+        for (std::size_t i = 0; i < buffers.current.size(); ++i) {
           Substitution constraints;
           for (auto var : shared_vars) {
-            auto it = unified[i].subst.find(var);
-            if (it != unified[i].subst.end()) {
+            auto it = buffers.current[i].subst.find(var);
+            if (it != buffers.current[i].subst.end()) {
               constraints[var] = egraph.find(it->second);
             }
           }
@@ -343,7 +374,7 @@ class RewriteRule {
                                                      : matcher.match_constrained(patterns_[p], constraints, match_ctx);
 
           for (std::size_t idx : indices) {
-            auto const &um = unified[idx];
+            auto const &um = buffers.current[idx];
             for (auto const &m : pattern_matches) {
               UnifiedMatch extended;
               extended.pattern_roots = um.pattern_roots;
@@ -352,13 +383,13 @@ class RewriteRule {
               for (auto const &[var, eclass] : m.subst) {
                 extended.subst.insert_or_assign(var, eclass);
               }
-              new_unified.push_back(std::move(extended));
+              buffers.next.push_back(std::move(extended));
             }
           }
         }
       }
 
-      unified = std::move(new_unified);
+      buffers.swap();  // current = next for next iteration
     }
 
     // Apply the rule
@@ -367,7 +398,7 @@ class RewriteRule {
       return 0;  // Type mismatch or no apply function set
     }
 
-    return (*fn)(egraph, unified, proc_ctx);
+    return (*fn)(egraph, buffers.current, proc_ctx);
   }
 
  private:
@@ -493,13 +524,15 @@ class Rewriter {
     std::size_t total_rewrites = 0;
 
     for (auto const &rule : rules_) {
-      total_rewrites += rule.template apply<Analysis>(*egraph_, matcher_, match_ctx_, proc_ctx_);
+      total_rewrites += rule.template apply<Analysis>(*egraph_, matcher_, match_ctx_, proc_ctx_, &unified_buffers_);
     }
 
-    // Rebuild if any rewrites occurred
+    // Rebuild if any rewrites occurred (use incremental matcher rebuild)
     if (total_rewrites > 0 && egraph_->needs_rebuild()) {
-      egraph_->rebuild(proc_ctx_);
-      matcher_.rebuild();
+      auto affected = egraph_->rebuild(proc_ctx_);
+      affected_eclasses_buffer_.clear();
+      affected_eclasses_buffer_.insert(affected_eclasses_buffer_.end(), affected.begin(), affected.end());
+      matcher_.rebuild(std::span<EClassId const>{affected_eclasses_buffer_});
     }
 
     return total_rewrites;
@@ -518,15 +551,18 @@ class Rewriter {
     std::size_t total_rewrites = 0;
 
     for (std::size_t i = 0; i < rules_.size(); ++i) {
-      auto rule_rewrites = rules_[i].template apply<Analysis>(*egraph_, matcher_, match_ctx_, proc_ctx_);
+      auto rule_rewrites =
+          rules_[i].template apply<Analysis>(*egraph_, matcher_, match_ctx_, proc_ctx_, &unified_buffers_);
       per_rule_stats[i] += rule_rewrites;
       total_rewrites += rule_rewrites;
     }
 
-    // Rebuild if any rewrites occurred
+    // Rebuild if any rewrites occurred (use incremental matcher rebuild)
     if (total_rewrites > 0 && egraph_->needs_rebuild()) {
-      egraph_->rebuild(proc_ctx_);
-      matcher_.rebuild();
+      auto affected = egraph_->rebuild(proc_ctx_);
+      affected_eclasses_buffer_.clear();
+      affected_eclasses_buffer_.insert(affected_eclasses_buffer_.end(), affected.begin(), affected.end());
+      matcher_.rebuild(std::span<EClassId const>{affected_eclasses_buffer_});
     }
 
     return total_rewrites;
@@ -552,6 +588,8 @@ class Rewriter {
   EMatcher<Symbol, Analysis> matcher_;
   EMatchContext match_ctx_;
   ProcessingContext<Symbol> proc_ctx_;
+  std::vector<EClassId> affected_eclasses_buffer_;  ///< Buffer for incremental matcher rebuild
+  UnifiedMatchBuffers unified_buffers_;             ///< Reusable buffers for multi-pattern matching
 };
 
 }  // namespace memgraph::planner::core

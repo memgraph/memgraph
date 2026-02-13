@@ -199,8 +199,11 @@ struct EGraph : private detail::EGraphBase {
 
   /**
    * @brief Restore all e-graph invariants using rebuilding algorithm
+   *
+   * @return Set of all canonical e-class IDs that were processed (affected by merges).
+   *         This can be used for incremental EMatcher::rebuild().
    */
-  void rebuild(ProcessingContext<Symbol> &ctx);
+  auto rebuild(ProcessingContext<Symbol> &ctx) -> boost::unordered_flat_set<EClassId>;
 
   /**
    * @brief checks if a rebuild is required
@@ -343,9 +346,11 @@ void EGraph<Symbol, Analysis>::clear() {
 // ========================================================================
 
 template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
+auto EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) -> boost::unordered_flat_set<EClassId> {
+  boost::unordered_flat_set<EClassId> affected_eclasses;
+
   if (rebuild_worklist_.empty()) [[unlikely]]
-    return;
+    return affected_eclasses;
 
   auto &canonicalized_chunk = ctx.rebuild_canonicalized_chunk_container();
 
@@ -368,7 +373,13 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
     auto todo = std::exchange(rebuild_worklist_, {});
     for (EClassId eclass_id : todo) {
       // canonical + deduplication
-      auto [_, inserted] = canonicalized_chunk.insert(canonical_eclass(union_find_, eclass_id));
+      auto canonical = canonical_eclass(union_find_, eclass_id);
+      auto [_, inserted] = canonicalized_chunk.insert(canonical);
+
+      // Track all affected canonical e-classes across all iterations
+      if (inserted) {
+        affected_eclasses.insert(canonical);
+      }
 
       if (inserted && canonicalized_chunk.size() == REBUILD_BATCH_SIZE) [[unlikely]] {
         chunk_processor();
@@ -378,6 +389,8 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
     // ensure we process remaining incomplete chunk
     chunk_processor();
   }
+
+  return affected_eclasses;
 }
 
 template <typename Symbol, typename Analysis>
