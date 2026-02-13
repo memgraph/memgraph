@@ -28,6 +28,8 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 
+#include <nlohmann/json_fwd.hpp>
+
 namespace memgraph::query {
 
 class Graph;  // fwd declare
@@ -803,5 +805,11 @@ constexpr bool is_canonical(TypedValue::Type type) {
       return false;
   }
 }
+
+void to_json(nlohmann::json &j, TypedValue const &value);
+void from_json(nlohmann::json const &j, TypedValue &value);
+
+void to_json(nlohmann::json &j, TypedValue::TVector const &value);
+void to_json(nlohmann::json &j, TypedValue::TMap const &value);
 
 }  // namespace memgraph::query

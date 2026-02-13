@@ -172,6 +172,8 @@ memgraphCypherKeyword : cypherKeyword
                       | SESSION
                       | SETTING
                       | SETTINGS
+                      | PARAMETER
+                      | PARAMETERS
                       | SNAPSHOT
                       | SNAPSHOTS
                       | START
@@ -204,6 +206,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TYPES
                       | UNCOMMITTED
                       | UNLOCK
+                      | UNSET
                       | UNREGISTER
                       | UPDATE
                       | USAGE
@@ -254,6 +257,7 @@ query : cypherQuery
       | showNextSnapshotQuery
       | streamQuery
       | settingQuery
+      | parameterQuery
       | versionQuery
       | showConfigQuery
       | transactionQueueQuery
@@ -400,6 +404,12 @@ settingQuery : setSetting
              | showSetting
              | showSettings
              ;
+
+parameterQuery : setParameter
+              | unsetParameter
+              | showParameters
+              | deleteAllParameters
+              ;
 
 transactionQueueQuery : showTransactions
                       | terminateTransactions
@@ -703,6 +713,19 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+parameterName : symbolicName ;
+
+// Parameter value: literal, parameter, or config-style map (like CREATE VECTOR INDEX WITH CONFIG).
+parameterValue : parameter | literal | configMap ;
+
+setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
+
+unsetParameter : UNSET GLOBAL PARAMETER parameterName ;
+
+showParameters : SHOW PARAMETERS ;
+
+deleteAllParameters : DELETE ALL PARAMETERS ;
 
 showConfigQuery : SHOW CONFIG ;
 

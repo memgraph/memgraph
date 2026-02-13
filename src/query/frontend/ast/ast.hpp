@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <variant>
@@ -3776,6 +3777,51 @@ class SettingQuery : public memgraph::query::Query {
     object->action_ = action_;
     object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
     object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class ParameterQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action : uint8_t { SET_PARAMETER, UNSET_PARAMETER, SHOW_PARAMETERS, DELETE_ALL_PARAMETERS };
+
+  ParameterQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::ParameterQuery::Action action_;
+  std::string parameter_name_;
+  /// SET parameter value: either a single expression (literal or parameter) or a config-style map (like WITH CONFIG).
+  std::variant<Expression *, std::unordered_map<Expression *, Expression *>> parameter_value_{
+      static_cast<Expression *>(nullptr)};
+
+  // TODO(@DavIvek): Add scope information (GLOBAL, DATABASE, SESSION) when implementing scopes
+
+  ParameterQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ParameterQuery>();
+    object->action_ = action_;
+    object->parameter_name_ = parameter_name_;
+    object->parameter_value_ = std::visit(
+        [storage](auto &&arg) -> std::variant<Expression *, std::unordered_map<Expression *, Expression *>> {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, Expression *>) {
+            return arg ? arg->Clone(storage) : nullptr;
+          } else {
+            std::unordered_map<Expression *, Expression *> cloned;
+            for (const auto &[k, v] : arg) {
+              cloned[k->Clone(storage)] = v->Clone(storage);
+            }
+            return cloned;
+          }
+        },
+        parameter_value_);
     return object;
   }
 

@@ -14,6 +14,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+
 #include "replication/state.hpp"
 #include "system/action.hpp"
 #include "system/rpc.hpp"
@@ -59,24 +60,20 @@ struct Transaction {
       /// durability
       action->DoDurability();
 
-#ifdef MG_ENTERPRISE
       /// replication
       auto action_sync_status = handler.ApplyAction(*action, *this);
       if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
-#endif
 
       actions_.pop_front();
     }
 
-#ifdef MG_ENTERPRISE
     /// replication
     auto action_sync_status = handler.FinalizeTransaction(*this);
     if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
       sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
     }
-#endif
     state_->FinalizeTransaction(timestamp_);
 
     lock_.unlock();
@@ -89,6 +86,13 @@ struct Transaction {
       lock_.unlock();
     }
     actions_.clear();
+  }
+
+  /// True if every action in this transaction is replicable (e.g. only parameter actions). Auth and dbms actions are
+  /// not.
+  [[nodiscard]] bool CanReplicateInCommunity() const {
+    return !actions_.empty() &&
+           std::ranges::all_of(actions_, [](auto const &action) { return action->ShouldReplicateInCommunity(); });
   }
 
   auto last_committed_system_timestamp() const -> uint64_t {
@@ -109,7 +113,6 @@ struct Transaction {
   std::list<std::unique_ptr<ISystemAction>> actions_;
 };
 
-#ifdef MG_ENTERPRISE
 struct DoReplication {
   explicit DoReplication(replication::RoleMainData &main_data) : main_data_{main_data} {}
 
@@ -150,7 +153,6 @@ struct DoReplication {
 };
 
 static_assert(ReplicationPolicy<DoReplication>);
-#endif
 
 struct DoNothing {
   auto ApplyAction(ISystemAction const & /*action*/, Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {

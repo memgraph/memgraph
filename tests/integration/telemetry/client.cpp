@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
   );
   memgraph::query::InterpreterContext interpreter_context_({},
                                                            nullptr,
+                                                           nullptr,
                                                            &dbms_handler,
                                                            repl_state,
                                                            system_state
