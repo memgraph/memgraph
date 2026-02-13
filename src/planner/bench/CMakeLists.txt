@@ -8,6 +8,7 @@ target_sources(memgraph__benchmark__new_planner
     bench_union_find.cpp
     bench_egraph_rebuild.cpp
     bench_ematch.cpp
+    bench_rewrite.cpp
 )
 
 target_link_libraries(memgraph__benchmark__new_planner PRIVATE mg::planner benchmark::benchmark)
