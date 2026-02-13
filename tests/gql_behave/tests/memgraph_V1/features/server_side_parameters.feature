@@ -88,3 +88,43 @@ Feature: Server-side parameters
         Then the result should be:
             | n                                      |
             | (:Node {property: 'overrrided_value'}) |
+
+    Scenario: Set global parameter with literal expression (map, list)
+        Given an empty graph
+        When executing query:
+            """
+            SET GLOBAL PARAMETER x={a: 1, b: 2}
+            """
+        When executing query:
+            """
+            SHOW PARAMETERS
+            """
+        Then the result should be:
+            | name | value                | scope   |
+            | 'x'  | '{"a":1,"b":2}'     | 'global' |
+        When executing query:
+            """
+            SET GLOBAL PARAMETER y=[10, 20, 30]
+            """
+        When executing query:
+            """
+            SHOW PARAMETERS
+            """
+        Then the result should be (ignoring element order for lists):
+            | name | value                | scope   |
+            | 'x'  | '{"a":1,"b":2}'     | 'global' |
+            | 'y'  | '[10,20,30]'         | 'global' |
+
+    Scenario: Set global parameter with config map (quoted keys, literal : literal)
+        Given an empty graph
+        When executing query:
+            """
+            SET GLOBAL PARAMETER x={'k1': 'v1', "k2": 2}
+            """
+        When executing query:
+            """
+            SHOW PARAMETERS
+            """
+        Then the result should be:
+            | name | value                    | scope   |
+            | 'x'  | '{"k1":"v1","k2":2}'    | 'global' |

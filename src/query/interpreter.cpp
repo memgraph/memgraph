@@ -181,6 +181,21 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
          ranges::to<std::map<std::string, std::string, std::less<>>>;
 }
 
+/// Evaluate a config-style map (Expression* -> Expression*) to TypedValue::TMap for parameter value.
+TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expression *> const &config_map,
+                                         ExpressionVisitor<TypedValue> &evaluator,
+                                         memgraph::utils::MemoryResource *memory) {
+  TypedValue::TMap result(memory);
+  for (const auto &[key_expr, value_expr] : config_map) {
+    auto key_tv = key_expr->Accept(evaluator);
+    if (!key_tv.IsString()) {
+      throw memgraph::query::QueryRuntimeException("Parameter config map keys must be strings, got {}.", key_tv.type());
+    }
+    result.emplace(TypedValue::TString(key_tv.ValueString(), memory), value_expr->Accept(evaluator));
+  }
+  return TypedValue(std::move(result), memory);
+}
+
 }  // namespace
 
 // Accessors need to be able to throw if unable to gain access. Otherwise there could be a deadlock, where some queries
@@ -2598,7 +2613,16 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
   Callback callback;
   switch (parameter_query->action_) {
     case ParameterQuery::Action::SET_PARAMETER: {
-      const auto parameter_value = EvaluateOptionalExpression(parameter_query->parameter_value_, evaluator);
+      const TypedValue parameter_value = std::visit(
+          [&evaluator, &evaluation_context](auto &&arg) -> TypedValue {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, Expression *>) {
+              return EvaluateOptionalExpression(arg, evaluator);
+            } else {
+              return EvaluateConfigMapToTypedValue(arg, evaluator, evaluation_context.memory);
+            }
+          },
+          parameter_query->parameter_value_);
       nlohmann::json j;
       query::to_json(j, parameter_value);
       auto value_str = j.dump();

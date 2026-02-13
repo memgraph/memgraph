@@ -3887,8 +3887,11 @@ antlrcpp::Any CypherMainVisitor::visitSetParameter(MemgraphCypher::SetParameterC
     parameter_query->parameter_value_ = std::any_cast<Expression *>(ctx->parameterValue()->accept(this));
   } else if (ctx->parameterValue()->parameter()) {
     parameter_query->parameter_value_ = std::any_cast<ParameterLookup *>(ctx->parameterValue()->accept(this));
+  } else if (ctx->parameterValue()->configMap()) {
+    parameter_query->parameter_value_ =
+        std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->parameterValue()->configMap()->accept(this));
   } else {
-    throw SemanticException("Parameter value must be a literal or a parameter");
+    throw SemanticException("Parameter value must be a literal, a parameter, or a config map");
   }
   return parameter_query;
 }

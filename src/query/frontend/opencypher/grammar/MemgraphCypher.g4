@@ -716,7 +716,8 @@ showSettings : SHOW DATABASE SETTINGS ;
 
 parameterName : symbolicName ;
 
-parameterValue : literal | parameter ;
+// Parameter value: literal, parameter, or config-style map (like CREATE VECTOR INDEX WITH CONFIG).
+parameterValue : parameter | literal | configMap ;
 
 setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
 
