@@ -80,6 +80,10 @@ bool ClientContext::use_ssl() { return use_ssl_; }
 
 ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
                              bool verify_peer) {
+  constexpr auto kPemExt = ".pem";
+  if (!key_file.ends_with(kPemExt) || !cert_file.ends_with(kPemExt)) {
+    LOG_FATAL("Memgraph supports only *.pem key and cert files");
+  }
   namespace ssl = boost::asio::ssl;
   ctx_.emplace(ssl::context::tls_server);
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
