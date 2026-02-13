@@ -494,4 +494,80 @@ TEST(Rewriter, DeepPatternMatching) {
   EXPECT_TRUE(result.saturated());
 }
 
+// --- Per-Rule Statistics Tests ---
+
+TEST(RewriteResult, PerRuleStatisticsInitialized) {
+  TestEGraph egraph;
+  auto x = egraph.emplace(Op::Var, 1);
+  [[maybe_unused]] auto neg_x = egraph.emplace(Op::Neg, {x.current_eclassid});
+
+  TestRewriter rewriter(egraph);
+  rewriter.add_rule(make_double_neg_rule());
+  rewriter.add_rule(make_double_neg_rule());  // Add same rule twice
+
+  auto result = rewriter.saturate();
+
+  // rewrites_per_rule should have one entry per rule
+  EXPECT_EQ(result.rewrites_per_rule.size(), 2);
+}
+
+TEST(RewriteResult, PerRuleStatisticsAccurate) {
+  TestEGraph egraph;
+  auto x = egraph.emplace(Op::Var, 1);
+  auto y = egraph.emplace(Op::Var, 2);
+  auto neg_x = egraph.emplace(Op::Neg, {x.current_eclassid});
+  [[maybe_unused]] auto neg_neg_x = egraph.emplace(Op::Neg, {neg_x.current_eclassid});
+  [[maybe_unused]] auto add_xy = egraph.emplace(Op::Add, {x.current_eclassid, y.current_eclassid});
+
+  // Rule 1: double negation (will fire)
+  auto double_neg = make_double_neg_rule();
+
+  // Rule 2: no-op rule that counts add nodes but doesn't rewrite
+  auto count_adds_builder = TestRewriteRule::Builder{};
+  count_adds_builder.pattern(make_add_pattern()).apply<NoAnalysis>([](auto &, auto, auto &) -> std::size_t {
+    return 0;  // Doesn't produce rewrites
+  });
+  auto count_adds = std::move(count_adds_builder).build("count_adds");
+
+  TestRewriter rewriter(egraph);
+  rewriter.add_rule(double_neg);
+  rewriter.add_rule(count_adds);
+
+  auto result = rewriter.saturate();
+
+  EXPECT_EQ(result.rewrites_per_rule.size(), 2);
+  // Rule 0 (double_neg) should have at least 1 rewrite
+  EXPECT_GE(result.rewrites_per_rule[0], 1);
+  // Rule 1 (count_adds) returns 0 so should have 0 rewrites
+  EXPECT_EQ(result.rewrites_per_rule[1], 0);
+  // Total should match sum of per-rule
+  EXPECT_EQ(result.rewrites_applied, result.rewrites_per_rule[0] + result.rewrites_per_rule[1]);
+}
+
+TEST(RewriteResult, PerRuleStatisticsMultipleRulesFire) {
+  // Test where multiple rules actually fire
+  TestEGraph egraph;
+  auto x = egraph.emplace(Op::Var, 1);
+  auto neg_x = egraph.emplace(Op::Neg, {x.current_eclassid});
+  auto neg_neg_x = egraph.emplace(Op::Neg, {neg_x.current_eclassid});
+  auto neg_neg_neg_x = egraph.emplace(Op::Neg, {neg_neg_x.current_eclassid});
+  auto neg_neg_neg_neg_x = egraph.emplace(Op::Neg, {neg_neg_neg_x.current_eclassid});
+
+  // Two separate double-neg rules that both can fire
+  auto rule1 = make_double_neg_rule();
+  auto rule2 = make_double_neg_rule();
+
+  TestRewriter rewriter(egraph);
+  rewriter.add_rule(std::move(rule1));
+  rewriter.add_rule(std::move(rule2));
+
+  auto result = rewriter.saturate();
+
+  EXPECT_EQ(result.rewrites_per_rule.size(), 2);
+  // Total rewrites should be sum of both rules
+  EXPECT_EQ(result.rewrites_applied, result.rewrites_per_rule[0] + result.rewrites_per_rule[1]);
+  // With 4 nested negations, we should have multiple rewrites total
+  EXPECT_GE(result.rewrites_applied, 2);
+}
+
 }  // namespace memgraph::planner::core

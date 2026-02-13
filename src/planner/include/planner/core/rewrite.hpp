@@ -95,6 +95,9 @@ struct RewriteResult {
   /// Number of iterations completed
   std::size_t iterations = 0;
 
+  /// Number of rewrites applied by each rule (indexed by rule position in Rewriter)
+  std::vector<std::size_t> rewrites_per_rule;
+
   /// Why rewriting stopped
   enum class StopReason : std::uint8_t {
     Saturated,       ///< Fixed point reached (no more rewrites possible)
@@ -124,9 +127,9 @@ struct RewriteResult {
  *       .pattern(neg_neg_pattern)
  *       .apply<NoAnalysis>([](auto& eg, auto matches, auto& ctx) {
  *         std::size_t count = 0;
- *         for (auto& match : matches[0]) {
+ *         for (auto& match : matches) {
  *           auto x = match.subst.at(PatternVar{0});
- *           eg.merge(match.matched_eclass, x);
+ *           eg.merge(match.pattern_roots[0], x);
  *           count++;
  *         }
  *         return count;
@@ -195,7 +198,55 @@ class RewriteRule {
      * @return The constructed rule
      */
     auto build(std::string name) && -> RewriteRule {
-      return RewriteRule{std::move(patterns_), std::move(pattern_names_), std::move(apply_fn_), std::move(name)};
+      // Precompute shared variables for each pattern
+      auto shared_vars = compute_shared_variables(patterns_);
+      return RewriteRule{std::move(patterns_),
+                         std::move(pattern_names_),
+                         std::move(shared_vars),
+                         std::move(apply_fn_),
+                         std::move(name)};
+    }
+
+   private:
+    /**
+     * @brief Compute shared variables for all patterns at build time
+     *
+     * For each pattern index p (1..N), computes which variables in pattern p
+     * also appear in earlier patterns (0..p-1). Pattern 0 has no shared vars.
+     */
+    static auto compute_shared_variables(std::vector<Pattern<Symbol>> const &patterns)
+        -> std::vector<std::vector<PatternVar>> {
+      std::vector<std::vector<PatternVar>> result;
+      result.reserve(patterns.size());
+
+      boost::unordered_flat_set<PatternVar> earlier_vars;
+
+      for (std::size_t p = 0; p < patterns.size(); ++p) {
+        std::vector<PatternVar> shared;
+
+        if (p > 0) {
+          // Find variables in pattern p that also appear in earlier patterns
+          for (auto const &node : patterns[p].nodes()) {
+            if (node.is_variable() && earlier_vars.contains(node.variable())) {
+              // Avoid duplicates
+              if (std::find(shared.begin(), shared.end(), node.variable()) == shared.end()) {
+                shared.push_back(node.variable());
+              }
+            }
+          }
+        }
+
+        result.push_back(std::move(shared));
+
+        // Collect variables from this pattern for subsequent iterations
+        for (auto const &node : patterns[p].nodes()) {
+          if (node.is_variable()) {
+            earlier_vars.insert(node.variable());
+          }
+        }
+      }
+
+      return result;
     }
 
    private:
@@ -250,7 +301,7 @@ class RewriteRule {
 
     // For each subsequent pattern, extend unified matches
     for (std::size_t p = 1; p < patterns_.size(); ++p) {
-      auto shared_vars = find_shared_variables(p);
+      auto const &shared_vars = shared_vars_per_pattern_[p];  // Use precomputed shared vars
       std::vector<UnifiedMatch> new_unified;
 
       if (shared_vars.empty()) {
@@ -320,44 +371,19 @@ class RewriteRule {
   }
 
  private:
-  /**
-   * @brief Find variables in pattern p that also appear in earlier patterns
-   */
-  [[nodiscard]] auto find_shared_variables(std::size_t pattern_index) const -> std::vector<PatternVar> {
-    std::vector<PatternVar> shared;
-    boost::unordered_flat_set<PatternVar> earlier_vars;
-
-    // Collect variables from all earlier patterns
-    for (std::size_t i = 0; i < pattern_index; ++i) {
-      for (auto const &node : patterns_[i].nodes()) {
-        if (node.is_variable()) {
-          earlier_vars.insert(node.variable());
-        }
-      }
-    }
-
-    // Find which variables in pattern p are also in earlier patterns
-    for (auto const &node : patterns_[pattern_index].nodes()) {
-      if (node.is_variable() && earlier_vars.contains(node.variable())) {
-        // Avoid duplicates
-        if (std::find(shared.begin(), shared.end(), node.variable()) == shared.end()) {
-          shared.push_back(node.variable());
-        }
-      }
-    }
-
-    return shared;
-  }
-
-  RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names, std::any apply_fn,
-              std::string name)
+  RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names,
+              std::vector<std::vector<PatternVar>> shared_vars_per_pattern, std::any apply_fn, std::string name)
       : patterns_(std::move(patterns)),
         pattern_names_(std::move(pattern_names)),
+        shared_vars_per_pattern_(std::move(shared_vars_per_pattern)),
         apply_fn_(std::move(apply_fn)),
         name_(std::move(name)) {}
 
   std::vector<Pattern<Symbol>> patterns_;
   std::vector<std::string> pattern_names_;
+  /// Precomputed shared variables for each pattern (index i contains variables
+  /// in pattern i that also appear in patterns 0..i-1). Empty for pattern 0.
+  std::vector<std::vector<PatternVar>> shared_vars_per_pattern_;
   std::any apply_fn_;
   std::string name_;
 };
@@ -420,6 +446,7 @@ class Rewriter {
    */
   auto saturate(RewriteConfig const &config = RewriteConfig::Default()) -> RewriteResult {
     RewriteResult result;
+    result.rewrites_per_rule.resize(rules_.size(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
@@ -438,7 +465,7 @@ class Rewriter {
         return result;
       }
 
-      auto rewrites_this_iter = apply_once();
+      auto rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
       result.rewrites_applied += rewrites_this_iter;
 
       // Fixed point reached
@@ -478,6 +505,34 @@ class Rewriter {
     return total_rewrites;
   }
 
+ private:
+  /**
+   * @brief Apply all rules once and accumulate per-rule statistics
+   *
+   * Internal helper used by saturate() to track per-rule rewrites.
+   *
+   * @param per_rule_stats Vector to accumulate per-rule counts (must be sized to rules_.size())
+   * @return Total number of rewrites applied across all rules
+   */
+  auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats) -> std::size_t {
+    std::size_t total_rewrites = 0;
+
+    for (std::size_t i = 0; i < rules_.size(); ++i) {
+      auto rule_rewrites = rules_[i].template apply<Analysis>(*egraph_, matcher_, match_ctx_, proc_ctx_);
+      per_rule_stats[i] += rule_rewrites;
+      total_rewrites += rule_rewrites;
+    }
+
+    // Rebuild if any rewrites occurred
+    if (total_rewrites > 0 && egraph_->needs_rebuild()) {
+      egraph_->rebuild(proc_ctx_);
+      matcher_.rebuild();
+    }
+
+    return total_rewrites;
+  }
+
+ public:
   /**
    * @brief Get the number of rules added to this rewriter
    */
