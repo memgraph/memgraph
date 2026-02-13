@@ -388,11 +388,7 @@ class RewriteRule {
         for (auto const &[constraints, indices] : constraint_to_indices) {
           match_ctx.clear();
           unified_buffers.pattern_matches.clear();
-          if (constraints.empty()) {
-            matcher.match_into(patterns_[p], match_ctx, unified_buffers.pattern_matches);
-          } else {
-            matcher.match_constrained_into(patterns_[p], constraints, match_ctx, unified_buffers.pattern_matches);
-          }
+          matcher.match_constrained_into(patterns_[p], constraints, match_ctx, unified_buffers.pattern_matches);
 
           for (std::size_t idx : indices) {
             auto const &um = unified_buffers.current[idx];

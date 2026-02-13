@@ -363,75 +363,8 @@ auto EMatcher<Symbol, Analysis>::match(Pattern<Symbol> const &pattern, EMatchCon
 template <typename Symbol, typename Analysis>
 void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMatchContext &ctx,
                                             std::vector<Match> &results) const {
-  if (pattern.empty()) {
-    return;
-  }
-
-  // Pre-allocate depth buffers to avoid invalidation during recursion
-  // Pattern size is an upper bound on recursion depth
-  ctx.ensure_depth(pattern.size());
-
-  auto const &root_pnode = pattern[pattern.root()];
-
-  if (root_pnode.is_variable()) {
-    // Variable pattern matches any e-class
-    for (auto const &[eclass_id, _] : egraph_->canonical_classes()) {
-      Substitution subst;
-      subst[root_pnode.variable()] = eclass_id;
-      results.push_back({eclass_id, std::move(subst)});
-    }
-    return;
-  }
-
-  // Symbol pattern: use index to find candidate e-classes
-  auto const *candidates = eclasses_with_symbol(root_pnode.symbol());
-  if (candidates == nullptr) {
-    return;  // No e-classes contain this symbol
-  }
-
-  // Get reusable buffers from context
-  auto &processed = ctx.processed();
-  auto &child_matches = ctx.child_matches();
-  processed.clear();
-
-  for (auto eclass_id : *candidates) {
-    auto canonical_id = egraph_->find(eclass_id);
-    if (!processed.insert(canonical_id).second) {
-      continue;  // Already processed this canonical e-class
-    }
-
-    auto const &eclass = egraph_->eclass(canonical_id);
-
-    // Inline root matching: iterate e-nodes filtering by symbol
-    // (We know from index this e-class has at least one match)
-    for (auto enode_id : eclass.nodes()) {
-      auto const &enode = egraph_->get_enode(enode_id);
-
-      // Symbol must match
-      if (root_pnode.symbol() != enode.symbol()) {
-        continue;
-      }
-
-      // Arity must match
-      if (root_pnode.arity() != enode.arity()) {
-        continue;
-      }
-
-      // Leaf node with matching symbol: immediate match
-      if (root_pnode.is_leaf()) {
-        results.push_back({canonical_id, Substitution{}});
-        continue;
-      }
-
-      // Non-leaf root: match children
-      child_matches.clear();
-      match_children_into(pattern, root_pnode, enode, Substitution{}, child_matches, ctx, 0);
-
-      for (auto &subst : child_matches) {
-        results.push_back({canonical_id, std::move(subst)});
-      }
-    }
-  }
+  // Delegate to match_constrained_into with empty constraints
+  match_constrained_into(pattern, Substitution{}, ctx, results);
 }
 
 template <typename Symbol, typename Analysis>
