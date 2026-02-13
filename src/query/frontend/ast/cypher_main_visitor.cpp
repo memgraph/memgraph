@@ -2003,6 +2003,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
   auth->action_ = AuthQuery::Action::CREATE_ROLE;
   auth->if_not_exists_ = !!ctx->ifNotExists();
   auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
+  if (ctx->defaultLabelPermissions()) {
+    auth->default_label_permissions_ =
+        std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->defaultLabelPermissions()->accept(this));
+  }
   return auth;
 }
 
@@ -2038,6 +2042,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserConte
       throw SyntaxException("Password should be a string literal or null.");
     }
     auth->password_ = std::any_cast<Expression *>(ctx->password->accept(this));
+  }
+  if (ctx->defaultLabelPermissions()) {
+    auth->default_label_permissions_ =
+        std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->defaultLabelPermissions()->accept(this));
   }
   return auth;
 }
@@ -2460,6 +2468,16 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
   }
 
   return privileges;
+}
+
+/**
+ * @return std::vector<AuthQuery::FineGrainedPrivilege>
+ */
+antlrcpp::Any CypherMainVisitor::visitDefaultLabelPermissions(MemgraphCypher::DefaultLabelPermissionsContext *ctx) {
+  if (ctx->DENY()) {
+    return std::vector<AuthQuery::FineGrainedPrivilege>{AuthQuery::FineGrainedPrivilege::NOTHING};
+  }
+  return std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->granularPrivilegeList()->accept(this));
 }
 
 /**
