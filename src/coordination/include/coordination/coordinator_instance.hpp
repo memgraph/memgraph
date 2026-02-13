@@ -32,6 +32,17 @@
 
 #include <list>
 
+namespace {
+
+template <typename T>
+concept ForwardableStatus = requires {
+  { T::SUCCESS } -> std::convertible_to<T>;
+  { T::LEADER_FAILED } -> std::convertible_to<T>;
+  { T::LEADER_NOT_FOUND } -> std::convertible_to<T>;
+};
+
+}  // namespace
+
 namespace memgraph::coordination {
 
 struct NewMainRes {
@@ -156,11 +167,24 @@ class CoordinatorInstance {
 
   auto FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector *;
 
-  auto ShouldForward(int32_t leader_id) const -> bool;
+  // nullopt if I am the leader, otherwise StatusMessage
+  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
+  auto ForwardToLeader(Args &&...args) const -> std::optional<StatusEnum> {
+    auto const leader_id = raft_state_->GetLeaderId();
+    if (leader_id == raft_state_->GetMyCoordinatorId() &&
+        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+      return std::nullopt;
+    }
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendBoolRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
+    }
+    return StatusEnum::LEADER_NOT_FOUND;
+  }
 
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
   // StateCheckRpc call which is only used on the leader
   std::map<std::string, uint64_t> main_num_txns_cache_;
+
   // Cache which stores information about the number of committed txns of replicas
   std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;
 

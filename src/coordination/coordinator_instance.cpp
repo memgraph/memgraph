@@ -540,16 +540,16 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
   // user query.
   auto const leader_id = raft_state_->GetLeaderId();
   auto expected = CoordinatorStatus::LEADER_READY;
+  // If atomically changing leader_ready to leader_not_ready failed it means I am not the current leader and I should I
+  // try to forward the request to the current leader.
   if (!status.compare_exchange_strong(
           expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
     if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
       return leader->SendBoolRpc<ForceResetRpc>() ? ReconcileClusterStateStatus::SUCCESS
-                                                  : ReconcileClusterStateStatus::LEADER_NOT_FOUND;
+                                                  : ReconcileClusterStateStatus::LEADER_FAILED;
     }
 
-    return ReconcileClusterStateStatus::LEADER_FAILED;
-
-    return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
+    return ReconcileClusterStateStatus::LEADER_NOT_FOUND;
   }
   return ReconcileClusterState();
 }
@@ -604,14 +604,10 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  auto const leader_id = raft_state_->GetLeaderId();
-  if (ShouldForward(leader_id)) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<SetInstanceToMainRpc>(std::string{new_main_name})
-                 ? SetInstanceToMainCoordinatorStatus::SUCCESS
-                 : SetInstanceToMainCoordinatorStatus::LEADER_FAILED;
-    }
-    return SetInstanceToMainCoordinatorStatus::LEADER_NOT_FOUND;
+  if (auto const res =
+          ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
+      res.has_value()) {
+    return *res;
   }
 
   spdlog::trace("Acquired lock to set replication instance to main in thread {}.", std::this_thread::get_id());
@@ -694,14 +690,9 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   metrics::IncrementCounter(metrics::DemoteInstance);
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  auto const leader_id = raft_state_->GetLeaderId();
-  if (ShouldForward(leader_id)) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<DemoteInstanceRpc>(std::string{instance_name})
-                 ? DemoteInstanceCoordinatorStatus::SUCCESS
-                 : DemoteInstanceCoordinatorStatus::LEADER_FAILED;
-    }
-    return DemoteInstanceCoordinatorStatus::LEADER_NOT_FOUND;
+  if (auto const res = ForwardToLeader<DemoteInstanceRpc, DemoteInstanceCoordinatorStatus>(std::string{instance_name});
+      res.has_value()) {
+    return *res;
   }
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -741,13 +732,9 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   // TODO: (andi) Can I move further down this lock
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  auto const leader_id = raft_state_->GetLeaderId();
-  if (ShouldForward(leader_id)) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<RegisterInstanceRpc>(config) ? RegisterInstanceCoordinatorStatus::SUCCESS
-                                                              : RegisterInstanceCoordinatorStatus::LEADER_FAILED;
-    }
-    return RegisterInstanceCoordinatorStatus::LEADER_NOT_FOUND;
+  if (auto const res = ForwardToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(config);
+      res.has_value()) {
+    return *res;
   }
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -838,14 +825,10 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     -> UnregisterInstanceCoordinatorStatus {
   metrics::IncrementCounter(metrics::UnregisterReplInstance);
 
-  auto const leader_id = raft_state_->GetLeaderId();
-  if (ShouldForward(leader_id)) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<UnregisterInstanceRpc>(std::string{instance_name})
-                 ? UnregisterInstanceCoordinatorStatus::SUCCESS
-                 : UnregisterInstanceCoordinatorStatus::LEADER_FAILED;
-    }
-    return UnregisterInstanceCoordinatorStatus::LEADER_NOT_FOUND;
+  if (auto const res =
+          ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
+      res.has_value()) {
+    return *res;
   }
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -918,13 +901,9 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   metrics::IncrementCounter(metrics::RemoveCoordInstance);
-  auto const leader_id = raft_state_->GetLeaderId();
-  if (ShouldForward(leader_id)) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<RemoveCoordinatorRpc>(coordinator_id) ? RemoveCoordinatorInstanceStatus::SUCCESS
-                                                                       : RemoveCoordinatorInstanceStatus::LEADER_FAILED;
-    }
-    return RemoveCoordinatorInstanceStatus::LEADER_NOT_FOUND;
+  if (auto const res = ForwardToLeader<RemoveCoordinatorRpc, RemoveCoordinatorInstanceStatus>(coordinator_id);
+      res.has_value()) {
+    return *res;
   }
 
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
@@ -969,15 +948,8 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
 
 auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
     -> AddCoordinatorInstanceStatus {
-  auto const leader_id = raft_state_->GetLeaderId();
-
-  if (ShouldForward(leader_id)) {
-    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<AddCoordinatorRpc>(config) ? AddCoordinatorInstanceStatus::SUCCESS
-                                                            : AddCoordinatorInstanceStatus::LEADER_NOT_FOUND;
-    }
-
-    return AddCoordinatorInstanceStatus::LEADER_FAILED;
+  if (auto const res = ForwardToLeader<AddCoordinatorRpc, AddCoordinatorInstanceStatus>(config); res.has_value()) {
+    return *res;
   }
 
   auto const bolt_server_to_add = config.bolt_server.SocketAddress();
@@ -1656,11 +1628,6 @@ auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const -> Coordi
     }
   }
   return leader;
-}
-
-auto CoordinatorInstance::ShouldForward(int32_t const leader_id) const -> bool {
-  return leader_id != raft_state_->GetMyCoordinatorId() ||
-         status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY;
 }
 
 }  // namespace memgraph::coordination
