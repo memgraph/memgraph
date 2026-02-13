@@ -282,10 +282,11 @@ static void BM_Rewrite_SingleRuleApplyOverhead(benchmark::State &state) {
   EMatcher<Op, NoAnalysis> matcher(egraph);
   EMatchContext match_ctx;
   ProcessingContext<Op> proc_ctx;
+  UnifiedMatchBuffers unified_buffers;
 
   for (auto _ : state) {
     // Measure the rule.apply() call which includes the any_cast
-    auto rewrites = rule.apply<NoAnalysis>(egraph, matcher, match_ctx, proc_ctx);
+    auto rewrites = rule.apply<NoAnalysis>(egraph, matcher, match_ctx, proc_ctx, unified_buffers);
     benchmark::DoNotOptimize(rewrites);
   }
 
@@ -381,10 +382,11 @@ static void BM_Rewrite_MultiPatternJoinOverhead(benchmark::State &state) {
   EMatcher<Op, NoAnalysis> matcher(egraph);
   EMatchContext match_ctx;
   ProcessingContext<Op> proc_ctx;
+  UnifiedMatchBuffers unified_buffers;
 
   for (auto _ : state) {
     // Measure the multi-pattern join in apply()
-    auto rewrites = rule.apply<NoAnalysis>(egraph, matcher, match_ctx, proc_ctx);
+    auto rewrites = rule.apply<NoAnalysis>(egraph, matcher, match_ctx, proc_ctx, unified_buffers);
     benchmark::DoNotOptimize(rewrites);
   }
 
