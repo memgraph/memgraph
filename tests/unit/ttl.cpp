@@ -123,6 +123,22 @@ bool VerifyVertexCountUnchangedUntil(DbAccess &db, size_t expected_count, std::c
   return VerifyUnchangedUntil([&]() { return CountVisibleVertices(db) == expected_count; }, until);
 }
 
+// Helper to wait for TTL label+property index to become ready
+// TTL auto-creates indices asynchronously, so tests must wait for readiness before expecting deletions
+template <typename DbAccess>
+bool WaitForTTLIndexReady(DbAccess &db, std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+  auto ttl_label = db->storage()->NameToLabel("TTL");
+  auto ttl_property = db->storage()->NameToProperty("ttl");
+  std::vector<memgraph::storage::PropertyPath> ttl_property_path = {ttl_property};
+
+  return WaitForCondition(
+      [&]() {
+        auto acc = db->Access(memgraph::storage::READ);
+        return acc->LabelPropertyIndexReady(ttl_label, ttl_property_path);
+      },
+      timeout);
+}
+
 }  // namespace
 
 template <typename TestType>
@@ -620,9 +636,12 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   // Test 2: Set user check to always return true (simulating main) - TTL should run
   ttl->SetUserCheck([]() -> bool { return true; });
 
-  // Wait for TTL to run and delete the older vertices
-  // TTL runs every 100ms, should delete within 200ms
-  ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::milliseconds(300)))
+  // TTL auto-creates indices asynchronously - wait for index to be ready first
+  ASSERT_TRUE(WaitForTTLIndexReady(db_acc)) << "TTL index did not become ready in time";
+
+  // Now wait for TTL to run and delete the older vertices
+  // With index ready, TTL runs every 100ms and should delete promptly
+  ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::seconds(2)))
       << "Failed to observe TTL deletion when user check returns true";
 
   // Set user check to false - TTL should not run
@@ -651,7 +670,8 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   user_bool.store(true, std::memory_order_release);
 
   // Wait for TTL to delete the older vertex
-  ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::milliseconds(300)))
+  // Index is already ready from earlier, so deletion should be prompt
+  ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::seconds(2)))
       << "Failed to observe TTL deletion after re-enabling user check";
 
   // Cleanup
