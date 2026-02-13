@@ -60,6 +60,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DATABASES
                       | DATE
+                      | DEFAULT
                       | DEFINER
                       | DELIMITER
                       | DEMOTE
@@ -150,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
+                      | PERMISSIONS
                       | POINT
                       | PORT
                       | PROPERTY
@@ -465,14 +467,16 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
-createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
+createRole : CREATE ROLE ifNotExists? role=userOrRoleName
+             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )? ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
 
 showRoles : SHOW ROLES ;
 
 createUser : CREATE USER ifNotExists? user=userOrRoleName
-             ( IDENTIFIED BY password=literal )? ;
+             ( IDENTIFIED BY password=literal )?
+             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )? ;
 
 ifNotExists : IF NOT EXISTS ;
 
@@ -553,6 +557,10 @@ privilege : CREATE
 granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
+
+defaultLabelPermissions : GRANT granularPrivilegeList
+                        | DENY ALL
+                        ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
