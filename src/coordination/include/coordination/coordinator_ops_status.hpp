@@ -106,7 +106,14 @@ enum class RemoveCoordinatorInstanceStatus : uint8_t {
   RAFT_FAILED
 };
 
-enum class UpdateConfigStatus : uint8_t { SUCCESS = 0, NO_SUCH_COORD, NO_SUCH_REPL_INSTANCE, RAFT_FAILURE };
+enum class UpdateConfigStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_COORD,
+  NO_SUCH_REPL_INSTANCE,
+  RAFT_FAILURE,
+  LEADER_FAILED,
+  LEADER_NOT_FOUND
+};
 
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME = 0,

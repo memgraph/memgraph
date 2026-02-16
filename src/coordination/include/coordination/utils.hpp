@@ -31,6 +31,12 @@
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
+template <typename T>
+concept ForwardableStatus = requires {
+  { T::SUCCESS } -> std::convertible_to<T>;
+  { T::LEADER_FAILED } -> std::convertible_to<T>;
+  { T::LEADER_NOT_FOUND } -> std::convertible_to<T>;
+};
 auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int default_value, LoggerWrapper logger)
     -> int;
 

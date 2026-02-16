@@ -747,8 +747,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
-    switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
+  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) override {
+    coordination::UpdateInstanceConfig const config{.data = std::move(instance),
+                                                    .bolt_endpoint = std::move(bolt_endpoint)};
+    switch (coordinator_handler_.UpdateConfig(config)) {
       using enum memgraph::coordination::UpdateConfigStatus;
       case NO_SUCH_COORD:
         throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
@@ -758,6 +760,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                     std::get<std::string>(instance));
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
         std::unreachable();

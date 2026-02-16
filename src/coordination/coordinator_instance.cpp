@@ -1538,14 +1538,17 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
                          {"instance_health_check_frequency_sec", instance_health_check_frequency_sec_.count()}});
 }
 
-auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const &instance,
-                                       io::network::Endpoint const &bolt_endpoint) -> UpdateConfigStatus {
-  if (std::holds_alternative<int32_t>(instance)) {
+auto CoordinatorInstance::UpdateConfig(coordination::UpdateInstanceConfig const &config) -> UpdateConfigStatus {
+  if (auto const res = ForwardToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
+    return *res;
+  }
+
+  if (std::holds_alternative<int32_t>(config.data)) {
     // Need to update coordinator's bolt server
-    auto const coord_id = std::get<int32_t>(instance);
+    auto const coord_id = std::get<int32_t>(config.data);
 
     auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
-    auto new_bolt_server = bolt_endpoint.SocketAddress();
+    auto new_bolt_server = config.bolt_endpoint.SocketAddress();
 
     {
       auto const existing_coord =
@@ -1579,12 +1582,12 @@ auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const 
 
   } else {
     // Updating a config for the replication instance
-    auto const instance_name = std::get<std::string>(instance);
+    auto const instance_name = std::get<std::string>(config.data);
     auto data_instances_context = raft_state_->GetDataInstancesContext();
     {
       auto const existing_repl_instance = std::ranges::find_if(
           data_instances_context,
-          [&bolt_endpoint](auto const &repl_instance) { return repl_instance.config.bolt_server == bolt_endpoint; });
+          [&config](auto const &repl_instance) { return repl_instance.config.bolt_server == config.bolt_endpoint; });
 
       if (existing_repl_instance != data_instances_context.end()) {
         spdlog::warn(
@@ -1602,7 +1605,7 @@ auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const 
       return UpdateConfigStatus::NO_SUCH_REPL_INSTANCE;
     }
 
-    repl_instance_it->config.bolt_server = bolt_endpoint;
+    repl_instance_it->config.bolt_server = config.bolt_endpoint;
 
     // NOLINTNEXTLINE
     CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_context)};

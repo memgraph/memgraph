@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "slk/streams.hpp"
@@ -243,6 +244,7 @@ inline void Load(utils::small_vector<T> *obj, Reader *reader) {
     Load(&(*obj)[i], reader);
   }
 }
+
 template <typename T>
 inline void Save(const std::unordered_set<T> &obj, Builder *builder) {
   uint64_t size = obj.size();
@@ -624,6 +626,31 @@ void Load(T *enum_value, slk::Reader *reader) {
   UnderlyingType value;
   slk::Load(&value, reader);
   *enum_value = static_cast<T>(value);
+}
+
+template <typename... Args>
+inline void Save(std::variant<Args...> const &data, Builder *builder) {
+  slk::Save(data.index(), builder);
+  std::visit([builder](auto const &obj_type) { slk::Save(obj_type, builder); }, data);
+}
+
+template <typename... Args>
+inline void Load(std::variant<Args...> *data, Reader *reader) {
+  uint32_t index;
+  slk::Load(&index, reader);
+
+  // Helper to load the type at the given index
+  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+    (void)((Is == index ? (
+                              [&] {
+                                std::variant_alternative_t<Is, std::variant<Args...>> value;
+                                slk::Load(&value, reader);
+                                *data = std::move(value);
+                              }(),
+                              true)
+                        : false) ||
+           ...);
+  }(std::index_sequence_for<Args...>{});
 }
 
 }  // namespace memgraph::slk

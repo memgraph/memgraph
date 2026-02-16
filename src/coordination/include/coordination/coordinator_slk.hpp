@@ -35,6 +35,16 @@ inline void Load(io::network::Endpoint *obj, Reader *reader) {
   Load(&obj->GetPort(), reader);
 }
 
+inline void Save(coordination::UpdateInstanceConfig const &config, Builder *builder) {
+  slk::Save(config.data, builder);
+  slk::Save(config.bolt_endpoint, builder);
+}
+
+inline void Load(coordination::UpdateInstanceConfig *config, Reader *reader) {
+  slk::Load(&config->data, reader);
+  slk::Load(&config->bolt_endpoint, reader);
+}
+
 inline void Save(ReplicationClientInfo const &obj, Builder *builder) {
   Save(obj.instance_name, builder);
   Save(obj.replication_mode, builder);

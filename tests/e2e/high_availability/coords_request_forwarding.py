@@ -255,7 +255,7 @@ def test_register_instance_fwd(test_name):
     mg_sleep_and_assert(data, partial(show_instances, follower2_cursor))
 
 
-def test_add_coordinator_fwd(test_name):
+def test_add_coordinator_update_config_fwd(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
     leader_cursor = connect(host="localhost", port=7690).cursor()
@@ -285,6 +285,8 @@ def test_add_coordinator_fwd(test_name):
     mg_sleep_and_assert(leader_data, partial(show_instances, follower_cursor))
     follower2_cursor = connect(host="localhost", port=7692).cursor()
     mg_sleep_and_assert(leader_data, partial(show_instances, follower2_cursor))
+
+    execute_and_fetch_all(follower_cursor, "UPDATE CONFIG FOR COORDINATOR 3 {'bolt_server': '127.0.0.1:7692'}")
 
 
 def test_remove_coordinator_fwd(test_name):

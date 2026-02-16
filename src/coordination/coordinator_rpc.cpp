@@ -406,6 +406,8 @@ SLK_SINGLE_ARG_REQ(coordination::DemoteInstanceReq)
 SLK_BOOL_RES(coordination::DemoteInstanceRes)
 SLK_EMPTY_REQ(coordination::ForceResetReq)
 SLK_BOOL_RES(coordination::ForceResetRes)
+SLK_SINGLE_ARG_REQ(coordination::UpdateConfigReq)
+SLK_BOOL_RES(coordination::UpdateConfigRes)
 }  // namespace slk
 
 }  // namespace memgraph

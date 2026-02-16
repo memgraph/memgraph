@@ -32,17 +32,6 @@
 
 #include <list>
 
-namespace {
-
-template <typename T>
-concept ForwardableStatus = requires {
-  { T::SUCCESS } -> std::convertible_to<T>;
-  { T::LEADER_FAILED } -> std::convertible_to<T>;
-  { T::LEADER_NOT_FOUND } -> std::convertible_to<T>;
-};
-
-}  // namespace
-
 namespace memgraph::coordination {
 
 struct NewMainRes {
@@ -105,8 +94,7 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
-  auto UpdateConfig(std::variant<int32_t, std::string> const &instance, io::network::Endpoint const &bolt_endpoint)
-      -> UpdateConfigStatus;
+  auto UpdateConfig(coordination::UpdateInstanceConfig const &config) -> UpdateConfigStatus;
 
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;

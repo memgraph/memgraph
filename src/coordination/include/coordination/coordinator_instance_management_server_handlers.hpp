@@ -48,7 +48,21 @@ class CoordinatorInstanceManagementServerHandlers {
 
   static void ForceResetHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
                                 slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void UpdateConfigHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
+                                  slk::Reader *req_reader, slk::Builder *res_builder);
+
+  //   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum>
+  //   void FwdRequestHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
+  //                          slk::Reader *req_reader, slk::Builder *res_builder) {
+  //     typename Rpc::Request req;
+  //     rpc::LoadWithUpgrade(req, request_version, req_reader);
+  //     auto const res = coordinator_instance.AddCoordinatorInstance(req.arg_);
+  //     typename Rpc::Response const rpc_res{res == StatusEnum::SUCCESS};
+  //     rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+  //   }
 };
 
 }  // namespace memgraph::coordination
+
 #endif

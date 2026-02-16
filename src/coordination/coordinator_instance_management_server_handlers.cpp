@@ -102,6 +102,14 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
         CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
             coordinator_instance, request_version, req_reader, res_builder);
       });
+
+  server.Register<UpdateConfigRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                       uint64_t const request_version,
+                                       slk::Reader *req_reader,
+                                       slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::UpdateConfigHandler(
+        coordinator_instance, request_version, req_reader, res_builder);
+  });
 }
 
 void CoordinatorInstanceManagementServerHandlers::AddCoordinatorHandler(CoordinatorInstance const &coordinator_instance,
@@ -195,6 +203,16 @@ void CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
   GetRoutingTableReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   GetRoutingTableRes const rpc_res{coordinator_instance.GetRoutingTable(req.db_name_)};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+void CoordinatorInstanceManagementServerHandlers::UpdateConfigHandler(CoordinatorInstance &coordinator_instance,
+                                                                      uint64_t request_version, slk::Reader *req_reader,
+                                                                      slk::Builder *res_builder) {
+  UpdateConfigReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  auto const res = coordinator_instance.UpdateConfig(req.arg_);
+  UpdateConfigRes const rpc_res{res == UpdateConfigStatus::SUCCESS};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 

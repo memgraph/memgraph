@@ -60,9 +60,9 @@ struct EmptyReq {
   static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
   static constexpr uint64_t kVersion{Version};
 
-  static void Save(EmptyReq const &self, memgraph::slk::Builder *builder) {}
+  static void Save(EmptyReq const & /*self*/, memgraph::slk::Builder * /*builder*/) {}
 
-  static void Load(EmptyReq *self, memgraph::slk::Reader *reader) {}
+  static void Load(EmptyReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
 
   EmptyReq() = default;
 };
@@ -497,6 +497,11 @@ using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceReset
 using ForceResetRes = BoolResponse<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1>;
 using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
 
+using UpdateConfigReq =
+    SingleArgReq<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
+using UpdateConfigRes = BoolResponse<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1>;
+using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -571,6 +576,7 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
 
 }  // namespace memgraph::slk
 
