@@ -89,7 +89,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
       return DbInfo{configs, system.LastCommittedSystemTimestamp()};
     }
-    // No license -> send only default config (parameters still replicated)
+    // No license -> send only default config
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
   });
   try {
@@ -136,6 +136,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
     return;
   }
+  // Successfully recovered
   client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
 }
 

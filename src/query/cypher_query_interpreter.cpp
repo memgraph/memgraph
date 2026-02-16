@@ -26,7 +26,6 @@
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
-#include "query/typed_value.hpp"
 #include "utils/flag_validation.hpp"
 
 #include "parameters/parameters.hpp"

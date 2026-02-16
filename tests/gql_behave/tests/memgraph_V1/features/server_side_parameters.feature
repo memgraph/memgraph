@@ -128,3 +128,21 @@ Feature: Server-side parameters
         Then the result should be:
             | name | value                    | scope   |
             | 'x'  | '{"k1":"v1","k2":2}'    | 'global' |
+
+    Scenario: Set global parameter with config nested config map
+        Given an empty graph
+        When executing query:
+            """
+            SET GLOBAL PARAMETER x={ key: {nested1: "value1", nested2: "value"} }
+            """
+        And having executed:
+            """
+            CREATE (:Node {property: $x.key.nested1});
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                            |
+            | (:Node {property: 'value1'}) |

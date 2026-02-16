@@ -12,10 +12,15 @@
 #pragma once
 
 #include "parameters/parameters.hpp"
+#include "replication/state.hpp"
+#include "system/state.hpp"
 
 namespace memgraph::parameters {
 
 // Parameter replication RPC handlers are implemented in replication_handlers.cpp.
-// Parameters::RegisterReplicationHandlers, ApplyRecovery, GetSnapshotForRecovery are declared in parameters.hpp.
+// ApplyRecovery, GetSnapshotForRecovery are declared in parameters.hpp.
+
+void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
+              Parameters &parameters);
 
 }  // namespace memgraph::parameters

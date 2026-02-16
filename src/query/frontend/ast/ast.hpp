@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <variant>
@@ -3801,8 +3800,6 @@ class ParameterQuery : public memgraph::query::Query {
   /// SET parameter value: either a single expression (literal or parameter) or a config-style map (like WITH CONFIG).
   std::variant<Expression *, std::unordered_map<Expression *, Expression *>> parameter_value_{
       static_cast<Expression *>(nullptr)};
-
-  // TODO(@DavIvek): Add scope information (GLOBAL, DATABASE, SESSION) when implementing scopes
 
   ParameterQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ParameterQuery>();

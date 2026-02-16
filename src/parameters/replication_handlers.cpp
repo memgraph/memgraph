@@ -115,9 +115,8 @@ void DeleteAllParametersHandler(system::ReplicaHandlerAccessToState &system_stat
 
 }  // namespace
 
-void Parameters::RegisterReplicationHandlers(replication::RoleReplicaData const &data,
-                                             system::ReplicaHandlerAccessToState &system_state_access) {
-  Parameters &parameters = *this;
+void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
+              Parameters &parameters) {
   data.server->rpc_server_.Register<storage::replication::SetParameterRpc>(
       [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
                                                 uint64_t const request_version,
@@ -140,6 +139,11 @@ void Parameters::RegisterReplicationHandlers(replication::RoleReplicaData const 
         DeleteAllParametersHandler(
             system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
       });
+}
+
+void Parameters::RegisterReplicationHandlers(replication::RoleReplicaData const &data,
+                                             system::ReplicaHandlerAccessToState &system_state_access) {
+  Register(data, system_state_access, *this);
 }
 
 }  // namespace memgraph::parameters

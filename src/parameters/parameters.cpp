@@ -19,7 +19,6 @@
 #include "system/include/system/action.hpp"
 #include "system/include/system/transaction.hpp"
 #include "utils/file.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::parameters {
 
@@ -29,98 +28,24 @@ std::string_view ScopePrefix(ParameterScope scope) {
   switch (scope) {
     case ParameterScope::GLOBAL:
       return "global/";
-    case ParameterScope::DATABASE:
-      return "database/";
-    case ParameterScope::SESSION:
-      return "session/";
   }
   throw utils::BasicException("Invalid parameter scope");
 }
 
 std::string MakeKey(ParameterScope scope, std::string_view name) {
-  return std::string(ScopePrefix(scope)) + std::string(name);
+  return fmt::format("{}{}", ScopePrefix(scope), name);
+}
+
+std::filesystem::path PrepareStoragePath(const std::filesystem::path &storage_path) {
+  if (!FLAGS_data_recovery_on_startup && utils::DirExists(storage_path)) {
+    utils::DeleteDir(storage_path);
+  }
+  return storage_path;
 }
 
 }  // namespace
 
-std::string_view ParameterScopeToString(ParameterScope scope) {
-  switch (scope) {
-    case ParameterScope::GLOBAL:
-      return "global";
-    case ParameterScope::DATABASE:
-      return "database";
-    case ParameterScope::SESSION:
-      return "session";
-  }
-  throw utils::BasicException("Invalid parameter scope");
-}
-
-Parameters::Parameters(const std::filesystem::path &storage_path) {
-  if (!FLAGS_data_recovery_on_startup && utils::DirExists(storage_path)) {
-    utils::DeleteDir(storage_path);
-  }
-  storage_.emplace(storage_path);
-}
-
-bool Parameters::SetParameter(std::string_view name, std::string_view value, ParameterScope scope) {
-  MG_ASSERT(storage_);
-  return storage_->Put(MakeKey(scope, name), value);
-}
-
-std::optional<std::string> Parameters::GetParameter(std::string_view name, ParameterScope scope) const {
-  if (!storage_) return std::nullopt;
-  return storage_->Get(MakeKey(scope, name));
-}
-
-bool Parameters::UnsetParameter(std::string_view name, ParameterScope scope) {
-  MG_ASSERT(storage_);
-  return storage_->Delete(MakeKey(scope, name));
-}
-
-std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) const {
-  std::vector<ParameterInfo> parameters;
-  if (!storage_) return parameters;
-  std::string prefix(ScopePrefix(scope));
-  parameters.reserve(storage_->Size(prefix));
-  for (auto it = storage_->begin(prefix); it != storage_->end(prefix); ++it) {
-    std::string name = it->first.substr(prefix.size());
-    parameters.emplace_back(ParameterInfo{.name = std::move(name), .value = it->second, .scope = scope});
-  }
-  return parameters;
-}
-
-bool Parameters::DeleteAllParameters() {
-  MG_ASSERT(storage_);
-  std::vector<std::string> keys_to_delete;
-  for (const auto scope : {ParameterScope::GLOBAL, ParameterScope::DATABASE, ParameterScope::SESSION}) {
-    std::string prefix(ScopePrefix(scope));
-    for (auto it = storage_->begin(prefix); it != storage_->end(prefix); ++it) {
-      keys_to_delete.push_back(it->first);
-    }
-  }
-  return storage_->DeleteMultiple(keys_to_delete);
-}
-
-bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
-  MG_ASSERT(storage_);
-  std::map<std::string, std::string> items;
-  for (const auto &p : params) {
-    items[MakeKey(p.scope, p.name)] = p.value;
-  }
-  return storage_->PutMultiple(items);
-}
-
-std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
-  std::vector<ParameterInfo> out;
-  for (const auto scope : {ParameterScope::GLOBAL, ParameterScope::DATABASE, ParameterScope::SESSION}) {
-    for (const auto &p : GetAllParameters(scope)) {
-      out.push_back(p);
-    }
-  }
-  return out;
-}
-
-// --- System actions for replication ---
+// --- System actions for replication (defined before Parameters methods that use them) ---
 
 struct SetParameterAction : memgraph::system::ISystemAction {
   explicit SetParameterAction(std::string_view name, std::string_view value, ParameterScope scope)
@@ -185,15 +110,73 @@ struct DeleteAllParametersAction : memgraph::system::ISystemAction {
   void PostReplication(replication::RoleMainData &) const override {}
 };
 
-void AddSetParameterAction(system::Transaction &txn, std::string_view name, std::string_view value,
-                           ParameterScope scope) {
-  txn.AddAction<SetParameterAction>(name, value, scope);
+std::string_view ParameterScopeToString(ParameterScope scope) {
+  switch (scope) {
+    case ParameterScope::GLOBAL:
+      return "global";
+  }
+  throw utils::BasicException("Invalid parameter scope");
 }
 
-void AddUnsetParameterAction(system::Transaction &txn, std::string_view name, ParameterScope scope) {
-  txn.AddAction<UnsetParameterAction>(name, scope);
+Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(PrepareStoragePath(storage_path)) {}
+
+bool Parameters::SetParameter(std::string_view name, std::string_view value, ParameterScope scope,
+                              system::Transaction *txn) {
+  if (!storage_.Put(MakeKey(scope, name), value)) return false;
+  if (txn) txn->AddAction<SetParameterAction>(name, value, scope);
+  return true;
 }
 
-void AddDeleteAllParametersAction(system::Transaction &txn) { txn.AddAction<DeleteAllParametersAction>(); }
+std::optional<std::string> Parameters::GetParameter(std::string_view name, ParameterScope scope) const {
+  return storage_.Get(MakeKey(scope, name));
+}
+
+bool Parameters::UnsetParameter(std::string_view name, ParameterScope scope, system::Transaction *txn) {
+  if (!storage_.Delete(MakeKey(scope, name))) return false;
+  if (txn) txn->AddAction<UnsetParameterAction>(name, scope);
+  return true;
+}
+
+std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) const {
+  std::vector<ParameterInfo> parameters;
+  std::string prefix(ScopePrefix(scope));
+  parameters.reserve(storage_.Size(prefix));
+  for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+    std::string name = it->first.substr(prefix.size());
+    parameters.emplace_back(ParameterInfo{.name = std::move(name), .value = it->second, .scope = scope});
+  }
+  return parameters;
+}
+
+bool Parameters::DeleteAllParameters(system::Transaction *txn) {
+  std::vector<std::string> keys_to_delete;
+  for (auto scope : {ParameterScope::GLOBAL}) {
+    std::string prefix(ScopePrefix(scope));
+    for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+      keys_to_delete.push_back(it->first);
+    }
+  }
+  if (!storage_.DeleteMultiple(keys_to_delete)) return false;
+  if (txn) txn->AddAction<DeleteAllParametersAction>();
+  return true;
+}
+
+bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
+  std::map<std::string, std::string> items;
+  for (const auto &p : params) {
+    items[MakeKey(p.scope, p.name)] = p.value;
+  }
+  return storage_.PutMultiple(items);
+}
+
+std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
+  std::vector<ParameterInfo> out;
+  for (auto scope : {ParameterScope::GLOBAL}) {
+    for (const auto &p : GetAllParameters(scope)) {
+      out.push_back(p);
+    }
+  }
+  return out;
+}
 
 }  // namespace memgraph::parameters

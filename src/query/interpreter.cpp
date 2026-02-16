@@ -181,7 +181,6 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
          ranges::to<std::map<std::string, std::string, std::less<>>>;
 }
 
-/// Evaluate a config-style map (Expression* -> Expression*) to TypedValue::TMap for parameter value.
 TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expression *> const &config_map,
                                          ExpressionVisitor<TypedValue> &evaluator,
                                          memgraph::utils::MemoryResource *memory) {
@@ -193,7 +192,7 @@ TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expres
     }
     result.emplace(TypedValue::TString(key_tv.ValueString(), memory), value_expr->Accept(evaluator));
   }
-  return TypedValue(std::move(result), memory);
+  return {std::move(result), memory};
 }
 
 }  // namespace
@@ -2630,16 +2629,15 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       callback.fn = [parameter_name = parameter_query->parameter_name_,
                      value_str,
                      parameters = interpreter_context->parameters,
-                     interpreter]() mutable {
+                     interpreter]() {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        if (!parameters->SetParameter(parameter_name, value_str, kParamScope)) {
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->SetParameter(parameter_name, value_str, kParamScope, &*interpreter->system_transaction_)) {
           throw utils::BasicException("Failed to set parameter '{}'", parameter_name);
         }
         spdlog::info("Set parameter '{}' with value '{}'", parameter_name, value_str);
-        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        parameters::AddSetParameterAction(*interpreter->system_transaction_, parameter_name, value_str, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -2647,16 +2645,15 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
     case ParameterQuery::Action::UNSET_PARAMETER: {
       callback.fn = [parameter_name = parameter_query->parameter_name_,
                      parameters = interpreter_context->parameters,
-                     interpreter]() mutable {
+                     interpreter]() {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        if (!parameters->UnsetParameter(parameter_name, kParamScope)) {
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->UnsetParameter(parameter_name, kParamScope, &*interpreter->system_transaction_)) {
           throw utils::BasicException("Parameter '{}' does not exist", parameter_name);
         }
         spdlog::info("Unset parameter '{}'", parameter_name);
-        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        parameters::AddUnsetParameterAction(*interpreter->system_transaction_, parameter_name, kParamScope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -2684,12 +2681,11 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        if (!parameters->DeleteAllParameters()) {
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->DeleteAllParameters(&*interpreter->system_transaction_)) {
           throw utils::BasicException("Failed to delete all parameters");
         }
         spdlog::info("Deleted all parameters");
-        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        parameters::AddDeleteAllParametersAction(*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;

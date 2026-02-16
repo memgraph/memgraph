@@ -186,16 +186,18 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
                                        dbms::DbmsHandler &dbms_handler, system::System &system, auth::SynchedAuth &auth,
                                        parameters::Parameters &parameters)
     : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, auth_{auth}, parameters_{parameters} {
-  RecoverReplication(repl_state_, system_, dbms_handler_, auth_, parameters_);
-}
 #else
 ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                                        dbms::DbmsHandler &dbms_handler, system::System &system,
                                        parameters::Parameters &parameters)
     : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, parameters_{parameters} {
-  RecoverReplication(repl_state_, system_, dbms_handler_, parameters_);
-}
 #endif
+#ifdef MG_ENTERPRISE
+  RecoverReplication(repl_state_, system_, dbms_handler_, auth_, parameters_);
+#else
+  RecoverReplication(repl_state_, system_, dbms_handler_, parameters_);
+#endif
+}
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 
