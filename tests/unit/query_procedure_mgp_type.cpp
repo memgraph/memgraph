@@ -23,8 +23,6 @@
 #include "disk_test_utils.hpp"
 #include "test_utils.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 template <typename StorageType>
 class CypherType : public testing::Test {
  public:
