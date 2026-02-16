@@ -2614,7 +2614,9 @@ void check_auth_query(
     std::string user_or_role, std::optional<TypedValue> password, std::vector<AuthQuery::Privilege> privileges,
     std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
     std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges,
-    std::vector<AuthQuery::LabelMatchingMode> label_matching_modes = {}) {
+    std::vector<AuthQuery::LabelMatchingMode> label_matching_modes = {},
+    std::vector<AuthQuery::FineGrainedPrivilege> default_label_permissions = {},
+    std::vector<AuthQuery::FineGrainedPrivilege> default_edge_type_permissions = {}) {
   auto *auth_query = dynamic_cast<AuthQuery *>(ast_generator->ParseQuery(input));
   ASSERT_TRUE(auth_query);
   EXPECT_EQ(auth_query->action_, action);
@@ -2629,6 +2631,8 @@ void check_auth_query(
   EXPECT_EQ(auth_query->label_privileges_, label_privileges);
   EXPECT_EQ(auth_query->edge_type_privileges_, edge_type_privileges);
   EXPECT_EQ(auth_query->label_matching_modes_, label_matching_modes);
+  EXPECT_EQ(auth_query->default_label_permissions_, default_label_permissions);
+  EXPECT_EQ(auth_query->default_edge_type_permissions_, default_edge_type_permissions);
 }
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
@@ -2704,6 +2708,149 @@ TEST_P(CypherMainVisitorTest, CreateUser) {
   ASSERT_THROW(ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY 5"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY "), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateUserWithDefaultPermissions) {
+  auto &ast_generator = *GetParam();
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT LABEL PERMISSIONS GRANT READ",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::READ},
+                   {});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT EDGE_TYPE PERMISSIONS GRANT READ, UPDATE",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::READ, AuthQuery::FineGrainedPrivilege::UPDATE});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user IDENTIFIED BY 'pass' "
+                   "WITH DEFAULT LABEL PERMISSIONS GRANT READ, UPDATE "
+                   "WITH DEFAULT EDGE_TYPE PERMISSIONS GRANT READ",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   TypedValue("pass"),
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::READ, AuthQuery::FineGrainedPrivilege::UPDATE},
+                   {AuthQuery::FineGrainedPrivilege::READ});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT LABEL PERMISSIONS DENY ALL",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::NOTHING},
+                   {});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT EDGE_TYPE PERMISSIONS DENY ALL",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::NOTHING});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT LABEL PERMISSIONS GRANT READ, SET LABEL, REMOVE LABEL, SET PROPERTY",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::READ,
+                    AuthQuery::FineGrainedPrivilege::SET_LABEL,
+                    AuthQuery::FineGrainedPrivilege::REMOVE_LABEL,
+                    AuthQuery::FineGrainedPrivilege::SET_PROPERTY},
+                   {});
+}
+
+TEST_P(CypherMainVisitorTest, CreateRoleWithDefaultPermissions) {
+  auto &ast_generator = *GetParam();
+
+  check_auth_query(&ast_generator,
+                   "CREATE ROLE analyst WITH DEFAULT LABEL PERMISSIONS GRANT READ",
+                   AuthQuery::Action::CREATE_ROLE,
+                   "",
+                   {"analyst"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::READ},
+                   {});
+
+  check_auth_query(&ast_generator,
+                   "CREATE ROLE editor "
+                   "WITH DEFAULT LABEL PERMISSIONS GRANT READ, UPDATE "
+                   "WITH DEFAULT EDGE_TYPE PERMISSIONS GRANT READ, SET PROPERTY",
+                   AuthQuery::Action::CREATE_ROLE,
+                   "",
+                   {"editor"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::READ, AuthQuery::FineGrainedPrivilege::UPDATE},
+                   {AuthQuery::FineGrainedPrivilege::READ, AuthQuery::FineGrainedPrivilege::SET_PROPERTY});
+
+  check_auth_query(&ast_generator,
+                   "CREATE ROLE restricted "
+                   "WITH DEFAULT LABEL PERMISSIONS DENY ALL "
+                   "WITH DEFAULT EDGE_TYPE PERMISSIONS DENY ALL",
+                   AuthQuery::Action::CREATE_ROLE,
+                   "",
+                   {"restricted"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::NOTHING},
+                   {AuthQuery::FineGrainedPrivilege::NOTHING});
 }
 
 TEST_P(CypherMainVisitorTest, SetPassword) {
@@ -3374,6 +3521,79 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, * ON NODES CONTAINING LABELS :Label1 TO user"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, * ON NODES CONTAINING LABELS :Label1 TO user"),
                SemanticException);
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"*"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET LABEL ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::REMOVE_LABEL}, {{"Label1"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT REMOVE LABEL ON NODES CONTAINING LABELS :Label1 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"*"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET PROPERTY ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  edge_type_privileges.clear();
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"KNOWS"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET PROPERTY ON EDGES OF TYPE :KNOWS TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   {},
+                   edge_type_privileges,
+                   {});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Person"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"Person"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"Person"}}}});
+  check_auth_query(
+      &ast_generator,
+      "GRANT READ, SET LABEL, SET PROPERTY ON NODES CONTAINING LABELS :Person TO user",
+      AuthQuery::Action::GRANT_PRIVILEGE,
+      "",
+      {},
+      "user",
+      {},
+      {},
+      label_privileges,
+      {},
+      {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
