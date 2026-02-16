@@ -111,6 +111,7 @@ INVOKER                 : I N V O K E R ;
 ISOLATION               : I S O L A T I O N ;
 JSONL                   : J S O N L ;
 KAFKA                   : K A F K A ;
+LABEL                   : L A B E L ;
 LABELS                  : L A B E L S ;
 LAG                     : L A G ;
 LEADERSHIP              : L E A D E R S H I P ;
