@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "utils/logging.hpp"
@@ -76,6 +77,24 @@ class WorkerYieldRegistry {
   }
 
   /**
+   * Clear yield for a specific worker. Safe to call from an external thread.
+   * Equivalent to GetSignalForWorker(worker_id)->store(false).
+   */
+  void ClearYieldForWorker(WorkerId worker_id) {
+    DMG_ASSERT(worker_id < max_workers_, "worker_id {} out of range (max {})", worker_id, max_workers_);
+    GetSignalForWorker(worker_id)->store(false, std::memory_order_release);
+  }
+
+  /**
+   * Clear yield for the current worker. Safe to call from an external thread.
+   * Equivalent to ClearYieldForWorker(*GetCurrentWorkerId()).
+   */
+  static void ClearYieldForCurrentWorker() {
+    DMG_ASSERT(GetTlsCurrentSignal(), "no current yield signal");
+    GetTlsCurrentSignal()->store(false, std::memory_order_release);
+  }
+
+  /**
    * Called by the worker thread before running a task. Sets the thread-local
    * current yield signal to this worker's signal and clears any previous
    * yield request so the new task starts with a clean flag.
@@ -84,6 +103,7 @@ class WorkerYieldRegistry {
     YieldSignalPtr ptr = GetSignalForWorker(worker_id);
     ptr->store(false, std::memory_order_release);
     GetTlsCurrentSignal() = ptr.get();
+    GetTlsCurrentWorkerId() = worker_id;
   }
 
   /**
@@ -91,7 +111,10 @@ class WorkerYieldRegistry {
    * so the pointer is not used after the registry or signals are destroyed.
    * Static so it can be called without an instance (e.g. at thread exit).
    */
-  static void ClearCurrentWorker() { GetTlsCurrentSignal() = nullptr; }
+  static void ClearCurrentWorker() {
+    GetTlsCurrentSignal() = nullptr;
+    GetTlsCurrentWorkerId() = std::nullopt;
+  }
 
   /**
    * Returns the current thread's yield signal pointer, or nullptr if
@@ -100,12 +123,24 @@ class WorkerYieldRegistry {
    */
   static YieldSignal *GetCurrentYieldSignal() { return GetTlsCurrentSignal(); }
 
+  /**
+   * Returns the current thread's worker id if SetCurrentWorker was called
+   * (and not cleared). Use this when scheduling a continuation that must
+   * run on the same worker (e.g. after a yield).
+   */
+  static std::optional<WorkerId> GetCurrentWorkerId() { return GetTlsCurrentWorkerId(); }
+
   WorkerId MaxWorkers() const { return max_workers_; }
 
  private:
   static YieldSignal *&GetTlsCurrentSignal() {
     thread_local YieldSignal *tls_current = nullptr;
     return tls_current;
+  }
+
+  static std::optional<WorkerId> &GetTlsCurrentWorkerId() {
+    thread_local std::optional<WorkerId> tls_worker_id;
+    return tls_worker_id;
   }
 
   const WorkerId max_workers_;

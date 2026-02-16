@@ -83,7 +83,6 @@
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/procedure/module.hpp"
-#include "utils/worker_yield_signal.hpp"
 #include "query/query_user.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/stream.hpp"
@@ -130,6 +129,7 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "flags/experimental.hpp"
@@ -2782,7 +2782,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
     // Returns std::optional<bool>: true = has row, false = done, nullopt = yielded (caller should return and resume
     // later).
-    const auto pull_result = [this]() -> std::optional<bool> {
+    const auto pull_result = [this, summary]() -> std::optional<bool> {
       plan::PullAwaitable awaitable;
       if (stored_awaitable_) {
         awaitable = std::move(*stored_awaitable_);
@@ -2791,9 +2791,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
         awaitable = cursor_->Pull(frame_, ctx_);
       }
       while (true) {
+        summary->insert_or_assign("yielded", TypedValue(false));
         auto result = plan::RunPullToCompletion(awaitable, ctx_);
         if (result.status == plan::PullRunResult::Status::Yielded) {
           stored_awaitable_ = std::move(awaitable);
+          summary->insert_or_assign("yielded", TypedValue(true));
           return std::nullopt;  // Expose yield to scheduler; next Pull() will resume.
         }
         return result.status == plan::PullRunResult::Status::HasRow;

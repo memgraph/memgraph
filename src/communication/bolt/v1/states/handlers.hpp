@@ -110,6 +110,11 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       summary = session.Discard(n, qid);
     }
 
+    // Scheduler-driven yield: do not send a message to the client; we will resume and send once done.
+    // Only treat as Yielded when there is more work (has_more); otherwise we're done.
+    if (summary.contains("yielded") && summary.at("yielded").ValueBool()) {
+      return State::Yielded;
+    }
     if (!session.encoder_.MessageSuccess(summary)) {
       spdlog::trace("Couldn't send query summary!");
       return State::Close;

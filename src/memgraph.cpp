@@ -69,6 +69,7 @@
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/worker_yield_signal.hpp"
 #include "version.hpp"
 
 #include <gflags/gflags.h>
@@ -688,7 +689,10 @@ int main(int argc, char **argv) {
   auto db_acc = dbms_handler.Get();
 
   // Global worker pool!
-  // Used by sessions to schedule tasks.
+  // Used by sessions to schedule tasks. When using the priority scheduler, each worker gets a
+  // yield signal so the query layer (PullPlan) can yield and return to the caller; the registry
+  // is passed into the pool so workers call SetCurrentWorker before running a task.
+  std::optional<memgraph::utils::WorkerYieldRegistry> worker_yield_registry_;
   std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
   unsigned io_n_threads = FLAGS_bolt_num_workers;
 
@@ -700,9 +704,9 @@ int main(int argc, char **argv) {
     // NOTE: We should also register cleanup, but since threads exist until the end of the program,
     //       everyhting will be cleaned up anyway at program exit.
     auto python_thread_init = []() { memgraph::query::procedure::RegisterPyThread(); };
-    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
-                         /* high priority */ 1U,
-                         python_thread_init);
+    const auto num_workers = static_cast<uint16_t>(FLAGS_bolt_num_workers);
+    worker_yield_registry_.emplace(num_workers);
+    worker_pool_.emplace(num_workers, python_thread_init, &*worker_yield_registry_);
     io_n_threads = 1U;
   }
 
