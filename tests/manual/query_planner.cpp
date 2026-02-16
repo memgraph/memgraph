@@ -14,7 +14,6 @@
 #include <gflags/gflags.h>
 
 #include "storage/v2/inmemory/storage.hpp"
-using memgraph::replication_coordination_glue::ReplicationRole;
 DECLARE_int32(min_log_level);
 
 int main(int argc, char *argv[]) {
