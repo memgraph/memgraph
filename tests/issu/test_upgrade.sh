@@ -437,32 +437,40 @@ echo "Run test queries on old version"
 helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml
 echo "Updated versions"
 
+wait_memgraph_pods_ready() {
+  local timeout="${1:-300s}"
+  for p in "${MEMGRAPH_PODS[@]}"; do
+    kubectl wait --for=condition=ready "pod/$p" --timeout="$timeout"
+  done
+}
+
+
 # --- Rolling restarts ---
 echo "Deleting pod memgraph-data-1-0 which serves as replica"
 kubectl delete pod memgraph-data-1-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-1-0 passed successfully"
 
 echo "Deleting pod memgraph-data-0-0 which serves as main"
 kubectl scale statefulset memgraph-data-0 --replicas=0
 sleep 5
 kubectl scale statefulset memgraph-data-0 --replicas=1
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-0-0 passed successfully"
 
 echo "Deleting pod memgraph-coordinator-3-0 which serves as follower"
 kubectl delete pod memgraph-coordinator-3-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-coordinator-3-0 passed successfully"
 
 echo "Deleting pod memgraph-coordinator-2-0 which serves as follower"
 kubectl delete pod memgraph-coordinator-2-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-coordinator-2-0 passed successfully"
 
 echo "Deleting pod memgraph-coordinator-1-0 which serves as leader"
 kubectl delete pod memgraph-coordinator-1-0
-kubectl wait --for=condition=ready pod --all --timeout=90s
+wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-coordinator-1-0 passed successfully"
 
 # --- Post-upgrade verification ---
