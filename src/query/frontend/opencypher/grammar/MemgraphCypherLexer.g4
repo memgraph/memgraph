@@ -155,6 +155,7 @@ POINT                   : P O I N T ;
 PROPERTY                : P R O P E R T Y ;
 PORT                    : P O R T ;
 PRIVILEGES              : P R I V I L E G E S ;
+PROPERTY                : P R O P E R T Y ;
 PROFILE_RESTRICTION     : P R O F I L E UNDERSCORE R E S T R I C T I O N ;
 PROFILES                : P R O F I L E S ;
 PULSAR                  : P U L S A R ;
