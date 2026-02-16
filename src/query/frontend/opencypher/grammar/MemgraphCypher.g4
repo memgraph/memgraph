@@ -150,6 +150,7 @@ memgraphCypherKeyword : cypherKeyword
                       | POINT
                       | PORT
                       | PRIVILEGES
+                      | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
@@ -539,7 +540,7 @@ privilege : CREATE
           | SERVER_SIDE_PARAMETERS
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
+granularPrivilege : NOTHING | READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
