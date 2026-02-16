@@ -48,7 +48,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     /openssl/libssl3t64*.deb \
     --no-install-recommends && \
   apt-get install -y \
-    libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
+    libcurl4 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser ca-certificates \
     gdb procps linux-tools-common libc6-dbg libxmlsec1 "linux-tools-$(uname -r)" \
     --no-install-recommends && \
   groupadd -g 103 memgraph && \
