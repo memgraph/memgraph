@@ -826,6 +826,42 @@ def test_show_databases_for_user_and_role(memgraph):
     memgraph.execute("DROP DATABASE db3;")
 
 
+def test_server_side_parameters_privilege(memgraph):
+    """Test that SERVER_SIDE_PARAMETERS privilege is required for SET/SHOW/UNSET/DELETE ALL parameters."""
+    memgraph.execute("CREATE USER param_user;")
+    memgraph.execute("GRANT MATCH TO param_user;")
+    param_conn = Memgraph(username="param_user", password="")
+
+    # Without SERVER_SIDE_PARAMETERS, parameter operations should fail
+    with pytest.raises(Exception):
+        param_conn.execute("SET GLOBAL PARAMETER x='value';")
+    with pytest.raises(Exception):
+        list(param_conn.execute_and_fetch("SHOW PARAMETERS;"))
+    with pytest.raises(Exception):
+        param_conn.execute("UNSET GLOBAL PARAMETER x;")
+    with pytest.raises(Exception):
+        param_conn.execute("DELETE ALL PARAMETERS;")
+
+    # Grant SERVER_SIDE_PARAMETERS
+    memgraph.execute("GRANT SERVER_SIDE_PARAMETERS TO param_user;")
+
+    # Now SET, SHOW, UNSET should succeed
+    param_conn.execute("SET GLOBAL PARAMETER x='value';")
+    results = list(param_conn.execute_and_fetch("SHOW PARAMETERS;"))
+    assert any(row.get("name") == "x" for row in results)
+    param_conn.execute("UNSET GLOBAL PARAMETER x;")
+    results = list(param_conn.execute_and_fetch("SHOW PARAMETERS;"))
+    assert not any(row.get("name") == "x" for row in results)
+
+    # DELETE ALL PARAMETERS should also work (no-op if empty)
+    param_conn.execute("SET GLOBAL PARAMETER y='v';")
+    param_conn.execute("DELETE ALL PARAMETERS;")
+    results = list(param_conn.execute_and_fetch("SHOW PARAMETERS;"))
+    assert len(results) == 0
+
+    memgraph.execute("DROP USER param_user;")
+
+
 def test_user_profiles(memgraph):
     try:
         list(memgraph.execute_and_fetch("CREATE PROFILE profile;"))

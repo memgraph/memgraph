@@ -167,6 +167,7 @@ ROLES                   : R O L E S ;
 ROWS                    : R O W S ;
 SCHEMA                  : S C H E M A ;
 SECURITY                : S E C U R I T Y ;
+SERVER_SIDE_PARAMETERS  : S E R V E R UNDERSCORE S I D E UNDERSCORE P A R A M E T E R S ;
 SERVER                  : S E R V E R ;
 SERVICE_URL             : S E R V I C E UNDERSCORE U R L ;
 SESSION                 : S E S S I O N ;
