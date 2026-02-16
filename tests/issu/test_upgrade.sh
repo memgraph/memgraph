@@ -378,20 +378,19 @@ echo -e "${GREEN}Waiting for pods to become ready...${NC}"
 echo "Current pod status:"
 kubectl get pods -o wide
 
-echo "Waiting up to 5 minutes for pods to be ready..."
-if ! kubectl wait --for=condition=ready pod --all --timeout=300s; then
-  echo -e "${YELLOW}Warning: Some pods may not be ready yet. Checking status...${NC}"
-  kubectl get pods -o wide
-  echo "Pod events:"
-  kubectl get events --sort-by=.metadata.creationTimestamp | tail -20
-  echo "Checking pod logs for any issues..."
-  for pod in $(kubectl get pods --no-headers -o custom-columns=":metadata.name"); do
-    echo "=== Logs for $pod ==="
-    kubectl logs "$pod" --tail=10 || true
-  done
-  echo -e "${YELLOW}Continuing anyway - some pods might still be starting...${NC}"
-fi
-sleep 10
+echo "Waiting up to 5 minutes for memgraph pods to be ready..."
+
+MEMGRAPH_PODS=(
+  memgraph-coordinator-1-0
+  memgraph-coordinator-2-0
+  memgraph-coordinator-3-0
+  memgraph-data-0-0
+  memgraph-data-1-0
+)
+
+for p in "${MEMGRAPH_PODS[@]}"; do
+  kubectl wait --for=condition=ready "pod/$p" --timeout=300s
+done
 
 echo "All pods became ready"
 
