@@ -411,5 +411,9 @@ auto CoordinatorStateMachine::GetMaxFailoverReplicaLag() const -> uint64_t {
 
 auto CoordinatorStateMachine::GetMaxReplicaReadLag() const -> uint64_t { return cluster_state_.GetMaxReplicaReadLag(); }
 
+auto CoordinatorStateMachine::GetDeltasBatchProgressSize() const -> uint64_t {
+  return cluster_state_.GetDeltasBatchProgressSize();
+}
+
 }  // namespace memgraph::coordination
 #endif

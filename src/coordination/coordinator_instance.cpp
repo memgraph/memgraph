@@ -1497,7 +1497,8 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
       std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
-      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())}};
+      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())},
+      std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())}};
   return settings;
 }
 

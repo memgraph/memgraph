@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -104,6 +104,7 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetSyncFailoverOnly() const -> bool;
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
   auto GetMaxReplicaReadLag() const -> uint64_t;
+  auto GetDeltasBatchProgressSize() const -> uint64_t;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

@@ -196,8 +196,9 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  // by default, it should be true
+  // test default settings
   ASSERT_TRUE(cluster_state.GetSyncFailoverOnly());
+  ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 100'000);
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
@@ -206,7 +207,8 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                                  .enabled_reads_on_main_ = true,
                                                  .sync_failover_only_ = false,
                                                  .max_failover_replica_lag_ = 25,
-                                                 .max_replica_read_lag_ = 10};
+                                                 .max_replica_read_lag_ = 10,
+                                                 .deltas_batch_progress_size_ = 50'000};
   cluster_state.DoAction(delta_state);
 
   ptr<buffer> data;
@@ -218,6 +220,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_FALSE(cluster_state.GetSyncFailoverOnly());
   ASSERT_EQ(cluster_state.GetMaxFailoverReplicaLag(), 25);
   ASSERT_EQ(cluster_state.GetMaxReplicaReadLag(), 10);
+  ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 50'000);
 }
 
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {

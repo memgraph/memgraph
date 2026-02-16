@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,6 @@
 
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/constants.hpp"
-#include "utils/logging.hpp"
 
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
@@ -30,6 +29,7 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
   sync_failover_only_ = other.sync_failover_only_;
   max_failover_replica_lag_ = other.max_failover_replica_lag_;
   max_replica_read_lag_ = other.max_replica_read_lag_;
+  deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
   // NOLINTEND
 }
 
@@ -46,6 +46,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   sync_failover_only_ = other.sync_failover_only_;
   max_failover_replica_lag_ = other.max_failover_replica_lag_;
   max_replica_read_lag_ = other.max_replica_read_lag_;
+  deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
   return *this;
 }
 
@@ -56,7 +57,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       enabled_reads_on_main_{other.enabled_reads_on_main_},
       sync_failover_only_{other.sync_failover_only_},
       max_failover_replica_lag_(other.max_failover_replica_lag_),
-      max_replica_read_lag_(other.max_replica_read_lag_) {}
+      max_replica_read_lag_(other.max_replica_read_lag_),
+      deltas_batch_progress_size_(other.deltas_batch_progress_size_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -72,6 +74,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   sync_failover_only_ = other.sync_failover_only_;
   max_failover_replica_lag_ = other.max_failover_replica_lag_;
   max_replica_read_lag_ = other.max_replica_read_lag_;
+  deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
   return *this;
 }
 
@@ -123,6 +126,10 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
 
   if (delta_state.max_replica_read_lag_.has_value()) {
     max_replica_read_lag_ = *delta_state.max_replica_read_lag_;
+  }
+
+  if (delta_state.deltas_batch_progress_size_.has_value()) {
+    deltas_batch_progress_size_ = *delta_state.deltas_batch_progress_size_;
   }
 }
 
@@ -189,6 +196,11 @@ auto CoordinatorClusterState::GetMaxReplicaReadLag() const -> uint64_t {
   return max_replica_read_lag_;
 }
 
+auto CoordinatorClusterState::GetDeltasBatchProgressSize() const -> uint64_t {
+  auto lock = std::shared_lock{app_lock_};
+  return deltas_batch_progress_size_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
   coordinator_instances_ = std::move(coordinator_instances);
@@ -224,6 +236,11 @@ void CoordinatorClusterState::SetMaxReplicaReadLag(uint64_t const max_replica_re
   max_replica_read_lag_ = max_replica_read_lag;
 }
 
+void CoordinatorClusterState::SetDeltasBatchProgressSize(uint64_t const deltas_batch_progress_size) {
+  auto lock = std::lock_guard{app_lock_};
+  deltas_batch_progress_size_ = deltas_batch_progress_size;
+}
+
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
                      {kMainUUID.data(), state.GetCurrentMainUUID()},
@@ -233,7 +250,8 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      // Added in 3.6.0 version
                      {kMaxFailoverLagOnReplica.data(), state.GetMaxFailoverReplicaLag()},
                      // Added in 3.6.0 version
-                     {kMaxReplicaReadLag.data(), state.GetMaxReplicaReadLag()}};
+                     {kMaxReplicaReadLag.data(), state.GetMaxReplicaReadLag()},
+                     {kDeltasBatchProgressSize.data(), state.GetDeltasBatchProgressSize()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -262,6 +280,9 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
 
   uint64_t const max_replica_read_lag = j.value(kMaxReplicaReadLag.data(), std::numeric_limits<uint64_t>::max());
   instance_state.SetMaxReplicaReadLag(max_replica_read_lag);
+
+  uint64_t const deltas_batch_progress_size = j.value(kDeltasBatchProgressSize.data(), 100'000);
+  instance_state.SetDeltasBatchProgressSize(deltas_batch_progress_size);
 }
 
 }  // namespace memgraph::coordination

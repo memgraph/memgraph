@@ -3115,6 +3115,7 @@ def test_coord_settings(test_name):
     sync_failover_key = "sync_failover_only"
     max_failover_replica_lag = "max_failover_replica_lag"
     max_replica_read_lag = "max_replica_read_lag"
+    deltas_batch_progress_size = "deltas_batch_progress_size"
 
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
 
@@ -3122,11 +3123,13 @@ def test_coord_settings(test_name):
     assert sync_failover_key in settings, f"Missing setting key: {sync_failover_key}"
     assert max_failover_replica_lag in settings, f"Missing setting key: {max_failover_replica_lag}"
     assert max_replica_read_lag in settings, f"Missing setting key: {max_replica_read_lag}"
+    assert deltas_batch_progress_size in settings, f"Missing setting key: {deltas_batch_progress_size}"
 
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "true"
     assert settings[max_failover_replica_lag] == f"{2**64-1}"
     assert settings[max_replica_read_lag] == f"{2**64-1}"
+    assert settings[deltas_batch_progress_size] == "100000"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'true'")
 
@@ -3146,26 +3149,31 @@ def test_coord_settings(test_name):
     assert settings[sync_failover_key] == "true"
     assert settings[max_failover_replica_lag] == f"{2**64-1}"
     assert settings[max_replica_read_lag] == f"{2**64-1}"
+    assert settings[deltas_batch_progress_size] == "100000"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'sync_failover_only' to 'false'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'false'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_failover_replica_lag' to '25'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_replica_read_lag' to '10'")
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'deltas_batch_progress_size' to '10000'")
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
+    assert settings[deltas_batch_progress_size] == "10000"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
+    assert settings[deltas_batch_progress_size] == "10000"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
+    assert settings[deltas_batch_progress_size] == "10000"
 
 
 def test_update_config(test_name):
