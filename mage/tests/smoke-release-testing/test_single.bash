@@ -62,6 +62,7 @@ test_shortest_paths
 test_text_search
 test_durability
 test_load_csv
+test_load_csv_ssl
 test_load_jsonl
 test_load_parquet
 test_parallel_runtime
