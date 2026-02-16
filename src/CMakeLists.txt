@@ -47,7 +47,8 @@ set(mg_single_node_v2_sources
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
 # Ensure mgconsole is built when memgraph is built
-add_dependencies(memgraph mgconsole-proj)
+# Note: When using CPack, mgconsole is built via CPack install script instead
+add_dependencies(memgraph mgconsole)
 
 # Link memgraph with custom libstdc++
 message(STATUS "Linking memgraph with custom libstdc++")
