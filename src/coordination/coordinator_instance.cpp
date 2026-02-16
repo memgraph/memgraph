@@ -1538,7 +1538,7 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
                          {"instance_health_check_frequency_sec", instance_health_check_frequency_sec_.count()}});
 }
 
-auto CoordinatorInstance::UpdateConfig(coordination::UpdateInstanceConfig const &config) -> UpdateConfigStatus {
+auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> UpdateConfigStatus {
   if (auto const res = ForwardToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
     return *res;
   }

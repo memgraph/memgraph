@@ -349,9 +349,9 @@ struct GetRoutingTableReq {
 
   GetRoutingTableReq() = default;
 
-  explicit GetRoutingTableReq(std::string db_name) : db_name_(std::move(db_name)) {}
+  explicit GetRoutingTableReq(std::string arg) : arg_(std::move(arg)) {}
 
-  std::string db_name_;
+  std::string arg_;
 };
 
 struct GetRoutingTableRes {
