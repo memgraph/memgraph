@@ -402,21 +402,24 @@ kubectl wait --for=condition=complete job/cluster-setup --timeout=300s 2>/dev/nu
 kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
 echo "Initialized cluster"
 
-echo "Waiting for cluster to become writable (MAIN elected and stable)..."
-for i in $(seq 1 60); do
-  # Use coordinator as the source of truth for cluster status
+echo "Waiting for cluster to become writable (MAIN elected)..."
+for i in $(seq 1 90); do
   out="$(kubectl exec memgraph-coordinator-1-0 -- mgconsole --execute "SHOW INSTANCES;" 2>/dev/null || true)"
 
-  # Heuristic: wait until we see both instances AND one is MAIN.
-  # Adjust the grep patterns to match your SHOW INSTANCES output format.
-  if echo "$out" | grep -q 'instance_0' && echo "$out" | grep -q 'instance_1' && echo "$out" | grep -qi 'main'; then
-    echo "Cluster looks initialized (instances present, MAIN exists)."
-    break
+  if echo "$out" | grep -q '"coordinator_1"' \
+    && echo "$out" | grep -q '"coordinator_2"' \
+    && echo "$out" | grep -q '"coordinator_3"' \
+    && echo "$out" | grep -qi '"main"' \
+    && echo "$out" | grep -qi '"replica"'; then
+      echo "Cluster is initialized and writable."
+      break
   fi
 
-  echo "Cluster not writable yet (attempt $i/60). Retrying in 2s..."
+  echo "Cluster not writable yet (attempt $i/90). Retrying in 2s..."
   sleep 2
 done
+
+kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
 
 
 kubectl cp $auth_pre_upgrade_file memgraph-data-0-0:/var/lib/memgraph/auth_pre_upgrade.cypherl
