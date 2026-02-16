@@ -128,6 +128,10 @@ class CoordinatorInstance {
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
+  auto ShowReplicationLagAsFollower(int32 leader_id) const
+      -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+  auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+
   auto AddNewCoordinator(CoordinatorInstanceConfig const &config,
                          std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
       -> AddCoordinatorInstanceStatus;

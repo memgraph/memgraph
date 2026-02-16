@@ -162,6 +162,20 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             req_reader,
             res_builder);
       });
+
+  server.Register<CoordReplicationLagRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<CoordReplicationLagRpc>(
+            [&coordinator_instance]() -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+              return coordinator_instance.ShowReplicationLag();
+            },
+            request_version,
+            req_reader,
+            res_builder);
+      });
 }
 
 }  // namespace memgraph::coordination

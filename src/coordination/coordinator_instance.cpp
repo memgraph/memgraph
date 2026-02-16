@@ -1501,7 +1501,16 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   return settings;
 }
 
-auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+auto CoordinatorInstance::ShowReplicationLagAsFollower(int32_t const leader_id) const
+    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
+  if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+    return leader->SendShowReplicationLag();
+  }
+  return std::nullopt;
+}
+
+auto CoordinatorInstance::ShowReplicationLagAsLeader() const
+    -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
   for (auto const &repl_instance : repl_instances_) {
     auto const &instance_name = repl_instance.InstanceName();
     if (!raft_state_->IsCurrentMain(instance_name)) {
@@ -1528,6 +1537,15 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
   }
   spdlog::error("No instance is annotated as main in Raft logs");
   return {};
+}
+
+auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (leader_id == raft_state_->GetMyCoordinatorId() &&
+      status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+    return ShowReplicationLagAsLeader();
+  }
+  return ShowReplicationLagAsFollower(leader_id).value_or({});
 }
 
 auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {

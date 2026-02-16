@@ -38,19 +38,19 @@
 namespace memgraph::coordination {
 
 template <utils::TypeId Id, FixedString Name, uint64_t Version, typename ArgType>
-struct SingleArgReq {
+struct SingleArgMsg {
   static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
   static constexpr uint64_t kVersion{Version};
 
-  static void Save(SingleArgReq const &self, memgraph::slk::Builder *builder) {
+  static void Save(SingleArgMsg const &self, memgraph::slk::Builder *builder) {
     memgraph::slk::Save(self.arg_, builder);
   }
 
-  static void Load(SingleArgReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
+  static void Load(SingleArgMsg *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
 
-  SingleArgReq(ArgType arg) : arg_(std::move(arg)) {}
+  SingleArgMsg(ArgType arg) : arg_(std::move(arg)) {}
 
-  SingleArgReq() = default;
+  SingleArgMsg() = default;
 
   ArgType arg_;
 };
@@ -466,30 +466,30 @@ struct ReplicationLagRes {
 using ReplicationLagRpc = rpc::RequestResponse<ReplicationLagReq, ReplicationLagRes>;
 
 using AddCoordinatorReq =
-    SingleArgReq<utils::TypeId::COORD_ADD_COORD_REQ, "AddCoordinatorReq", 1, CoordinatorInstanceConfig>;
+    SingleArgMsg<utils::TypeId::COORD_ADD_COORD_REQ, "AddCoordinatorReq", 1, CoordinatorInstanceConfig>;
 using AddCoordinatorRes = BoolResponse<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1>;
 using AddCoordinatorRpc = rpc::RequestResponse<AddCoordinatorReq, AddCoordinatorRes>;
 
-using RemoveCoordinatorReq = SingleArgReq<utils::TypeId::COORD_REMOVE_COORD_REQ, "RemoveCoordinatorReq", 1, int>;
+using RemoveCoordinatorReq = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_REQ, "RemoveCoordinatorReq", 1, int>;
 using RemoveCoordinatorRes = BoolResponse<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1>;
 using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCoordinatorRes>;
 
 using RegisterInstanceReq =
-    SingleArgReq<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfig>;
+    SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfig>;
 using RegisterInstanceRes = BoolResponse<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1>;
 using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
 
 using UnregisterInstanceReq =
-    SingleArgReq<utils::TypeId::COORD_UNREGISTER_INSTANCE_REQ, "UnregisterInstanceReq", 1, std::string>;
+    SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_REQ, "UnregisterInstanceReq", 1, std::string>;
 using UnregisterInstanceRes = BoolResponse<utils::TypeId::COORD_UNREGISTER_INSTANCE_RES, "UnregisterInstanceRes", 1>;
 using UnregisterInstanceRpc = rpc::RequestResponse<UnregisterInstanceReq, UnregisterInstanceRes>;
 
 using SetInstanceToMainReq =
-    SingleArgReq<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_REQ, "SetInstanceToMainReq", 1, std::string>;
+    SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_REQ, "SetInstanceToMainReq", 1, std::string>;
 using SetInstanceToMainRes = BoolResponse<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_RES, "SetInstanceToMainRes", 1>;
 using SetInstanceToMainRpc = rpc::RequestResponse<SetInstanceToMainReq, SetInstanceToMainRes>;
 
-using DemoteInstanceReq = SingleArgReq<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
+using DemoteInstanceReq = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
 using DemoteInstanceRes = BoolResponse<utils::TypeId::COORD_DEMOTE_INSTANCE_RES, "DemoteInstanceRes", 1>;
 using DemoteInstanceRpc = rpc::RequestResponse<DemoteInstanceReq, DemoteInstanceRes>;
 
@@ -498,9 +498,14 @@ using ForceResetRes = BoolResponse<utils::TypeId::COORD_FORCE_RESET_RES, "ForceR
 using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
 
 using UpdateConfigReq =
-    SingleArgReq<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
+    SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
 using UpdateConfigRes = BoolResponse<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1>;
 using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
+
+using CoordReplicationLagReq = EmptyReq<utils::TypeId::COORD_REPL_LAG_REQ, "CoordReplLagReq", 1>;
+using CoordReplicationLagRes = SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "CoordReplLagRes", 1,
+                                            std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+using CoordReplicationLagRpc = rpc::RequestResponse<CoordReplicationLagReq, CoordReplicationLagRes>;
 
 }  // namespace memgraph::coordination
 
@@ -577,6 +582,7 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
 
 }  // namespace memgraph::slk
 

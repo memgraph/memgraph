@@ -41,5 +41,16 @@ auto CoordinatorInstanceConnector::SendGetRoutingTable(std::string_view const db
   }
 }
 
+auto CoordinatorInstanceConnector::SendShowReplicationLag() const
+    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
+  try {
+    auto stream{client_.RpcClient().Stream<CoordReplicationLagRpc>()};
+    return stream.SendAndWait().arg_;
+  } catch (std::exception const &e) {
+    spdlog::error("Failed to receive response to ShowReplicationLagRpc: {}", e.what());
+    return std::nullopt;
+  }
+}
+
 }  // namespace memgraph::coordination
 #endif

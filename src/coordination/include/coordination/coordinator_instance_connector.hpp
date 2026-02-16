@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_instance_client.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
 
 namespace memgraph::coordination {
@@ -26,6 +27,8 @@ class CoordinatorInstanceConnector {
   auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
   auto SendGetRoutingTable(std::string_view db_name) const -> std::optional<RoutingTable>;
+
+  auto SendShowReplicationLag() const -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
 
   template <rpc::IsRpc Rpc, typename... Args>
   auto SendBoolRpc(Args &&...args) -> bool {
