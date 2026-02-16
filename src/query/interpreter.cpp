@@ -2836,16 +2836,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       return std::nullopt;
     }
 
-    // If we finished because we streamed the requested n results,
-    // we try to pull the next result to see if there is more.
-    // If there is additional result, we leave the pulled result in the frame
-    // and set the flag to true.
-    {
+    // Only do lookahead when we streamed exactly n results; we need one more pull to set has_more.
+    // When we broke because the cursor returned false (no more rows), we must not pull again.
+    if (n && i == *n) {
       auto pr = pull_result();
       if (!pr.has_value()) {
         return std::nullopt;  // Yielded during lookahead.
       }
-      has_unsent_results_ = i == n && *pr;
+      has_unsent_results_ = *pr;
     }
 
     execution_time_ += timer.Elapsed();
