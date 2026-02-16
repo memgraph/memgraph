@@ -180,6 +180,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     // transactions get a SERIALIZATION_ERROR.
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
     CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
+    transaction_->PushReplicationEdgePreamble(from_vertex_->gid, to_vertex_->gid, edge_.ptr->gid, edge_type_);
     edge_.ptr->properties.SetProperty(property, value);
     storage_->indices_.UpdateOnSetProperty(
         edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
@@ -223,6 +224,7 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
     for (const auto &[property, value] : properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
+      transaction_->PushReplicationEdgePreamble(from_vertex_->gid, to_vertex_->gid, edge_.ptr->gid, edge_type_);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -268,6 +270,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
+      transaction_->PushReplicationEdgePreamble(from_vertex_->gid, to_vertex_->gid, edge_.ptr->gid, edge_type_);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -311,6 +314,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(
           transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first, property.second);
+      transaction_->PushReplicationEdgePreamble(from_vertex_->gid, to_vertex_->gid, edge_.ptr->gid, edge_type_);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {

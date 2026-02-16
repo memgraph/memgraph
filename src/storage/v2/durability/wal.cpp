@@ -616,6 +616,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VERTEX_REMOVE_LABEL, WalVertexRemoveLabel);
     read_skip(VERTEX_SET_PROPERTY, WalVertexSetProperty);
     read_skip(EDGE_SET_PROPERTY, WalEdgeSetProperty);
+    read_skip(REPLICATION_EDGE_SET_PROPERTY_PREAMBLE, WalReplicationEdgeSetPropertyPreamble);
     read_skip(EDGE_CREATE, WalEdgeCreate);
     read_skip(EDGE_DELETE, WalEdgeDelete);
     read_skip(TRANSACTION_START, WalTransactionStart);
