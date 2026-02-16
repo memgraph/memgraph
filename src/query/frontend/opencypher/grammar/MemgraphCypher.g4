@@ -70,6 +70,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGE_TYPE
                       | EDGE_TYPES
                       | EDGES
                       | ENABLE
@@ -443,7 +444,8 @@ rowVar : variable ;
 userOrRoleName : symbolicName ;
 
 createRole : CREATE ROLE ifNotExists? role=userOrRoleName
-             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )? ;
+             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )?
+             ( WITH DEFAULT EDGE_TYPE PERMISSIONS defaultEdgeTypePermissions )? ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
 
@@ -451,7 +453,8 @@ showRoles : SHOW ROLES ;
 
 createUser : CREATE USER ifNotExists? user=userOrRoleName
              ( IDENTIFIED BY password=literal )?
-             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )? ;
+             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )?
+             ( WITH DEFAULT EDGE_TYPE PERMISSIONS defaultEdgeTypePermissions )? ;
 
 ifNotExists : IF NOT EXISTS ;
 
@@ -535,6 +538,10 @@ granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 defaultLabelPermissions : GRANT granularPrivilegeList
                         | DENY ALL
                         ;
+
+defaultEdgeTypePermissions : GRANT granularPrivilegeList
+                           | DENY ALL
+                           ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
