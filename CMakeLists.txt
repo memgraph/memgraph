@@ -37,9 +37,9 @@ set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
 set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
-# Install licenses.
+# Install licenses (must use absolute path for CPack).
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
-        DESTINATION share/doc/memgraph)
+        DESTINATION /usr/share/doc/memgraph)
 
 # For more information about how to release a new version of Memgraph, see
 # `release/README.md`.

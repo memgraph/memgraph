@@ -2,6 +2,12 @@
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
     DESTINATION /lib/systemd/system)
 
+# Install copyright file to /usr/share/doc/memgraph (must use absolute path for CPack).
+# The copyright file is also included in CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA for package metadata,
+# but it needs to be explicitly installed to the filesystem as well.
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright
+    DESTINATION /usr/share/doc/memgraph)
+
 # Set parameters to recognize the host distro
 cmake_host_system_information(RESULT DISTRO QUERY DISTRIB_NAME)
 cmake_host_system_information(RESULT DISTRO_VERSION QUERY DISTRIB_VERSION)
