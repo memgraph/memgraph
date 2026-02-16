@@ -1296,7 +1296,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto *transaction = get_replication_accessor(delta_timestamp);
 
-          std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> edge_info;
+          std::optional<std::tuple<EdgeRef,
+                                   memgraph::storage::EdgeTypeId,
+                                   memgraph::storage::Vertex *,
+                                   memgraph::storage::Vertex *>>
+              edge_info;
           if (replication_edge_preamble && replication_edge_preamble->edge_gid == data.gid) {
             // Fast path: use preamble from/to for O(1) lookup (replication-only).
             auto from_vertex = transaction->FindVertex(replication_edge_preamble->from_gid, View::NEW);
@@ -1314,7 +1318,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             if (!edge) {
               throw utils::BasicException("Couldn't find edge {} when setting property (preamble).", edge_gid);
             }
-            edge_info = std::tuple{edge->edge_, edge_type, &*from_vertex, &*to_vertex};
+            edge_info.emplace(edge->edge_, edge_type, from_vertex->vertex_, to_vertex->vertex_);
             replication_edge_preamble.reset();
           } else {
             // Slow path: resolve edge via edge_acc / FindEdge (WAL or legacy replication).
@@ -1384,10 +1388,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
               return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
             });
-            edge_info = std::tuple{edge_ref, edge_type, from_vertex, vertex_to};
+            edge_info.emplace(edge_ref, edge_type, from_vertex, vertex_to);
           }
 
-          auto const &[edge_ref, edge_type, from_vertex, vertex_to] = edge_info;
+          auto const &[edge_ref, edge_type, from_vertex, vertex_to] = *edge_info;
           auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
           auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (!ret) {
