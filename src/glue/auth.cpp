@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -88,6 +88,12 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
       return auth::FineGrainedPermission::UPDATE;
+    case query::AuthQuery::FineGrainedPrivilege::SET_LABEL:
+      return auth::FineGrainedPermission::SET_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL:
+      return auth::FineGrainedPermission::REMOVE_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY:
+      return auth::FineGrainedPermission::SET_PROPERTY;
     case query::AuthQuery::FineGrainedPrivilege::CREATE:
       return auth::FineGrainedPermission::CREATE;
     case query::AuthQuery::FineGrainedPrivilege::DELETE:

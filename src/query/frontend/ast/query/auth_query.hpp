@@ -85,7 +85,7 @@ class AuthQuery : public memgraph::query::Query {
     PARALLEL_EXECUTION,
   };
 
-  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE, DELETE, ALL };
+  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, SET_LABEL, REMOVE_LABEL, SET_PROPERTY, CREATE, DELETE, ALL };
 
   enum class LabelMatchingMode { ANY, EXACTLY };
 
