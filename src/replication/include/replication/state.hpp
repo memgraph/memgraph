@@ -140,9 +140,11 @@ struct ReplicationState {
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
-  auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
+  auto ReplicationData() -> std::variant<RoleMainData, RoleReplicaData> & { return replication_data_.data_; }
 
-  auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
+  auto ReplicationData() const -> std::variant<RoleMainData, RoleReplicaData> const & {
+    return replication_data_.data_;
+  }
 
   std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
 

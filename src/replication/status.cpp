@@ -15,8 +15,6 @@
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include "fmt/format.h"
-
 #include <nlohmann/json.hpp>
 
 namespace memgraph::replication::durability {
@@ -69,7 +67,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
         main_role.main_uuid = j.at(kMainUUID);
       }
       p = ReplicationRoleEntry{
-          .version = version, .role = std::move(main_role), .deltas_batch_progress_size = deltas_batch_progress_size};
+          .version = version, .role = main_role, .deltas_batch_progress_size = deltas_batch_progress_size};
       break;
     }
     case replication_coordination_glue::ReplicationRole::REPLICA: {
