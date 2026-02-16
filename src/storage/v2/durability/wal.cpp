@@ -184,6 +184,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_EDGE_DELETE:
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
+    case DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE:
     case DELTA_TRANSACTION_START:
       return false;
 
@@ -1130,6 +1131,9 @@ std::optional<RecoveryInfo> LoadWal(
 
         if (schema_info)
           schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
+      },
+      [&](WalReplicationEdgeSetPropertyPreamble const &) {
+        // Replication-only; never present when loading from WAL file. No-op.
       },
       [&](WalEdgeSetProperty const &data) {
         if (!items.properties_on_edges)
