@@ -394,14 +394,12 @@ done
 
 echo "All pods became ready"
 kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
-kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW COORDINATORS;' | mgconsole"
 
 
 kubectl wait --for=condition=complete job/cluster-setup --timeout=300s 2>/dev/null || true
 
 # --- Pre-upgrade setup ---
 kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
-kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW COORDINATORS;' | mgconsole"
 echo "Initialized cluster"
 
 echo "Waiting for cluster to become writable (MAIN elected and stable)..."
