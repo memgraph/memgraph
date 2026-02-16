@@ -14,16 +14,76 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_slk.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
+#include "utils/fixed_string.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
+#define DECLARE_SLK_SERIALIZATION_FUNCTIONS(Type)                      \
+  static void Save(const Type &self, memgraph::slk::Builder *builder); \
+  static void Load(Type *self, memgraph::slk::Reader *reader);
+
+#define DECLARE_SLK_FREE_FUNCTIONS(Type)                        \
+  void Save(Type::Response const &self, slk::Builder *builder); \
+  void Load(Type::Response *self, slk::Reader *reader);         \
+  void Save(Type::Request const &self, slk::Builder *builder);  \
+  void Load(Type::Request *self, slk::Reader *reader);
+
 namespace memgraph::coordination {
+
+template <utils::TypeId Id, FixedString Name, uint64_t Version, typename ArgType>
+struct SingleArgMsg {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  static void Save(SingleArgMsg const &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.arg_, builder);
+  }
+
+  static void Load(SingleArgMsg *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
+
+  SingleArgMsg(ArgType arg) : arg_(std::move(arg)) {}
+
+  SingleArgMsg() = default;
+
+  ArgType arg_;
+};
+
+template <utils::TypeId Id, FixedString Name, uint64_t Version>
+struct EmptyReq {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  static void Save(EmptyReq const & /*self*/, memgraph::slk::Builder * /*builder*/) {}
+
+  static void Load(EmptyReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
+
+  EmptyReq() = default;
+};
+
+template <utils::TypeId Id, FixedString Name, uint64_t Version>
+struct BoolResponse {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  static void Save(BoolResponse const &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.success_, builder);
+  }
+
+  static void Load(BoolResponse *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->success_, reader); }
+
+  explicit BoolResponse(bool success) : success_(success) {}
+
+  BoolResponse() = default;
+
+  bool success_;
+};
 
 struct PromoteToMainReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
@@ -289,9 +349,9 @@ struct GetRoutingTableReq {
 
   GetRoutingTableReq() = default;
 
-  explicit GetRoutingTableReq(std::string db_name) : db_name_(std::move(db_name)) {}
+  explicit GetRoutingTableReq(std::string arg) : arg_(std::move(arg)) {}
 
-  std::string db_name_;
+  std::string arg_;
 };
 
 struct GetRoutingTableRes {
@@ -405,6 +465,48 @@ struct ReplicationLagRes {
 
 using ReplicationLagRpc = rpc::RequestResponse<ReplicationLagReq, ReplicationLagRes>;
 
+using AddCoordinatorReq =
+    SingleArgMsg<utils::TypeId::COORD_ADD_COORD_REQ, "AddCoordinatorReq", 1, CoordinatorInstanceConfig>;
+using AddCoordinatorRes = BoolResponse<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1>;
+using AddCoordinatorRpc = rpc::RequestResponse<AddCoordinatorReq, AddCoordinatorRes>;
+
+using RemoveCoordinatorReq = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_REQ, "RemoveCoordinatorReq", 1, int>;
+using RemoveCoordinatorRes = BoolResponse<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1>;
+using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCoordinatorRes>;
+
+using RegisterInstanceReq =
+    SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfig>;
+using RegisterInstanceRes = BoolResponse<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1>;
+using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
+
+using UnregisterInstanceReq =
+    SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_REQ, "UnregisterInstanceReq", 1, std::string>;
+using UnregisterInstanceRes = BoolResponse<utils::TypeId::COORD_UNREGISTER_INSTANCE_RES, "UnregisterInstanceRes", 1>;
+using UnregisterInstanceRpc = rpc::RequestResponse<UnregisterInstanceReq, UnregisterInstanceRes>;
+
+using SetInstanceToMainReq =
+    SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_REQ, "SetInstanceToMainReq", 1, std::string>;
+using SetInstanceToMainRes = BoolResponse<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_RES, "SetInstanceToMainRes", 1>;
+using SetInstanceToMainRpc = rpc::RequestResponse<SetInstanceToMainReq, SetInstanceToMainRes>;
+
+using DemoteInstanceReq = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
+using DemoteInstanceRes = BoolResponse<utils::TypeId::COORD_DEMOTE_INSTANCE_RES, "DemoteInstanceRes", 1>;
+using DemoteInstanceRpc = rpc::RequestResponse<DemoteInstanceReq, DemoteInstanceRes>;
+
+using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceResetReq", 1>;
+using ForceResetRes = BoolResponse<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1>;
+using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
+
+using UpdateConfigReq =
+    SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
+using UpdateConfigRes = BoolResponse<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1>;
+using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
+
+using CoordReplicationLagReq = EmptyReq<utils::TypeId::COORD_REPL_LAG_REQ, "CoordReplLagReq", 1>;
+using CoordReplicationLagRes = SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "CoordReplLagRes", 1,
+                                            std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+using CoordReplicationLagRpc = rpc::RequestResponse<CoordReplicationLagReq, CoordReplicationLagRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -471,6 +573,16 @@ void Save(coordination::ReplicationLagRes const &self, slk::Builder *builder);
 void Load(coordination::ReplicationLagRes *self, slk::Reader *reader);
 void Save(coordination::ReplicationLagReq const &self, slk::Builder *builder);
 void Load(coordination::ReplicationLagReq *self, slk::Reader *reader);
+
+DECLARE_SLK_FREE_FUNCTIONS(coordination::AddCoordinatorRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::RemoveCoordinatorRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::RegisterInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
 
 }  // namespace memgraph::slk
 

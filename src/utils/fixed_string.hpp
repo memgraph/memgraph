@@ -9,24 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include <algorithm>
+#include <array>
 
-#include <cstdint>
-#include <map>
-#include <string>
+template <std::size_t N>
+struct FixedString {
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
+  constexpr FixedString(const char (&str)[N]) { std::copy_n(str, N, value.data()); }
 
-namespace memgraph::coordination {
+  constexpr auto c_str() const -> const char * { return value.data(); }
 
-struct ReplicaDBLagData {
-  uint64_t num_committed_txns_;
-  uint64_t num_txns_behind_main_;
+  std::array<char, N> value{};
 };
-
-struct ReplicationLagInfo {
-  // db -> num_committed_txns on main
-  std::map<std::string, uint64_t> dbs_main_committed_txns_;
-  // instance -> db -> data
-  std::map<std::string, std::map<std::string, ReplicaDBLagData>> replicas_info_;
-};
-
-}  // namespace memgraph::coordination

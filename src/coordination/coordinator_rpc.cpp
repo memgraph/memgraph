@@ -13,8 +13,22 @@
 
 #include "coordination/coordinator_rpc.hpp"
 
-#include "coordination/coordinator_slk.hpp"
 #include "slk/serialization.hpp"
+
+// NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
+#define SLK_SINGLE_ARG_MSG(Type)                                                                  \
+  void Save(const Type &self, slk::Builder *builder) { memgraph::slk::Save(self.arg_, builder); } \
+  void Load(Type *self, slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
+
+#define SLK_EMPTY_MSG(Type)                                       \
+  void Save(const Type & /*self*/, slk::Builder * /*builder*/) {} \
+  void Load(Type * /*self*/, slk::Reader * /*reader*/) {}
+
+#define SLK_BOOL_MSG(Type)                                                                            \
+  void Save(const Type &self, slk::Builder *builder) { memgraph::slk::Save(self.success_, builder); } \
+  void Load(Type *self, slk::Reader *reader) { memgraph::slk::Load(&self->success_, reader); }
+
+// NOLINTEND(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
 
 namespace memgraph {
 
@@ -329,11 +343,11 @@ void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader 
 
 // GetRoutingTableRpc
 void Save(const memgraph::coordination::GetRoutingTableReq &self, memgraph::slk::Builder *builder) {
-  slk::Save(self.db_name_, builder);
+  slk::Save(self.arg_, builder);
 }
 
 void Load(memgraph::coordination::GetRoutingTableReq *self, memgraph::slk::Reader *reader) {
-  slk::Load(&self->db_name_, reader);
+  slk::Load(&self->arg_, reader);
 }
 
 void Save(const memgraph::coordination::GetRoutingTableRes &self, memgraph::slk::Builder *builder) {
@@ -378,6 +392,24 @@ void Save(const coordination::ReplicationLagRes &self, slk::Builder *builder) { 
 
 void Load(coordination::ReplicationLagRes *self, slk::Reader *reader) { slk::Load(&self->lag_info_, reader); }
 
+SLK_SINGLE_ARG_MSG(coordination::AddCoordinatorReq)
+SLK_BOOL_MSG(coordination::AddCoordinatorRes)
+SLK_SINGLE_ARG_MSG(coordination::RemoveCoordinatorReq)
+SLK_BOOL_MSG(coordination::RemoveCoordinatorRes)
+SLK_SINGLE_ARG_MSG(coordination::RegisterInstanceReq)
+SLK_BOOL_MSG(coordination::RegisterInstanceRes)
+SLK_SINGLE_ARG_MSG(coordination::UnregisterInstanceReq)
+SLK_BOOL_MSG(coordination::UnregisterInstanceRes)
+SLK_SINGLE_ARG_MSG(coordination::SetInstanceToMainReq)
+SLK_BOOL_MSG(coordination::SetInstanceToMainRes)
+SLK_SINGLE_ARG_MSG(coordination::DemoteInstanceReq)
+SLK_BOOL_MSG(coordination::DemoteInstanceRes)
+SLK_EMPTY_MSG(coordination::ForceResetReq)
+SLK_BOOL_MSG(coordination::ForceResetRes)
+SLK_SINGLE_ARG_MSG(coordination::UpdateConfigReq)
+SLK_BOOL_MSG(coordination::UpdateConfigRes)
+SLK_EMPTY_MSG(coordination::CoordReplicationLagReq)
+SLK_SINGLE_ARG_MSG(coordination::CoordReplicationLagRes)
 }  // namespace slk
 
 }  // namespace memgraph

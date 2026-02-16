@@ -544,6 +544,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -579,6 +586,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -594,6 +608,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Force reset failed, check logs for more details!");
       case NOT_LEADER_ANYMORE:
         throw QueryRuntimeException("Force reset failed since the instance is not leader anymore!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -705,13 +726,22 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
   }
 
-  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
-    switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
+  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) override {
+    coordination::UpdateInstanceConfig const config{.data = std::move(instance),
+                                                    .bolt_endpoint = std::move(bolt_endpoint)};
+    switch (coordinator_handler_.UpdateConfig(config)) {
       using enum memgraph::coordination::UpdateConfigStatus;
       case NO_SUCH_COORD:
         throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
@@ -721,6 +751,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                     std::get<std::string>(instance));
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
         std::unreachable();
@@ -733,6 +770,51 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_SUCH_ID:
         throw QueryRuntimeException(
             "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a timeout!", coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for removing coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the coordinator isn't a leader anymore!",
+            coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when removing coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when removing coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -777,6 +859,55 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException(
             "Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a timeout!", coordinator_id);
+      case DIFF_NETWORK_CONFIG:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator was started with different network "
+            "configuration. Check logs for more details.",
+            coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for adding coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator isn't a leader anymore!", coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when adding coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when adding coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -814,6 +945,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }

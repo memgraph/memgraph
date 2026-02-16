@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,10 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
+
 #include "coordination/coordinator_instance_connector.hpp"
+
+#include "coordination/coordinator_rpc.hpp"
 
 namespace memgraph::coordination {
 
@@ -34,6 +37,17 @@ auto CoordinatorInstanceConnector::SendGetRoutingTable(std::string_view const db
     return res.routing_table_;
   } catch (std::exception const &e) {
     spdlog::error("Failed to receive response to GetRoutingTableRpc: {}", e.what());
+    return std::nullopt;
+  }
+}
+
+auto CoordinatorInstanceConnector::SendShowReplicationLag() const
+    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
+  try {
+    auto stream{client_.RpcClient().Stream<CoordReplicationLagRpc>()};
+    return stream.SendAndWait().arg_;
+  } catch (std::exception const &e) {
+    spdlog::error("Failed to receive response to ShowReplicationLagRpc: {}", e.what());
     return std::nullopt;
   }
 }
