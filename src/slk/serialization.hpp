@@ -636,7 +636,7 @@ inline void Save(std::variant<Args...> const &data, Builder *builder) {
 
 template <typename... Args>
 inline void Load(std::variant<Args...> *data, Reader *reader) {
-  uint32_t index;
+  std::size_t index;
   slk::Load(&index, reader);
 
   // Helper to load the type at the given index
