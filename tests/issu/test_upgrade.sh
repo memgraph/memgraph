@@ -404,7 +404,7 @@ echo "Initialized cluster"
 
 echo "Waiting for cluster to become writable (MAIN elected)..."
 for i in $(seq 1 90); do
-  out="$(kubectl exec memgraph-coordinator-1-0 -- mgconsole --execute "SHOW INSTANCES;" 2>/dev/null || true)"
+  out="$(kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole" 2>/dev/null || true)"
 
   if echo "$out" | grep -q '"coordinator_1"' \
     && echo "$out" | grep -q '"coordinator_2"' \
