@@ -176,7 +176,7 @@ TYPED_TEST(InterpreterTest, YieldFlowPoolInterpreterPull) {
   ASSERT_EQ(stream.GetHeader().size(), 1U);
 
   memgraph::utils::WorkerYieldRegistry registry(1);
-  memgraph::utils::PriorityThreadPool pool(1, 1, nullptr, &registry);
+  memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
 
   std::barrier barrier(2);
 

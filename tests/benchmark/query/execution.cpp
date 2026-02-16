@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <functional>
 #include <random>
 #include <string>
 
@@ -27,6 +28,7 @@
 // the compilation to fail.
 #include "query/interpret/frame.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/planner.hpp"
 //////////////////////////////////////////////////////
 #include "communication/result_stream_faker.hpp"
@@ -66,6 +68,18 @@ class PoolResource final {
 
   void Reset() {}
 };
+
+static void PullCursorToCompletion(memgraph::query::plan::Cursor *cursor, memgraph::query::Frame &frame,
+                                   memgraph::query::ExecutionContext &execution_context,
+                                   std::function<void()> per_row = {}) {
+  for (;;) {
+    auto awaitable = cursor->Pull(frame, execution_context);
+    if (memgraph::query::plan::RunPullToCompletion(awaitable, execution_context).status !=
+        memgraph::query::plan::PullRunResult::Status::HasRow)
+      break;
+    if (per_row) per_row();
+  }
+}
 
 static void AddVertices(memgraph::storage::Storage *db, int vertex_count) {
   auto dba = db->Access(memgraph::storage::WRITE);
@@ -157,7 +171,7 @@ static void Distinct(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = plan_and_cost.first->MakeCursor(memory.get());
-    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+    PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -220,7 +234,7 @@ static void ExpandVariable(benchmark::State &state) {
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame_writer.Write(expand_variable.input_symbol_,
                          memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
-      while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+      PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
     }
   }
   state.SetItemsProcessed(state.iterations());
@@ -262,7 +276,7 @@ static void ExpandBfs(benchmark::State &state) {
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
       frame_writer.Write(expand_variable.input_symbol_,
                          memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
-      while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+      PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
     }
   }
   state.SetItemsProcessed(state.iterations());
@@ -302,7 +316,7 @@ static void ExpandShortest(benchmark::State &state) {
                          memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
       for (const auto &dest : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
         frame_writer.Write(dest_symbol, memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest)));
-        while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+        PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
       }
     }
   }
@@ -347,7 +361,7 @@ static void ExpandWeightedShortest(benchmark::State &state) {
                          memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
       for (const auto &dest : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
         frame_writer.Write(dest_symbol, memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest)));
-        while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+        PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
       }
     }
   }
@@ -390,7 +404,7 @@ static void Accumulate(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = accumulate.MakeCursor(memory.get());
-    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+    PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -443,11 +457,11 @@ static void Aggregate(benchmark::State &state) {
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     auto cursor = aggregate.MakeCursor(memory.get());
     frame_writer.Write(symbols.front(), memgraph::query::TypedValue(0));  // initial group_by value
-    while (cursor->Pull(frame, execution_context)) {
+    PullCursorToCompletion(cursor.get(), frame, execution_context, [&] {
       frame_writer.Modify(symbols.front(),
                           [](memgraph::query::TypedValue &value) { value.ValueInt()++; });  // new group_by value
       per_pull_memory.Reset();
-    }
+    });
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -494,7 +508,7 @@ static void OrderBy(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = order_by.MakeCursor(memory.get());
-    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+    PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -535,7 +549,7 @@ static void Unwind(benchmark::State &state) {
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     frame_writer.Write(list_sym, memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1))));
     auto cursor = unwind.MakeCursor(memory.get());
-    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+    PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
   }
   state.SetItemsProcessed(state.iterations());
 }
@@ -573,7 +587,7 @@ static void Foreach(benchmark::State &state) {
     auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     frame_writer.Write(list_sym, memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1))));
     auto cursor = foreach->MakeCursor(memory.get());
-    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+    PullCursorToCompletion(cursor.get(), frame, execution_context, [&] { per_pull_memory.Reset(); });
   }
   state.SetItemsProcessed(state.iterations());
 }

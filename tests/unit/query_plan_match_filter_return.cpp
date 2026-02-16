@@ -35,6 +35,7 @@
 #include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/operator.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -790,7 +791,13 @@ class QueryPlanExpandVariable : public testing::Test {
       context = MakeContext(storage, symbol_table, &dba);
     }
     std::vector<memgraph::utils::pmr::vector<TypedValue>> results;
-    while (cursor->Pull(frame, context)) results.emplace_back(frame[symbol].ValueList());
+    for (;;) {
+      auto awaitable = cursor->Pull(frame, context);
+      if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+          memgraph::query::plan::PullRunResult::Status::HasRow)
+        break;
+      results.emplace_back(frame[symbol].ValueList());
+    }
     return results;
   }
 
@@ -810,7 +817,13 @@ class QueryPlanExpandVariable : public testing::Test {
       context = MakeContext(storage, symbol_table, &dba);
     }
     std::vector<Path> results;
-    while (cursor->Pull(frame, context)) results.emplace_back(frame[symbol].ValuePath());
+    for (;;) {
+      auto awaitable = cursor->Pull(frame, context);
+      if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+          memgraph::query::plan::PullRunResult::Status::HasRow)
+        break;
+      results.emplace_back(frame[symbol].ValuePath());
+    }
     return results;
   }
 
@@ -1997,7 +2010,11 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
       context = MakeContext(storage, symbol_table, &dba);
     }
 
-    while (cursor->Pull(frame, context)) {
+    for (;;) {
+      auto awaitable = cursor->Pull(frame, context);
+      if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+          memgraph::query::plan::PullRunResult::Status::HasRow)
+        break;
       results.push_back(ResultType{std::vector<memgraph::query::EdgeAccessor>(),
                                    frame[node_sym].ValueVertex(),
                                    frame[total_weight].ValueDouble()});
@@ -2456,7 +2473,11 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
-    while (cursor->Pull(frame, context)) {
+    for (;;) {
+      auto awaitable = cursor->Pull(frame, context);
+      if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+          memgraph::query::plan::PullRunResult::Status::HasRow)
+        break;
       results.push_back(ResultType{std::vector<memgraph::query::EdgeAccessor>(),
                                    frame[node_sym].ValueVertex(),
                                    frame[total_weight].ValueDouble()});

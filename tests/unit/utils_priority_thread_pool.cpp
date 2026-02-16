@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ using namespace std::chrono_literals;
 
 TEST(PriorityThreadPool, Basic) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::PriorityThreadPool pool{1};
 
   utils::Synchronized<std::vector<int>> output;
   constexpr size_t n_tasks = 100;
@@ -41,7 +41,7 @@ TEST(PriorityThreadPool, Basic) {
 
 TEST(PriorityThreadPool, Basic2) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::PriorityThreadPool pool{1};
 
   // Figure out which thread is the low/high
   std::atomic<std::thread::id> low_th = std::thread::id{0};
@@ -95,7 +95,7 @@ TEST(PriorityThreadPool, Basic2) {
 
 TEST(PriorityThreadPool, LowHigh) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::PriorityThreadPool pool{1};
 
   std::atomic_bool block{true};
   // Block mixed work thread and see if the high priority thread takes over
@@ -138,7 +138,7 @@ TEST(PriorityThreadPool, LowHigh) {
 TEST(PriorityThreadPool, MultipleLow) {
   using namespace memgraph;
   constexpr auto kLP = 8;
-  memgraph::utils::PriorityThreadPool pool{kLP, 1};
+  memgraph::utils::PriorityThreadPool pool{kLP};
 
   std::atomic_bool block{true};
   // Block all mixed work thread and see if the high priority thread takes over
@@ -247,7 +247,7 @@ TEST(TaskCollection, WaitOrSteal) {
 
 TEST(TaskCollection, ThreadPoolIntegration) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{2, 1};
+  memgraph::utils::PriorityThreadPool pool{2};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
@@ -273,7 +273,7 @@ TEST(TaskCollection, ThreadPoolIntegration) {
 
 TEST(TaskCollection, ConcurrentExecution) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{4, 2};
+  memgraph::utils::PriorityThreadPool pool{4};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
@@ -299,7 +299,7 @@ TEST(TaskCollection, ConcurrentExecution) {
 
 TEST(TaskCollection, MixedWaitAndSteal) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::PriorityThreadPool pool{1};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
@@ -453,7 +453,7 @@ TEST(TaskCollection, MultipleExecutionsPrevented) {
 
 TEST(TaskCollection, LargeTaskSet) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{8, 2};
+  memgraph::utils::PriorityThreadPool pool{8};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
