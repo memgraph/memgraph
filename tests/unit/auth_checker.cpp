@@ -266,12 +266,15 @@ TEST(AuthChecker, Generate) {
   EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
 
   // Update permissions and recheck
   new_user2.permissions().Grant(memgraph::auth::Permission::AUTH);
+  new_user2.permissions().Grant(memgraph::auth::Permission::SERVER_SIDE_PARAMETERS);
   new_role.permissions().Grant(memgraph::auth::Permission::TRIGGER);
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
@@ -280,9 +283,11 @@ TEST(AuthChecker, Generate) {
   EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(user2->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
 
   // Connect role and recheck
   new_user2.ClearAllRoles();
