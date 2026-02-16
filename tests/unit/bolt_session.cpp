@@ -74,7 +74,25 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     throw ClientError("client sent invalid query");
   }
 
+  State ContinuePull() {
+    bolt_map_t summary;
+    try {
+      summary = Pull(last_pull_n_, last_pull_qid_);
+    } catch (...) {
+      return State::Close;
+    }
+    if (!encoder_.MessageSuccess(summary)) {
+      return State::Close;
+    }
+    if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
+      return State::Result;
+    }
+    return State::Idle;
+  }
+
   bolt_map_t Pull(std::optional<int> n, std::optional<int> qid) {
+    last_pull_n_ = n;
+    last_pull_qid_ = qid;
     if (should_abort_) {
       throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     }
@@ -160,6 +178,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   std::string query_;
   bolt_map_t md_;
   bool should_abort_ = false;
+  std::optional<int> last_pull_n_;
+  std::optional<int> last_pull_qid_;
 };
 
 // TODO: This could be done in fixture.
