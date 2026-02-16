@@ -388,13 +388,17 @@ MEMGRAPH_PODS=(
   memgraph-data-1-0
 )
 
-for p in "${MEMGRAPH_PODS[@]}"; do
-  kubectl wait --for=condition=ready "pod/$p" --timeout=300s
-done
+wait_memgraph_pods_ready() {
+  local timeout="${1:-300s}"
+  for p in "${MEMGRAPH_PODS[@]}"; do
+    kubectl wait --for=condition=ready "pod/$p" --timeout="$timeout"
+  done
+}
+
+wait_memgraph_pods_ready 300s
 
 echo "All pods became ready"
 kubectl exec memgraph-coordinator-1-0 -- bash -c "echo 'SHOW INSTANCES;' | mgconsole"
-
 
 kubectl wait --for=condition=complete job/cluster-setup --timeout=300s 2>/dev/null || true
 
@@ -437,12 +441,7 @@ echo "Run test queries on old version"
 helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml
 echo "Updated versions"
 
-wait_memgraph_pods_ready() {
-  local timeout="${1:-300s}"
-  for p in "${MEMGRAPH_PODS[@]}"; do
-    kubectl wait --for=condition=ready "pod/$p" --timeout="$timeout"
-  done
-}
+
 
 
 # --- Rolling restarts ---
