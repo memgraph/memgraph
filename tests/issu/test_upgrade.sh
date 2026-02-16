@@ -395,6 +395,8 @@ done
 echo "All pods became ready"
 
 # --- Pre-upgrade setup ---
+kubectl exec memgraph-coordinator-1-0 -- \
+  mgconsole --execute "SHOW INSTANCES;"
 kubectl cp setup.cypherl memgraph-coordinator-1-0:/var/lib/memgraph/setup.cypherl
 kubectl exec memgraph-coordinator-1-0 -- bash -c "mgconsole < /var/lib/memgraph/setup.cypherl"
 echo "Initialized cluster"
