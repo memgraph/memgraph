@@ -42,6 +42,7 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
+// TODO: add to stats
 
 struct Statistics {
   uint64_t num_vertex;                                 //!< Sum of vertexes in every database
@@ -65,6 +66,7 @@ struct Statistics {
   uint64_t property_store_compression_enabled;  //!< Number of databases with property store compression enabled
   std::array<uint64_t, 3>
       property_store_compression_level{};  //!< Number of databases with each compression level [LOW, MID, HIGH]
+  uint64_t parameters;                     //!< Number of server-side parameters
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {
@@ -98,6 +100,7 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
                                        {"10K-99.9K", stats.label_node_count_histogram[4]},
                                        {"100K-999K", stats.label_node_count_histogram[5]},
                                        {"1M+", stats.label_node_count_histogram[6]}};
+  res["parameters"] = stats.parameters;
 
   return res;
 }

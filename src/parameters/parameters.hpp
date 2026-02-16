@@ -33,9 +33,7 @@ struct ParameterInfo {
 };
 
 /**
- * Manages global, database, and session parameters.
  * Parameters are dynamic key-value pairs that can be set, retrieved, and deleted.
- * Unlike Settings, parameters don't need to be pre-registered and can be created on-the-fly.
  */
 struct Parameters {
   /**
@@ -67,6 +65,11 @@ struct Parameters {
    * @brief Get all parameters with a given scope.
    */
   std::vector<ParameterInfo> GetAllParameters(ParameterScope scope) const;
+
+  /**
+   * @brief Return the number of parameters for a given scope.
+   */
+  size_t CountParameters(ParameterScope scope = ParameterScope::GLOBAL) const;
 
   /**
    * @brief Delete all parameters.
