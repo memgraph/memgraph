@@ -784,7 +784,7 @@ package_memgraph() {
     package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
     check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
   fi
-  if ! echo "$check_output" | grep -q "mgconsole"; then
+  if ! grep -q "mgconsole" <<< "$check_output"; then
     echo "Error: mgconsole not found in package"
     echo "Package: $package_name"
     echo "Check output: $check_output"
