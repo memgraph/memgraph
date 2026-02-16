@@ -77,9 +77,20 @@ class Session {
   /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
+   * When continue_after_yield is true and state is Result, skips reading the next
+   * message and resumes the current Pull (for scheduler-driven yield).
    */
   template <typename TImpl>
-  bool Execute_(TImpl &impl) {
+  bool Execute_(TImpl &impl, bool continue_after_yield = false) {
+    if (continue_after_yield && (state_ == State::Result || state_ == State::Yielded)) {
+      at_least_one_run_ = true;
+      state_ = impl.ContinuePull();
+      if (state_ == State::Close) [[unlikely]] {
+        ClientFailureInvalidData();
+      }
+      return (state_ == State::Result || state_ == State::Yielded);
+    }
+
     if (state_ == State::Handshake) [[unlikely]] {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
       // This can be done only once because the buffer holds its size.
@@ -157,7 +168,9 @@ class Session {
         ClientFailureInvalidData();
       }
     }
-    return false;  // no more data
+    // No more data in buffer (Partial). Yielded means we must reschedule and run ContinuePull();
+    // Result with has_more means we sent a batch and wait for the next Pull from the client.
+    return (state_ == State::Yielded);
   }
 
   void HandleError() {

@@ -124,8 +124,7 @@ class PriorityThreadPool {
   using TaskID = uint64_t;
   using ThreadInitCallback = std::function<void()>;
 
-  PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
-                     ThreadInitCallback thread_init_callback = nullptr,
+  PriorityThreadPool(uint16_t work_threads_count, ThreadInitCallback thread_init_callback = nullptr,
                      WorkerYieldRegistry *yield_registry = nullptr);
 
   ~PriorityThreadPool();
@@ -140,6 +139,13 @@ class PriorityThreadPool {
   void ShutDown();
 
   void ScheduledAddTask(TaskSignature new_task, Priority priority);
+
+  /**
+   * Schedules a task on a specific worker. Use when the task must run on that
+   * worker (e.g. continuation after yield, to respect thread-local state).
+   * worker_id must be in [0, GetNumMixedWorkers()).
+   */
+  void ScheduledAddTaskOnWorker(uint16_t worker_id, TaskSignature new_task, Priority priority);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
@@ -191,6 +197,10 @@ class PriorityThreadPool {
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
 
+    // Set by operator() for LP workers; used in push() to request yield when adding HP task to busy worker
+    WorkerYieldRegistry *yield_registry_{nullptr};
+    uint16_t worker_id_{0};
+
     friend class PriorityThreadPool;
   };
 
@@ -205,8 +215,7 @@ class PriorityThreadPool {
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
-  std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
-  std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+  std::atomic<TaskID> task_id_;  // Generates a unique tasks id | MSB signals high priority
 
   WorkerYieldRegistry *yield_registry_{nullptr};
 };

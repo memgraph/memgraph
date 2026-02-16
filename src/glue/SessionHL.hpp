@@ -95,6 +95,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
 
+  /// Resumes the current Pull after a yield (no new message read). Returns new Bolt state.
+  communication::bolt::State ContinuePull();
+
   bolt_map_t Discard(std::optional<int> n, std::optional<int> qid);
 
   void Abort();
@@ -115,7 +118,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   utils::Priority ApproximateQueryPriority() const;
 
-  inline bool Execute() { return Execute_(*this); }
+  /// When continue_after_yield is true, skips reading the next Bolt message and resumes the current Pull.
+  inline bool Execute(bool continue_after_yield = false) { return Execute_(*this, continue_after_yield); }
 
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
@@ -142,6 +146,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
+
+  // Stored when entering Pull() so we can resume after yield without reading a new message.
+  std::optional<int> last_pull_n_;
+  std::optional<int> last_pull_qid_;
 };
 
 }  // namespace memgraph::glue
