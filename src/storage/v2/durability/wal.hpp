@@ -202,6 +202,17 @@ struct WalEdgeSetProperty {
   std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
 };
 
+/// Replication-only: sent before WalEdgeSetProperty to carry from/to for fast replica lookup. Not written to WAL.
+struct WalReplicationEdgeSetPropertyPreamble {
+  friend bool operator==(const WalReplicationEdgeSetPropertyPreamble &,
+                         const WalReplicationEdgeSetPropertyPreamble &) = default;
+  using ctr_types = std::tuple<Gid, Gid, Gid, std::string>;
+  Gid from_gid;
+  Gid to_gid;
+  Gid edge_gid;
+  std::string edge_type;
+};
+
 struct WalEdgeCreate : EdgeOpInfo {};
 
 struct WalEdgeDelete : EdgeOpInfo {};
@@ -395,7 +406,8 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
+               WalReplicationEdgeSetPropertyPreamble, WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete,
+               WalTransactionStart, WalTransactionEnd,
                WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
                WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
                WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
@@ -418,6 +430,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalVertexSetProperty const &) { return false; },
                         [](WalEdgeCreate const &) { return false; },
                         [](WalEdgeDelete const &) { return false; },
+                        [](WalReplicationEdgeSetPropertyPreamble const &) { return false; },
                         [](WalEdgeSetProperty const &) { return false; },
                         [](WalTransactionStart const &) { return false; },
 

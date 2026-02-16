@@ -658,6 +658,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE:
     case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:
@@ -812,6 +813,7 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE:
     case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:

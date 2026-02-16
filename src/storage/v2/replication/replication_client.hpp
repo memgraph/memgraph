@@ -22,6 +22,7 @@
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
@@ -53,6 +54,10 @@ class ReplicaStream {
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage);
+
+  /// Replication-only: encode preamble (from/to/edge_gid/type) before the next edge SET_PROPERTY delta.
+  void AppendDelta(const Transaction::ReplicationEdgePreamble &preamble, uint64_t final_commit_timestamp,
+                   Storage *storage);
 
   /// @throw rpc::RpcFailedException
   void AppendTransactionStart(uint64_t final_commit_timestamp, bool commit, StorageAccessType access_type);
