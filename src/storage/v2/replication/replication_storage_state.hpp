@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,6 @@
 
 /// REPLICATION ///
 #include "replication/epoch.hpp"
-#include "replication/state.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "utils/synchronized.hpp"
@@ -38,8 +37,8 @@ using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  auto StartPrepareCommitPhase(uint64_t const durability_commit_timestamp, Storage *storage,
-                               CommitArgs const &commit_args) -> TransactionReplication;
+  auto StartPrepareCommitPhase(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args)
+      -> TransactionReplication;
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
