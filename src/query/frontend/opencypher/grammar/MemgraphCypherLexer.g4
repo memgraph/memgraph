@@ -72,6 +72,7 @@ DUMP                    : D U M P ;
 DURABILITY              : D U R A B I L I T Y ;
 DURATION                : D U R A T I O N ;
 EDGE                    : E D G E ;
+EDGE_TYPE               : E D G E UNDERSCORE T Y P E ;
 EDGE_TYPES              : E D G E UNDERSCORE T Y P E S ;
 EDGES                   : E D G E S ;
 ENABLE                  : E N A B L E ;
