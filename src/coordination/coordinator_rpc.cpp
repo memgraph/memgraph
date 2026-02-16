@@ -343,11 +343,11 @@ void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader 
 
 // GetRoutingTableRpc
 void Save(const memgraph::coordination::GetRoutingTableReq &self, memgraph::slk::Builder *builder) {
-  slk::Save(self.db_name_, builder);
+  slk::Save(self.arg_, builder);
 }
 
 void Load(memgraph::coordination::GetRoutingTableReq *self, memgraph::slk::Reader *reader) {
-  slk::Load(&self->db_name_, reader);
+  slk::Load(&self->arg_, reader);
 }
 
 void Save(const memgraph::coordination::GetRoutingTableRes &self, memgraph::slk::Builder *builder) {

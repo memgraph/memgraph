@@ -16,51 +16,47 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 
+#include "coordination/coordinator_rpc.hpp"
+
+#include "rpc/utils.hpp"
+
 namespace memgraph::coordination {
 class CoordinatorInstanceManagementServerHandlers {
  public:
   static void Register(CoordinatorInstanceManagementServer &server, CoordinatorInstance &coordinator_instance);
 
  private:
-  static void ShowInstancesHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
-                                   slk::Reader *req_reader, slk::Builder *res_builder);
+  template <rpc::IsRpc Rpc, typename F>
+  static void FwdRequestHandler(F const &f, uint64_t request_version, slk::Reader *req_reader,
+                                slk::Builder *res_builder) {
+    typename Rpc::Request req;
+    rpc::LoadWithUpgrade(req, request_version, req_reader);
+    auto const res = std::invoke([&f, &req]() {
+      if constexpr (std::is_invocable_v<F>) {
+        return f();
+      } else {
+        return f(req.arg_);
+      }
+    });
+    typename Rpc::Response const rpc_res{res};
+    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+  }
 
-  static void GetRoutingTableHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
-                                     slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void AddCoordinatorHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
-                                    slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void RemoveCoordinatorHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
-                                       slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void RegisterInstanceHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
-                                      slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void UnregisterInstanceHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
-                                        slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void SetInstanceToMainHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
-                                       slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void DemoteInstanceHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
-                                    slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void ForceResetHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
-                                slk::Reader *req_reader, slk::Builder *res_builder);
-
-  static void UpdateConfigHandler(CoordinatorInstance &coordinator_instance, uint64_t request_version,
-                                  slk::Reader *req_reader, slk::Builder *res_builder);
-
-  //   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum>
-  //   void FwdRequestHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
-  //                          slk::Reader *req_reader, slk::Builder *res_builder) {
-  //     typename Rpc::Request req;
-  //     rpc::LoadWithUpgrade(req, request_version, req_reader);
-  //     auto const res = coordinator_instance.AddCoordinatorInstance(req.arg_);
-  //     typename Rpc::Response const rpc_res{res == StatusEnum::SUCCESS};
-  //     rpc::SendFinalResponse(rpc_res, request_version, res_builder);
-  //   }
+  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename F>
+  static void FwdRequestHandler(F const &f, uint64_t request_version, slk::Reader *req_reader,
+                                slk::Builder *res_builder) {
+    typename Rpc::Request req;
+    rpc::LoadWithUpgrade(req, request_version, req_reader);
+    auto const res = std::invoke([&f, &req]() {
+      if constexpr (std::is_invocable_v<F>) {
+        return f();
+      } else {
+        return f(req.arg_);
+      }
+    });
+    typename Rpc::Response const rpc_res{res == StatusEnum::SUCCESS};
+    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+  }
 };
 
 }  // namespace memgraph::coordination
