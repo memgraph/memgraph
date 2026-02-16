@@ -67,12 +67,17 @@ enum class Permission : uint64_t {
 #ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
-  NOTHING = 0,
-  READ    = 1U << 0U,  // 1
-  UPDATE  = 1U << 1U,  // 2
+  NOTHING       = 0,
+  READ          = 1U << 0U,  // 1
+  UPDATE        = 1U << 1U,  // 2
   // Bit 2 reserved: was CREATE_DELETE in Memgraph 3.6 and earlier
-  CREATE  = 1U << 3U,  // 8
-  DELETE  = 1U << 4U   // 16
+  // @TODO do we remove UPDATE flag and just have the union of the
+  // SET_LABEL, REMOVE_LABEL, SET_PROPERTY flag?
+  CREATE        = 1U << 3U,  // 8
+  DELETE        = 1U << 4U,  // 16
+  SET_LABEL     = 1U << 5U,  // 32
+  REMOVE_LABEL  = 1U << 6U,  // 64
+  SET_PROPERTY  = 1U << 7U   // 128
 };
 // clang-format on
 
@@ -101,7 +106,9 @@ constexpr inline FineGrainedPermission &operator|=(FineGrainedPermission &lhs, F
 
 constexpr FineGrainedPermission kAllPermissions = static_cast<FineGrainedPermission>(
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
-    memgraph::auth::FineGrainedPermission::UPDATE | memgraph::auth::FineGrainedPermission::READ);
+    memgraph::auth::FineGrainedPermission::UPDATE | memgraph::auth::FineGrainedPermission::READ |
+    memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+    memgraph::auth::FineGrainedPermission::SET_PROPERTY);
 #endif
 
 // Function that converts a permission to its string representation.
