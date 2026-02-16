@@ -1096,6 +1096,9 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
   const std::string non_check_label = "OtherLabel";
   const std::string asterisk = "*";
 
+  // @TODO these tests should use EXPECT_, not ASSERT_, so we can test
+  // multiple things in once run.
+
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
     ASSERT_TRUE(fga_permissions1 == fga_permissions2);
@@ -1126,6 +1129,9 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.GrantGlobal(FineGrainedPermission::READ);
     fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL);
+    fga_permissions.GrantGlobal(FineGrainedPermission::REMOVE_LABEL);
+    fga_permissions.GrantGlobal(FineGrainedPermission::SET_PROPERTY);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), static_cast<uint64_t>(kAllPermissions));
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
@@ -1137,6 +1143,10 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.GrantGlobal(FineGrainedPermission::READ);
     fga_permissions.GrantGlobal(FineGrainedPermission::UPDATE);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL);
+    fga_permissions.GrantGlobal(FineGrainedPermission::REMOVE_LABEL);
+    fga_permissions.GrantGlobal(FineGrainedPermission::SET_PROPERTY);
+
     // Test that revoking a label-specific permission doesn't affect global permissions
     fga_permissions.Revoke({any_label}, FineGrainedPermission::CREATE, MatchingMode::ANY);
 
