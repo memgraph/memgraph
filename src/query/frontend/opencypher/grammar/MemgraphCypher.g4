@@ -109,6 +109,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
                       | LAG
                       | LEADERSHIP
