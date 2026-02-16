@@ -52,6 +52,13 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   apt install -y libxmlsec1 && \
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
+  # Ubuntu Docker images exclude /usr/share/doc/* but only include copyright and changelog files
+  # Add an exception for memgraph to include all files in /usr/share/doc/memgraph/
+  if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+    echo "" >> /etc/dpkg/dpkg.cfg.d/excludes && \
+    echo "# Include all memgraph documentation files (licenses, etc.)" >> /etc/dpkg/dpkg.cfg.d/excludes && \
+    echo "path-include=/usr/share/doc/memgraph/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
+  fi && \
   dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && \
   apt remove adduser -y && \
   apt autoremove -y && \
