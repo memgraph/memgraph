@@ -16,7 +16,6 @@
 #include "auth/profiles/user_profiles.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
-#include "license/license.hpp"
 #include "parameters/replication_handlers.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"

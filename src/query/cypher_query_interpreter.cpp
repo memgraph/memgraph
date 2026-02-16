@@ -75,7 +75,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // get user-specified parameters (and global parameters for fallback)
+  // get parameters (user-specified + global parameters)
   // ATM we don't need to correctly materise actual PropertyValues exepct Strings
   // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
   auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, global_parameters);

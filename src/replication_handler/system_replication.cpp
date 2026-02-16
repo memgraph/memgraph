@@ -27,26 +27,6 @@ class FileReplicationHandler;
 
 namespace memgraph::replication {
 
-namespace {
-
-bool ApplySystemRecovery(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                         const memgraph::replication::SystemRecoveryReq &req, parameters::Parameters &parameters
-#ifdef MG_ENTERPRISE
-                         ,
-                         dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth
-#endif
-) {
-#ifdef MG_ENTERPRISE
-  if (!dbms::SystemRecoveryHandler(dbms_handler, req.database_configs)) return false;
-  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles)) return false;
-#endif
-  if (!parameters.ApplyRecovery(req.parameters)) return false;
-  system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
-  return true;
-}
-
-}  // namespace
-
 #ifdef MG_ENTERPRISE
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
@@ -70,11 +50,12 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   }
 
 #ifdef MG_ENTERPRISE
-  if (!ApplySystemRecovery(system_state_access, req, parameters, dbms_handler, auth)) return;
-#else
-  if (!ApplySystemRecovery(system_state_access, req, parameters)) return;
+  if (!dbms::SystemRecoveryHandler(dbms_handler, req.database_configs)) return;
+  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles)) return;
 #endif
+  if (!parameters::SystemRecoveryHandler(parameters, req.parameters)) return;
 
+  system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
 }
@@ -122,6 +103,7 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   // NOTE: Register even without license as the user could add a license at run-time
   auto system_state_access = system.CreateSystemStateAccess();
 
+// need to tell REPLICA the uuid to use for "memgraph" default database
 #ifdef MG_ENTERPRISE
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&data, system_state_access, &dbms_handler, &auth, &parameters](

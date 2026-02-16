@@ -115,6 +115,10 @@ void DeleteAllParametersHandler(system::ReplicaHandlerAccessToState &system_stat
 
 }  // namespace
 
+bool SystemRecoveryHandler(Parameters &parameters, const std::vector<ParameterInfo> &params) {
+  return parameters.ApplyRecovery(params);
+}
+
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
               Parameters &parameters) {
   data.server->rpc_server_.Register<storage::replication::SetParameterRpc>(
