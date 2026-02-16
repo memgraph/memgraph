@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,12 @@
 
 #pragma once
 
-#include <optional>
 #include <variant>
 
 #include <nlohmann/json_fwd.hpp>
 
 #include "replication/config.hpp"
-#include "replication/epoch.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::replication::durability {
 
@@ -30,7 +29,8 @@ enum class DurabilityVersion : uint8_t {
   V2,  // epoch, replica prefix introduced
   V3,  // version where main uuid was introduced
   V4,  // addresses as provided by users are saved to disk instead of eager evaluation
-  V5   // epoch from main role is removed
+  V5,  // epoch from main role is removed
+  V6   // Added deltas_batch_progress_size
 };
 
 // fragment of key: "__replication_role"
@@ -49,8 +49,9 @@ struct ReplicaRole {
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
-      DurabilityVersion::V5;  // if not latest has been read then migration required to the latest
+      DurabilityVersion::V6;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
+  uint64_t deltas_batch_progress_size{100'000};
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
 };

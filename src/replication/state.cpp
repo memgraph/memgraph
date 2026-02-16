@@ -50,7 +50,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
       using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
         spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
-        replication_data_ = RoleMainData{};
+        replication_data_.data_ = RoleMainData{};
         return;
       }
       case PARSE_ERROR: {
@@ -62,17 +62,17 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   auto replication_data = std::move(fetched_replication_data).value();
 #ifdef MG_ENTERPRISE
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
-      std::holds_alternative<RoleReplicaData>(replication_data)) {
-    std::get<RoleReplicaData>(replication_data).uuid_ = utils::UUID{};
+      std::holds_alternative<RoleReplicaData>(replication_data.data_)) {
+    std::get<RoleReplicaData>(replication_data.data_).uuid_ = utils::UUID{};
     spdlog::trace("Replica's replication uuid for replica has been reset");
   }
 #endif
-  if (std::holds_alternative<RoleReplicaData>(replication_data)) {
-    auto const &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
+  if (std::holds_alternative<RoleReplicaData>(replication_data.data_)) {
+    auto const &replica_uuid = std::get<RoleReplicaData>(replication_data.data_).uuid_;
     auto const uuid = std::string(replica_uuid);
     spdlog::trace("Recovered main's uuid for replica {}", uuid);
   } else {
-    spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data).uuid_));
+    spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data.data_).uuid_));
   }
   replication_data_ = std::move(replication_data);
 }
@@ -81,7 +81,8 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
   if (!HasDurability()) return true;
 
   auto data =
-      durability::ReplicationRoleEntry{.role = durability::ReplicaRole{.config = config, .main_uuid = main_uuid}};
+      durability::ReplicationRoleEntry{.role = durability::ReplicaRole{.config = config, .main_uuid = main_uuid},
+                                       .deltas_batch_progress_size = replication_data_.deltas_batch_progress_size_};
 
   if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     spdlog::error("Error when saving REPLICA replication role in settings.");
@@ -103,7 +104,9 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
 bool ReplicationState::TryPersistRoleMain(utils::UUID main_uuid) {
   if (!HasDurability()) return true;
 
-  auto data = durability::ReplicationRoleEntry{.role = durability::MainRole{.main_uuid = main_uuid}};
+  auto data =
+      durability::ReplicationRoleEntry{.role = durability::MainRole{.main_uuid = main_uuid},
+                                       .deltas_batch_progress_size = replication_data_.deltas_batch_progress_size_};
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted_.store(RolePersisted::YES, std::memory_order_release);
@@ -144,9 +147,12 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     // To get here this must be the case
     role_persisted_.store(RolePersisted::YES, std::memory_order_release);
 
-    return std::visit(
+    ReplicationData_t result;
+    result.deltas_batch_progress_size_ = data.deltas_batch_progress_size;
+
+    auto visit_result = std::visit(
         utils::Overloaded{
-            [&](durability::MainRole &&r) -> FetchReplicationResult_t {
+            [&](durability::MainRole &&r) -> FetchVariantResult_t {
               auto res = RoleMainData{false, r.main_uuid.value_or(utils::UUID{})};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
@@ -172,12 +178,17 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               }
               return {std::move(res)};
             },
-            [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
+            [&](durability::ReplicaRole &&r) -> FetchVariantResult_t {
               auto server = std::make_unique<ReplicationServer>(r.config);
               return {RoleReplicaData{.config = r.config, .server = std::move(server), .uuid_ = r.main_uuid}};
             },
         },
         std::move(data.role));
+    if (!visit_result.has_value()) {
+      return std::unexpected{visit_result.error()};
+    }
+    result.data_ = std::move(visit_result.value());
+    return result;
   } catch (...) {
     return std::unexpected{FetchReplicationError::PARSE_ERROR};
   }
@@ -251,7 +262,14 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       break;
     }
     case durability::DurabilityVersion::V5: {
-      // do nothing - add code if V6 ever happens
+      // In V6 deltas_batch_progress_size was added
+      data.version = durability::DurabilityVersion::V6;
+      data.deltas_batch_progress_size = kDefaultDeltasBatchProgressSize;
+      if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) return false;
+      break;
+    }
+    case durability::DurabilityVersion::V6: {
+      // Implement when v7 is added
       break;
     }
   }
@@ -281,7 +299,8 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
   }
 
   // By default, writing on MAIN is disabled until cluster is in healthy state
-  replication_data_ = RoleMainData{/*is_writing enabled*/ false, main_uuid};
+  // DeltasBatchProgressSize stay untouched
+  replication_data_.data_ = RoleMainData{/*is_writing enabled*/ false, main_uuid};
 
   return true;
 }
@@ -302,8 +321,9 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   }
   // False positive report for the std::make_unique
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-  replication_data_ =
+  replication_data_.data_ =
       RoleReplicaData{.config = config, .server = std::make_unique<ReplicationServer>(config), .uuid_ = main_uuid};
+  // DeltasBatchProgressSize stay untouched
   return true;
 }
 
@@ -344,7 +364,7 @@ std::expected<ReplicationClient *, RegisterReplicaStatus> ReplicationState::Regi
     return RegisterReplicaStatus::SUCCESS;
   };
 
-  const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+  const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_.data_);
   if (res == RegisterReplicaStatus::SUCCESS) {
     return client;
   }
@@ -382,7 +402,7 @@ std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {
                            {"strict_sync", replicas_type_counter.num_strict_sync_}});
   };
 
-  return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+  return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_.data_);
 }
 
 void ReplicationState::Shutdown() {
@@ -393,7 +413,7 @@ void ReplicationState::Shutdown() {
     }
   };
 
-  std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+  std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_.data_);
 }
 
 }  // namespace memgraph::replication

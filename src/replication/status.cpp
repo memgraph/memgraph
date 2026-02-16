@@ -32,18 +32,21 @@ constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
 constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kVersion = "durability_version";
 constexpr auto *kMainUUID = "main_uuid";
+constexpr auto *kDeltasBatchProgressSize = "deltas_batch_progress_size";
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
-    auto common =
-        nlohmann::json{{kVersion, p.version}, {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN}};
+    auto common = nlohmann::json{{kVersion, p.version},
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
+                                 {kDeltasBatchProgressSize, p.deltas_batch_progress_size}};
     MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
     common[kMainUUID] = main.main_uuid.value();
     j = std::move(common);
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     auto common = nlohmann::json{{kVersion, p.version},
-                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA}};
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
+                                 {kDeltasBatchProgressSize, p.deltas_batch_progress_size}};
 
     common[kReplicaServer] = replica.config.repl_server;  // non-resolved
     common[kMainUUID] = replica.main_uuid;
@@ -55,6 +58,7 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   // This value did not exist in V1, hence default DurabilityVersion::V1
   auto const version = j.value(kVersion, DurabilityVersion::V1);
+  uint64_t const deltas_batch_progress_size = j.value(kDeltasBatchProgressSize, 100'000UL);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   replication_coordination_glue::ReplicationRole role;
   j.at(kReplicationRole).get_to(role);
@@ -64,7 +68,8 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       if (j.contains(kMainUUID)) {
         main_role.main_uuid = j.at(kMainUUID);
       }
-      p = ReplicationRoleEntry{.version = version, .role = std::move(main_role)};
+      p = ReplicationRoleEntry{
+          .version = version, .role = std::move(main_role), .deltas_batch_progress_size = deltas_batch_progress_size};
       break;
     }
     case replication_coordination_glue::ReplicationRole::REPLICA: {
@@ -83,7 +88,9 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       if (j.contains(kMainUUID)) {
         replica_role.main_uuid = j.at(kMainUUID);
       }
-      p = ReplicationRoleEntry{.version = version, .role = std::move(replica_role)};
+      p = ReplicationRoleEntry{.version = version,
+                               .role = std::move(replica_role),
+                               .deltas_batch_progress_size = deltas_batch_progress_size};
       break;
     }
   }

@@ -240,7 +240,7 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
     return;
   }
 
-  auto &repl_data = std::get<replication::RoleReplicaData>(locked_repl_state->ReplicationData());
+  auto &repl_data = std::get<replication::RoleReplicaData>(locked_repl_state->ReplicationData().data_);
   spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
   locked_repl_state->TryPersistRoleReplica(repl_data.config, req.uuid);
   repl_data.uuid_ = req.uuid;

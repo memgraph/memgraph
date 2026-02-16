@@ -29,6 +29,8 @@
 
 namespace memgraph::replication {
 
+constexpr uint64_t kDefaultDeltasBatchProgressSize{100'000};
+
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
 enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
@@ -59,6 +61,14 @@ struct RoleReplicaData {
   utils::UUID uuid_;
 };
 
+struct ReplicationData_t {
+  std::variant<RoleMainData, RoleReplicaData> data_;
+  // Common data for both replica and main
+  // The source value is stored in Raft distributed config, this is only a cached value
+  // on the data instance's side.
+  uint64_t deltas_batch_progress_size_{kDefaultDeltasBatchProgressSize};
+};
+
 // Global (instance) level object
 struct ReplicationState {
   explicit ReplicationState(std::optional<std::filesystem::path> durability_dir, bool ha_cluster = false);
@@ -74,12 +84,12 @@ struct ReplicationState {
     PARSE_ERROR,
   };
 
-  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
   using FetchReplicationResult_t = std::expected<ReplicationData_t, FetchReplicationError>;
+  using FetchVariantResult_t = std::expected<std::variant<RoleMainData, RoleReplicaData>, FetchReplicationError>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
   auto GetRole() const -> replication_coordination_glue::ReplicationRole {
-    return std::holds_alternative<RoleReplicaData>(replication_data_)
+    return std::holds_alternative<RoleReplicaData>(replication_data_.data_)
                ? replication_coordination_glue::ReplicationRole::REPLICA
                : replication_coordination_glue::ReplicationRole::MAIN;
   }
@@ -89,14 +99,14 @@ struct ReplicationState {
   bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
 
   auto IsMainWriteable() const -> bool {
-    if (auto const *main = std::get_if<RoleMainData>(&replication_data_)) {
+    if (auto const *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
       return !part_of_ha_cluster_ || main->writing_enabled_;
     }
     return false;
   }
 
   auto EnableWritingOnMain() -> bool {
-    if (auto *main = std::get_if<RoleMainData>(&replication_data_)) {
+    if (auto *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
       main->writing_enabled_ = true;
       return true;
     }
@@ -105,22 +115,22 @@ struct ReplicationState {
 
   auto GetMainRole() -> RoleMainData & {
     MG_ASSERT(IsMain(), "Instance is not MAIN");
-    return std::get<RoleMainData>(replication_data_);
+    return std::get<RoleMainData>(replication_data_.data_);
   }
 
   auto GetMainRole() const -> RoleMainData const & {
     MG_ASSERT(IsMain(), "Instance is not MAIN");
-    return std::get<RoleMainData>(replication_data_);
+    return std::get<RoleMainData>(replication_data_.data_);
   }
 
   auto GetReplicaRole() -> RoleReplicaData & {
     MG_ASSERT(!IsMain(), "Instance is MAIN");
-    return std::get<RoleReplicaData>(replication_data_);
+    return std::get<RoleReplicaData>(replication_data_.data_);
   }
 
   auto GetReplicaRole() const -> RoleReplicaData const & {
     MG_ASSERT(!IsMain(), "Instance is MAIN");
-    return std::get<RoleReplicaData>(replication_data_);
+    return std::get<RoleReplicaData>(replication_data_.data_);
   }
 
   bool HasDurability() const { return nullptr != durability_; }
