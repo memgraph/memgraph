@@ -1073,8 +1073,11 @@ auto CoordinatorInstance::AddSelfCoordinator(
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  if (constexpr std::array settings{
-          kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica, kMaxReplicaReadLag};
+  if (constexpr std::array settings{kEnabledReadsOnMain,
+                                    kSyncFailoverOnly,
+                                    kMaxFailoverLagOnReplica,
+                                    kMaxReplicaReadLag,
+                                    kDeltasBatchProgressSize};
       !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
@@ -1089,6 +1092,8 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kMaxReplicaReadLag) {
       delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
+    } else if (setting_name == kDeltasBatchProgressSize) {
+      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint64(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
