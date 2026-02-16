@@ -2007,6 +2007,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
     auth->default_label_permissions_ =
         std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->defaultLabelPermissions()->accept(this));
   }
+  if (ctx->defaultEdgeTypePermissions()) {
+    auth->default_edge_type_permissions_ =
+        std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->defaultEdgeTypePermissions()->accept(this));
+  }
   return auth;
 }
 
@@ -2046,6 +2050,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserConte
   if (ctx->defaultLabelPermissions()) {
     auth->default_label_permissions_ =
         std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->defaultLabelPermissions()->accept(this));
+  }
+  if (ctx->defaultEdgeTypePermissions()) {
+    auth->default_edge_type_permissions_ =
+        std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->defaultEdgeTypePermissions()->accept(this));
   }
   return auth;
 }
@@ -2493,6 +2501,17 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
  * @return std::vector<AuthQuery::FineGrainedPrivilege>
  */
 antlrcpp::Any CypherMainVisitor::visitDefaultLabelPermissions(MemgraphCypher::DefaultLabelPermissionsContext *ctx) {
+  if (ctx->DENY()) {
+    return std::vector<AuthQuery::FineGrainedPrivilege>{AuthQuery::FineGrainedPrivilege::NOTHING};
+  }
+  return std::any_cast<std::vector<AuthQuery::FineGrainedPrivilege>>(ctx->granularPrivilegeList()->accept(this));
+}
+
+/**
+ * @return std::vector<AuthQuery::FineGrainedPrivilege>
+ */
+antlrcpp::Any CypherMainVisitor::visitDefaultEdgeTypePermissions(
+    MemgraphCypher::DefaultEdgeTypePermissionsContext *ctx) {
   if (ctx->DENY()) {
     return std::vector<AuthQuery::FineGrainedPrivilege>{AuthQuery::FineGrainedPrivilege::NOTHING};
   }

@@ -119,6 +119,7 @@ class AuthQuery : public memgraph::query::Query {
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
   std::vector<FineGrainedPrivilege> default_label_permissions_;
+  std::vector<FineGrainedPrivilege> default_edge_type_permissions_;
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
@@ -141,6 +142,7 @@ class AuthQuery : public memgraph::query::Query {
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
     object->default_label_permissions_ = default_label_permissions_;
+    object->default_edge_type_permissions_ = default_edge_type_permissions_;
     object->database_specification_ = database_specification_;
     return object;
   }
