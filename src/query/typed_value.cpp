@@ -20,6 +20,7 @@
 #include <string_view>
 #include <utility>
 
+#include "query/fmt.hpp"
 #include "query/graph.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
