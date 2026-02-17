@@ -47,7 +47,7 @@ source env/bin/activate
 
 # check if conan is installed
 if ! command -v conan &> /dev/null; then
-    pip install conan==2.24.0
+    pip install "conan>=2.26.0"
 fi
 
 # check if a conan profile exists

@@ -41,10 +41,6 @@ EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!mage/cpp/com
 VENV_DIR="${VENV_DIR:-env}"
 FIX_FLAG=""
 CONFIG_FILE=".clang-tidy"
-# until https://github.com/conan-io/conan/issues/19285 is fixed
-CLASSPATH=
-DYLD_LIBRARY_PATH=
-LD_LIBRARY_PATH=
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
