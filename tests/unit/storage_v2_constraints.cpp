@@ -25,8 +25,6 @@
 #include "disk_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
@@ -45,8 +43,7 @@ class ConstraintsTest : public testing::Test {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     config_.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>;
-    repl_state_.emplace(memgraph::storage::ReplicationStateRootPath(config_));
-    db_gk_.emplace(config_, *repl_state_);
+    db_gk_.emplace(config_);
     auto db_acc_opt = db_gk_->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     db_acc_ = *db_acc_opt;
@@ -61,7 +58,6 @@ class ConstraintsTest : public testing::Test {
     storage = nullptr;
     db_acc_.reset();
     db_gk_.reset();
-    repl_state_.reset();
 
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
@@ -86,8 +82,6 @@ class ConstraintsTest : public testing::Test {
 
   Storage *storage;
   memgraph::storage::Config config_;
-  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
-      repl_state_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk_;
   PropertyId prop1;
@@ -1329,9 +1323,12 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
     auto vertex1 = acc1->CreateVertex();
 
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
-    ASSERT_THROW((void)vertex1.InitProperties({{this->prop1, PropertyValue("problem")}}),
-                 memgraph::query::QueryException);
-    ASSERT_NO_ERROR(vertex1.InitProperties({{this->prop1, PropertyValue(1)}}));
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> invalid_props{
+        {this->prop1, PropertyValue("problem")}};
+    ASSERT_THROW((void)vertex1.InitProperties(invalid_props), memgraph::query::QueryException);
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> valid_props{
+        {this->prop1, PropertyValue(1)}};
+    ASSERT_NO_ERROR(vertex1.InitProperties(valid_props));
   }
 }
 

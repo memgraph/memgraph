@@ -15,7 +15,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/compressor.hpp"
 
 #include <gflags/gflags.h>
 #include <array>
@@ -31,6 +30,8 @@ DECLARE_bool(storage_property_store_compression_enabled);
 namespace memgraph::storage {
 
 struct PropertyPath;
+template <typename T>
+struct IndexedPropertyDecoder;
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -57,6 +58,15 @@ class PropertyStore {
   /// this function is O(n).
   /// @throw std::bad_alloc
   PropertyValue GetProperty(PropertyId property) const;
+
+  /// Returns the currently stored value for property `property`. If the
+  /// property doesn't exist a Null value is returned. The time complexity of
+  /// this function is O(n).
+  /// The property value is decoded and if it's stored somewhere else (e.g. vector index) it's decoded and returned.
+  /// (ATM only vector index is handled this way)
+  /// @throw std::bad_alloc
+  template <typename T>
+  PropertyValue GetProperty(PropertyId property, const IndexedPropertyDecoder<T> &decoder) const;
 
   ExtendedPropertyType GetExtendedPropertyType(PropertyId property) const;
 
@@ -111,6 +121,12 @@ class PropertyStore {
   /// of this function is O(n).
   /// @throw std::bad_alloc
   std::map<PropertyId, PropertyValue> Properties() const;
+
+  /// Returns all properties currently stored in the store, with values decoded
+  /// (e.g. vector index IDs resolved). The time complexity of this function is O(n).
+  /// @throw std::bad_alloc
+  template <typename T>
+  std::map<PropertyId, PropertyValue> Properties(const IndexedPropertyDecoder<T> &decoder) const;
 
   std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
 

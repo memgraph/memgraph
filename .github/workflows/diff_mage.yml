@@ -22,7 +22,7 @@ on:
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
-        default: '0'
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -39,6 +39,7 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
 jobs:
   amd_mage_tests:

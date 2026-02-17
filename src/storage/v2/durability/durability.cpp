@@ -128,14 +128,13 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
   return true;
 }
 
-std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                     const std::string_view uuid) {
+std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
+                                                                    const std::string_view uuid) {
+  std::vector<SnapshotDurabilityInfo> snapshot_files;
   if (!utils::DirExists(snapshot_directory)) {
     spdlog::error("Snapshot directory {} doesn't exist", snapshot_directory);
-    return {};
+    return snapshot_files;
   }
-
-  std::vector<SnapshotDurabilityInfo> snapshot_files;
 
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
@@ -152,24 +151,28 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
       spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
     }
   }
-  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+  if (error_code) {
+    spdlog::error("Couldn't recover data because an error occurred: {}!", error_code.message());
+    return std::nullopt;
+  }
 
   std::ranges::sort(snapshot_files);
   return snapshot_files;
 }
 
-std::vector<WalDurabilityInfo> GetWalFiles(const std::filesystem::path &wal_directory, const std::string_view uuid,
-                                           const std::optional<size_t> current_seq_num) {
+std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
+                                                          const std::string_view uuid,
+                                                          const std::optional<size_t> current_seq_num) {
+  std::vector<WalDurabilityInfo> wal_files;
   if (!utils::DirExists(wal_directory)) {
     spdlog::error("WAL directory {} doesn't exist", wal_directory);
-    return {};
+    return wal_files;
   }
 
   // There could be multiple "current" WAL files, the "_current" tag just means that the previous session didn't
   // finalize. We cannot skip based on name, will be able to skip based on invalid data or sequence number, so the
   // actual current wal will be skipped
 
-  std::vector<WalDurabilityInfo> wal_files;
   std::error_code error_code;
 
   // TODO: (andi) Inefficient to use I/O again, you already read infos.
@@ -210,7 +213,10 @@ std::vector<WalDurabilityInfo> GetWalFiles(const std::filesystem::path &wal_dire
     }
   }
 
-  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+  if (error_code) {
+    spdlog::error("Couldn't recover data because an error occurred: {}!", error_code.message());
+    return std::nullopt;
+  }
   std::ranges::sort(wal_files);
   return wal_files;
 }
@@ -231,7 +237,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
   RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
 }
 
-void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
+void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
@@ -384,11 +390,11 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
-    for (const auto &spec : indices_metadata.vector_indices) {
-      indices->vector_index_.RecoverIndex(spec, vertices_acc, snapshot_info);
+    for (auto &recovery_info : indices_metadata.vector_indices) {
+      indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, snapshot_info);
       spdlog::info("Vector index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(spec.label_id.AsUint()),
-                   name_id_mapper->IdToName(spec.property.AsUint()));
+                   name_id_mapper->IdToName(recovery_info.spec.label_id.AsUint()),
+                   name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
     }
     spdlog::info("Vector indices are recreated.");
   }
@@ -494,8 +500,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,
-                                       RecoveredIndicesAndConstraints const &indices_constraints,
-                                       bool properties_on_edges,
+                                       RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   RecoverIndicesAndStats(indices_constraints.indices,
                          indices,
@@ -539,7 +544,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   auto *const epoch_history = &repl_storage_state.history;
   utils::Timer timer;
 
-  auto snapshot_files = GetSnapshotFiles(snapshot_directory_);
+  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
+  MG_ASSERT(maybe_snapshot_files.has_value(), "Couldn't recover data because of the failure to read snapshot files");
+  auto const &snapshot_files = *maybe_snapshot_files;
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
@@ -641,8 +648,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   std::string{uuid},
                   repl_storage_state.epoch_.id());
   }
+  auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+  MG_ASSERT(maybe_wal_files.has_value(), "Couldn't recover data because of the failure to read wal files");
 
-  if (auto const wal_files = GetWalFiles(wal_directory_, std::string{uuid}); !wal_files.empty()) {
+  if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
     spdlog::info("Checking WAL files.");
     r::for_each(wal_files,
                 [](auto &&wal_file) { spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num); });

@@ -13,7 +13,6 @@
 #include <sys/types.h>
 #include <string_view>
 #include <thread>
-#include <usearch/index_plugins.hpp>
 
 #include "flags/general.hpp"
 #include "query/exceptions.hpp"

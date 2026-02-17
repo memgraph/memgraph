@@ -43,7 +43,6 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
-using memgraph::replication_coordination_glue::ReplicationRole;
 
 const std::string testSuite = "query_plan_match_filter_return";
 

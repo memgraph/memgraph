@@ -22,12 +22,19 @@
 #include <chrono>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultManagementServerIp = "0.0.0.0";
+
+// Used for updating configuration of both coordinators and data instances
+struct UpdateInstanceConfig {
+  std::variant<int32_t, std::string> data;
+  io::network::Endpoint bolt_endpoint;
+};
 
 struct ReplicationInstanceInitConfig {
   int management_port{0};

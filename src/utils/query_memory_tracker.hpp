@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,9 +10,10 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <optional>
+#include <shared_mutex>
 #include <unordered_map>
 #include <utility>
+
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -31,10 +32,7 @@ class QueryMemoryTracker {
 
   QueryMemoryTracker(QueryMemoryTracker &&other) noexcept
       : transaction_tracker_(std::move(other.transaction_tracker_)),
-        proc_memory_trackers_(std::move(other.proc_memory_trackers_)),
-        active_proc_id(other.active_proc_id) {
-    other.active_proc_id = NO_PROCEDURE;
-  }
+        proc_memory_trackers_(std::move(other.proc_memory_trackers_)) {}
 
   QueryMemoryTracker(const QueryMemoryTracker &other) = delete;
 
@@ -52,30 +50,22 @@ class QueryMemoryTracker {
   // Set query limit
   void SetQueryLimit(size_t);
 
-  // Create proc tracker if doesn't exist
-  void TryCreateProcTracker(int64_t, size_t);
-
-  // Set currently active procedure
-  void SetActiveProc(int64_t);
-
-  // Stop procedure tracking
-  void StopProcTracking();
-
   // Currently tracked memory
   int64_t Amount() const;
 
+  // Create a new or get existing procedure tracker
+  void CreateOrSetProcTracker(int64_t, size_t);
+
+  // Stop procedure tracking
+  static void StopProcTracking();
+
  private:
-  static constexpr int64_t NO_PROCEDURE{-1};
-  void InitializeTransactionTracker();
+  // MemoryTracker is thread-safe via atomics. Default-constructed state means "no limit".
+  memgraph::utils::MemoryTracker transaction_tracker_;
 
-  std::optional<memgraph::utils::MemoryTracker> transaction_tracker_{std::nullopt};
+  // Procedure setup is not thread safe, but MemoryTracker is thread-safe via atomics.
   std::unordered_map<int64_t, memgraph::utils::MemoryTracker> proc_memory_trackers_;
-
-  // Procedure ids start from 1. Procedure id -1 means there is no procedure
-  // to track.
-  int64_t active_proc_id{NO_PROCEDURE};
-
-  memgraph::utils::MemoryTracker *GetActiveProc();
+  std::shared_mutex proc_trackers_mutex_;
 };
 
 }  // namespace memgraph::utils

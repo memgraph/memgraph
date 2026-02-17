@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,12 +26,14 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "slk/streams.hpp"
 #include "utils/concepts.hpp"
 #include "utils/endian.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/typeinfo.hpp"
 
 #include <boost/container/flat_map.hpp>
@@ -216,6 +218,25 @@ inline void Save(const std::vector<T> &obj, Builder *builder) {
 
 template <typename T>
 inline void Load(std::vector<T> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->resize(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    Load(&(*obj)[i], reader);
+  }
+}
+
+template <typename T>
+inline void Save(const utils::small_vector<T> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T>
+inline void Load(utils::small_vector<T> *obj, Reader *reader) {
   uint64_t size = 0;
   Load(&size, reader);
   obj->resize(size);
@@ -605,6 +626,31 @@ void Load(T *enum_value, slk::Reader *reader) {
   UnderlyingType value;
   slk::Load(&value, reader);
   *enum_value = static_cast<T>(value);
+}
+
+template <typename... Args>
+inline void Save(std::variant<Args...> const &data, Builder *builder) {
+  slk::Save(data.index(), builder);
+  std::visit([builder](auto const &obj_type) { slk::Save(obj_type, builder); }, data);
+}
+
+template <typename... Args>
+inline void Load(std::variant<Args...> *data, Reader *reader) {
+  std::size_t index;
+  slk::Load(&index, reader);
+
+  // Helper to load the type at the given index
+  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+    (void)((Is == index ? (
+                              [&] {
+                                std::variant_alternative_t<Is, std::variant<Args...>> value;
+                                slk::Load(&value, reader);
+                                *data = std::move(value);
+                              }(),
+                              true)
+                        : false) ||
+           ...);
+  }(std::index_sequence_for<Args...>{});
 }
 
 }  // namespace memgraph::slk

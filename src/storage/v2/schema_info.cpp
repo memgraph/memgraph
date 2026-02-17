@@ -68,9 +68,18 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
   if (!delta) return;
 
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
-    // Went back far enough
-    if (ts < start_timestamp) break;
+    auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+    bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
+
+    if (ts < start_timestamp) {
+      if (is_delta_non_sequential) {
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
+    }
+
     // This delta must be applied, call the callback.
     callback(*delta);
     // Move to the next delta.
@@ -80,14 +89,49 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
-inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp) {
+inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp,
+                      bool traverse_chain = false) {
   // This tx is running, so no deltas means there are no changes made after the tx started
   if (delta == nullptr) return State::NO_CHANGE;
-  const auto ts = delta->timestamp->load(std::memory_order_acquire);
-  if (ts == commit_timestamp) return State::THIS_TX;  // Our commit ts means we changed it
-  // Ts larger then our start ts means another tx changed it (committed or is still running)
-  if (ts > start_timestamp) return State::ANOTHER_TX;
-  return State::NO_CHANGE;  // Irrelevant deltas, no changes
+
+  const auto head_ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+
+  // Fast path: During transaction execution, we only need to check the head
+  // delta. The head delta is sufficient because this transaction's deltas are
+  // prepended, so if this transaction modified the object, its delta will be at
+  // the head (or we'll see a committed delta from before start). If another
+  // transaction modified it, its delta will be at the head.
+  if (!traverse_chain) {
+    if (head_ts == commit_timestamp) return State::THIS_TX;
+    if (head_ts > start_timestamp) return State::ANOTHER_TX;
+    return State::NO_CHANGE;
+  }
+
+  // Slow path: During ProcessTransaction transactions may process out of order.
+  // Newer transactions' deltas can be prepended before this transaction's
+  // ProcessTransaction runs, so we need to traverse the chain to find this
+  // transaction's delta.
+  bool found_this_tx = false;
+  bool found_another_tx = false;
+
+  for (const Delta *current = delta; current != nullptr; current = current->next.load(std::memory_order_acquire)) {
+    const auto ts = current->commit_info->timestamp.load(std::memory_order_acquire);
+
+    if (ts < start_timestamp) break;
+
+    if (ts == commit_timestamp) {
+      found_this_tx = true;
+    }
+
+    if (ts > start_timestamp && ts != commit_timestamp) {
+      found_another_tx = true;
+      break;
+    }
+  }
+
+  if (found_another_tx) return State::ANOTHER_TX;
+  if (found_this_tx) return State::THIS_TX;
+  return State::NO_CHANGE;
 }
 
 // Keep v locked as we could return a reference to labels
@@ -241,7 +285,7 @@ template <template <class...> class TOtherContainer>
 void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherContainer> &diff,
                                                     SchemaInfoPostProcess &post_process, uint64_t start_ts,
                                                     uint64_t commit_ts, bool property_on_edges) {
-  // Update schema based on the diff
+  // Update shared schema based on the diff
   for (const auto &[vertex_key, info] : diff.vertex_state_) {
     vertex_state_[vertex_key] += info;
   }
@@ -257,16 +301,17 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     // An edge can be added to post process by modifying the edge directly or one of the vertices
     // We need to check all 3 objects
-    const auto from_state = GetState(from->delta, start_ts, commit_ts);
-    const auto to_state = GetState(to->delta, start_ts, commit_ts);
+    const auto from_state = GetState(from->delta, start_ts, commit_ts, true);
+    const auto to_state = GetState(to->delta, start_ts, commit_ts, true);
 
     State edge_state{NO_CHANGE};
     std::shared_lock<decltype(edge_ref.ptr->lock)> edge_lock;
     if (property_on_edges) {
       edge_lock = std::shared_lock{edge_ref.ptr->lock};
-      edge_state = GetState(edge_ref.ptr->delta, start_ts, commit_ts);
+      edge_state = GetState(edge_ref.ptr->delta, start_ts, commit_ts, true);
     }
 
+    // Check if we need to process this edge
     if (from_state != ANOTHER_TX && to_state != ANOTHER_TX && edge_state != ANOTHER_TX) {
       continue;  // All is as it should be
     }
@@ -331,11 +376,11 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
   // Clean up unused stats
   auto stats_cleanup = [](auto &info) {
-    erase_if(info, [](auto &elem) { return elem.second.n <= 0; });
+    erase_if(info, [](auto &elem) { return elem.second.n == 0; });
     for (auto &[_, val] : info) {
-      erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
+      erase_if(val.properties, [](auto &elem) { return elem.second.n == 0; });
       for (auto &[_, val] : val.properties) {
-        erase_if(val.types, [](auto &elem) { return elem.second <= 0; });
+        erase_if(val.types, [](auto &elem) { return elem.second == 0; });
       }
     }
   };
@@ -705,7 +750,9 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     auto *from_vertex = (edge_dir == InEdge) ? other_vertex : vertex;
     auto *to_vertex = (edge_dir == InEdge) ? vertex : other_vertex;
 
-    // We have a global schema lock here, so we can unlock/lock all objects without the worry they could change
+    // Lock both vertices in gid order to avoid deadlocks
+    // Edge lists cannot change here because AddLabel/RemoveLabel holds the vertex lock,
+    // preventing concurrent CreateEdge/DeleteEdge operations
     auto vlocks = SchemaInfo::ReadLockFromTo(from_vertex, to_vertex);
     auto edge_lock =
         properties_on_edges_ ? std::shared_lock{edge_ref.ptr->lock} : std::shared_lock<decltype(edge_ref.ptr->lock)>{};
@@ -733,6 +780,7 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
   for (const auto &edge : vertex->in_edges) {
     process(edge, InEdge);
   }
+
   for (const auto &edge : vertex->out_edges) {
     process(edge, OutEdge);
   }
@@ -836,19 +884,15 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, E
 }
 
 void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge_ref) {
-  // Deleting edges touches all 3 objects. That means there cannot be any other modifying tx now or before this one
-
-  // Analytical: no need to lock since the vertex labels cannot change due to shared lock
-  // Transactional: no need to lock since all objects are touched by this tx
   tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
 
-  // No post-process -> analytical
   if (post_process_) {
-    // This edge could have had some modifications before deletion
-    // This would case the edge to be added to the post process list
-    // We need to remove it
-    // Vertices cannot change, so no need to post process anything
-    post_process_->edges.erase({edge_ref, edge_type, from, to});
+    if (GetState(from->delta, start_ts_, commit_ts_) == ANOTHER_TX ||
+        GetState(to->delta, start_ts_, commit_ts_) == ANOTHER_TX) {
+      post_process_->edges.insert({edge_ref, edge_type, from, to});
+    } else {
+      post_process_->edges.erase({edge_ref, edge_type, from, to});
+    }
   }
 }
 

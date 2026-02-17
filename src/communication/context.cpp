@@ -90,24 +90,24 @@ ServerContext::ServerContext(const std::string &key_file, const std::string &cer
   // TODO: add certificate revocation list (CRL)
   boost::system::error_code ec;
   ctx_->use_certificate_chain_file(cert_file, ec);
-  MG_ASSERT(!ec, "Couldn't load server certificate from file: {}", cert_file);
+  MG_ASSERT(!ec, "Couldn't load server certificate from file {}. Error: {}", cert_file, ec.message());
   ctx_->use_private_key_file(key_file, ssl::context::pem, ec);
-  MG_ASSERT(!ec, "Couldn't load server private key from file: {}", key_file);
+  MG_ASSERT(!ec, "Couldn't load server private key from file {}. Error: {}", key_file, ec.message());
 
   ctx_->set_options(SSL_OP_NO_SSLv3, ec);
-  MG_ASSERT(!ec, "Setting options to SSL context failed!");
+  MG_ASSERT(!ec, "Setting options to SSL context failed! Error: {}", ec.message());
 
   if (!ca_file.empty()) {
     // Load the certificate authority file.
     boost::system::error_code ec;
     ctx_->load_verify_file(ca_file, ec);
-    MG_ASSERT(!ec, "Couldn't load certificate authority from file: {}", ca_file);
+    MG_ASSERT(!ec, "Couldn't load certificate authority from file {}. Error: {}", ca_file, ec.message());
 
     if (verify_peer) {
       // Enable verification of the client certificate.
       // NOLINTNEXTLINE(hicpp-signed-bitwise)
       ctx_->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
-      MG_ASSERT(!ec, "Setting SSL verification mode failed!");
+      MG_ASSERT(!ec, "Setting SSL verification mode failed! Error: {}", ec.message());
     }
   }
 }

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "replication_handler/replication_handler.hpp"
+
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
@@ -34,8 +35,8 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
    */
 
   // Startup replication state (if recovered at startup)
-  auto replica = [&dbms_handler, &auth, &system](RoleReplicaData &data) {
-    return StartRpcServer(dbms_handler, data, auth, system);
+  auto replica = [&dbms_handler, &auth, &system, &repl_state](RoleReplicaData &data) {
+    return StartRpcServer(dbms_handler, repl_state, data, auth, system);
   };
 
   // Replication recovery and frequent check start
@@ -76,8 +77,8 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                         dbms::DbmsHandler &dbms_handler) {
   // Startup replication state (if recovered at startup)
-  auto replica = [&dbms_handler](replication::RoleReplicaData &data) {
-    return replication::StartRpcServer(dbms_handler, data);
+  auto replica = [&dbms_handler, &repl_state](replication::RoleReplicaData &data) {
+    return replication::StartRpcServer(dbms_handler, repl_state, data);
   };
 
   // Replication recovery and frequent check start

@@ -94,8 +94,7 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
-  auto UpdateConfig(std::variant<int32_t, std::string> const &instance, io::network::Endpoint const &bolt_endpoint)
-      -> UpdateConfigStatus;
+  auto UpdateConfig(coordination::UpdateInstanceConfig const &config) -> UpdateConfigStatus;
 
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
@@ -129,6 +128,17 @@ class CoordinatorInstance {
   auto GetTelemetryJson() const -> nlohmann::json;
 
  private:
+  auto ShowReplicationLagAsFollower(int32 leader_id) const
+      -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+  auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+
+  auto AddNewCoordinator(CoordinatorInstanceConfig const &config,
+                         std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+      -> AddCoordinatorInstanceStatus;
+  auto AddSelfCoordinator(CoordinatorInstanceConfig const &config,
+                          std::vector<CoordinatorInstanceContext> const &coordinator_instances_context) const
+      -> AddCoordinatorInstanceStatus;
+
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
@@ -147,9 +157,26 @@ class CoordinatorInstance {
 
   auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
 
+  auto FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector *;
+
+  // nullopt if I am the leader, otherwise StatusMessage
+  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
+  auto ForwardToLeader(Args &&...args) const -> std::optional<StatusEnum> {
+    auto const leader_id = raft_state_->GetLeaderId();
+    if (leader_id == raft_state_->GetMyCoordinatorId() &&
+        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+      return std::nullopt;
+    }
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendBoolRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
+    }
+    return StatusEnum::LEADER_NOT_FOUND;
+  }
+
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
   // StateCheckRpc call which is only used on the leader
   std::map<std::string, uint64_t> main_num_txns_cache_;
+
   // Cache which stores information about the number of committed txns of replicas
   std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;
 

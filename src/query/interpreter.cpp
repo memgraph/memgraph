@@ -41,6 +41,7 @@
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "db_accessor.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -55,6 +56,7 @@
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_query_handler.hpp"
+#include "query/common.hpp"
 #include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
@@ -74,6 +76,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
+#include "query/plan/parallel_checker.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -152,15 +155,6 @@ extern const Event ShowSchema;
 }  // namespace memgraph::metrics
 
 namespace {
-// Builds a map of run-time settings
-auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
-  std::map<std::string, std::string, std::less<>> config;
-  config.emplace(memgraph::utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
-  config.emplace(memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
-  config.emplace(memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
-  config.emplace(memgraph::utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
-  return config;
-}
 
 using memgraph::query::Expression;
 using memgraph::query::ExpressionVisitor;
@@ -271,7 +265,6 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
 
 namespace memgraph::query {
 
-constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
 constexpr int kSystemTxTryMS = 100;  //!< Duration of the unique try_lock_for
 
 template <typename>
@@ -551,6 +544,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -586,6 +586,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -601,6 +608,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Force reset failed, check logs for more details!");
       case NOT_LEADER_ANYMORE:
         throw QueryRuntimeException("Force reset failed since the instance is not leader anymore!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -712,13 +726,22 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
   }
 
-  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
-    switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
+  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) override {
+    coordination::UpdateInstanceConfig const config{.data = std::move(instance),
+                                                    .bolt_endpoint = std::move(bolt_endpoint)};
+    switch (coordinator_handler_.UpdateConfig(config)) {
       using enum memgraph::coordination::UpdateConfigStatus;
       case NO_SUCH_COORD:
         throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
@@ -728,6 +751,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                     std::get<std::string>(instance));
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
         std::unreachable();
@@ -740,6 +770,51 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_SUCH_ID:
         throw QueryRuntimeException(
             "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a timeout!", coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for removing coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the coordinator isn't a leader anymore!",
+            coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when removing coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when removing coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -781,6 +856,58 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such coordinator server already exists!");
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a timeout!", coordinator_id);
+      case DIFF_NETWORK_CONFIG:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator was started with different network "
+            "configuration. Check logs for more details.",
+            coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for adding coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator isn't a leader anymore!", coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when adding coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when adding coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -818,6 +945,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -1758,7 +1892,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
+                                std::vector<Notification> *notifications) {
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
         license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "high availability"));
@@ -1833,14 +1967,15 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                      bolt_server = bolt_server_it->second,
                      coordinator_server = coordinator_server_it->second,
                      management_server = management_server_it->second]() mutable {
-        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server, management_server);
+        handler.AddCoordinatorInstance(
+            static_cast<int32_t>(coord_server_id), bolt_server, coordinator_server, management_server);
         return std::vector<std::vector<TypedValue>>();
       };
 
       notifications->emplace_back(SeverityLevel::INFO,
                                   NotificationCode::ADD_COORDINATOR_INSTANCE,
-                                  fmt::format("Coordinator has added instance {} on coordinator server {}.",
-                                              coordinator_query->instance_name_,
+                                  fmt::format("Added coordinator with id {} and coordinator server {}.",
+                                              coord_server_id,
                                               coordinator_server_it->second));
       return callback;
     }
@@ -2636,9 +2771,10 @@ struct PullPlan {
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}
+                    std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr
 #ifdef MG_ENTERPRISE
                     ,
+                    std::optional<size_t> parallel_execution = std::nullopt,
                     std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
   );
@@ -2677,10 +2813,11 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit
+                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
+                   utils::PriorityThreadPool *worker_pool
 #ifdef MG_ENTERPRISE
                    ,
-                   std::shared_ptr<utils::UserResources> user_resource
+                   std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
                    )
     : plan_(plan),
@@ -2693,7 +2830,21 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       user_resource_{std::move(user_resource)}
 #endif
 {
-  ctx_.hops_limit = query::HopsLimit{hops_limit};
+  ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
+  if (hops_limit) {
+#ifdef MG_ENTERPRISE
+    if (parallel_execution) {
+      ctx_.hops_limit = HopsLimit(*hops_limit, utils::SharedQuota::WorkersToBatch(*parallel_execution));
+    } else {
+      ctx_.hops_limit = HopsLimit(*hops_limit);
+    }
+#else
+    ctx_.hops_limit = HopsLimit(*hops_limit);
+#endif
+  }
+#ifdef MG_ENTERPRISE
+  ctx_.parallel_execution = parallel_execution;
+#endif
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -2721,6 +2872,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.memory = execution_memory;
   ctx_.protector = std::move(protector);
   ctx_.is_main = interpreter_context->repl_state.ReadLock()->IsMain();
+  ctx_.worker_pool = worker_pool;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -2822,7 +2974,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     summary->insert_or_assign("stats", std::move(stats));
   }
   cursor_->Shutdown();
-  ctx_.profile_execution_time = execution_time_;
+  // NOTE: += because each thread adds its own execution time to the total execution time
+  ctx_.profile_execution_time += execution_time_;
 
   if (!flags::run_time::GetHopsLimitPartialResults() && ctx_.hops_limit.IsLimitReached()) {
     throw QueryException("Query exceeded the maximum number of hops.");
@@ -2966,6 +3119,49 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 }
 
 namespace {
+#ifdef MG_ENTERPRISE
+std::optional<size_t> EvaluateParallelExecution(CypherQuery *cypher_query,
+                                                PrimitiveLiteralExpressionEvaluator &evaluator, uint64_t num_workers) {
+  std::optional<size_t> parallel_execution = std::nullopt;
+  if (cypher_query->pre_query_directives_.parallel_execution_) {
+    parallel_execution = num_workers;
+    if (cypher_query->pre_query_directives_.num_threads_) {
+      parallel_execution =
+          EvaluateUint(evaluator, cypher_query->pre_query_directives_.num_threads_, "Number of threads");
+    }
+  }
+  return parallel_execution;
+}
+
+void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::LogicalOperator const &plan,
+                            InterpreterContext *interpreter_context, std::vector<Notification> *notifications,
+                            query::DbAccessor *dba) {
+  if (parallel_execution) {
+    plan::ParallelChecker parallel_checker;
+    parallel_checker.CheckParallelized(plan);
+    if (parallel_checker.is_parallelized_) {
+      if (interpreter_context->worker_pool != nullptr) {
+        dba->SetParallelExecution();  // Internal flag needed to disable delta cache for parallel queries
+      } else {
+        parallel_execution.reset();
+        spdlog::trace(
+            R"(Parallel execution is not supported while using "asio" scheduler. Please switch to "priority_queue" scheduler "
+            "and try again. Falling back to single threaded execution.)");
+        notifications->emplace_back(
+            SeverityLevel::INFO,
+            NotificationCode::PARALLEL_EXECUTION_FALLBACK,
+            R"(Parallel execution is not supported while using "asio" scheduler. Falling back to single threaded execution.)");
+      }
+    } else {
+      parallel_execution.reset();
+      spdlog::trace("Query was not parallelized. Falling back to single threaded execution.");
+      notifications->emplace_back(SeverityLevel::INFO,
+                                  NotificationCode::PARALLEL_EXECUTION_FALLBACK,
+                                  "Plan was not successfully parallelized. Falling back to single threaded execution.");
+    }
+  }
+}
+#endif
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
@@ -2993,6 +3189,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (hops_limit) {
     spdlog::debug("Running query with hops limit of {}", *hops_limit);
   }
+
+#ifdef MG_ENTERPRISE
+  const auto num_workers =
+      interpreter_context->worker_pool ? interpreter_context->worker_pool->GetNumMixedWorkers() : 1;
+  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator, num_workers);
+#endif
 
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
@@ -3040,6 +3242,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
   AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
+
+#ifdef MG_ENTERPRISE
+  CheckParallelExecution(parallel_execution, plan->plan(), interpreter_context, notifications, dba);
+#endif
+
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
   std::vector<std::string> header;
   header.reserve(output_symbols.size());
@@ -3068,9 +3275,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
-                                              hops_limit
+                                              hops_limit,
+                                              interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
                                               ,
+                                              parallel_execution,
                                               user_resource
 #endif
   );
@@ -3211,6 +3420,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
 
+#ifdef MG_ENTERPRISE
+  const auto num_workers = interpreter_context->worker_pool ? interpreter_context->worker_pool->GetNumWorkers() : 1;
+  auto parallel_execution = EvaluateParallelExecution(cypher_query, evaluator, num_workers);
+#endif
+
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
@@ -3221,6 +3435,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                              parsed_inner_query.parameters,
                                              plan_cache,
                                              dba);
+
+#ifdef MG_ENTERPRISE
+  CheckParallelExecution(parallel_execution, cypher_query_plan->plan(), interpreter_context, notifications, dba);
+#endif
+
   PrepareCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
@@ -3252,6 +3471,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          &query_logger = interpreter.query_logger_
 #ifdef MG_ENTERPRISE
                                          ,
+                                         parallel_execution,
                                          user_resource = std::move(user_resource)
 #endif
   ](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
@@ -3271,9 +3491,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         nullptr,
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
-                                        hops_limit
+                                        hops_limit,
+                                        interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
                                         ,
+                                        parallel_execution,
                                         user_resource
 #endif
                                         )
@@ -4668,8 +4890,7 @@ PreparedQuery PrepareCoordinatorQuery(ParsedQuery parsed_query, bool in_explicit
   }
 
   auto *coordinator_query = utils::Downcast<CoordinatorQuery>(parsed_query.query);
-  auto callback =
-      HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, config, notifications);
+  auto callback = HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, notifications);
 
   return PreparedQuery{
       .header = callback.header,
@@ -5425,7 +5646,18 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             case S3GetFailure: {
               throw utils::BasicException("Failed to download snapshot file from s3 {}", path);
             }
+            case S3MissingAwsRegion: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_REGION));
+            }
+            case S3MissingAwsAccessKey: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_ACCESS_KEY));
+            }
+            case S3MissingAwsSecretKey: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
+            }
+            default: {
               std::unreachable();
+            }
           }
         }
         // REPLICATION
@@ -6489,7 +6721,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter, interpreter_context](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
@@ -6515,6 +6747,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               }
             } else {
               res = "Successfully created database " + db_name;
+              db_handler->Get(db_name)->storage()->ttl_.SetUserCheck([interpreter_context]() {
+                const auto locked_repl_state = interpreter_context->repl_state.ReadLock();
+                return locked_repl_state->IsMainWriteable();
+              });
             }
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
@@ -7662,14 +7898,13 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
       current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
     }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
-    bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
     ParsedQuery parsed_query = ParseQuery(
         query_string, params_getter(nullptr), &interpreter_context_->ast_cache, interpreter_context_->config.query);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
-    return Interpreter::ParseInfo{std::move(parsed_query), parsing_time, is_schema_assert_query};
+    return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
   } catch (const utils::BasicException &e) {
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
@@ -7874,7 +8109,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
-    // TODO: Use CreateThreadSafe once parallel multi-command queries are supported
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -7889,7 +8123,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
-    if (parse_info.is_schema_assert_query) {
+    if (parse_info.parsed_query.using_schema_assert) {
       throw SchemaAssertInMulticommandTxException();
     }
 
@@ -7913,18 +8147,30 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
   // Load parquet uses thread safe allocator that's why it is being checked here
   bool has_load_parquet{false};
+  bool parallel_execution{false};
 
   if (cypher_query) {
     auto clauses = cypher_query->single_query_->clauses_;
     has_load_parquet =
         std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
+    parallel_execution = cypher_query->pre_query_directives_.parallel_execution_;
+  } else if (const auto *profile = utils::Downcast<ProfileQuery>(parsed_query.query)) {
+    parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
+  }
+
+  if (parallel_execution) {
+#ifdef MG_ENTERPRISE
+    if (!license::global_license_checker.IsEnterpriseValidFast())
+#endif
+      throw QueryRuntimeException(
+          license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "PARALLEL EXECUTION"));
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
-    if (has_load_parquet) {
+    if (has_load_parquet || parallel_execution) {
       query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
     } else {
       query_executions_.emplace_back(QueryExecution::Create());
@@ -7963,8 +8209,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements =
-          QueryTransactionRequirements{parse_info.is_schema_assert_query, parsed_query.is_cypher_read, storage_mode};
+      auto transaction_requirements = QueryTransactionRequirements{
+          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
@@ -8000,6 +8246,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           .transaction_status = &transaction_status_,
           .is_shutting_down = &interpreter_context_->is_shutting_down,
           .timer = current_timeout_timer_,
+          .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
       };
     };
 

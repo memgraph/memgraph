@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,6 +42,8 @@ auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
     case PropertyValue::Type::Point2d:
       return utils::MakeBoundExclusive(kSmallestPoint3d);
     case PropertyValue::Type::Point3d:
+      return utils::MakeBoundExclusive(kSmallestVectorIndexId);
+    case PropertyValue::Type::VectorIndexId:
       // This is the last type in the order so we leave the upper bound empty.
       return std::nullopt;
   }
@@ -77,6 +79,8 @@ auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
       return utils::MakeBoundExclusive(kSmallestPoint2d);
     case PropertyValue::Type::Point3d:
       return utils::MakeBoundExclusive(kSmallestPoint3d);
+    case PropertyValue::Type::VectorIndexId:
+      return utils::MakeBoundInclusive(kSmallestVectorIndexId);
   }
 }
 

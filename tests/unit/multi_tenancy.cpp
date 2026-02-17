@@ -112,7 +112,7 @@ class MultiTenantTest : public ::testing::Test {
         : settings{conf.durability.storage_directory / "settings"},
           auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
           repl_state{ReplicationStateRootPath(conf)},
-          dbms{conf, repl_state, auth, true},
+          dbms{conf, auth, true},
           interpreter_context{{},
                               &settings,
                               &dbms,
@@ -126,7 +126,7 @@ class MultiTenantTest : public ::testing::Test {
           } {
       memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, settings);
       memgraph::flags::run_time::Initialize(settings);
-      memgraph::license::global_license_checker.CheckEnvLicense();
+      memgraph::license::global_license_checker.CheckEnvLicense(settings);
     }
 
     auto NewInterpreter() { return InterpreterFaker{&interpreter_context, dbms.Get()}; }

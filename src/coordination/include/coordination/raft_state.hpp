@@ -16,6 +16,7 @@
 #include <optional>
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "coordination/utils.hpp"
@@ -60,14 +61,12 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = delete;
   ~RaftState();
 
-  auto GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string;
-  auto GetMyCoordinatorEndpoint() const -> std::string;
   auto GetMyCoordinatorId() const -> int32_t;
   auto InstanceName() const -> std::string;
 
   // Only called when adding new coordinator instance, not itself.
-  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void;
-  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> void;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> int32_t;

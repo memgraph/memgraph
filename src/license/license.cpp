@@ -13,17 +13,14 @@
 
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <type_traits>
-#include <unordered_map>
 
 #include "slk/serialization.hpp"
 #include "utils/base64.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/settings.hpp"
@@ -195,7 +192,7 @@ void LicenseChecker::DisableTesting() {
   spdlog::info("The license is disabled for testing.");
 }
 
-void LicenseChecker::CheckEnvLicense() {
+void LicenseChecker::CheckEnvLicense(utils::Settings &settings) {
   const char *license_key = std::getenv("MEMGRAPH_ENTERPRISE_LICENSE");
   if (!license_key) {
     return;
@@ -207,13 +204,18 @@ void LicenseChecker::CheckEnvLicense() {
   }
 
   spdlog::warn("Using license info from environment variables");
-  license_info_override_.emplace(license_key, organization_name);
-  RevalidateLicense(license_key, organization_name);
+  SetLicenseInfoOverride(license_key, organization_name, settings);
 }
 
-void LicenseChecker::SetLicenseInfoOverride(std::string license_key, std::string organization_name) {
-  spdlog::warn("Using license info overrides");
+void LicenseChecker::SetLicenseInfoOverride(std::string license_key, std::string organization_name,
+                                            utils::Settings &settings) {
   license_info_override_.emplace(std::move(license_key), std::move(organization_name));
+  if (!settings.SetValue(std::string{kEnterpriseLicenseSettingKey}, license_info_override_->first)) {
+    throw utils::BasicException("Failed to update enterprise license key in SetLicenseInfoOverride");
+  }
+  if (!settings.SetValue(std::string{kOrganizationNameSettingKey}, license_info_override_->second)) {
+    throw utils::BasicException("Failed to update organization name in SetLicenseInfoOverride");
+  }
   RevalidateLicense(license_info_override_->first, license_info_override_->second);
 }
 

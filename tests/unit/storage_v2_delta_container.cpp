@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@ TEST(DeltaContainer, Empty) {
 
 TEST(DeltaContainer, Emplace) {
   auto container = delta_container{};
-  container.emplace(Delta::DeleteObjectTag{}, (std::atomic<uint64_t> *)nullptr, 0);
+  container.emplace(Delta::DeleteObjectTag{}, (CommitInfo *)nullptr, 0);
   EXPECT_FALSE(std::ranges::empty(container));
   EXPECT_EQ(container.size(), 1);
   EXPECT_EQ(std::distance(container.begin(), container.end()), 1);
@@ -34,7 +34,7 @@ TEST(DeltaContainer, Emplace) {
 
 TEST(DeltaContainer, Move) {
   auto container = delta_container{};
-  container.emplace(Delta::DeleteObjectTag{}, (std::atomic<uint64_t> *)nullptr, 0);
+  container.emplace(Delta::DeleteObjectTag{}, (CommitInfo *)nullptr, 0);
   auto container2 = std::move(container);
 
   EXPECT_TRUE(std::ranges::empty(container));

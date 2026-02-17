@@ -35,6 +35,7 @@ target_sources(mg-utils
     resource_monitoring.cpp
     safe_string.cpp
     disk_utils.cpp
+    shared_quota.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -44,6 +45,7 @@ target_sources(mg-utils
     allocator/page_slab_memory_resource.hpp
     data_queue.hpp
     exponential_backoff.hpp
+    fixed_string.hpp
     memory_layout.hpp
     small_vector.hpp
     static_vector.hpp
@@ -56,6 +58,7 @@ target_sources(mg-utils
     compile_time.hpp
     resource_monitoring.hpp
     safe_string.hpp
+    shared_quota.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

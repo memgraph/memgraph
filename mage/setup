@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 WORK_DIRECTORY = os.getcwd()
 MAGE_BUILD_DIRECTORY = f"{WORK_DIRECTORY}/dist"
-LICENCE_DIRECTORY = f"{WORK_DIRECTORY}/../licenses"
+LICENSE_DIRECTORY = f"{WORK_DIRECTORY}/../licenses"
 CPP_DIRECTORY = f"{WORK_DIRECTORY}/cpp"
 PY_DIRECTORY = f"{WORK_DIRECTORY}/python"
 RS_DIRECTORY = f"{WORK_DIRECTORY}/rust"
@@ -227,10 +227,8 @@ def build_and_copy_cpp_modules(args: Dict[str, Any]) -> bool:
 
     logger.info(f"[Terminal] (3/8) Copying built C++ modules to {MAGE_BUILD_DIRECTORY}.")
     all_so = set(glob.glob("**/*.so", recursive=True))
-    all_so -= {
-        "mgclient/src/mgclient-proj-build/src/libmgclient.so",
-        "mgclient/lib/libmgclient.so",
-    }
+    # Exclude libmgclient.so files - they are client libraries, not query modules
+    all_so = {file for file in all_so if not os.path.basename(file) == "libmgclient.so"}
 
     for file in all_so:
         shutil.copy2(file, MAGE_BUILD_DIRECTORY)
@@ -321,7 +319,7 @@ def build_and_copy_rust_modules(args: Dict[str, Any]) -> bool:
 def build(args: Dict[str, Any]) -> bool:
     shutil.rmtree(MAGE_BUILD_DIRECTORY, ignore_errors=True)
     os.makedirs(MAGE_BUILD_DIRECTORY, exist_ok=True)
-    copytree(LICENCE_DIRECTORY, MAGE_BUILD_DIRECTORY)
+    copytree(f"{LICENSE_DIRECTORY}/third-party/grappolo", f"{MAGE_BUILD_DIRECTORY}/grappolo")
 
     if Lang.CPP in args[Parameter.LANG.value]:
         cpp_status = build_and_copy_cpp_modules(args)

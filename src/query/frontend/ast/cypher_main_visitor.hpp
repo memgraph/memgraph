@@ -1343,6 +1343,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     bool has_load_csv{false};
     bool has_load_parquet{false};
     bool has_load_jsonl{false};
+    bool has_schema_assert{false};
   };
 
   const auto &GetQueryInfo() const { return query_info_; }

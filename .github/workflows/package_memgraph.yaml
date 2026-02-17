@@ -48,7 +48,7 @@ on:
       s3_dest_dir:
         type: string
         description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
-        default: ''
+        default: 'memgraph-unofficial'
       malloc:
         type: boolean
         description: "Package malloc build?"
@@ -56,6 +56,10 @@ on:
       generate_sbom:
         type: boolean
         description: "Generate SBOM"
+        default: false
+      run_smoke_tests:
+        type: boolean
+        description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
 
   workflow_call:
@@ -97,6 +101,10 @@ on:
         type: boolean
         description: "Generate SBOM"
         default: false
+      run_smoke_tests:
+        type: boolean
+        description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
 
 jobs:
   PackageSetup:
@@ -116,7 +124,7 @@ jobs:
       run_package_ubuntu_22_04: ${{ steps.setup.outputs.run_package_ubuntu_22_04 }}
       run_package_ubuntu_24_04: ${{ steps.setup.outputs.run_package_ubuntu_24_04 }}
       run_package_ubuntu_24_04_arm: ${{ steps.setup.outputs.run_package_ubuntu_24_04_arm }}
-      run_package_ubuntu_24_04_malloc: ${{ steps.setup.outputs.run_package_ubuntu-24_04_malloc }}
+      run_package_ubuntu_24_04_malloc: ${{ steps.setup.outputs.run_package_ubuntu_24_04_malloc }}
       workflow_input_build_type: ${{ steps.setup.outputs.workflow_input_build_type }}
       workflow_input_toolchain: ${{ steps.setup.outputs.workflow_input_toolchain }}
       workflow_input_push_to_s3: ${{ steps.setup.outputs.workflow_input_push_to_s3 }}
@@ -155,6 +163,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   CentOS10:
@@ -173,6 +182,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Debian12:
@@ -191,6 +201,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Debian12-arm:
@@ -209,6 +220,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Debian13:
@@ -227,6 +239,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Debian13-arm:
@@ -245,9 +258,10 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
-  Docker-v6:
+  Docker:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.run_package_docker == 'true' }}
     uses: ./.github/workflows/reusable_package.yaml
@@ -263,9 +277,10 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: ${{ inputs.run_smoke_tests == true }}
     secrets: inherit
 
-  Docker-v6-arm:
+  Docker-arm:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.run_package_docker_arm == 'true' }}
     uses: ./.github/workflows/reusable_package.yaml
@@ -281,6 +296,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: ${{ inputs.run_smoke_tests == true }}
     secrets: inherit
 
   Fedora42:
@@ -299,6 +315,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Fedora42-arm:
@@ -317,6 +334,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   RockyLinux10:
@@ -335,6 +353,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Ubuntu22_04:
@@ -353,6 +372,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Ubuntu24_04:
@@ -371,6 +391,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Ubuntu24_04-arm:
@@ -389,6 +410,7 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit
 
   Ubuntu24_04-malloc:
@@ -407,4 +429,5 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: false
     secrets: inherit

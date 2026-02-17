@@ -19,6 +19,7 @@
 #include "utils/atomic_utils.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/message.hpp"
 #include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
@@ -889,19 +890,16 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replic
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
 
-void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t const final_commit_timestamp) {
+void ReplicaStream::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t const final_commit_timestamp,
+                                Storage *storage) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder,
-              storage_->name_id_mapper_.get(),
-              storage_->config_.salient.items,
-              delta,
-              vertex,
-              final_commit_timestamp);
+  EncodeDelta(&encoder, storage, storage_->config_.salient.items, delta, vertex, final_commit_timestamp);
 }
 
-auto ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t const final_commit_timestamp) -> void {
+auto ReplicaStream::AppendDelta(const Delta &delta, Edge *edge, uint64_t const final_commit_timestamp, Storage *storage)
+    -> void {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
+  EncodeDelta(&encoder, storage, delta, edge, final_commit_timestamp);
 }
 
 void ReplicaStream::AppendTransactionStart(uint64_t const final_commit_timestamp, bool const commit,

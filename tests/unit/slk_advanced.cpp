@@ -23,6 +23,17 @@
 
 using memgraph::io::network::Endpoint;
 
+TEST(SlkAdvanced, Variant) {
+  memgraph::slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  std::variant<int32_t, std::string> original{"hello"};
+  memgraph::slk::Save(original, builder);
+  auto reader = loopback.GetReader();
+  std::variant<int32_t, std::string> decoded;
+  memgraph::slk::Load(&decoded, reader);
+  ASSERT_EQ(original, decoded);
+}
+
 TEST(SlkAdvanced, PropertyValueList) {
   const auto sample_duration = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::ExternalPropertyValue> original{

@@ -14,6 +14,8 @@
 
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "coordination/coordinator_rpc.hpp"
+
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
@@ -327,9 +329,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       }
       locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
 #ifdef MG_ENTERPRISE
-      return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
+      return StartRpcServer(dbms_handler_, repl_state_, replica_data, auth_, system_);
 #else
-      return StartRpcServer(dbms_handler_, replica_data);
+      return StartRpcServer(dbms_handler_, repl_state_, replica_data);
 #endif
     }
 
@@ -340,18 +342,19 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start
-    const auto success = std::visit(utils::Overloaded{[](RoleMainData &) {
-                                                        // ASSERT
-                                                        return false;
-                                                      },
-                                                      [this](RoleReplicaData &data) {
+    const auto success =
+        std::visit(utils::Overloaded{[](RoleMainData &) {
+                                       // ASSERT
+                                       return false;
+                                     },
+                                     [this](RoleReplicaData &data) {
 #ifdef MG_ENTERPRISE
-                                                        return StartRpcServer(dbms_handler_, data, auth_, system_);
+                                       return StartRpcServer(dbms_handler_, repl_state_, data, auth_, system_);
 #else
-                                                        return StartRpcServer(dbms_handler_, data);
+                                       return StartRpcServer(dbms_handler_, repl_state_, data);
 #endif
-                                                      }},
-                                    locked_repl_state->ReplicationData());
+                                     }},
+                   locked_repl_state->ReplicationData());
 
     // Pause TTL
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {

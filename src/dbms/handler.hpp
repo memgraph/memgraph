@@ -13,8 +13,6 @@
 
 #include <spdlog/spdlog.h>
 #include <expected>
-#include <filesystem>
-#include <memory>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
@@ -34,6 +32,24 @@ namespace memgraph::dbms {
 template <typename T>
 class Handler {
  public:
+  struct string_hash {
+    using is_transparent = void;
+
+    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+
+    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+
+    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
+  };
+
+  using container_type = std::unordered_map<std::string, utils::Gatekeeper<T>, string_hash, std::equal_to<>>;
+  using value_type = typename container_type::value_type;
+  using reference = typename container_type::reference;
+  using const_reference = typename container_type::const_reference;
+  using iterator = typename container_type::iterator;
+  using const_iterator = typename container_type::const_iterator;
+  using difference_type = typename container_type::difference_type;
+  using size_type = typename container_type::size_type;
   using NewResult = std::expected<typename utils::Gatekeeper<T>::Accessor, NewError>;
 
   /**
@@ -165,33 +181,24 @@ class Handler {
     return {};
   }
 
-  auto begin() { return items_.begin(); }
+  iterator begin() noexcept { return items_.begin(); }
 
-  auto end() { return items_.end(); }
+  iterator end() noexcept { return items_.end(); }
 
-  auto begin() const { return items_.begin(); }
+  const_iterator begin() const noexcept { return items_.begin(); }
 
-  auto end() const { return items_.end(); }
+  const_iterator end() const noexcept { return items_.end(); }
 
-  auto cbegin() const { return items_.cbegin(); }
+  const_iterator cbegin() const noexcept { return items_.cbegin(); }
 
-  auto cend() const { return items_.cend(); }
+  const_iterator cend() const noexcept { return items_.cend(); }
 
-  auto size() const { return items_.size(); }
+  [[nodiscard]] size_type size() const noexcept { return items_.size(); }
 
-  struct string_hash {
-    using is_transparent = void;
-
-    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
-
-    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
-
-    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
-  };
+  [[nodiscard]] bool empty() const noexcept { return items_.empty(); }
 
  private:
-  std::unordered_map<std::string, utils::Gatekeeper<T>, string_hash, std::equal_to<>>
-      items_;  //!< map to all active items
+  container_type items_;  //!< map to all active items
   utils::ThreadPool defer_pool_{1};
 };
 

@@ -187,3 +187,12 @@ Feature: Create
             };
             """
         Then the result should be empty
+
+    Scenario: CREATE with schema.assert property:
+        When executing query:
+            """
+            CREATE (n: Node{p:"schema.assert"}) return n;
+            """
+        Then the result should be:
+            |        n       |
+            | (:Node{p:'schema.assert'}) |

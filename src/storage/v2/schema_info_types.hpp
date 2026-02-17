@@ -137,6 +137,7 @@ struct PropertyInfo {
           case PropertyValueType::IntList:
           case PropertyValueType::DoubleList:
           case PropertyValueType::NumericList:
+          case PropertyValueType::VectorIndexId:
             ss << "List";
             break;
           case PropertyValueType::Map:
@@ -290,7 +291,5 @@ namespace memgraph::storage {
 struct SchemaInfoPostProcess {
   std::unordered_set<SchemaInfoEdge> edges;
   std::unordered_map<const Vertex *, VertexKey> vertex_cache;
-  std::unordered_map<const Edge *, std::unordered_map<PropertyId, ExtendedPropertyType>>
-      edge_cache;  // TODO Do we need this
 };
 }  // namespace memgraph::storage

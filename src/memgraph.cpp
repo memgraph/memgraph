@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -17,10 +16,10 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
-#include "auth/profiles/user_profiles.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -72,6 +71,7 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
+#include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
 
@@ -89,6 +89,13 @@ constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
 constexpr uint64_t kMgVmMaxMapCount = 262'144;
+
+void WarnDeprecatedFlags() {
+  auto warn_if_set = [](std::string_view name, std::string_view message) {
+    const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
+    if (!info.is_default) spdlog::warn("{}", message);
+  };
+}
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
@@ -209,6 +216,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  WarnDeprecatedFlags();
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
@@ -223,8 +231,7 @@ int main(int argc, char **argv) {
     memgraph::flags::AppendExperimental(env_experimental);
   }
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
-  // even if
-  // `--also-log-to-stderr` is set to false.
+  // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
@@ -354,9 +361,11 @@ int main(int argc, char **argv) {
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
 
-  memgraph::license::global_license_checker.CheckEnvLicense();
+  memgraph::license::global_license_checker.CheckEnvLicense(*settings);
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+    spdlog::warn("Using license info overrides");
+    memgraph::license::global_license_checker.SetLicenseInfoOverride(
+        FLAGS_license_key, FLAGS_organization_name, *settings);
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
@@ -453,7 +462,8 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  db_config.durability.snapshot_interval = memgraph::utils::SchedulerInterval(FLAGS_storage_snapshot_interval);
+  db_config.durability.snapshot_interval =
+      memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
   if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     if (!db_config.durability.snapshot_interval) {
       if (FLAGS_storage_wal_enabled) {
@@ -626,7 +636,16 @@ int main(int argc, char **argv) {
 
 #endif
 
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
+#ifdef MG_ENTERPRISE
+                                           ,
+                                           *auth_,
+                                           FLAGS_data_recovery_on_startup
+#endif
+  );
+
   // singleton replication state
+  // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       ReplicationStateRootPath(db_config)
 #ifdef MG_ENTERPRISE
@@ -635,14 +654,13 @@ int main(int argc, char **argv) {
 #endif
   };
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config,
-                                           repl_state
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           *auth_,
-                                           FLAGS_data_recovery_on_startup
-#endif
-  );
+  // TTL will be stopped with StopAllBackgroundTasks in DatabaseHandler
+  dbms_handler.ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+    db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+      const auto locked_repl_state = repl_state.ReadLock();
+      return locked_repl_state->IsMainWriteable();
+    });
+  });
 
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)
@@ -656,18 +674,26 @@ int main(int argc, char **argv) {
 #endif
   };
 
-#ifdef MG_ENTERPRISE
-  // MAIN or REPLICA instance
-  if (is_valid_data_instance) {
-    spdlog::trace("Starting data instance management server.");
-    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
-                                                                   replication_handler);
-    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
-    spdlog::trace("Data instance management server started.");
-  }
-#endif
-
   auto db_acc = dbms_handler.Get();
+
+  // Global worker pool!
+  // Used by sessions to schedule tasks.
+  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
+  unsigned io_n_threads = FLAGS_bolt_num_workers;
+
+  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
+    // Register each worker thread with the Python interpreter at startup.
+    // This pre-initializes Python thread states to prevent "PyGILState_Ensure: Couldn't create
+    // thread-state for new thread" errors when many threads simultaneously try to call Python
+    // procedures during parallel execution.
+    // NOTE: We should also register cleanup, but since threads exist until the end of the program,
+    //       everyhting will be cleaned up anyway at program exit.
+    auto python_thread_init = []() { memgraph::query::procedure::RegisterPyThread(); };
+    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+                         /* high priority */ 1U,
+                         python_thread_init);
+    io_n_threads = 1U;
+  }
 
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
@@ -682,7 +708,8 @@ int main(int argc, char **argv) {
 #endif
       auth_handler.get(),
       auth_checker.get(),
-      &replication_handler);
+      &replication_handler,
+      worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   MG_ASSERT(db_acc, "Failed to access the main database");
@@ -723,16 +750,21 @@ int main(int argc, char **argv) {
     spdlog::trace("Streams restored.");
   }
 
-  // Global worker pool!
-  // Used by sessions to schedule tasks.
-  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
-  unsigned io_n_threads = FLAGS_bolt_num_workers;
-
-  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
-    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
-                         /* high priority */ 1U);
-    io_n_threads = 1U;
+#ifdef MG_ENTERPRISE
+  // MAIN or REPLICA instance
+  // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
+  // This thread takes unique lock on dbms handler and waits for storage write access
+  // Thread serving requests from DataInstanceManagementServer does the demote. Takes READ_ONLY access
+  // on all DBs and tries to acquire unique lock on replication_storage_state_ in order to clear replication
+  // storage clients.
+  if (is_valid_data_instance) {
+    spdlog::trace("Starting data instance management server.");
+    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
+                                                                   replication_handler);
+    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
+    spdlog::trace("Data instance management server started.");
   }
+#endif
 
   ServerContext context;
   std::string service_name = "Bolt";
@@ -758,6 +790,7 @@ int main(int argc, char **argv) {
                                           .auth = auth_.get(),
                                           .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
+
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
 
   const auto machine_id = memgraph::utils::GetMachineId();
@@ -825,6 +858,7 @@ int main(int argc, char **argv) {
                       &server,
                       &interpreter_context_,
                       &dbms_handler,
+                      &repl_state,
                       &worker_pool_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
@@ -833,8 +867,18 @@ int main(int argc, char **argv) {
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
     server.Shutdown();
-    // Stop all triggers, streams and ttl
-    dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) { acc->StopAllBackgroundTasks(); });
+    // Don't replicate on shutdown anymore
+    {
+      auto locked_repl_state = repl_state.Lock();
+      locked_repl_state->Shutdown();
+    }
+
+    dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) {
+      // Stop all triggers, streams and ttl
+      acc->StopAllBackgroundTasks();
+      acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
+    });
+
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.

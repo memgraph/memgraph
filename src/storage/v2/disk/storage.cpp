@@ -249,7 +249,6 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
     column_families.emplace_back(kDefaultHandle, kvstore_->options_);
     column_families.emplace_back(kOutEdgesHandle, kvstore_->options_);
     column_families.emplace_back(kInEdgesHandle, kvstore_->options_);
-
     logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_,
                                                               rocksdb::TransactionDBOptions(),
                                                               config.disk.main_storage_directory,
@@ -1137,8 +1136,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
 }
 
 bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex) {
-  MG_ASSERT(transaction->commit_timestamp, "Writing vertex to disk but commit timestamp not set.");
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  MG_ASSERT(transaction->commit_info, "Writing vertex to disk but commit timestamp not set.");
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   const auto ser_vertex = utils::SerializeVertex(vertex);
   auto status = transaction->disk_transaction_->Put(
       kvstore_->vertex_chandle, ser_vertex, utils::SerializeProperties(vertex.properties));
@@ -1152,8 +1151,8 @@ bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, cons
 
 bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, std::string_view serialized_edge_key,
                                               std::string_view serialized_edge_value) {
-  MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  MG_ASSERT(transaction->commit_info, "Writing edge to disk but commit timestamp not set.");
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   rocksdb::Status status =
       transaction->disk_transaction_->Put(kvstore_->edge_chandle, serialized_edge_key, serialized_edge_value);
 
@@ -1169,7 +1168,7 @@ bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, std::str
 bool DiskStorage::WriteEdgeToConnectivityIndex(Transaction *transaction, std::string_view vertex_gid,
                                                std::string_view edge_gid, rocksdb::ColumnFamilyHandle *handle,
                                                std::string mode) {
-  MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
+  MG_ASSERT(transaction->commit_info, "Writing edge to disk but commit timestamp not set.");
   const auto put_status = std::invoke([transaction, handle, &vertex_gid, &edge_gid]() {
     rocksdb::ReadOptions ro;
     std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
@@ -1301,7 +1300,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   for (const Vertex &vertex : vertex_acc) {
     if (!VertexNeedsToBeSerialized(vertex)) {
       continue;
@@ -1348,7 +1347,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *label_properties_active_indices =
       static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_.label_properties_.get());
 
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(
           active_unique_constraints->entries_for_deletion, transaction->start_timestamp, commit_ts) ||
       !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(
@@ -1378,7 +1377,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   for (const auto &[vertex_gid, serialized_vertex_to_delete] : transaction->vertices_to_delete_) {
     if (!DeleteVertexFromDisk(transaction, vertex_gid, serialized_vertex_to_delete) ||
         !disk_unique_constraints->ClearDeletedVertex(vertex_gid, commit_ts) ||
@@ -1587,8 +1586,8 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
   auto out_edges = utils::Split(out_edges_str, ",");
   for (auto const &edge_gid_str : out_edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
     }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
@@ -1674,8 +1673,8 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   std::vector<EdgeAccessor> result;
   for (auto const &edge_gid_str : in_edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
     }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
@@ -1788,10 +1787,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
 
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
-    transaction_.EnsureCommitTimestampExists();
+    transaction_.EnsureCommitInfoExists();
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
     commit_timestamp_.emplace(disk_storage->GetCommitTimestamp());
-    transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+    transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
 
     for (const auto &md_delta : transaction_.md_deltas) {
       switch (md_delta.action) {
@@ -1930,7 +1929,7 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
   } else {
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
     commit_timestamp_.emplace(disk_storage->GetCommitTimestamp());
-    transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+    transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
       auto edges_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
@@ -2070,7 +2069,8 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
         Delta *current = vertex->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) == transaction_id) {
+        while (current != nullptr &&
+               current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_id) {
           switch (current->action) {
             case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
@@ -2294,6 +2294,17 @@ std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAcces
 
 std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropVectorIndex(
     std::string_view /*index_name*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+utils::small_vector<uint64_t> DiskStorage::DiskAccessor::GetVectorIndexIdsForVertex(Vertex * /*vertex*/,
+                                                                                    PropertyId /*property*/) {
+  return {};
+}
+
+utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(Vertex * /*vertex*/,
+                                                                               std::string_view /*index_name*/) const {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }

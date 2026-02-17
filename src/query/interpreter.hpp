@@ -106,8 +106,8 @@ struct ThreadSafeQueryAllocator {
   auto resource() -> utils::MemoryResource * { return &pool; }
 
  private:
-  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
-  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL * 1024UL;
+  static constexpr auto kPoolBlockPerChunk = 255;
   static constexpr auto kPoolMaxBlockSize = 1024UL;
 
   static auto upstream_resource() -> utils::MemoryResource * {
@@ -171,8 +171,7 @@ class CoordinatorQueryHandler {
 
   virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
 
-  virtual void UpdateConfig(std::variant<int32_t, std::string> instance,
-                            io::network::Endpoint const &bolt_endpoint) = 0;
+  virtual void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
@@ -344,7 +343,6 @@ class Interpreter final {
   struct ParseInfo {
     ParsedQuery parsed_query;
     double parsing_time;
-    bool is_schema_assert_query;
   };
 
   enum class TransactionQuery : uint8_t { BEGIN, COMMIT, ROLLBACK };

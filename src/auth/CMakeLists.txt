@@ -22,6 +22,8 @@ target_include_directories(mg-auth SYSTEM PRIVATE ${Seccomp_INCLUDE_DIRS})
 target_link_libraries(mg-auth openssl::openssl)
 
 # Install reference auth modules and their configuration files.
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/common.py
+        DESTINATION lib/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/example.py
         DESTINATION lib/memgraph/auth_module)
 install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.py
