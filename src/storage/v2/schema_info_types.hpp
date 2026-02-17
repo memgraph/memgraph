@@ -321,7 +321,7 @@ template <>
 class hash<memgraph::storage::SchemaInfoEdge> {
  public:
   size_t operator()(const memgraph::storage::SchemaInfoEdge &pp) const {
-    return pp.edge_ref.gid.AsUint();  // Both ptr and gid are the same size and unique
+    return pp.edge_ref.GetGid().AsUint();  // Unique by gid
   }
 };
 

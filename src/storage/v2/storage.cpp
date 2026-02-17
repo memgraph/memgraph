@@ -401,7 +401,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
   if (FLAGS_storage_properties_on_edges) {
     for (auto *edge : edges) {
-      storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
+      storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.GetEdgePtr(), edge->edge_type_, transaction_);
     }
   }
 
@@ -451,7 +451,7 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
     const auto &[edge_type, opposing_vertex, edge] = item;
     if (!vertices.contains(opposing_vertex)) {
       partial_delete_vertices.insert(opposing_vertex);
-      auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge.ptr->gid : edge.gid;
+      auto const edge_gid = edge.GetGid();
       edge_ids.insert(edge_gid);
     }
   };
@@ -517,8 +517,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 
       /// TODO: (andi) Again here, no need to lock the edge if using on disk storage.
       std::unique_lock<utils::RWSpinLock> guard;
-      if (storage_->config_.salient.items.properties_on_edges) {
-        auto edge_ptr = edge_ref.ptr;
+      if (storage_->config_.salient.items.properties_on_edges && edge_ref.HasPointer()) {
+        auto edge_ptr = edge_ref.GetEdgePtr();
         guard = std::unique_lock{edge_ptr->lock};
 
         if (!PrepareForWrite(&transaction_, edge_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
@@ -539,28 +539,48 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
                                 opposing_vertex = opposing_vertex,
                                 edge_ref = edge_ref,
                                 &schema_acc,
+                                &guard,
                                 this]() {
-        attached_edges_to_vertex->pop_back();
-        if (this->storage_->config_.salient.items.properties_on_edges) {
-          auto *edge_ptr = edge_ref.ptr;
-          MarkEdgeAsDeleted(edge_ptr);
+        auto const edge_gid = edge_ref.GetGid();
+        EdgeRef ref_for_delta = edge_ref;
+        if (this->storage_->config_.salient.items.storage_light_edge && edge_ref.HasPointer()) {
+          // Move to deleted_light_edges only on out_edge (once per edge); delta uses Gid only.
+          bool const we_move_to_deleted = reverse_vertex_order;  // true when clearing out_edges
+          if (we_move_to_deleted) {
+            auto &opposing_list = opposing_vertex->in_edges;
+            {
+              std::unique_lock opposing_lock{opposing_vertex->lock};
+              for (auto &t : opposing_list) {
+                if (std::get<2>(t).GetGid() == edge_gid) {
+                  std::get<2>(t) = EdgeRef(edge_gid);
+                  break;
+                }
+              }
+            }
+            auto *edge_ptr = edge_ref.GetEdgePtr();
+            if (this->storage_->config_.salient.items.properties_on_edges) {
+              MarkEdgeAsDeleted(edge_ptr);
+            }
+            guard.unlock();  // release before MoveLightEdgeToDeleted moves edge into skiplist
+            this->storage_->MoveLightEdgeToDeleted(
+                edge_ptr, this->transaction_.transaction_id, &this->pending_deleted_light_edges_);
+          }
+          ref_for_delta = EdgeRef(edge_gid);  // delta never holds the pointer
+        } else if (this->storage_->config_.salient.items.properties_on_edges && edge_ref.HasPointer()) {
+          MarkEdgeAsDeleted(edge_ref.GetEdgePtr());
         }
-
-        auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+        attached_edges_to_vertex->pop_back();
         auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
         bool const edge_cleared_from_both_directions = !was_inserted;
         auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
         if (edge_cleared_from_both_directions) {
-          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+          deleted_edges.emplace_back(ref_for_delta, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
         }
-        CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+        CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, ref_for_delta);
         if (schema_acc && edge_cleared_from_both_directions) {
-          // All 3 objects have been modified, no need to lock while in TRANSACTIONAL
-          // ANALYTICAL is protected with the accessor. Multi-threaded deletion in UB; Labels and edge properties are
-          // unique acc.
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
+                                         acc.DeleteEdge(from_vertex, to_vertex, edge_type, ref_for_delta);
                                        },
                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
@@ -608,9 +628,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     auto mid = std::partition(
         edges_attached_to_vertex->begin(), edges_attached_to_vertex->end(), [this, &set_for_erasure](auto &edge) {
           auto const &[edge_type, opposing_vertex, edge_ref] = edge;
-          auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+          auto const edge_gid = edge_ref.GetGid();
           return !set_for_erasure.contains(edge_gid);
         });
+
+    // Light edges: move to deleted_light_edges skiplist only when clearing out_edges (once per edge).
+    // The other vertex's list is updated to EdgeRef(gid) so deltas never hold the pointer.
 
     // Process edges one-by-one to ensure MVCC checks happen with locks held.
     // Deltas are created per edge, but erasing edges from the vector happens at
@@ -620,37 +643,54 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
       auto const &[edge_type, opposing_vertex, edge_ref] = *it;
 
       std::unique_lock<utils::RWSpinLock> guard;
-      if (storage_->config_.salient.items.properties_on_edges) {
-        auto edge_ptr = edge_ref.ptr;
+      if (storage_->config_.salient.items.properties_on_edges && edge_ref.HasPointer()) {
+        auto edge_ptr = edge_ref.GetEdgePtr();
         guard = std::unique_lock{edge_ptr->lock};
         if (!PrepareForWrite(&transaction_, edge_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
       }
 
       utils::AtomicMemoryBlock([&, edge_type = edge_type, opposing_vertex = opposing_vertex, edge_ref = edge_ref]() {
-        if (storage_->config_.salient.items.properties_on_edges) {
-          auto edge_ptr = edge_ref.ptr;
-          // this can happen only if we marked edges for deletion with no nodes,
-          // so the method detaching nodes will not do anything
-          MarkEdgeAsDeleted(edge_ptr);
+        auto const edge_gid = edge_ref.GetGid();
+        EdgeRef ref_for_delta = edge_ref;
+        if (storage_->config_.salient.items.storage_light_edge && edge_ref.HasPointer()) {
+          // Move to deleted_light_edges only on out_edge (once per edge); delta uses Gid only.
+          bool const we_move_to_deleted = !reverse_vertex_order;  // we're clearing out_edges
+          if (we_move_to_deleted) {
+            auto &opposing_list = opposing_vertex->in_edges;  // other side of the edge
+            {
+              std::unique_lock opposing_lock{opposing_vertex->lock};
+              for (auto &t : opposing_list) {
+                if (std::get<2>(t).GetGid() == edge_gid) {
+                  std::get<2>(t) = EdgeRef(edge_gid);
+                  break;
+                }
+              }
+            }
+            auto edge_ptr = edge_ref.GetEdgePtr();
+            if (storage_->config_.salient.items.properties_on_edges) {
+              MarkEdgeAsDeleted(edge_ptr);
+            }
+            guard.unlock();  // release before MoveLightEdgeToDeleted moves edge into skiplist
+            storage_->MoveLightEdgeToDeleted(edge_ptr, transaction_.transaction_id, &pending_deleted_light_edges_);
+          }
+          ref_for_delta = EdgeRef(edge_gid);  // delta never holds the pointer
+        } else if (storage_->config_.salient.items.properties_on_edges && edge_ref.HasPointer()) {
+          MarkEdgeAsDeleted(edge_ref.GetEdgePtr());
         }
 
-        CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+        CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, ref_for_delta);
 
-        auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
         auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
         bool const edge_cleared_from_both_directions = !was_inserted;
         auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
         auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         if (edge_cleared_from_both_directions) {
-          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+          deleted_edges.emplace_back(ref_for_delta, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
         }
 
-        // This will get called from both ends; execute only if possible to lock
         if (schema_acc && edge_cleared_from_both_directions) {
-          // All 3 objects have been modified, no need to lock while in TRANSACTIONAL
-          // Analytical is protected with the accessor. Multi-threaded deletion in UB.
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
+                                         acc.DeleteEdge(from_vertex, to_vertex, edge_type, ref_for_delta);
                                        },
                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
@@ -723,6 +763,10 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
   }
 }
 
+void Storage::Accessor::FlushPendingDeletedLightEdges() { pending_deleted_light_edges_.clear(); }
+
+void Storage::Accessor::ClearPendingDeletedLightEdges() { pending_deleted_light_edges_.clear(); }
+
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextIndex(
     const TextIndexSpec &text_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
@@ -747,6 +791,10 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
     const TextEdgeIndexSpec &text_edge_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
 
+  if (storage_->config_.salient.items.storage_light_edge) {
+    return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionConfigError{}}};
+  }
+
   // Check for name conflicts with existing text node indexes
   if (storage_->indices_.text_index_.IndexExists(text_edge_index_info.index_name)) {
     return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionError{}}};
@@ -767,6 +815,10 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::DropTextIndex(
     const std::string &index_name) {
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
+  if (storage_->config_.salient.items.storage_light_edge &&
+      storage_->indices_.text_edge_index_.IndexExists(index_name)) {
+    return std::unexpected{storage::StorageIndexDefinitionError{IndexDefinitionConfigError{}}};
+  }
   if (storage_->indices_.text_index_.IndexExists(index_name)) {
     storage_->indices_.text_index_.DropIndex(index_name);
   } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {

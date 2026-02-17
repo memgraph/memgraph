@@ -74,6 +74,10 @@ DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_light_edge, false,
+            "When true (and properties on edges enabled), edges live only in vertex lists without the edge skiplist.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_wal_enabled, false,
             "Controls whether the storage uses write-ahead-logging. To enable "
             "WAL periodic snapshots must be enabled.");

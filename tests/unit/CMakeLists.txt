@@ -659,6 +659,11 @@ add_unit_test(storage_v2_delta_correctness
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_light_edges
+    SOURCES storage_v2_light_edges_test.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
     LINK_TARGETS mg::storage mg-utils

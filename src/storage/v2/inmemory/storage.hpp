@@ -16,6 +16,7 @@
 #include <utility>
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -37,6 +38,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 import memgraph.utils.aws;
@@ -91,6 +93,22 @@ struct IndexPerformanceTracker {
  private:
   bool impacts_vertex_indexes_ = false;
   bool impacts_edge_indexes_ = false;
+};
+
+/// Wrapper for light edges on delete: owns the Edge (moved from vertex list); when the wrapper is
+/// removed from the skiplist (e.g. by GC in FreeMemory), the Edge is destroyed. Each transaction
+/// pins the skiplist via a pinned accessor so entries are not freed while in use.
+struct DeletedLightEdge {
+  Edge edge;
+  uint64_t safe_to_free_ts;
+
+  friend bool operator==(const DeletedLightEdge &a, const DeletedLightEdge &b) noexcept {
+    return a.edge.Gid() == b.edge.Gid();
+  }
+
+  friend bool operator<(const DeletedLightEdge &a, const DeletedLightEdge &b) noexcept {
+    return a.edge.Gid() < b.edge.Gid();
+  }
 };
 
 // The storage is based on this paper:
@@ -164,12 +182,14 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
+    using DeletedLightEdgesAcc = std::optional<utils::SkipList<DeletedLightEdge>::Accessor>;
     explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                               StorageMode storage_mode, StorageAccessType rw_type,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
+                              DeletedLightEdgesAcc deleted_light_edges_acc = std::nullopt);
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode,
-                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+                              StorageMode storage_mode, std::optional<std::chrono::milliseconds> timeout = std::nullopt,
+                              DeletedLightEdgesAcc deleted_light_edges_acc = std::nullopt);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
@@ -431,6 +451,8 @@ class InMemoryStorage final : public Storage {
     void Abort() override;
 
     void FinalizeTransaction() override;
+
+    void FlushPendingDeletedLightEdges() override;
 
     // Bring base class convenience overloads into scope (they provide default neverCancel)
     using Storage::Accessor::CreateGlobalEdgeIndex;
@@ -714,6 +736,7 @@ class InMemoryStorage final : public Storage {
 
     uint64_t commit_flag_wal_position_{0};
     bool needs_wal_update_{false};
+    std::optional<utils::SkipList<DeletedLightEdge>::Accessor> deleted_light_edges_acc_;
   };
 
   using Storage::Access;
@@ -727,6 +750,9 @@ class InMemoryStorage final : public Storage {
                                            std::optional<std::chrono::milliseconds> timeout) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
+
+  void MoveLightEdgeToDeleted(Edge *edge_ptr, uint64_t safe_to_free_ts,
+                              std::vector<std::pair<Edge *, uint64_t>> *pending_delete = nullptr) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -862,6 +888,10 @@ class InMemoryStorage final : public Storage {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+
+  // Light edges moved here on delete; drained in CollectGarbage when safe_to_free_ts < oldest_active_start_timestamp.
+  // Each accessor pins this skiplist so deleted edges stay safe until no transaction can see them.
+  utils::SkipList<DeletedLightEdge> deleted_light_edges_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;

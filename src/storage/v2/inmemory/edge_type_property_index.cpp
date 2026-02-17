@@ -36,12 +36,13 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 
   for (auto const &[type, to_vertex, edge_ref] : from_vertex.out_edges) {
     if (type != edge_type || to_vertex->deleted()) continue;
-    auto property_value = edge_ref.ptr->properties.GetProperty(property);
+    if (!edge_ref.HasPointer()) continue;
+    auto property_value = edge_ref.GetEdgePtr()->properties.GetProperty(property);
     if (property_value.IsNull()) {
       continue;
     }
 
-    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, 0});
+    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.GetEdgePtr(), 0});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -87,13 +88,14 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
   }
 
   for (auto const &[type, to_vertex, edge_ref] : edges) {
+    if (!edge_ref.HasPointer()) continue;
     PropertyValue property_value;
     {
-      auto guard = std::shared_lock{edge_ref.ptr->lock};
+      auto guard = std::shared_lock{edge_ref.GetEdgePtr()->lock};
       exists = true;
       deleted = false;
-      delta = edge_ref.ptr->delta();
-      property_value = edge_ref.ptr->properties.GetProperty(property);
+      delta = edge_ref.GetEdgePtr()->delta();
+      property_value = edge_ref.GetEdgePtr()->properties.GetProperty(property);
     }
 
     if (delta) {
@@ -113,7 +115,8 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       continue;
     }
 
-    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    index_accessor.insert(
+        {std::move(property_value), &from_vertex, to_vertex, edge_ref.GetEdgePtr(), tx.start_timestamp});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -126,7 +129,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                         Transaction *transaction, EdgeTypeId edge_type) {
   for (; index_iterator != end; ++index_iterator) {
-    if (index_iterator->edge == current_edge.ptr) {
+    if (index_iterator->edge == current_edge.GetEdgePtr()) {
       continue;
     }
 

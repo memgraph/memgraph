@@ -308,10 +308,10 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     const auto to_state = GetState(to->delta(), start_ts, commit_ts, true);
 
     State edge_state{NO_CHANGE};
-    std::shared_lock<decltype(edge_ref.ptr->lock)> edge_lock;
+    std::shared_lock<decltype(edge_ref.GetEdgePtr()->lock)> edge_lock;
     if (property_on_edges) {
-      edge_lock = std::shared_lock{edge_ref.ptr->lock};
-      edge_state = GetState(edge_ref.ptr->delta(), start_ts, commit_ts, true);
+      edge_lock = std::shared_lock{edge_ref.GetEdgePtr()->lock};
+      edge_state = GetState(edge_ref.GetEdgePtr()->delta(), start_ts, commit_ts, true);
     }
 
     // Check if we need to process this edge
@@ -324,7 +324,7 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     PropertiesDiff edge_prop_diff;
     if (property_on_edges) {
-      edge_prop_diff = GetPropertiesDiff(edge_ref.ptr, edge_state, start_ts);
+      edge_prop_diff = GetPropertiesDiff(edge_ref.GetEdgePtr(), edge_state, start_ts);
     }
 
     // TODO Possible optimization: check if labels or props changed and skip some lookups/updates
@@ -521,7 +521,7 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small
     ++new_tracking.n;
     if (prop_on_edges) {
       // No need for edge lock since all edge property operations are unique access
-      for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+      for (const auto &[property, type] : edge_ref.GetEdgePtr()->properties.ExtendedPropertyTypes()) {
         auto &old_info = old_tracking.properties[property];
         --old_info.n;
         --old_info.types[type];
@@ -556,7 +556,7 @@ void SchemaTracking<TContainer>::DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, 
   auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from_key, to_key});
   --tracking_info.n;
   if (prop_on_edges) {
-    for (const auto &[key, type] : edge.ptr->properties.ExtendedPropertyTypes()) {
+    for (const auto &[key, type] : edge.GetEdgePtr()->properties.ExtendedPropertyTypes()) {
       auto &prop_info = tracking_info.properties[key];
       --prop_info.n;
       --prop_info.types[type];
@@ -648,7 +648,7 @@ void SchemaTracking<TContainer>::UpdateEdgeStats(auto &new_tracking, auto &old_t
 
   if (prop_on_edges) {
     // No need for edge lock since all edge property operations are unique access
-    for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+    for (const auto &[property, type] : edge_ref.GetEdgePtr()->properties.ExtendedPropertyTypes()) {
       auto &old_info = old_tracking.properties[property];
       --old_info.n;
       --old_info.types[type];
@@ -711,7 +711,7 @@ void SchemaTracking<TContainer>::RecoverEdge(EdgeTypeId edge_type, EdgeRef edge,
   auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from_key, to_key});
   ++tracking_info.n;
   if (prop_on_edges) {
-    for (const auto &[key, val] : edge.ptr->properties.ExtendedPropertyTypes()) {
+    for (const auto &[key, val] : edge.GetEdgePtr()->properties.ExtendedPropertyTypes()) {
       auto &prop_post_info = tracking_info.properties[key];
       ++prop_post_info.n;
       ++prop_post_info.types[val];
@@ -769,12 +769,12 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     // Edge lists cannot change here because AddLabel/RemoveLabel holds the vertex lock,
     // preventing concurrent CreateEdge/DeleteEdge operations
     auto vlocks = SchemaInfo::ReadLockFromTo(from_vertex, to_vertex);
-    auto edge_lock =
-        properties_on_edges_ ? std::shared_lock{edge_ref.ptr->lock} : std::shared_lock<decltype(edge_ref.ptr->lock)>{};
+    auto edge_lock = properties_on_edges_ ? std::shared_lock{edge_ref.GetEdgePtr()->lock}
+                                          : std::shared_lock<decltype(edge_ref.GetEdgePtr()->lock)>{};
 
     auto other_labels = GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache);
     Properties edge_props{};
-    if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, start_ts_, commit_ts_);
+    if (properties_on_edges_) edge_props = GetProperties(edge_ref.GetEdgePtr(), start_ts_, commit_ts_);
 
     auto vertex_labels_key = ToVertexKey(vertex->labels);
     tracking_->UpdateEdgeStats(edge_ref,
@@ -924,7 +924,7 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
                                                       PropertyId property, ExtendedPropertyType now,
                                                       ExtendedPropertyType before) {
   DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
-  DMG_ASSERT(edge.ptr->lock.is_locked(), "Trying to read from an unlocked edge; LINE {}", __LINE__);
+  DMG_ASSERT(edge.GetEdgePtr()->lock.is_locked(), "Trying to read from an unlocked edge; LINE {}", __LINE__);
   DMG_ASSERT(from->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   if (now == before) return;  // Nothing to do

@@ -1926,114 +1926,117 @@ TypedValue Roles(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(std::move(roles_list));
 }
 
-auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
-    // Predicate functions
-    {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
+auto const &BuiltinFunctions() {
+  static auto const instance = absl::flat_hash_map<std::string, func_info>{
+      // Predicate functions
+      {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
 
-    // Scalar functions
-    {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},
-    {"INDEGREE", func_info{.func_ = InDegree, .is_pure_ = true}},
-    {"OUTDEGREE", func_info{.func_ = OutDegree, .is_pure_ = true}},
-    {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
-    {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
-    {kId, func_info{.func_ = Id, .is_pure_ = true}},
-    {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
-    {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
-    {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
-    {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},
-    {"LENGTH", func_info{.func_ = Size, .is_pure_ = true}},
-    {"PROPERTYSIZE", func_info{.func_ = PropertySize, .is_pure_ = true}},
-    {"STARTNODE", func_info{.func_ = StartNode, .is_pure_ = true}},
-    {"TIMESTAMP", func_info{.func_ = Timestamp, .is_pure_ = false}},
-    {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
-    {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
-    {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
-    {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
-    {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
-    {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
-    {"TYPE", func_info{.func_ = Type, .is_pure_ = true}},
-    {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
+      // Scalar functions
+      {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},
+      {"INDEGREE", func_info{.func_ = InDegree, .is_pure_ = true}},
+      {"OUTDEGREE", func_info{.func_ = OutDegree, .is_pure_ = true}},
+      {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
+      {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
+      {kId, func_info{.func_ = Id, .is_pure_ = true}},
+      {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
+      {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
+      {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
+      {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},
+      {"LENGTH", func_info{.func_ = Size, .is_pure_ = true}},
+      {"PROPERTYSIZE", func_info{.func_ = PropertySize, .is_pure_ = true}},
+      {"STARTNODE", func_info{.func_ = StartNode, .is_pure_ = true}},
+      {"TIMESTAMP", func_info{.func_ = Timestamp, .is_pure_ = false}},
+      {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
+      {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
+      {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
+      {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
+      {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
+      {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
+      {"TYPE", func_info{.func_ = Type, .is_pure_ = true}},
+      {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 
-    // List, map functions
-    {"KEYS", func_info{.func_ = Keys, .is_pure_ = true}},
-    {"LABELS", func_info{.func_ = Labels, .is_pure_ = true}},
-    {"NODES", func_info{.func_ = Nodes, .is_pure_ = true}},
-    {"RANGE", func_info{.func_ = Range, .is_pure_ = true}},
-    {"RELATIONSHIPS", func_info{.func_ = Relationships, .is_pure_ = true}},
-    {"TAIL", func_info{.func_ = Tail, .is_pure_ = true}},
-    {"TOSET", func_info{.func_ = ToSet, .is_pure_ = true}},
-    {"UNIFORMSAMPLE", func_info{.func_ = UniformSample, .is_pure_ = false}},
-    {"VALUES", func_info{.func_ = Values, .is_pure_ = true}},
+      // List, map functions
+      {"KEYS", func_info{.func_ = Keys, .is_pure_ = true}},
+      {"LABELS", func_info{.func_ = Labels, .is_pure_ = true}},
+      {"NODES", func_info{.func_ = Nodes, .is_pure_ = true}},
+      {"RANGE", func_info{.func_ = Range, .is_pure_ = true}},
+      {"RELATIONSHIPS", func_info{.func_ = Relationships, .is_pure_ = true}},
+      {"TAIL", func_info{.func_ = Tail, .is_pure_ = true}},
+      {"TOSET", func_info{.func_ = ToSet, .is_pure_ = true}},
+      {"UNIFORMSAMPLE", func_info{.func_ = UniformSample, .is_pure_ = false}},
+      {"VALUES", func_info{.func_ = Values, .is_pure_ = true}},
 
-    // Mathematical functions - numeric
-    {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},
-    {"CEIL", func_info{.func_ = Ceil, .is_pure_ = true}},
-    {"FLOOR", func_info{.func_ = Floor, .is_pure_ = true}},
-    {"RAND", func_info{.func_ = Rand, .is_pure_ = false}},
-    {"ROUND", func_info{.func_ = Round, .is_pure_ = true}},
-    {"SIGN", func_info{.func_ = Sign, .is_pure_ = true}},
+      // Mathematical functions - numeric
+      {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},
+      {"CEIL", func_info{.func_ = Ceil, .is_pure_ = true}},
+      {"FLOOR", func_info{.func_ = Floor, .is_pure_ = true}},
+      {"RAND", func_info{.func_ = Rand, .is_pure_ = false}},
+      {"ROUND", func_info{.func_ = Round, .is_pure_ = true}},
+      {"SIGN", func_info{.func_ = Sign, .is_pure_ = true}},
 
-    // Mathematical functions - logarithmic
-    {"E", func_info{.func_ = E, .is_pure_ = true}},
-    {"EXP", func_info{.func_ = Exp, .is_pure_ = true}},
-    {"LOG", func_info{.func_ = Log, .is_pure_ = true}},
-    {"LOG10", func_info{.func_ = Log10, .is_pure_ = true}},
-    {"SQRT", func_info{.func_ = Sqrt, .is_pure_ = true}},
+      // Mathematical functions - logarithmic
+      {"E", func_info{.func_ = E, .is_pure_ = true}},
+      {"EXP", func_info{.func_ = Exp, .is_pure_ = true}},
+      {"LOG", func_info{.func_ = Log, .is_pure_ = true}},
+      {"LOG10", func_info{.func_ = Log10, .is_pure_ = true}},
+      {"SQRT", func_info{.func_ = Sqrt, .is_pure_ = true}},
 
-    // Mathematical functions - trigonometric
-    {"ACOS", func_info{.func_ = Acos, .is_pure_ = true}},
-    {"ASIN", func_info{.func_ = Asin, .is_pure_ = true}},
-    {"ATAN", func_info{.func_ = Atan, .is_pure_ = true}},
-    {"ATAN2", func_info{.func_ = Atan2, .is_pure_ = true}},
-    {"COS", func_info{.func_ = Cos, .is_pure_ = true}},
-    {"PI", func_info{.func_ = Pi, .is_pure_ = true}},
-    {"SIN", func_info{.func_ = Sin, .is_pure_ = true}},
-    {"TAN", func_info{.func_ = Tan, .is_pure_ = true}},
+      // Mathematical functions - trigonometric
+      {"ACOS", func_info{.func_ = Acos, .is_pure_ = true}},
+      {"ASIN", func_info{.func_ = Asin, .is_pure_ = true}},
+      {"ATAN", func_info{.func_ = Atan, .is_pure_ = true}},
+      {"ATAN2", func_info{.func_ = Atan2, .is_pure_ = true}},
+      {"COS", func_info{.func_ = Cos, .is_pure_ = true}},
+      {"PI", func_info{.func_ = Pi, .is_pure_ = true}},
+      {"SIN", func_info{.func_ = Sin, .is_pure_ = true}},
+      {"TAN", func_info{.func_ = Tan, .is_pure_ = true}},
 
-    // String functions
-    {kContains, func_info{.func_ = Contains, .is_pure_ = true}},
-    {kEndsWith, func_info{.func_ = EndsWith, .is_pure_ = true}},
-    {"LEFT", func_info{.func_ = Left, .is_pure_ = true}},
-    {"LTRIM", func_info{.func_ = LTrim, .is_pure_ = true}},
-    {"REPLACE", func_info{.func_ = Replace, .is_pure_ = true}},
-    {"REVERSE", func_info{.func_ = Reverse, .is_pure_ = true}},
-    {"RIGHT", func_info{.func_ = Right, .is_pure_ = true}},
-    {"RTRIM", func_info{.func_ = RTrim, .is_pure_ = true}},
-    {"SPLIT", func_info{.func_ = Split, .is_pure_ = true}},
-    {kStartsWith, func_info{.func_ = StartsWith, .is_pure_ = true}},
-    {"SUBSTRING", func_info{.func_ = Substring, .is_pure_ = true}},
-    {"TOLOWER", func_info{.func_ = ToLower, .is_pure_ = true}},
-    {"TOSTRING", func_info{.func_ = ToString, .is_pure_ = true}},
-    {"TOSTRINGORNULL", func_info{.func_ = ToStringOrNull, .is_pure_ = true}},
-    {"TOUPPER", func_info{.func_ = ToUpper, .is_pure_ = true}},
-    {"TRIM", func_info{.func_ = Trim, .is_pure_ = true}},
+      // String functions
+      {kContains, func_info{.func_ = Contains, .is_pure_ = true}},
+      {kEndsWith, func_info{.func_ = EndsWith, .is_pure_ = true}},
+      {"LEFT", func_info{.func_ = Left, .is_pure_ = true}},
+      {"LTRIM", func_info{.func_ = LTrim, .is_pure_ = true}},
+      {"REPLACE", func_info{.func_ = Replace, .is_pure_ = true}},
+      {"REVERSE", func_info{.func_ = Reverse, .is_pure_ = true}},
+      {"RIGHT", func_info{.func_ = Right, .is_pure_ = true}},
+      {"RTRIM", func_info{.func_ = RTrim, .is_pure_ = true}},
+      {"SPLIT", func_info{.func_ = Split, .is_pure_ = true}},
+      {kStartsWith, func_info{.func_ = StartsWith, .is_pure_ = true}},
+      {"SUBSTRING", func_info{.func_ = Substring, .is_pure_ = true}},
+      {"TOLOWER", func_info{.func_ = ToLower, .is_pure_ = true}},
+      {"TOSTRING", func_info{.func_ = ToString, .is_pure_ = true}},
+      {"TOSTRINGORNULL", func_info{.func_ = ToStringOrNull, .is_pure_ = true}},
+      {"TOUPPER", func_info{.func_ = ToUpper, .is_pure_ = true}},
+      {"TRIM", func_info{.func_ = Trim, .is_pure_ = true}},
 
-    // Memgraph specific functions
-    {"ASSERT", func_info{.func_ = Assert, .is_pure_ = false}},
-    {"COUNTER", func_info{.func_ = Counter, .is_pure_ = false}},
-    {"TOBYTESTRING", func_info{.func_ = ToByteString, .is_pure_ = true}},
-    {"FROMBYTESTRING", func_info{.func_ = FromByteString, .is_pure_ = true}},
-    {"DATE", func_info{.func_ = Date, .is_pure_ = false}},
-    {"LOCALTIME", func_info{.func_ = LocalTime, .is_pure_ = false}},
-    {"LOCALDATETIME", func_info{.func_ = LocalDateTime, .is_pure_ = false}},
-    {"DATETIME", func_info{.func_ = DateTime, .is_pure_ = false}},
-    {"DURATION", func_info{.func_ = Duration, .is_pure_ = true}},
+      // Memgraph specific functions
+      {"ASSERT", func_info{.func_ = Assert, .is_pure_ = false}},
+      {"COUNTER", func_info{.func_ = Counter, .is_pure_ = false}},
+      {"TOBYTESTRING", func_info{.func_ = ToByteString, .is_pure_ = true}},
+      {"FROMBYTESTRING", func_info{.func_ = FromByteString, .is_pure_ = true}},
+      {"DATE", func_info{.func_ = Date, .is_pure_ = false}},
+      {"LOCALTIME", func_info{.func_ = LocalTime, .is_pure_ = false}},
+      {"LOCALDATETIME", func_info{.func_ = LocalDateTime, .is_pure_ = false}},
+      {"DATETIME", func_info{.func_ = DateTime, .is_pure_ = false}},
+      {"DURATION", func_info{.func_ = Duration, .is_pure_ = true}},
 
-    // Functions for enum types
-    {"TOENUM", func_info{.func_ = ToEnum, .is_pure_ = true}},
+      // Functions for enum types
+      {"TOENUM", func_info{.func_ = ToEnum, .is_pure_ = true}},
 
-    // Functions for point types
-    {"POINT", func_info{.func_ = Point, .is_pure_ = true}},
-    {"POINT.DISTANCE", func_info{.func_ = Distance, .is_pure_ = true}},
-    {"POINT.WITHINBBOX", func_info{.func_ = WithinBBox, .is_pure_ = true}},
+      // Functions for point types
+      {"POINT", func_info{.func_ = Point, .is_pure_ = true}},
+      {"POINT.DISTANCE", func_info{.func_ = Distance, .is_pure_ = true}},
+      {"POINT.WITHINBBOX", func_info{.func_ = WithinBBox, .is_pure_ = true}},
 
-    // Functions for internal objects
-    {"GETHOPSCOUNTER", func_info{.func_ = GetHopsCounter, .is_pure_ = false}},
+      // Functions for internal objects
+      {"GETHOPSCOUNTER", func_info{.func_ = GetHopsCounter, .is_pure_ = false}},
 
-    // User and role functions
-    {"USERNAME", func_info{.func_ = Username, .is_pure_ = false}},
-    {"ROLES", func_info{.func_ = Roles, .is_pure_ = false}},
-};
+      // User and role functions
+      {"USERNAME", func_info{.func_ = Username, .is_pure_ = false}},
+      {"ROLES", func_info{.func_ = Roles, .is_pure_ = false}},
+  };
+  return instance;
+}
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
@@ -2075,8 +2078,8 @@ auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const
 auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func> {
   // First lookup for built-in functions
   auto upper_case = utils::ToUpperCase(function_name);
-  auto buildin_it = std::as_const(builtin_functions).find(upper_case);
-  if (buildin_it != builtin_functions.cend()) {
+  auto buildin_it = std::as_const(BuiltinFunctions()).find(upper_case);
+  if (buildin_it != BuiltinFunctions().cend()) {
     return buildin_it->second.func_;
   }
 
@@ -2095,9 +2098,9 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
 bool IsFunctionPure(std::string_view function_name) {
   // Lookup in builtin functions
   auto upper_case = utils::ToUpperCase(function_name);
-  auto buildin_it = std::as_const(builtin_functions).find(upper_case);
+  auto buildin_it = std::as_const(BuiltinFunctions()).find(upper_case);
 
-  if (buildin_it != builtin_functions.cend()) {
+  if (buildin_it != BuiltinFunctions().cend()) {
     // Found a builtin function, return its purity status
     return buildin_it->second.is_pure_;
   }

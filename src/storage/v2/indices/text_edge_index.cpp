@@ -154,8 +154,9 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
     for (const auto &vertex : vertices) {
       for (const auto &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
         if (edge_type != index_info.edge_type) continue;
+        if (!edge_ref.HasPointer()) continue;
 
-        auto *edge = edge_ref.ptr;
+        auto *edge = edge_ref.GetEdgePtr();
         auto edge_properties = edge->properties.ExtractPropertyIds();
         properties_to_index.clear();
         if (index_info.properties.empty()) {
@@ -168,7 +169,7 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info, utils::Ski
         if (properties_to_index.empty()) continue;
 
         auto properties_to_index_map = ExtractProperties(edge->properties, properties_to_index);
-        TextEdgeIndex::AddEdgeToTextIndex(edge->gid.AsInt(),
+        TextEdgeIndex::AddEdgeToTextIndex(edge->Gid().AsInt(),
                                           vertex.gid.AsInt(),
                                           to_vertex->gid.AsInt(),
                                           SerializeProperties(properties_to_index_map, name_id_mapper),
@@ -301,20 +302,21 @@ std::optional<uint64_t> TextEdgeIndex::ApproximateEdgesTextCount(std::string_vie
 }
 
 void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
+  if (tx.text_edge_index_change_collector_.empty()) return;
   for (const auto &[index_data_ptr, pending] : tx.text_edge_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
     const std::lock_guard lock(index_data_ptr->write_mutex);
     try {
       for (const auto *edge : pending.to_remove) {
         auto search_edge_to_be_deleted =
-            mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.edge_gid:{}", edge->gid.AsInt())};
+            mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.edge_gid:{}", edge->Gid().AsInt())};
         mgcxx::text_search::delete_document(index_data_ptr->context, search_edge_to_be_deleted, kDoSkipCommit);
       }
       for (const auto &edge_with_vertices : pending.to_add) {
         auto edge_properties = index_data_ptr->properties.empty()
                                    ? edge_with_vertices.edge->properties.Properties()
                                    : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
-        TextEdgeIndex::AddEdgeToTextIndex(edge_with_vertices.edge->gid.AsInt(),
+        TextEdgeIndex::AddEdgeToTextIndex(edge_with_vertices.edge->Gid().AsInt(),
                                           edge_with_vertices.from_vertex->gid.AsInt(),
                                           edge_with_vertices.to_vertex->gid.AsInt(),
                                           SerializeProperties(edge_properties, name_id_mapper),

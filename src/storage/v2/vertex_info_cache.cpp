@@ -76,12 +76,13 @@ void VertexInfoCache::StoreDeleted(View view, Vertex const *vertex, bool res) {
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex) {
-  new_.existsCache_.erase(vertex);
-  new_.deletedCache_.erase(vertex);
-  new_.labelCache_.erase(vertex);
-  new_.propertiesCache_.erase(vertex);
-  new_.inDegreeCache_.erase(vertex);
-  new_.outDegreeCache_.erase(vertex);
+  if (vertex == nullptr) return;
+  if (!new_.existsCache_.empty()) new_.existsCache_.erase(vertex);
+  if (!new_.deletedCache_.empty()) new_.deletedCache_.erase(vertex);
+  if (!new_.labelCache_.empty()) new_.labelCache_.erase(vertex);
+  if (!new_.propertiesCache_.empty()) new_.propertiesCache_.erase(vertex);
+  if (!new_.inDegreeCache_.empty()) new_.inDegreeCache_.erase(vertex);
+  if (!new_.outDegreeCache_.empty()) new_.outDegreeCache_.erase(vertex);
 
   // aggressive cache invalidation, TODO: be smarter
   new_.hasLabelCache_.clear();
@@ -109,8 +110,9 @@ void VertexInfoCache::StoreHasLabel(View view, Vertex const *vertex, LabelId lab
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex, LabelId label) {
-  new_.labelCache_.erase(vertex);
-  new_.hasLabelCache_.erase(std::tuple{vertex, label});
+  if (vertex == nullptr) return;
+  if (!new_.labelCache_.empty()) new_.labelCache_.erase(vertex);
+  if (!new_.hasLabelCache_.empty()) new_.hasLabelCache_.erase(std::tuple{vertex, label});
 }
 
 auto VertexInfoCache::GetProperty(View view, Vertex const *vertex, PropertyId property) const
@@ -132,8 +134,9 @@ void VertexInfoCache::StoreProperties(View view, Vertex const *vertex, std::map<
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex, PropertyId property_key) {
-  new_.propertiesCache_.erase(vertex);
-  new_.propertyValueCache_.erase(std::tuple{vertex, property_key});
+  if (vertex == nullptr) return;
+  if (!new_.propertiesCache_.empty()) new_.propertiesCache_.erase(vertex);
+  if (!new_.propertyValueCache_.empty()) new_.propertyValueCache_.erase(std::tuple{vertex, property_key});
 }
 
 auto VertexInfoCache::GetInEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
@@ -187,12 +190,13 @@ void VertexInfoCache::StoreOutDegree(View view, Vertex const *vertex, std::size_
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex, EdgeTypeId /*unused*/, EdgeDirection direction) {
+  if (vertex == nullptr) return;
   // EdgeTypeId is currently unused but could be used to be more precise in future
   if (direction == EdgeDirection::IN) {
-    new_.inDegreeCache_.erase(vertex);
+    if (!new_.inDegreeCache_.empty()) new_.inDegreeCache_.erase(vertex);
     new_.inEdgesCache_.clear();  // TODO: be more precise
   } else {
-    new_.outDegreeCache_.erase(vertex);
+    if (!new_.outDegreeCache_.empty()) new_.outDegreeCache_.erase(vertex);
     new_.outEdgesCache_.clear();  // TODO: be more precise
   }
 }

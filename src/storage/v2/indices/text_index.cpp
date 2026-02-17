@@ -303,6 +303,7 @@ void TextIndex::Clear() {
 }
 
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
+  if (tx.text_index_change_collector_.empty()) return;
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
     const std::lock_guard lock(index_data_ptr->write_mutex);

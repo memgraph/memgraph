@@ -847,9 +847,9 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
     case Delta::Action::REMOVE_OUT_EDGE: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
       if (items.properties_on_edges) {
-        encoder->WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
+        encoder->WriteUint(delta.vertex_edge.edge.GetGid().AsUint());
       } else {
-        encoder->WriteUint(delta.vertex_edge.edge.gid.AsUint());
+        encoder->WriteUint(delta.vertex_edge.edge.GetGid().AsUint());
       }
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.vertex_edge.edge_type.AsUint()));
       encoder->WriteUint(vertex->gid.AsUint());
@@ -874,7 +874,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
-      encoder->WriteUint(edge->gid.AsUint());
+      encoder->WriteUint(edge->Gid().AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // edge.
@@ -1102,12 +1102,16 @@ std::optional<RecoveryInfo> LoadWal(
           return EdgeRef{data.gid};
         });
 
+        Edge *light_edge_ptr = nullptr;
         {
           auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
           auto it = r::find(from_vertex->out_edges, out_link);
           if (it == from_vertex->out_edges.end())
             throw RecoveryFailure("The from vertex doesn't have this edge! Current ldt is: {}",
                                   ret->last_durable_timestamp);
+          if (items.storage_light_edge && std::get<EdgeRef>(*it).HasPointer()) {
+            light_edge_ptr = std::get<EdgeRef>(*it).GetEdgePtr();
+          }
           std::swap(*it, from_vertex->out_edges.back());
           from_vertex->out_edges.pop_back();
         }
@@ -1119,6 +1123,9 @@ std::optional<RecoveryInfo> LoadWal(
                                   ret->last_durable_timestamp);
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
+        }
+        if (items.storage_light_edge && light_edge_ptr != nullptr) {
+          delete light_edge_ptr;
         }
         if (items.properties_on_edges) {
           if (!edge_acc.remove(data.gid))
@@ -1152,7 +1159,7 @@ std::optional<RecoveryInfo> LoadWal(
                 throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
               const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
                 const auto &[edge_type, to_vertex, edge_ref] = edge_info;
-                return edge_ref.ptr == &*edge;
+                return edge_ref.GetEdgePtr() == &*edge;
               });
               if (found_edge == from_vertex->out_edges.end())
                 throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
@@ -1161,7 +1168,7 @@ std::optional<RecoveryInfo> LoadWal(
               return std::tuple{edge_ref, edge_type, &*from_vertex, to_vertex};
             }
             // Fallback on user defined find edge function
-            const auto maybe_edge = find_edge(edge->gid);
+            const auto maybe_edge = find_edge(edge->Gid());
             if (!maybe_edge)
               throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}", ret->last_durable_timestamp);
             return *maybe_edge;

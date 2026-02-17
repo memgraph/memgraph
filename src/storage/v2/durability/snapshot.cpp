@@ -24,6 +24,7 @@
 #include <ranges>
 #include <string>
 #include <thread>
+#include <type_traits>
 
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
@@ -269,8 +270,12 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
   int batch_id = 1;
   for (const auto &elem : acc) {
     if (items_per_batch == i++) {
-      batches[batch_id++] = elem.gid.AsInt();  // This batch's start ID and previous batch's end ID
-      i = 1;                                   // 1 on purpose, as the first element is already in the batch
+      if constexpr (std::is_same_v<std::remove_cv_t<std::remove_reference_t<decltype(elem)>>, Edge>) {
+        batches[batch_id++] = elem.Gid().AsInt();
+      } else {
+        batches[batch_id++] = elem.gid.AsInt();
+      }
+      i = 1;  // 1 on purpose, as the first element is already in the batch
       // Check if we have enough batches
       if (batch_id == n_batches) break;  // THIS IS IMPORTANT, we do not want to remove the kEnd as our upper limit
     }
@@ -10273,7 +10278,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     // Comparison start <= elem.gid < end with GID is important here because we need to
     // ensure that we are not reading elemets that are not in the batch.
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
-    for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
+    for (; it != acc.end() && it->Gid().AsInt() < end_gid; ++it) {
       // This is a hot loop, use counter to reduce the frequency that we check for abort
       if (counter() && snapshot_aborted()) [[unlikely]] {
         break;
@@ -10282,7 +10287,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       auto &edge = *it;
 
       // If we have reached a newly inserted edge, we can stop processing
-      if (unused_edge_gid <= edge.gid.AsUint()) [[unlikely]] {
+      if (unused_edge_gid <= edge.Gid().AsUint()) [[unlikely]] {
         break;
       }
 
@@ -10332,7 +10337,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       // Store the edge.
       {
         edges_snapshot.WriteMarker(Marker::SECTION_EDGE);
-        edges_snapshot.WriteUint(edge.gid.AsUint());
+        edges_snapshot.WriteUint(edge.Gid().AsUint());
         const auto &props = maybe_props.value();
         edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {

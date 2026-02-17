@@ -414,7 +414,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
     Vertex *to_vertex = nullptr;
     for (auto &vertex : vertices_acc) {
       for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
+        if (std::get<kEdgeRefPos>(edge_tuple).HasPointer() && std::get<kEdgeRefPos>(edge_tuple).GetEdgePtr() == &edge) {
           from_vertex = &vertex;
           to_vertex = std::get<kVertexPos>(edge_tuple);
           break;
@@ -427,8 +427,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexSingleThreadTest) {
 
     const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
     EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
-    EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
+    EXPECT_EQ(vector[0], static_cast<float>(edge.Gid().AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(edge.Gid().AsUint() + 1));
   }
 }
 
@@ -455,7 +455,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
     Vertex *to_vertex = nullptr;
     for (auto &vertex : vertices_acc) {
       for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
+        if (std::get<kEdgeRefPos>(edge_tuple).HasPointer() && std::get<kEdgeRefPos>(edge_tuple).GetEdgePtr() == &edge) {
           from_vertex = &vertex;
           to_vertex = std::get<kVertexPos>(edge_tuple);
           break;
@@ -468,8 +468,8 @@ TEST_F(VectorEdgeIndexRecoveryTest, RecoverIndexParallelTest) {
 
     const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "test_edge_index");
     EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
-    EXPECT_EQ(vector[1], static_cast<float>(edge.gid.AsUint() + 1));
+    EXPECT_EQ(vector[0], static_cast<float>(edge.Gid().AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>(edge.Gid().AsUint() + 1));
   }
 }
 
@@ -502,7 +502,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
     Vertex *to_vertex = nullptr;
     for (auto &vertex : vertices_acc) {
       for (auto &edge_tuple : vertex.out_edges) {
-        if (std::get<kEdgeRefPos>(edge_tuple).ptr == &edge) {
+        if (std::get<kEdgeRefPos>(edge_tuple).HasPointer() && std::get<kEdgeRefPos>(edge_tuple).GetEdgePtr() == &edge) {
           from_vertex = &vertex;
           to_vertex = std::get<kVertexPos>(edge_tuple);
           break;
@@ -515,7 +515,7 @@ TEST_F(VectorEdgeIndexRecoveryTest, ConcurrentAddWithResizeTest) {
 
     const auto vector = vector_edge_index_.GetVectorFromEdge(from_vertex, to_vertex, &edge, "resize_test_edge_index");
     EXPECT_EQ(vector.size(), kDimension);
-    EXPECT_EQ(vector[0], static_cast<float>(edge.gid.AsUint()));
-    EXPECT_EQ(vector[1], static_cast<float>((edge.gid.AsUint()) + 1));
+    EXPECT_EQ(vector[0], static_cast<float>(edge.Gid().AsUint()));
+    EXPECT_EQ(vector[1], static_cast<float>((edge.Gid().AsUint()) + 1));
   }
 }

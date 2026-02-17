@@ -80,7 +80,11 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
     if (to_vertex->deleted()) {
       continue;
     }
-    auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
+    auto const &edge_ref = std::get<kEdgeRefPos>(edge_tuple);
+    if (!edge_ref.HasPointer()) {
+      continue;
+    }
+    auto *edge = edge_ref.GetEdgePtr();
     if (edge->deleted()) {
       continue;
     }

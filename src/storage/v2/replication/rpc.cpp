@@ -252,6 +252,7 @@ void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(std::to_underlying(self.storage_mode), builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
+  memgraph::slk::Save(self.items.storage_light_edge, builder);
   memgraph::slk::Save(self.items.enable_schema_metadata, builder);
 }
 
@@ -266,6 +267,7 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);
+  memgraph::slk::Load(&self->items.storage_light_edge, reader);
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
 }
 

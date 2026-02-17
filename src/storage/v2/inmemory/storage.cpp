@@ -19,6 +19,8 @@
 #include <mutex>
 #include <optional>
 #include <system_error>
+#include <unordered_set>
+#include <vector>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
@@ -228,7 +230,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
         edge.set_delta(nullptr);
         if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          current_deleted_edges.push_back(edge.gid);
+          current_deleted_edges.push_back(edge.Gid());
         }
         break;
       }
@@ -419,7 +421,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     free_memory_func_ = *std::move(free_mem_fn_override);
   } else {
     free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-      CollectGarbage(std::move(main_guard), periodic);
+      CollectGarbage(std::move(main_guard), periodic);  // drains deleted_light_edges_ by oldest_active_start_timestamp
 
       // Indices
       static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
@@ -465,6 +467,22 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 InMemoryStorage::~InMemoryStorage() {
   flags::run_time::SnapshotPeriodicDetach(snapshot_periodic_observer_);
 
+  // Light edges: drain deleted_light_edges_ and delete Edge* in vertex vectors (each Edge* appears in two vectors).
+  if (config_.salient.items.storage_light_edge) {
+    deleted_light_edges_.clear();
+    std::unordered_set<Edge *> light_ptrs;
+    auto vertices_acc = vertices_.access();
+    for (auto &v : vertices_acc) {
+      for (auto &[_, __, edge_ref] : v.out_edges) {
+        if (edge_ref.HasPointer()) light_ptrs.insert(edge_ref.GetEdgePtr());
+      }
+      for (auto &[_, __, edge_ref] : v.in_edges) {
+        if (edge_ref.HasPointer()) light_ptrs.insert(edge_ref.GetEdgePtr());
+      }
+    }
+    for (Edge *p : light_ptrs) delete p;
+  }
+
   stop_source.request_stop();
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
@@ -496,17 +514,24 @@ void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
                                                     IsolationLevel isolation_level, StorageMode storage_mode,
                                                     StorageAccessType rw_type,
-                                                    std::optional<std::chrono::milliseconds> timeout)
+                                                    std::optional<std::chrono::milliseconds> timeout,
+                                                    InMemoryAccessor::DeletedLightEdgesAcc deleted_light_edges_acc)
     : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
-      config_(storage->config_.salient.items) {}
+      config_(storage->config_.salient.items),
+      deleted_light_edges_acc_(std::move(deleted_light_edges_acc)) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
-                                                    std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
+                                                    std::optional<std::chrono::milliseconds> timeout,
+                                                    InMemoryAccessor::DeletedLightEdgesAcc deleted_light_edges_acc)
+    : Accessor(tag, storage, isolation_level, storage_mode, timeout),
+      config_(storage->config_.salient.items),
+      deleted_light_edges_acc_(std::move(deleted_light_edges_acc)) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
-    : Accessor(std::move(other)), config_(other.config_) {}
+    : Accessor(std::move(other)),
+      config_(other.config_),
+      deleted_light_edges_acc_(std::move(other.deleted_light_edges_acc_)) {}
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
@@ -693,20 +718,35 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
-    }
-    if (config_.enable_edges_metadata) {
-      edge_metadata_acc = mem_storage->edges_metadata_.access();
-      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+    if (mem_storage->config_.salient.items.storage_light_edge) {
+      // Light edge: allocate on heap, store in vertex vectors only. No ref count.
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      auto *edge_ptr = new Edge(gid, delta);
+      if (delta) {
+        delta->prev.Set(edge_ptr);
+      }
+      edge = EdgeRef(edge_ptr);
+      if (config_.enable_edges_metadata) {
+        edge_metadata_acc = mem_storage->edges_metadata_.access();
+        auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+        MG_ASSERT(inserted, "The edge must be inserted here!");
+      }
+    } else {
+      // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+      edge_acc = mem_storage->edges_.access();
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
       MG_ASSERT(inserted, "The edge must be inserted here!");
+      MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
+      edge = EdgeRef(&*it);
+      if (delta) {
+        delta->prev.Set(&*it);
+      }
+      if (config_.enable_edges_metadata) {
+        edge_metadata_acc = mem_storage->edges_metadata_.access();
+        auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+        MG_ASSERT(inserted, "The edge must be inserted here!");
+      }
     }
   }
 
@@ -718,10 +758,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
                             &schema_acc,
                             from_state,
                             to_state]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
+    // For light edges, deltas store only Gid so the delta doesn't hold the edge pointer.
+    EdgeRef const edge_for_delta =
+        (static_cast<InMemoryStorage *>(storage_)->config_.salient.items.storage_light_edge && edge.HasPointer())
+            ? EdgeRef(edge.GetGid())
+            : edge;
+    CreateAndLinkDelta(
+        &transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge_for_delta, from_state);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
+    CreateAndLinkDelta(
+        &transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_for_delta, to_state);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -752,8 +799,8 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   if (!res) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::invoke([this, gid, &res]() {
-    auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.gid == gid; };
-    auto const byEdgePtr = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; };
+    auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.GetGid() == gid; };
+    auto const byEdgePtr = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.GetGid() == gid; };
     if (config_.properties_on_edges) return std::ranges::find_if(res->edges, byEdgePtr);
     return std::ranges::find_if(res->edges, byGid);
   });
@@ -825,28 +872,48 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
-    edge_acc = mem_storage->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    if (delta) {
-      delta->prev.Set(&*it);
-    }
-    if (config_.enable_edges_metadata) {
-      edge_metadata_acc = mem_storage->edges_metadata_.access();
-      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+    if (mem_storage->config_.salient.items.storage_light_edge) {
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      auto *edge_ptr = new Edge(gid, delta);
+      if (delta) {
+        delta->prev.Set(edge_ptr);
+      }
+      edge = EdgeRef(edge_ptr);
+      if (config_.enable_edges_metadata) {
+        edge_metadata_acc = mem_storage->edges_metadata_.access();
+        auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+        MG_ASSERT(inserted, "The edge must be inserted here!");
+      }
+    } else {
+      // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
+      edge_acc = mem_storage->edges_.access();
+      auto *delta = CreateDeleteObjectDelta(&transaction_);
+      auto [it, inserted] = edge_acc->insert(Edge(gid, delta));
       MG_ASSERT(inserted, "The edge must be inserted here!");
+      MG_ASSERT(it != edge_acc->end(), "Invalid Edge accessor!");
+      edge = EdgeRef(&*it);
+      if (delta) {
+        delta->prev.Set(&*it);
+      }
+      if (config_.enable_edges_metadata) {
+        edge_metadata_acc = mem_storage->edges_metadata_.access();
+        auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+        MG_ASSERT(inserted, "The edge must be inserted here!");
+      }
     }
   }
 
   utils::AtomicMemoryBlock([this, edge, from_vertex, edge_type, to_vertex, &schema_acc, from_state, to_state]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
+    EdgeRef const edge_for_delta =
+        (static_cast<InMemoryStorage *>(storage_)->config_.salient.items.storage_light_edge && edge.HasPointer())
+            ? EdgeRef(edge.GetGid())
+            : edge;
+    CreateAndLinkDelta(
+        &transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge_for_delta, from_state);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
+    CreateAndLinkDelta(
+        &transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_for_delta, to_state);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -872,7 +939,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
 void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex) {
   auto edge_metadata_acc = edges_metadata_.access();
-  auto edge_to_modify = edge_metadata_acc.find(edge->gid);
+  auto edge_to_modify = edge_metadata_acc.find(edge->Gid());
   if (edge_to_modify == edge_metadata_acc.end()) {
     throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
   }
@@ -1181,6 +1248,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   }
 
   CheckForFastDiscardOfDeltas();
+  FlushPendingDeletedLightEdges();
   memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   is_transaction_active_ = false;
@@ -1367,7 +1435,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
                   if (processor_prop_is_interesting) {
                     for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
+                      if (edge_ref.GetEdgePtr() != edge) continue;
                       index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
                     }
                   }
@@ -1376,7 +1444,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   if (vec_prop_is_interesting) {
                     // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
                     for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
+                      if (edge_ref.GetEdgePtr() != edge) continue;
                       // handle vector index -> we need to check if the edge type is indexed in the vector index
                       if (r::find(vector_indexed_edge_types->second, edge_type) !=
                           vector_indexed_edge_types->second.end()) {
@@ -1395,7 +1463,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
                 edge->set_deleted(true);
-                my_deleted_edges.push_back(edge->gid);
+                my_deleted_edges.push_back(edge->Gid());
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
@@ -1436,11 +1504,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // we must route all deltas through `waiting_gc_deltas_` since GC must wait
     // until the upstream transaction is also garbage collected.
 
+    // Light edge refs to release after all vertex deltas are processed (so we never
+    // dereference a ptr after releasing it when partitioning another vertex).
+    std::vector<EdgeRef> light_refs_to_release;
+
     // Applies each undo delta in the chain, and optionally unlinks the deltas
     // from the vertex head.
     auto process_vertex_deltas = [&](Vertex *vertex, Delta *start, bool delta_chunk_attached_to_vertex) {
-      auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
-      auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
+      // Use vectors to avoid abseil empty flat_hash_set insert (null generation_ptr) in abort path.
+      std::vector<EdgeRef> remove_in_edges;
+      std::vector<EdgeRef> remove_out_edges;
 
       Delta *current = start;
       while (current != nullptr &&
@@ -1474,46 +1547,58 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             break;
           }
           case Delta::Action::ADD_IN_EDGE: {
-            auto link = std::tuple{
-                current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(), current->vertex_edge.edge};
-            DMG_ASSERT(r::find(vertex->in_edges, link) == vertex->in_edges.end(), "Invalid database state!");
-            vertex->in_edges.push_back(link);
+            // Undoing a remove (abort delete): re-attach done in ADD_OUT_EDGE for the from_vertex.
             break;
           }
           case Delta::Action::ADD_OUT_EDGE: {
-            auto link = std::tuple{
-                current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(), current->vertex_edge.edge};
-            DMG_ASSERT(r::find(vertex->out_edges, link) == vertex->out_edges.end(), "Invalid database state!");
-            vertex->out_edges.push_back(link);
-            // Increment edge count. We only increment the count here because
-            // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
-            // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
-            // edge properties are disabled.
+            // Undoing a remove (abort delete): re-attach edge if it was deferred to pending.
             storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+            auto const &[_, edge_type, to_vertex, edge_ref] = current->vertex_edge;
+            Edge *edge_ptr = nullptr;
+            if (edge_ref.HasPointer()) {
+              edge_ptr = edge_ref.GetEdgePtr();
+            } else if (mem_storage->config_.salient.items.storage_light_edge) {
+              auto const gid = edge_ref.GetGid();
+              auto it = std::find_if(vertex->out_edges.begin(), vertex->out_edges.end(), [gid](auto const &t) {
+                return std::get<EdgeRef>(t).GetGid() == gid;
+              });
+              if (it != vertex->out_edges.end()) {
+                edge_ptr = std::get<EdgeRef>(*it).GetEdgePtr();
+              } else {
+                // Edge was removed and deferred; re-attach from pending_deleted_light_edges_.
+                for (auto pit = pending_deleted_light_edges_.begin(); pit != pending_deleted_light_edges_.end();
+                     ++pit) {
+                  if (pit->first->Gid() == gid) {
+                    edge_ptr = pit->first;
+                    Vertex *to_v = to_vertex.Get();
+                    vertex->out_edges.emplace_back(edge_type, to_v, EdgeRef(edge_ptr));
+                    {
+                      std::lock_guard to_lock{to_v->lock};
+                      to_v->in_edges.emplace_back(edge_type, vertex, EdgeRef(edge_ptr));
+                    }
+                    pending_deleted_light_edges_.erase(pit);
+                    break;
+                  }
+                }
+              }
+            }
+            if (edge_ptr && mem_storage->config_.salient.items.properties_on_edges) {
+              index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge_ptr);
+            }
+            // TODO: ensure collector also processeses for edge_type+property index
+
             break;
           }
           case Delta::Action::REMOVE_IN_EDGE: {
-            // EdgeRef is unique
-            remove_in_edges.insert(current->vertex_edge.edge);
+            // Undoing an add (abort create): remove the edge from the vertex.
+            remove_in_edges.push_back(current->vertex_edge.edge);
             break;
           }
           case Delta::Action::REMOVE_OUT_EDGE: {
-            // EdgeRef is unique
-            remove_out_edges.insert(current->vertex_edge.edge);
-
-            // Decrement edge count. We only decrement the count here because
-            // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
-            // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
-            // properties are disabled.
+            // Undoing an add (abort create): remove the edge from the vertex.
+            remove_out_edges.push_back(current->vertex_edge.edge);
             storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
-
-            // TODO: Change edge type index to work with EdgeRef rather than Edge *
-            if (!mem_storage->config_.salient.items.properties_on_edges) break;
-
-            auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-            index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
-            // TODO: ensure collector also processeses for edge_type+property index
-
             break;
           }
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1536,8 +1621,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // bulk remove in_edges
       if (!remove_in_edges.empty()) {
         auto mid = r::partition(vertex->in_edges, [&](auto const &edge_tuple) {
-          return !remove_in_edges.contains(std::get<EdgeRef>(edge_tuple));
+          return r::find(remove_in_edges, std::get<EdgeRef>(edge_tuple)) == remove_in_edges.end();
         });
+        if (mem_storage->config_.salient.items.storage_light_edge) {
+          for (auto it = mid; it != vertex->in_edges.end(); ++it) {
+            light_refs_to_release.push_back(std::get<EdgeRef>(*it));
+          }
+        }
         vertex->in_edges.erase(mid, vertex->in_edges.end());
         vertex->in_edges.shrink_to_fit();
       }
@@ -1545,8 +1635,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // bulk remove out_edges
       if (!remove_out_edges.empty()) {
         auto mid = r::partition(vertex->out_edges, [&](auto const &edge_tuple) {
-          return !remove_out_edges.contains(std::get<EdgeRef>(edge_tuple));
+          return r::find(remove_out_edges, std::get<EdgeRef>(edge_tuple)) == remove_out_edges.end();
         });
+        if (mem_storage->config_.salient.items.storage_light_edge) {
+          for (auto it = mid; it != vertex->out_edges.end(); ++it) {
+            light_refs_to_release.push_back(std::get<EdgeRef>(*it));
+          }
+        }
         vertex->out_edges.erase(mid, vertex->out_edges.end());
         vertex->out_edges.shrink_to_fit();
       }
@@ -1613,6 +1708,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
     }
 
+    // Abort: we removed edges from vertices (undoing create). Delete each light Edge* (no other tx can see it).
+    if (!light_refs_to_release.empty() && mem_storage->config_.salient.items.storage_light_edge) {
+      std::unordered_set<Edge *> seen_ptr;
+      for (EdgeRef const &ref : light_refs_to_release) {
+        if (!ref.HasPointer()) continue;
+        Edge *p = ref.GetEdgePtr();
+        if (seen_ptr.insert(p).second) delete p;
+      }
+    }
+
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
       uint64_t mark_timestamp = storage_->timestamp_;  // a timestamp no active transaction can currently have
@@ -1669,6 +1774,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
   }
 
+  // On abort, any light edges still in pending were not re-attached (undo delete); free them to avoid leaking.
+  if (mem_storage->config_.salient.items.storage_light_edge) {
+    for (auto &[p, ts] : pending_deleted_light_edges_) {
+      delete p;
+    }
+  }
+  ClearPendingDeletedLightEdges();
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
 }
@@ -1693,6 +1805,16 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     }
     commit_timestamp_.reset();
   }
+}
+
+void InMemoryStorage::InMemoryAccessor::FlushPendingDeletedLightEdges() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto acc = mem_storage->deleted_light_edges_.access();
+  for (auto &[p, ts] : pending_deleted_light_edges_) {
+    acc.insert(DeletedLightEdge{std::move(*p), ts});
+    delete p;
+  }
+  pending_deleted_light_edges_.clear();
 }
 
 void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
@@ -1799,6 +1921,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (in_memory->config_.salient.items.storage_light_edge) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->RegisterIndex(edge_type)) {
     return std::unexpected{IndexDefinitionError{}};
@@ -1826,6 +1951,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
             "Create edge-type property index requires unique or read only access to the storage!");
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (in_memory->config_.salient.items.storage_light_edge) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
     return std::unexpected{IndexDefinitionConfigError{}};
@@ -1858,6 +1986,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating global edge property index requires unique or read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (in_memory->config_.salient.items.storage_light_edge) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
     return std::unexpected{IndexDefinitionConfigError{}};
@@ -1928,6 +2059,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (in_memory->config_.salient.items.storage_light_edge) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   // Done inside the wrapper to ensure plan cache invalidation is safe
   auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type); });
@@ -1944,6 +2078,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type property index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (in_memory->config_.salient.items.storage_light_edge) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to drop the index, no properties on edges
     return std::unexpected{IndexDefinitionConfigError{}};
@@ -1966,6 +2103,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping global edge property index requires unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (in_memory->config_.salient.items.storage_light_edge) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
     return std::unexpected{IndexDefinitionConfigError{}};
@@ -2035,6 +2175,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
+  if (in_memory->config_.salient.items.storage_light_edge && vector_edge_index.IndexExists(index_name)) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   auto vertices_acc = in_memory->vertices_.access();
   if (vector_index.DropIndex(index_name, vertices_acc, &in_memory->indices_, in_memory->name_id_mapper_.get())) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
@@ -2065,6 +2208,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     VectorEdgeIndexSpec spec) {
   MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (in_memory->config_.salient.items.storage_light_edge) {
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
@@ -2757,7 +2903,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             edge->set_delta(nullptr);
             if (edge->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-              current_deleted_edges.push_back(edge->gid);
+              current_deleted_edges.push_back(edge->Gid());
             }
             break;
           }
@@ -2918,11 +3064,25 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // EDGES
-  if (!current_deleted_edges.empty()) {
+  // EDGES (light edges are only in vertex vectors; no global skiplist)
+  if (!current_deleted_edges.empty() && !config_.salient.items.storage_light_edge) {
     auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
+    }
+  }
+
+  // Drain deleted_light_edges_: remove entries safe to free (pinned by accessors until then).
+  if (config_.salient.items.storage_light_edge) {
+    auto acc = deleted_light_edges_.access();
+    for (auto it = acc.begin(); it != acc.end();) {
+      if (it->safe_to_free_ts < oldest_active_start_timestamp) {
+        Gid const gid = it->edge.Gid();
+        ++it;
+        acc.remove(DeletedLightEdge(Edge(gid, nullptr), 0));
+      } else {
+        ++it;
+      }
     }
   }
 
@@ -2949,7 +3109,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (edge.delta() == nullptr && edge.deleted()) {
         edge_acc.remove(edge);
-        edge_metadata_acc.remove(edge.gid);
+        edge_metadata_acc.remove(edge.Gid());
       }
     }
   }
@@ -3851,6 +4011,18 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
   std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
 
+void InMemoryStorage::MoveLightEdgeToDeleted(Edge *edge_ptr, uint64_t safe_to_free_ts,
+                                             std::vector<std::pair<Edge *, uint64_t>> *pending_delete) {
+  if (!config_.salient.items.storage_light_edge || edge_ptr == nullptr) return;
+  if (pending_delete != nullptr) {
+    pending_delete->emplace_back(edge_ptr, safe_to_free_ts);
+    return;
+  }
+  auto acc = deleted_light_edges_.access();
+  acc.insert(DeletedLightEdge{std::move(*edge_ptr), safe_to_free_ts});
+  delete edge_ptr;
+}
+
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch() {
@@ -3890,30 +4062,38 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(StorageAccessType rw_type,
                                                            std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                rw_type,
-                                                                timeout});
+  auto const isolation = override_isolation_level.value_or(isolation_level_);
+  InMemoryAccessor::DeletedLightEdgesAcc deleted_acc;
+  if (config_.salient.items.storage_light_edge) {
+    deleted_acc = deleted_light_edges_.access();
+  }
+  auto *acc = new InMemoryAccessor{
+      Storage::Accessor::shared_access, this, isolation, storage_mode_, rw_type, timeout, std::move(deleted_acc)};
+  return std::unique_ptr<Storage::Accessor>(acc);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                timeout});
+  auto const isolation = override_isolation_level.value_or(isolation_level_);
+  InMemoryAccessor::DeletedLightEdgesAcc deleted_acc;
+  if (config_.salient.items.storage_light_edge) {
+    deleted_acc = deleted_light_edges_.access();
+  }
+  auto *acc = new InMemoryAccessor{
+      Storage::Accessor::unique_access, this, isolation, storage_mode_, timeout, std::move(deleted_acc)};
+  return std::unique_ptr<Storage::Accessor>(acc);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
     std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access,
-                                                                this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_,
-                                                                timeout});
+  auto const isolation = override_isolation_level.value_or(isolation_level_);
+  InMemoryAccessor::DeletedLightEdgesAcc deleted_acc;
+  if (config_.salient.items.storage_light_edge) {
+    deleted_acc = deleted_light_edges_.access();
+  }
+  auto *acc = new InMemoryAccessor{
+      Storage::Accessor::read_only_access, this, isolation, storage_mode_, timeout, std::move(deleted_acc)};
+  return std::unique_ptr<Storage::Accessor>(acc);
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
@@ -3952,7 +4132,7 @@ EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {
   std::shared_lock const guard{from_vertex->lock};
   for (const auto &out_edge : from_vertex->out_edges) {
     const auto [edge_type, other_vertex, edge_ref] = out_edge;
-    if (edge_ref.ptr == edge_ptr) {
+    if (edge_ref.GetEdgePtr() == edge_ptr) {
       return std::tuple(edge_ref, edge_type, from_vertex, other_vertex);
     }
   }
@@ -3967,6 +4147,33 @@ EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr) {
 }
 
 EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
+  if (config_.salient.items.storage_light_edge) {
+    // Light edges live only in vertex out_edges/in_edges; no global skiplist.
+    auto vertices_acc = vertices_.access();
+    if (config_.salient.items.enable_edges_metadata) {
+      auto edge_metadata_acc = edges_metadata_.access();
+      auto it = edge_metadata_acc.find(gid);
+      if (it == edge_metadata_acc.end()) return std::nullopt;
+      Vertex *from_vertex = it->from_vertex;
+      std::shared_lock guard{from_vertex->lock};
+      for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+        if (edge_ref.GetGid() == gid) {
+          return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+        }
+      }
+      return std::nullopt;
+    }
+    for (auto &from_vertex : vertices_acc) {
+      std::shared_lock guard{from_vertex.lock};
+      for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex.out_edges) {
+        if (edge_ref.GetGid() == gid) {
+          return std::tuple(edge_ref, edge_type, &from_vertex, to_vertex);
+        }
+      }
+    }
+    return std::nullopt;
+  }
+
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(gid);
   if (edge_it == edge_acc.end()) {
@@ -3989,24 +4196,33 @@ EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
 }
 
 EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
+  auto vertices_acc = vertices_.access();
+  auto vertex_it = vertices_acc.find(from_vertex_gid);
+  if (vertex_it == vertices_acc.end()) {
+    throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
+  }
+  Vertex *from_vertex = &(*vertex_it);
+
+  if (config_.salient.items.storage_light_edge) {
+    std::shared_lock guard{from_vertex->lock};
+    for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+      if (edge_ref.GetGid() == edge_gid) {
+        return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+      }
+    }
+    return std::nullopt;
+  }
+
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {
     return std::nullopt;
   }
-
   auto *edge_ptr = &(*edge_it);
-
-  auto vertices_acc = vertices_.access();
   if (config_.salient.items.enable_edges_metadata) {
     return FindEdgeFromMetadata(edge_gid, edge_ptr);
   }
-
-  auto vertex_it = vertices_acc.find(from_vertex_gid);
-  if (vertex_it == vertices_acc.end()) {
-    throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
-  }
-  return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
+  return ExtractEdgeInfo(from_vertex, edge_ptr);
 }
 
 void InMemoryStorage::Clear() {
@@ -4017,7 +4233,21 @@ void InMemoryStorage::Clear() {
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
 
-  // Clear main memory
+  // Clear main memory. For light edges, drain deleted_light_edges_ and delete Edge* in vertex vectors.
+  if (config_.salient.items.storage_light_edge) {
+    deleted_light_edges_.clear();
+    std::unordered_set<Edge *> light_ptrs;
+    auto vertices_acc = vertices_.access();
+    for (auto &v : vertices_acc) {
+      for (auto &[_, __, edge_ref] : v.out_edges) {
+        if (edge_ref.HasPointer()) light_ptrs.insert(edge_ref.GetEdgePtr());
+      }
+      for (auto &[_, __, edge_ref] : v.in_edges) {
+        if (edge_ref.HasPointer()) light_ptrs.insert(edge_ref.GetEdgePtr());
+      }
+    }
+    for (Edge *p : light_ptrs) delete p;
+  }
   vertices_.clear();
   vertices_.run_gc();
   vertex_id_.store(0, std::memory_order_release);

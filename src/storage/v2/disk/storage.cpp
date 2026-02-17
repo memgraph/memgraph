@@ -1130,7 +1130,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
   if (!res) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::ranges::find_if(
-      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
+      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.GetGid() == gid; });
 
   if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
 
@@ -1545,7 +1545,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
-    edge.ptr->properties.SetBuffer(properties);
+    edge.GetEdgePtr()->properties.SetBuffer(properties);
   }
 
   const ModifiedEdgeInfo modified_edge(
