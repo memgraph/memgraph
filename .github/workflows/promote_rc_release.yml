@@ -308,12 +308,12 @@ jobs:
         run: |
           # Download and load, retag if necessary, push temporary image
           # arm64
-          aws s3 cp ${S3_PATH_ARM} - | docker load
+          aws s3 cp ${S3_PATH_ARM} - | docker load  --platform=linux/arm64
           docker tag ${RC_IMAGE} ${RELEASE_IMAGE_ARM}
           docker push ${RELEASE_IMAGE_ARM}
 
           # amd64
-          aws s3 cp ${S3_PATH_AMD} - | docker load
+          aws s3 cp ${S3_PATH_AMD} - | docker load  --platform=linux/amd64
           docker tag ${RC_IMAGE} ${RELEASE_IMAGE_AMD}
           docker push ${RELEASE_IMAGE_AMD}
 
@@ -475,7 +475,7 @@ jobs:
           # Download and load, retag if necessary, push temporary arm64 image if available
           if [ "${has_rc_package_arm}" = "true" ]; then
             echo "Downloading and loading ${rc_image} for arm64 ..."
-            aws s3 cp $s3_input_arm - | docker load
+            aws s3 cp $s3_input_arm - | docker load  --platform=linux/arm64
             echo "Tagging ${rc_image} as ${release_image_arm} ..."
             docker tag ${rc_image} ${release_image_arm}
             echo "Pushing ${release_image_arm} to DockerHub!"
@@ -487,7 +487,7 @@ jobs:
           # Download and load, retag if necessary, push temporary amd64 image if available
           if [ "${has_rc_package_amd}" = "true" ]; then
             echo "Downloading and loading ${rc_image} for amd64 ..."
-            aws s3 cp $s3_input_amd - | docker load
+            aws s3 cp $s3_input_amd - | docker load  --platform=linux/amd64
             echo "Tagging ${rc_image} as ${release_image_amd} ..."
             docker tag ${rc_image} ${release_image_amd}
             echo "Pushing ${release_image_amd} to DockerHub!"
