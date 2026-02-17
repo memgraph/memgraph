@@ -467,7 +467,27 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 InMemoryStorage::~InMemoryStorage() {
   flags::run_time::SnapshotPeriodicDetach(snapshot_periodic_observer_);
 
+  stop_source.request_stop();
+
+  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
+    gc_runner_.Stop();
+  }
+  {
+    // Stop replication (Stop all clients or stop the REPLICA server)
+    repl_storage_state_.Reset();
+  }
+  if (wal_file_) {
+    wal_file_->FinalizeWal();
+    wal_file_.reset();
+  }
+  snapshot_runner_.Stop();
+  // Snapshot-on-exit must run before we free light edges: CreateSnapshot reads EdgeRefs and calls GetGid().
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+    create_snapshot_handler();
+  }
+
   // Light edges: drain deleted_light_edges_ and delete Edge* in vertex vectors (each Edge* appears in two vectors).
+  // Do this after snapshot-on-exit so the snapshot does not dereference freed pointers.
   if (config_.salient.items.storage_light_edge) {
     deleted_light_edges_.clear();
     std::unordered_set<Edge *> light_ptrs;
@@ -483,23 +503,6 @@ InMemoryStorage::~InMemoryStorage() {
     for (Edge *p : light_ptrs) delete p;
   }
 
-  stop_source.request_stop();
-
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Stop();
-  }
-  {
-    // Stop replication (Stop all clients or stop the REPLICA server)
-    repl_storage_state_.Reset();
-  }
-  if (wal_file_) {
-    wal_file_->FinalizeWal();
-    wal_file_.reset();
-  }
-  snapshot_runner_.Stop();
-  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
-    create_snapshot_handler();
-  }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
