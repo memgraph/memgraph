@@ -2301,20 +2301,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 }
 #endif
 
-auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
-  if (config_map.empty()) {
+namespace {
+auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>> const &transformed_map)
+    -> storage::VectorIndexConfigMap {
+  if (transformed_map.empty()) {
     throw std::invalid_argument(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
-
-  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
-                           auto key_expr = pair.first->Accept(evaluator);
-                           auto value_expr = pair.second->Accept(evaluator);
-                           return std::pair{key_expr.ValueString(), value_expr};
-                         }) |
-                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
-
   auto metric_kind_it = transformed_map.find(kMetric);
   auto metric_kind = storage::MetricFromName(
       metric_kind_it != transformed_map.end() ? metric_kind_it->second.ValueString() : kDefaultMetric);
@@ -2339,6 +2332,22 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto scalar_kind = storage::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);
   return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
+}
+}  // namespace
+
+auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
+  if (config_map.empty()) {
+    throw std::invalid_argument(
+        "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
+  }
+  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
+  return VectorIndexConfigFromTypedMap(transformed_map);
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
@@ -4296,13 +4305,25 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto index_name = vector_index_query->index_name_;
   auto label_name = vector_index_query->label_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
+  const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
+  storage::VectorIndexConfigMap vector_index_config;
+  if (vector_index_query->config_expression_) {
+    auto config_tv = vector_index_query->config_expression_->Accept(evaluator);
+    if (!config_tv.IsMap()) {
+      throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+    }
+    std::map<std::string, TypedValue, std::less<>> transformed_map;
+    for (const auto &[k, v] : config_tv.ValueMap()) {
+      transformed_map.emplace(std::string(k), v);
+    }
+    vector_index_config = VectorIndexConfigFromTypedMap(transformed_map);
+  } else {
+    vector_index_config = ParseVectorIndexConfigMap(vector_index_query->configs_, evaluator);
+  }
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
       handler = [dba,
                  storage,
                  vector_index_config,
@@ -4392,12 +4413,24 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
   auto index_name = vector_index_query->index_name_;
   auto edge_type = vector_index_query->edge_type_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
 
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
+  storage::VectorIndexConfigMap vector_index_config;
+  if (vector_index_query->config_expression_) {
+    auto config_tv = vector_index_query->config_expression_->Accept(evaluator);
+    if (!config_tv.IsMap()) {
+      throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+    }
+    std::map<std::string, TypedValue, std::less<>> transformed_map;
+    for (const auto &[k, v] : config_tv.ValueMap()) {
+      transformed_map.emplace(std::string(k), v);
+    }
+    vector_index_config = VectorIndexConfigFromTypedMap(transformed_map);
+  } else {
+    vector_index_config = ParseVectorIndexConfigMap(vector_index_query->configs_, evaluator);
+  }
   handler = [dba,
              storage,
              vector_index_config,

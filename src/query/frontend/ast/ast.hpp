@@ -2385,6 +2385,8 @@ class VectorIndexQuery : public memgraph::query::Query {
   memgraph::query::LabelIx label_;
   memgraph::query::PropertyIx property_;
   std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+  /// When set, config is given as an expression (e.g. function call); evaluated at execution to a map.
+  memgraph::query::Expression *config_expression_{nullptr};
 
   VectorIndexQuery *Clone(AstStorage *storage) const override {
     VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
@@ -2395,6 +2397,7 @@ class VectorIndexQuery : public memgraph::query::Query {
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);
     }
+    object->config_expression_ = config_expression_ ? config_expression_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -2425,6 +2428,8 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   memgraph::query::EdgeTypeIx edge_type_;
   memgraph::query::PropertyIx property_;
   std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+  /// When set, config is given as an expression (e.g. function call); evaluated at execution to a map.
+  memgraph::query::Expression *config_expression_{nullptr};
 
   CreateVectorEdgeIndexQuery *Clone(AstStorage *storage) const override {
     CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
@@ -2434,6 +2439,7 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);
     }
+    object->config_expression_ = config_expression_ ? config_expression_->Clone(storage) : nullptr;
     return object;
   }
 
