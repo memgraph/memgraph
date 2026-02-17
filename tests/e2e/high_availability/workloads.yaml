@@ -46,3 +46,7 @@ workloads:
   - name: "HA large cluster"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/large_cluster.py"]
+
+  - name: "HA request forwarding"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/coords_request_forwarding.py"]

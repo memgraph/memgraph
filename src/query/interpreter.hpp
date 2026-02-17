@@ -171,8 +171,7 @@ class CoordinatorQueryHandler {
 
   virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
 
-  virtual void UpdateConfig(std::variant<int32_t, std::string> instance,
-                            io::network::Endpoint const &bolt_endpoint) = 0;
+  virtual void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 

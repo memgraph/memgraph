@@ -559,6 +559,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -594,6 +601,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -609,6 +623,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Force reset failed, check logs for more details!");
       case NOT_LEADER_ANYMORE:
         throw QueryRuntimeException("Force reset failed since the instance is not leader anymore!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -720,13 +741,22 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
   }
 
-  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
-    switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
+  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) override {
+    coordination::UpdateInstanceConfig const config{.data = std::move(instance),
+                                                    .bolt_endpoint = std::move(bolt_endpoint)};
+    switch (coordinator_handler_.UpdateConfig(config)) {
       using enum memgraph::coordination::UpdateConfigStatus;
       case NO_SUCH_COORD:
         throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
@@ -736,6 +766,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                     std::get<std::string>(instance));
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
         std::unreachable();
@@ -748,6 +785,51 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_SUCH_ID:
         throw QueryRuntimeException(
             "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a timeout!", coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for removing coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the coordinator isn't a leader anymore!",
+            coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when removing coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when removing coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -792,6 +874,55 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException(
             "Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a timeout!", coordinator_id);
+      case DIFF_NETWORK_CONFIG:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator was started with different network "
+            "configuration. Check logs for more details.",
+            coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for adding coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator isn't a leader anymore!", coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when adding coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when adding coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -829,6 +960,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -2178,20 +2316,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 }
 #endif
 
-auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
-  if (config_map.empty()) {
+namespace {
+auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>> const &transformed_map)
+    -> storage::VectorIndexConfigMap {
+  if (transformed_map.empty()) {
     throw std::invalid_argument(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
-
-  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
-                           auto key_expr = pair.first->Accept(evaluator);
-                           auto value_expr = pair.second->Accept(evaluator);
-                           return std::pair{key_expr.ValueString(), value_expr};
-                         }) |
-                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
-
   auto metric_kind_it = transformed_map.find(kMetric);
   auto metric_kind = storage::MetricFromName(
       metric_kind_it != transformed_map.end() ? metric_kind_it->second.ValueString() : kDefaultMetric);
@@ -2215,7 +2346,27 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto scalar_kind_it = transformed_map.find(kScalarKind);
   auto scalar_kind = storage::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);
-  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
+  return storage::VectorIndexConfigMap{.metric = metric_kind,
+                                       .dimension = dimension_value,
+                                       .capacity = capacity_value,
+                                       .resize_coefficient = resize_coefficient,
+                                       .scalar_kind = scalar_kind};
+}
+}  // namespace
+
+auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
+  if (config_map.empty()) {
+    throw std::invalid_argument(
+        "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
+  }
+  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
+  return VectorIndexConfigFromTypedMap(transformed_map);
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
@@ -4270,13 +4421,26 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto index_name = vector_index_query->index_name_;
   auto label_name = vector_index_query->label_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
+  const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+      const auto vector_index_config = std::visit(
+          utils::Overloaded{
+              [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+              [&evaluator](Expression *expr) {
+                auto config_tv = expr->Accept(evaluator);
+                if (!config_tv.IsMap()) {
+                  throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+                }
+                std::map<std::string, TypedValue, std::less<>> transformed_map;
+                for (const auto &[k, v] : config_tv.ValueMap()) {
+                  transformed_map.emplace(std::string(k), v);
+                }
+                return VectorIndexConfigFromTypedMap(transformed_map);
+              }},
+          vector_index_query->config_);
       handler = [dba,
                  storage,
                  vector_index_config,
@@ -4366,12 +4530,25 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
   auto index_name = vector_index_query->index_name_;
   auto edge_type = vector_index_query->edge_type_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
 
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
+  const auto vector_index_config = std::visit(
+      utils::Overloaded{
+          [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+          [&evaluator](Expression *expr) {
+            auto config_tv = expr->Accept(evaluator);
+            if (!config_tv.IsMap()) {
+              throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+            }
+            std::map<std::string, TypedValue, std::less<>> transformed_map;
+            for (const auto &[k, v] : config_tv.ValueMap()) {
+              transformed_map.emplace(std::string(k), v);
+            }
+            return VectorIndexConfigFromTypedMap(transformed_map);
+          }},
+      vector_index_query->config_);
   handler = [dba,
              storage,
              vector_index_config,

@@ -1,4 +1,4 @@
-cryptography==46.0.4
+cryptography==46.0.5
 PyJWT==2.10.1
 requests==2.32.5
 ldap3==2.6

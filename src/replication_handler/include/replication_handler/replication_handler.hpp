@@ -14,6 +14,8 @@
 
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "coordination/coordinator_rpc.hpp"
+
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
 #include "parameters/replication_handlers.hpp"

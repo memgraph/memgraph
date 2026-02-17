@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "rpc/messages.hpp"
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "utils/function_traits.hpp"
