@@ -187,11 +187,13 @@ TEST(RpcVersioning, StateCheckRpc) {
           uint64_t const request_version,
           auto * /*req_reader*/,
           auto *res_builder) {
-        memgraph::coordination::InstanceState const instance_state{.is_replica = false,
-                                                                   .uuid = memgraph::utils::UUID{},
-                                                                   .is_writing_enabled = true,
-                                                                   .main_num_txns = main_num_txns,
-                                                                   .replicas_num_txns = replicas_num_txns};
+        memgraph::coordination::InstanceStateV2 inner_state{.is_replica = false,
+                                                            .uuid = memgraph::utils::UUID{},
+                                                            .is_writing_enabled = true,
+                                                            .main_num_txns = main_num_txns,
+                                                            .replicas_num_txns = replicas_num_txns};
+        memgraph::coordination::InstanceState const instance_state{.inner_state = std::move(inner_state),
+                                                                   .deltas_batch_progress_size = 12000};
         memgraph::coordination::StateCheckRes const res{instance_state};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -206,10 +208,10 @@ TEST(RpcVersioning, StateCheckRpc) {
     auto stream = client.Stream<memgraph::coordination::StateCheckRpc>();
     auto reply = stream.SendAndWait();
 
-    EXPECT_FALSE(reply.state.is_replica);
-    EXPECT_TRUE(reply.state.is_writing_enabled);
-    EXPECT_EQ(*reply.state.main_num_txns, main_num_txns);
-    EXPECT_EQ(*reply.state.replicas_num_txns, replicas_num_txns);
+    EXPECT_FALSE(reply.arg_.inner_state.is_replica);
+    EXPECT_TRUE(reply.arg_.inner_state.is_writing_enabled);
+    EXPECT_EQ(*reply.arg_.inner_state.main_num_txns, main_num_txns);
+    EXPECT_EQ(*reply.arg_.inner_state.replicas_num_txns, replicas_num_txns);
   }
 
   {

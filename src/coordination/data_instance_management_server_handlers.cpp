@@ -435,7 +435,7 @@ void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSize(
     locked_repl_state->UpdateDeltasBatchProgressSize(req.arg_);
   }
 
-  coordination::UpdateDataInstanceConfigRes res{true};
+  coordination::UpdateDataInstanceConfigRes const res{true};
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
