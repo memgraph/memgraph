@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <limits>
 #include <mutex>
@@ -25,6 +26,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <unordered_map>
 
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
@@ -691,12 +693,15 @@ template <typename TFunc>
 void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &edges, const uint64_t from_offset,
                       const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
                       NameIdMapper *name_id_mapper,
-                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                      std::pair<std::mutex, std::unordered_map<uint64_t, Edge *>> *light_edge_map = nullptr) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
 
-  // Recover edges.
-  auto edge_acc = edges.access();
+  const bool use_light_map = (light_edge_map != nullptr) && items.storage_light_edge;
+  std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
+  if (!use_light_map) edge_acc = edges.access();
+
   uint64_t last_edge_gid = 0;
   spdlog::info("Recovering {} edges.", edges_count);
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't set offset position for reading edges!");
@@ -733,14 +738,10 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
     last_edge_gid = *gid;
 
     if (items.properties_on_edges) {
-      auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
-      if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
-
-      // Recover properties.
-      {
+      if (use_light_map) {
+        // Light edges: create on heap, add to map; do not insert into skip list (same as CreateEdge at runtime).
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Couldn't read the size of edge properties!");
-        auto &props = it->properties;
         read_properties.clear();
         read_properties.reserve(*props_size);
         for (uint64_t j = 0; j < *props_size; ++j) {
@@ -750,7 +751,33 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
-        props.InitProperties(std::move(read_properties));
+        Edge *edge_ptr = new Edge(Gid::FromUint(*gid), nullptr);
+        edge_ptr->properties.InitProperties(std::move(read_properties));
+        {
+          std::lock_guard lock(light_edge_map->first);
+          if (!light_edge_map->second.emplace(*gid, edge_ptr).second)
+            throw RecoveryFailure("Light edge map already had an entry for this gid!");
+        }
+      } else {
+        auto [it, inserted] = edge_acc->insert(Edge{Gid::FromUint(*gid), nullptr});
+        if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+
+        // Recover properties.
+        {
+          auto props_size = snapshot.ReadUint();
+          if (!props_size) throw RecoveryFailure("Couldn't read the size of edge properties!");
+          auto &props = it->properties;
+          read_properties.clear();
+          read_properties.reserve(*props_size);
+          for (uint64_t j = 0; j < *props_size; ++j) {
+            auto key = snapshot.ReadUint();
+            if (!key) throw RecoveryFailure("Couldn't read edge property id!");
+            auto value = snapshot.ReadExternalPropertyValue();
+            if (!value) throw RecoveryFailure("Couldn't read edge property value!");
+            read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
+          }
+          props.InitProperties(std::move(read_properties));
+        }
       }
     } else {
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
@@ -901,8 +928,8 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
     const std::filesystem::path &path, utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
     utils::SkipList<EdgeMetadata> &edges_metadata, SharedSchemaTracking *schema_info, const uint64_t from_offset,
     const uint64_t vertices_count, const SalientConfig::Items items, const bool snapshot_has_edges,
-    TEdgeTypeFromIdFunc get_edge_type_from_id,
-    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+    TEdgeTypeFromIdFunc get_edge_type_from_id, std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+    std::optional<std::function<Edge *(Gid)>> get_or_create_light_edge = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset))
@@ -1008,16 +1035,21 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          // The snapshot contains the individiual edges only if it was created with a config where properties are
-          // allowed on edges. That means the snapshots that were created without edge properties will only contain the
-          // edges in the in/out edges list of vertices, therefore the edges has to be created here.
-          if (snapshot_has_edges) {
-            auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-            if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
-            edge_ref = EdgeRef(&*edge);
+          if (items.storage_light_edge && get_or_create_light_edge) {
+            Edge *light_edge = (*get_or_create_light_edge)(Gid::FromUint(*edge_gid));
+            if (light_edge) edge_ref = EdgeRef(light_edge);
           } else {
-            auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
-            edge_ref = EdgeRef(&*edge);
+            // The snapshot contains the individiual edges only if it was created with a config where properties are
+            // allowed on edges. That means the snapshots that were created without edge properties will only contain
+            // the edges in the in/out edges list of vertices, therefore the edges has to be created here.
+            if (snapshot_has_edges) {
+              auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
+              if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
+              edge_ref = EdgeRef(&*edge);
+            } else {
+              auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
+              edge_ref = EdgeRef(&*edge);
+            }
           }
         }
         vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
@@ -1046,16 +1078,21 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          // The snapshot contains the individual edges only if it was created with a config where properties are
-          // allowed on edges. That means the snapshots that were created without edge properties will only contain the
-          // edges in the in/out edges list of vertices, therefore the edges has to be created here.
-          if (snapshot_has_edges) {
-            auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-            if (edge == edge_acc.end()) throw RecoveryFailure("Couldn't find edge in the loaded edges!");
-            edge_ref = EdgeRef(&*edge);
+          if (items.storage_light_edge && get_or_create_light_edge) {
+            Edge *light_edge = (*get_or_create_light_edge)(Gid::FromUint(*edge_gid));
+            if (light_edge) edge_ref = EdgeRef(light_edge);
           } else {
-            auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
-            edge_ref = EdgeRef(&*edge);
+            // The snapshot contains the individual edges only if it was created with a config where properties are
+            // allowed on edges. That means the snapshots that were created without edge properties will only contain
+            // the edges in the in/out edges list of vertices, therefore the edges has to be created here.
+            if (snapshot_has_edges) {
+              auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
+              if (edge == edge_acc.end()) throw RecoveryFailure("Couldn't find edge in the loaded edges!");
+              edge_ref = EdgeRef(&*edge);
+            } else {
+              auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
+              edge_ref = EdgeRef(&*edge);
+            }
           }
           if (items.enable_edges_metadata) {
             edge_metadata_acc.insert(EdgeMetadata{Gid::FromUint(*edge_gid), &vertex});
@@ -9202,14 +9239,15 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
     spdlog::info("Vertices are recovered.");
 
+    // With light edges, create the map before loading edges so we can fill it in LoadPartialEdges (heap-only, no
+    // skiplist) and then use it in LoadPartialConnectivity when linking vertices. Same pattern as CreateEdge at
+    // runtime.
+    using LightEdgeMap = std::pair<std::mutex, std::unordered_map<uint64_t, Edge *>>;
+    auto light_edge_map = config.salient.items.storage_light_edge ? std::make_shared<LightEdgeMap>() : nullptr;
+
     spdlog::info("Recovering edges.");
-    // Recover edges.
+    // Recover edges: with light edges we create Edge* on heap and add to light_edge_map (no skiplist insert).
     if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
       if (!snapshot.SetPosition(info.offset_edge_batches)) {
         throw RecoveryFailure("Couldn't read data from snapshot!");
       }
@@ -9218,10 +9256,22 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       {
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
+            [path,
+             edges,
+             items = config.salient.items,
+             &get_property_from_id,
+             &snapshot_info,
+             name_id_mapper,
+             light_edge_map](const size_t /*batch_index*/, const BatchInfo &batch) {
+              LoadPartialEdges(path,
+                               *edges,
+                               batch.offset,
+                               batch.count,
+                               items,
+                               get_property_from_id,
+                               name_id_mapper,
+                               snapshot_info,
+                               light_edge_map ? light_edge_map.get() : nullptr);
             },
             edge_batches);
       }
@@ -9236,6 +9286,17 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    // With light edges, get_or_create_light_edge uses the map (filled in LoadPartialEdges or created here if no edge
+    // section) so we have one Edge* per GID when linking vertices.
+    auto get_or_create_light_edge = light_edge_map
+                                        ? std::make_optional(std::function<Edge *(Gid)>([light_edge_map](Gid gid) {
+                                            std::lock_guard lock(light_edge_map->first);
+                                            auto it = light_edge_map->second.find(gid.AsUint());
+                                            if (it != light_edge_map->second.end()) return it->second;
+                                            throw RecoveryFailure("Couldn't find edge in light edge map!");
+                                          }))
+                                        : std::nullopt;
+
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
@@ -9247,6 +9308,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
            edge_count,
            items = config.salient.items,
            snapshot_has_edges,
+           get_or_create_light_edge,
            &get_edge_type_from_id,
            &highest_edge_gid,
            &recovery_info,
@@ -9261,7 +9323,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                                         items,
                                                         snapshot_has_edges,
                                                         get_edge_type_from_id,
-                                                        snapshot_info);
+                                                        snapshot_info,
+                                                        get_or_create_light_edge);
             edge_count->fetch_add(result.edge_count);
             atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -9269,6 +9332,24 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           vertex_batches);
     }
     spdlog::info("Connectivity is recovered.");
+
+    // Sanity check: we must have created exactly one Edge* per logical edge (no double-creation).
+    if (light_edge_map) {
+      const auto created = light_edge_map->second.size();
+      const auto count = edge_count->load(std::memory_order_acquire);
+      if (created != count) {
+        throw RecoveryFailure(
+            fmt::format("Light edge recovery created {} Edge objects but edge count is {}; possible double-creation.",
+                        created,
+                        count));
+      }
+    }
+
+    // Release temporary light-edge map; Edge* are now only in vertex in_edges/out_edges.
+    // Clearing the map frees the hash table and nodes (~50–100MB for large graphs).
+    if (light_edge_map) {
+      light_edge_map->second.clear();
+    }
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
