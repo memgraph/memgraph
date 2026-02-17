@@ -809,7 +809,7 @@ int main(int argc, char **argv) {
                       FLAGS_data_directory,
                       std::chrono::hours(8),
                       1);
-    telemetry->AddStorageCollector(dbms_handler, *auth_);
+    telemetry->AddStorageCollector(dbms_handler, *auth_, *parameters);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
     telemetry->AddCoordinatorCollector(coordinator_state);

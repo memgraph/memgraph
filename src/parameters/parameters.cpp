@@ -28,8 +28,9 @@ std::string_view ScopePrefix(ParameterScope scope) {
   switch (scope) {
     case ParameterScope::GLOBAL:
       return "global/";
+    default:
+      std::unreachable();
   }
-  throw utils::BasicException("Invalid parameter scope");
 }
 
 std::string MakeKey(ParameterScope scope, std::string_view name) {
@@ -63,7 +64,7 @@ struct SetParameterAction : memgraph::system::ISystemAction {
         main_uuid,
         txn.last_committed_system_timestamp(),
         txn.timestamp(),
-        ParameterInfo{.name = std::string(name_), .value = std::string(value_), .scope = scope_});
+        ParameterInfo{.name = name_, .value = value_, .scope = scope_});
   }
 
   void PostReplication(replication::RoleMainData &) const override {}
@@ -85,7 +86,7 @@ struct UnsetParameterAction : memgraph::system::ISystemAction {
                      memgraph::system::Transaction const &txn) const override {
     auto check = [](const storage::replication::UnsetParameterRes &res) { return res.success; };
     return client.StreamAndFinalizeDelta<storage::replication::UnsetParameterRpc>(
-        check, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), std::string(name_), scope_);
+        check, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), name_, scope_);
   }
 
   void PostReplication(replication::RoleMainData &) const override {}
@@ -114,8 +115,9 @@ std::string_view ParameterScopeToString(ParameterScope scope) {
   switch (scope) {
     case ParameterScope::GLOBAL:
       return "global";
+    default:
+      std::unreachable();
   }
-  throw utils::BasicException("Invalid parameter scope");
 }
 
 Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(PrepareStoragePath(storage_path)) {}
@@ -176,9 +178,8 @@ bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
 std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
   std::vector<ParameterInfo> out;
   for (auto scope : {ParameterScope::GLOBAL}) {
-    for (const auto &p : GetAllParameters(scope)) {
-      out.push_back(p);
-    }
+    auto params = GetAllParameters(scope);
+    out.insert(out.end(), std::make_move_iterator(params.begin()), std::make_move_iterator(params.end()));
   }
   return out;
 }

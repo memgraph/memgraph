@@ -129,8 +129,6 @@ struct SystemRecoveryRes {
 };
 
 using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecoveryRes>;
-using SystemRecoveryRpcV1 = rpc::RequestResponse<SystemRecoveryReqV1, SystemRecoveryResV1>;
-
 }  // namespace memgraph::replication
 
 namespace memgraph::slk {

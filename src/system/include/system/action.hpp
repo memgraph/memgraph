@@ -26,8 +26,8 @@ struct ISystemAction {
   /// Durability step which is defered until commit time
   virtual void DoDurability() = 0;
 
-  /// If true, this action may be replicated (e.g. parameter changes). If false, replication is skipped (e.g. auth,
-  /// dbms).
+  /// True if this action is allowed to replicate in community (no enterprise license). Parameter actions return true;
+  /// auth and dbms actions return false.
   virtual bool ShouldReplicateInCommunity() const = 0;
 
   /// Prepare the RPC payload that will be sent to all replicas clients

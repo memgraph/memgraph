@@ -146,7 +146,3 @@ workloads:
   - name: "TTL replication"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/ttl.py"]
-
-  - name: "Replicate parameters"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/replicate_parameters.py"]

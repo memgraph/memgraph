@@ -397,10 +397,10 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ), f"Invalid type for property_store_compression_level[{level}]: expected int, got {type(count)}"
 
     # Verify parameters
-    assert "parameters" in storage_data, f"Missing 'parameters' field in storage data {storage_data}"
+    assert "num_parameters" in storage_data, f"Missing 'num_parameters' field in storage data {storage_data}"
     assert isinstance(
-        storage_data["parameters"], int
-    ), f"Invalid type for 'parameters': expected int, got {type(storage_data['parameters'])}"
+        storage_data["num_parameters"], int
+    ), f"Invalid type for 'num_parameters': expected int, got {type(storage_data['num_parameters'])}"
 
     return True
 

@@ -14,6 +14,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <ranges>
 
 #include "replication/state.hpp"
 #include "system/action.hpp"
@@ -88,8 +89,8 @@ struct Transaction {
     actions_.clear();
   }
 
-  /// True if every action in this transaction is replicable (e.g. only parameter actions). Auth and dbms actions are
-  /// not.
+  /// True if every action in this transaction is replicable in community (e.g. only parameter actions). Auth and
+  /// dbms actions are not.
   [[nodiscard]] bool CanReplicateInCommunity() const {
     return !actions_.empty() &&
            std::ranges::all_of(actions_, [](auto const &action) { return action->ShouldReplicateInCommunity(); });

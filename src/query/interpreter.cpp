@@ -2635,7 +2635,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
         if (!parameters->SetParameter(parameter_name, value_str, kParamScope, &*interpreter->system_transaction_)) {
-          throw utils::BasicException("Failed to set parameter '{}'", parameter_name);
+          throw QueryRuntimeException("Failed to set parameter '{}'", parameter_name);
         }
         spdlog::info("Set parameter '{}' with value '{}'", parameter_name, value_str);
         return std::vector<std::vector<TypedValue>>{};
@@ -2651,7 +2651,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
         if (!parameters->UnsetParameter(parameter_name, kParamScope, &*interpreter->system_transaction_)) {
-          throw utils::BasicException("Parameter '{}' does not exist", parameter_name);
+          throw QueryRuntimeException("Parameter '{}' does not exist", parameter_name);
         }
         spdlog::info("Unset parameter '{}'", parameter_name);
         return std::vector<std::vector<TypedValue>>{};
@@ -2683,7 +2683,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
         if (!parameters->DeleteAllParameters(&*interpreter->system_transaction_)) {
-          throw utils::BasicException("Failed to delete all parameters");
+          throw QueryRuntimeException("Failed to delete all parameters");
         }
         spdlog::info("Deleted all parameters");
         return std::vector<std::vector<TypedValue>>{};
@@ -8844,10 +8844,16 @@ void Interpreter::Commit() {
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
       // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
-      if (license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity()) {
-        return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+      bool can_replicate =
+#ifdef MG_ENTERPRISE
+          license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity();
+#else
+          system_transaction_->CanReplicateInCommunity();  // Community: no license, only parameters replicate
+#endif
+      if (!can_replicate) {
+        return system_transaction_->Commit(memgraph::system::DoNothing{});
       }
-      return system_transaction_->Commit(memgraph::system::DoNothing{});
+      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
     };
 
     auto const replica_commit = [&](replication::RoleReplicaData &) {

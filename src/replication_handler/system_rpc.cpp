@@ -79,7 +79,7 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
 
 // Serialize code for SystemRecoveryResV1 (same layout as Res)
 void Save(const memgraph::replication::SystemRecoveryResV1 &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(std::to_underlying(self.result), builder);
+  memgraph::slk::Save(self.result, builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryResV1 *self, memgraph::slk::Reader *reader) {
@@ -92,7 +92,7 @@ void Load(memgraph::replication::SystemRecoveryResV1 *self, memgraph::slk::Reade
 
 // Serialize code for SystemRecoveryRes
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(std::to_underlying(self.result), builder);
+  memgraph::slk::Save(self.result, builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader) {

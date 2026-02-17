@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "kvstore/kvstore.hpp"
-#include "replication/state.hpp"
 #include "system/state.hpp"
 #include "system/transaction.hpp"
 
@@ -88,12 +87,6 @@ struct Parameters {
    * @brief Return snapshot of all parameters for SystemRecoveryReq (main side).
    */
   std::vector<ParameterInfo> GetSnapshotForRecovery() const;
-
-  /**
-   * @brief Register replication RPC handlers for parameters on the replica.
-   */
-  void RegisterReplicationHandlers(replication::RoleReplicaData const &data,
-                                   system::ReplicaHandlerAccessToState &system_state_access);
 
  private:
   kvstore::KVStore storage_;

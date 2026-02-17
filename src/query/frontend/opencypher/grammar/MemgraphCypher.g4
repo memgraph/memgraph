@@ -137,9 +137,10 @@ memgraphCypherKeyword : cypherKeyword
                       | OFF
                       | ON
                       | ON_DISK_TRANSACTIONAL
+                      | PARAMETER
+                      | PARAMETERS
                       | PARALLEL
                       | PARALLEL_EXECUTION
-                      | SERVER_SIDE_PARAMETERS
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
@@ -169,12 +170,11 @@ memgraphCypherKeyword : cypherKeyword
                       | SCHEMA
                       | SECURITY
                       | SERVER
+                      | SERVER_SIDE_PARAMETERS
                       | SERVICE_URL
                       | SESSION
                       | SETTING
                       | SETTINGS
-                      | PARAMETER
-                      | PARAMETERS
                       | SNAPSHOT
                       | SNAPSHOTS
                       | START

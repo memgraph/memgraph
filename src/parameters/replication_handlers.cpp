@@ -145,9 +145,4 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
       });
 }
 
-void Parameters::RegisterReplicationHandlers(replication::RoleReplicaData const &data,
-                                             system::ReplicaHandlerAccessToState &system_state_access) {
-  Register(data, system_state_access, *this);
-}
-
 }  // namespace memgraph::parameters
