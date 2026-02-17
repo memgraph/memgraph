@@ -2331,7 +2331,11 @@ auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>
   auto scalar_kind_it = transformed_map.find(kScalarKind);
   auto scalar_kind = storage::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);
-  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
+  return storage::VectorIndexConfigMap{.metric = metric_kind,
+                                       .dimension = dimension_value,
+                                       .capacity = capacity_value,
+                                       .resize_coefficient = resize_coefficient,
+                                       .scalar_kind = scalar_kind};
 }
 }  // namespace
 
