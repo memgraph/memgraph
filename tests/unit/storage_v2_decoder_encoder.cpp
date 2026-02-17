@@ -439,7 +439,6 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_EDGE_CREATE:
         case memgraph::storage::durability::Marker::DELTA_EDGE_DELETE:
         case memgraph::storage::durability::Marker::DELTA_EDGE_SET_PROPERTY:
-        case memgraph::storage::durability::Marker::DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE:
         case memgraph::storage::durability::Marker::DELTA_TRANSACTION_START:
         case memgraph::storage::durability::Marker::DELTA_TRANSACTION_END:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_CREATE:

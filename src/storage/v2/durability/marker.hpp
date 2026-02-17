@@ -91,8 +91,6 @@ enum class Marker : uint8_t {
   DELTA_TRANSACTION_START = 0x77,
   DELTA_TTL_OPERATION = 0x78,
   DELTA_TEXT_EDGE_INDEX_CREATE = 0x79,
-  /// Replication-only: sent before DELTA_EDGE_SET_PROPERTY to carry from_gid/to_gid for fast replica lookup.
-  DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE = 0x7a,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -169,7 +167,6 @@ static constexpr std::array kMarkersAll = {
     Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP,
     Marker::DELTA_TTL_OPERATION,
     Marker::DELTA_TEXT_EDGE_INDEX_CREATE,
-    Marker::DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };

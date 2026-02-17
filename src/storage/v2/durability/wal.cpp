@@ -184,7 +184,6 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_EDGE_DELETE:
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
-    case DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE:
     case DELTA_TRANSACTION_START:
       return false;
 
@@ -617,7 +616,6 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VERTEX_REMOVE_LABEL, WalVertexRemoveLabel);
     read_skip(VERTEX_SET_PROPERTY, WalVertexSetProperty);
     read_skip(EDGE_SET_PROPERTY, WalEdgeSetProperty);
-    read_skip(REPLICATION_EDGE_SET_PROPERTY_PREAMBLE, WalReplicationEdgeSetPropertyPreamble);
     read_skip(EDGE_CREATE, WalEdgeCreate);
     read_skip(EDGE_DELETE, WalEdgeDelete);
     read_skip(TRANSACTION_START, WalTransactionStart);
@@ -1131,9 +1129,6 @@ std::optional<RecoveryInfo> LoadWal(
 
         if (schema_info)
           schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
-      },
-      [&](WalReplicationEdgeSetPropertyPreamble const &) {
-        // Replication-only; never present when loading from WAL file. No-op.
       },
       [&](WalEdgeSetProperty const &data) {
         if (!items.properties_on_edges)

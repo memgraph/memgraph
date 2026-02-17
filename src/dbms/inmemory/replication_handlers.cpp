@@ -1143,10 +1143,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   spdlog::trace("Current durable commit timestamp: {}", current_durable_commit_timestamp);
 
   uint64_t prev_printed_timestamp = 0;
-  std::optional<storage::durability::WalReplicationEdgeSetPropertyPreamble> replication_edge_preamble;
 
-  // Cache (edge_gid, delta_timestamp) -> EdgeAccessor. Filled on EdgeCreate, WalReplicationEdgeSetPropertyPreamble,
-  // or on first SET_PROPERTY resolution; reused for subsequent SET_PROPERTY.
+  // Cache (edge_gid, delta_timestamp) -> EdgeAccessor. Filled on EdgeCreate or on first SET_PROPERTY resolution;
+  // reused for subsequent SET_PROPERTY.
   struct EdgeSetPropertyCacheKey {
     uint64_t edge_gid{};
     uint64_t delta_timestamp{};
@@ -1249,30 +1248,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!ret) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
-        },
-        [&](WalReplicationEdgeSetPropertyPreamble const &data) {
-          // Pre-fill cache with EdgeAccessor so the next WalEdgeSetProperty (same edge, same txn) hits cache.
-          EdgeSetPropertyCacheKey key{data.edge_gid.AsUint(), delta_timestamp};
-          if (edge_set_property_cache.find(key) != edge_set_property_cache.end()) return;
-
-          auto *transaction = get_replication_accessor(delta_timestamp);
-          auto from_vertex = transaction->FindVertex(data.from_gid, View::NEW);
-          if (!from_vertex) {
-            throw utils::BasicException("Failed to find from vertex {} when pre-filling edge cache (preamble).",
-                                        data.from_gid.AsUint());
-          }
-          auto to_vertex = transaction->FindVertex(data.to_gid, View::NEW);
-          if (!to_vertex) {
-            throw utils::BasicException("Failed to find to vertex {} when pre-filling edge cache (preamble).",
-                                        data.to_gid.AsUint());
-          }
-          auto edge_type = transaction->NameToEdgeType(data.edge_type);
-          auto edge = transaction->FindEdge(data.edge_gid, View::NEW, edge_type, &*from_vertex, &*to_vertex);
-          if (!edge) {
-            throw utils::BasicException("Couldn't find edge {} when pre-filling cache (preamble).",
-                                        data.edge_gid.AsUint());
-          }
-          edge_set_property_cache.emplace(key, *edge);
         },
         [&](WalEdgeCreate const &data) {
           auto const edge_gid = data.gid.AsUint();

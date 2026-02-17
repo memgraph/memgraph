@@ -143,23 +143,6 @@ struct Transaction {
     commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
 
-  /// Replication-only: pushed when creating an edge SET_PROPERTY delta so replica can resolve edge without FindEdge.
-  struct ReplicationEdgePreamble {
-    Gid from_gid;
-    Gid to_gid;
-    Gid edge_gid;
-    EdgeTypeId edge_type;
-  };
-  void PushReplicationEdgePreamble(Gid from_gid, Gid to_gid, Gid edge_gid, EdgeTypeId edge_type) {
-    replication_edge_preambles_.emplace_back(
-        ReplicationEdgePreamble{.from_gid = from_gid, .to_gid = to_gid, .edge_gid = edge_gid, .edge_type = edge_type});
-  }
-  auto GetNextReplicationEdgePreamble() -> std::optional<ReplicationEdgePreamble> {
-    if (replication_edge_preamble_index_ >= replication_edge_preambles_.size()) return std::nullopt;
-    return replication_edge_preambles_[replication_edge_preamble_index_++];
-  }
-  void ResetReplicationEdgePreambleIndex() { replication_edge_preamble_index_ = 0; }
-
   bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
     return modified_edges_.emplace(gid, modified_edge).second;
   }
@@ -257,10 +240,6 @@ struct Transaction {
   AsyncIndexHelper async_index_helper_;
 
   bool parallel_execution_{false};  // For now just disable for the whole query
-
-  /// Replication-only: preambles for edge SET_PROPERTY deltas (from/to/edge_gid/type), consumed in encode order.
-  std::vector<ReplicationEdgePreamble> replication_edge_preambles_{};
-  size_t replication_edge_preamble_index_{0};
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

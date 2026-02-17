@@ -3475,14 +3475,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
-    transaction_.ResetReplicationEdgePreambleIndex();
     append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
-      // Replication-only: send preamble before edge SET_PROPERTY so replica can resolve edge without FindEdge.
-      if (delta.action == Delta::Action::SET_PROPERTY && delta.property.out_vertex != nullptr) {
-        if (auto preamble = transaction_.GetNextReplicationEdgePreamble()) {
-          replicating_txn.AppendDelta(*preamble, durability_commit_timestamp_arg, mem_storage);
-        }
-      }
       mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
       replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
       // We send in progress msg every 10s. RPC timeout on main is configured with 30s
