@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <expected>
 #include <mutex>
 #include <optional>
 #include <storage/v2/replication/rpc.hpp>
@@ -23,7 +24,6 @@
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/typeinfo.hpp"
@@ -117,7 +117,7 @@ class Client {
 
     slk::Builder *GetBuilder() { return &req_builder_; }
 
-    typename TRequestResponse::Response SendAndWaitProgress() {
+    auto SendAndWaitProgress() -> std::expected<typename TRequestResponse::Response, RpcError> {
       auto final_res_type = TRequestResponse::Response::kType;
       auto req_type = TRequestResponse::Request::kType;
 
@@ -141,17 +141,19 @@ class Client {
             // Logically invalid state, connection is still up, defunct stream and release
             defunct_ = true;
             guard_.unlock();
-            throw GenericRpcFailedException();
+            return std::unexpected{RpcError::GENERIC_RPC_ERROR};
           }
           if (ret.status == slk::StreamStatus::PARTIAL) {
-            if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                      /* exactly_len = */ false,
-                                      /* timeout_ms = */ timeout_ms_)) {
+            if (auto const result = self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
+                                                         /* exactly_len = */ false,
+                                                         /* timeout_ms = */ timeout_ms_);
+                !result.has_value()) {
               // Failed connection, abort and let somebody retry in the future.
               defunct_ = true;
               self_->Shutdown();
               guard_.unlock();
-              throw GenericRpcFailedException();
+              // TODO: (andi) Handle the timeout error
+              return std::unexpected{RpcError::GENERIC_RPC_ERROR};
             }
           } else {
             response_data_size = ret.stream_size;
@@ -162,18 +164,10 @@ class Client {
         // Load the response.
         slk::Reader res_reader(self_->client_->GetData(), response_data_size);
 
-        auto const maybe_message_header = std::invoke([&res_reader]() -> std::optional<ProtocolMessageHeader> {
-          try {
-            return LoadMessageHeader(&res_reader);
-          } catch (const std::exception &e) {
-            return std::nullopt;
-          }
-        });
-
-        if (!maybe_message_header) {
+        auto const maybe_message_header = LoadMessageHeader(&res_reader);
+        if (!maybe_message_header.has_value()) {
           self_->client_->ShiftData(response_data_size);
-          throw SlkRpcFailedException();
-          ;
+          return std::unexpected{maybe_message_header.error()};
         }
 
         if (maybe_message_header->message_id == utils::TypeId::REP_IN_PROGRESS_RES) {
@@ -193,7 +187,7 @@ class Client {
           defunct_ = true;
           guard_.unlock();
           self_->client_->ShiftData(response_data_size);
-          throw GenericRpcFailedException();
+          return std::unexpected{RpcError::GENERIC_RPC_ERROR};
         }
 
         spdlog::trace("[RpcClient] received {}, version {}, from endpoint {}:{}.",
@@ -232,13 +226,15 @@ class Client {
           throw GenericRpcFailedException();
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
-          if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                    /* exactly_len = */ false,
-                                    /* timeout_ms = */ timeout_ms_)) {
+          if (auto const result = self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
+                                                       /* exactly_len = */ false,
+                                                       /* timeout_ms = */ timeout_ms_);
+              !result.has_value()) {
             // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
             self_->Shutdown();
             guard_.unlock();
+            // TODO: (andi) Handle the error
             throw GenericRpcFailedException();
           }
         } else {
@@ -251,17 +247,10 @@ class Client {
       slk::Reader res_reader(self_->client_->GetData(), response_data_size);
       utils::OnScopeExit res_cleanup([&, response_data_size] { self_->client_->ShiftData(response_data_size); });
 
-      auto const maybe_message_header = std::invoke([&res_reader]() -> std::optional<ProtocolMessageHeader> {
-        try {
-          return LoadMessageHeader(&res_reader);
-        } catch (const std::exception &e) {
-          return std::nullopt;
-        }
-      });
-
-      if (!maybe_message_header) {
-        throw SlkRpcFailedException();
-        ;
+      auto const maybe_message_header = LoadMessageHeader(&res_reader);
+      if (!maybe_message_header.has_value()) {
+        // return std::unexpected{maybe_message_header.error()};
+        throw UnsupportedRpcVersionException();
       }
 
       // Check the response ID.

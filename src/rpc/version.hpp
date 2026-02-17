@@ -12,6 +12,10 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
+
+#include "rpc/exceptions.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
 
@@ -54,7 +58,7 @@ struct ProtocolMessageHeader {
 };
 
 // @throws UnsupportedRpcVersionException
-inline auto LoadMessageHeader(slk::Reader *reader) -> ProtocolMessageHeader {
+inline auto LoadMessageHeader(slk::Reader *reader) -> std::expected<ProtocolMessageHeader, RpcError> {
   ProtocolMessageHeader header;
   slk::Load(&header.protocol_version, reader);
   switch (header.protocol_version) {
@@ -71,7 +75,7 @@ inline auto LoadMessageHeader(slk::Reader *reader) -> ProtocolMessageHeader {
       slk::Load(&header.message_version, reader);
       break;
     default:
-      throw UnsupportedRpcVersionException();
+      return std::unexpected{RpcError::UNSUPPORTED_RPC_VERSION_ERROR};
   }
   return header;
 }

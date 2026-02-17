@@ -52,7 +52,7 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
     }
   }
 
-  if (!client_.Read(kBoltV43Version.size())) {
+  if (!client_.Read(kBoltV43Version.size()).has_value()) {
     spdlog::error("Couldn't get negotiated protocol version!");
     throw ServerCommunicationException();
   }
@@ -240,14 +240,14 @@ void Client::Close() { client_.Close(); };
 bool Client::GetMessage() {
   client_.ClearData();
   while (true) {
-    if (!client_.Read(kChunkHeaderSize)) return false;
+    if (!client_.Read(kChunkHeaderSize).has_value()) return false;
 
     size_t chunk_size = client_.GetData()[0];
     chunk_size <<= 8U;
     chunk_size += client_.GetData()[1];
     if (chunk_size == 0) return true;
 
-    if (!client_.Read(chunk_size)) return false;
+    if (!client_.Read(chunk_size).has_value()) return false;
     if (decoder_buffer_.GetChunk() != ChunkState::Whole) return false;
     client_.ClearData();
   }

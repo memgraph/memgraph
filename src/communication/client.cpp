@@ -97,8 +97,9 @@ void Client::Close() {
   socket_.Close();
 }
 
-bool Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout_ms) {
-  if (len == 0) return false;
+auto Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout_ms)
+    -> std::expected<void, ClientCommunicationError> {
+  if (len == 0) return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
   size_t received = 0;
   buffer_.write_end()->Resize(buffer_.read_end()->size() + len);
   do {
@@ -129,11 +130,11 @@ bool Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
         } else {
           // This is a fatal error.
           spdlog::error("Received an unexpected SSL error: {}", err);
-          return false;
+          return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
         }
       } else if (got == 0) {
         // The server closed the connection.
-        return false;
+        return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
       }
 
       // Notify the buffer that it has new data.
@@ -142,7 +143,7 @@ bool Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
     } else {
       // Read raw data from the socket.
       if (timeout_ms && !socket_.WaitForReadyRead(timeout_ms)) {
-        return false;
+        return std::unexpected{ClientCommunicationError::TIMEOUT_ERROR};
       }
       auto got = socket_.Read(buff.data, len - received);
 
@@ -151,7 +152,7 @@ bool Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
         // returns -1 all of the errors that could be found in `errno` are
         // fatal errors (because we are using a blocking socket) so return a
         // read failure.
-        return false;
+        return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
       }
 
       // Notify the buffer that it has new data.
@@ -159,7 +160,7 @@ bool Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
       received += got;
     }
   } while (received < len && exactly_len);
-  return true;
+  return {};
 }
 
 uint8_t *Client::GetData() { return buffer_.read_end()->data(); }

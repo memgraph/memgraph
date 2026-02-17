@@ -61,8 +61,7 @@ class ReplicaStream {
   /// @throw rpc::RpcFailedException
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
-  /// @throw rpc::RpcFailedException
-  replication::PrepareCommitRes Finalize();
+  auto Finalize() -> std::expected<replication::PrepareCommitRes, rpc::RpcError>;
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 

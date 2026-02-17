@@ -137,17 +137,8 @@ void RpcMessageDeliverer::Execute() {
     output_stream_->Write(data, size, have_more);
   });
 
-  auto const maybe_message_header = std::invoke([&req_reader]() -> std::optional<ProtocolMessageHeader> {
-    try {
-      // Propagate UnsupportedRpcVersion Exception
-      return LoadMessageHeader(&req_reader);
-    } catch (const std::exception &e) {
-      spdlog::error("Error occurred while loading message header: {}", e.what());
-      return std::nullopt;
-    }
-  });
-
-  if (!maybe_message_header) {
+  auto const maybe_message_header = LoadMessageHeader(&req_reader);
+  if (!maybe_message_header.has_value()) {
     throw SlkRpcFailedException();
   }
 
