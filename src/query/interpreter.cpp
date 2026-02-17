@@ -4422,7 +4422,7 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
 
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
-  storage::VectorIndexConfigMap vector_index_config = std::visit(
+  const auto vector_index_config = std::visit(
       utils::Overloaded{
           [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
           [&evaluator](Expression *expr) {
