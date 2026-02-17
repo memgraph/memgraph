@@ -30,6 +30,7 @@
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
+#include <unordered_map>
 
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
@@ -1144,6 +1145,25 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   uint64_t prev_printed_timestamp = 0;
   std::optional<storage::durability::WalReplicationEdgeSetPropertyPreamble> replication_edge_preamble;
 
+  // Cache (edge_gid, delta_timestamp) -> EdgeAccessor. Filled on EdgeCreate, WalReplicationEdgeSetPropertyPreamble,
+  // or on first SET_PROPERTY resolution; reused for subsequent SET_PROPERTY.
+  struct EdgeSetPropertyCacheKey {
+    uint64_t edge_gid{};
+    uint64_t delta_timestamp{};
+
+    bool operator==(const EdgeSetPropertyCacheKey &o) const {
+      return edge_gid == o.edge_gid && delta_timestamp == o.delta_timestamp;
+    }
+  };
+
+  struct EdgeSetPropertyCacheKeyHash {
+    size_t operator()(const EdgeSetPropertyCacheKey &k) const {
+      return std::hash<uint64_t>{}(k.edge_gid) ^ (std::hash<uint64_t>{}(k.delta_timestamp) << 1);
+    }
+  };
+
+  std::unordered_map<EdgeSetPropertyCacheKey, EdgeAccessor, EdgeSetPropertyCacheKeyHash> edge_set_property_cache;
+
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == deltas_batch_progress_size) {
       rpc::SendInProgressMsg(res_builder);
@@ -1230,7 +1250,30 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
         },
-        [&](WalReplicationEdgeSetPropertyPreamble const &data) { replication_edge_preamble = data; },
+        [&](WalReplicationEdgeSetPropertyPreamble const &data) {
+          // Pre-fill cache with EdgeAccessor so the next WalEdgeSetProperty (same edge, same txn) hits cache.
+          EdgeSetPropertyCacheKey key{data.edge_gid.AsUint(), delta_timestamp};
+          if (edge_set_property_cache.find(key) != edge_set_property_cache.end()) return;
+
+          auto *transaction = get_replication_accessor(delta_timestamp);
+          auto from_vertex = transaction->FindVertex(data.from_gid, View::NEW);
+          if (!from_vertex) {
+            throw utils::BasicException("Failed to find from vertex {} when pre-filling edge cache (preamble).",
+                                        data.from_gid.AsUint());
+          }
+          auto to_vertex = transaction->FindVertex(data.to_gid, View::NEW);
+          if (!to_vertex) {
+            throw utils::BasicException("Failed to find to vertex {} when pre-filling edge cache (preamble).",
+                                        data.to_gid.AsUint());
+          }
+          auto edge_type = transaction->NameToEdgeType(data.edge_type);
+          auto edge = transaction->FindEdge(data.edge_gid, View::NEW, edge_type, &*from_vertex, &*to_vertex);
+          if (!edge) {
+            throw utils::BasicException("Couldn't find edge {} when pre-filling cache (preamble).",
+                                        data.edge_gid.AsUint());
+          }
+          edge_set_property_cache.emplace(key, *edge);
+        },
         [&](WalEdgeCreate const &data) {
           auto const edge_gid = data.gid.AsUint();
           auto const from_vertex_gid = data.from_vertex.AsUint();
@@ -1250,12 +1293,16 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!to_vertex) {
             throw utils::BasicException("Failed to find vertex {} when adding edge {}.", to_vertex_gid, edge_gid);
           }
-          auto edge = transaction->CreateEdgeEx(
+          auto edge_result = transaction->CreateEdgeEx(
               &*from_vertex, &*to_vertex, transaction->NameToEdgeType(data.edge_type), data.gid);
-          if (!edge) {
+          if (!edge_result) {
             throw utils::BasicException(
                 "Failed to add edge {} between vertices {} and {}.", edge_gid, from_vertex_gid, to_vertex_gid);
           }
+          // Pre-fill cache for subsequent SET_PROPERTY on this edge in the same transaction.
+          auto &edge = *edge_result;
+          EdgeSetPropertyCacheKey key{edge_gid, delta_timestamp};
+          edge_set_property_cache.emplace(key, edge);
         },
         [&](WalEdgeDelete const &data) {
           auto const edge_gid = data.gid.AsUint();
@@ -1295,104 +1342,97 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                 "are disabled!");
 
           auto *transaction = get_replication_accessor(delta_timestamp);
+          EdgeSetPropertyCacheKey const cache_key{edge_gid, delta_timestamp};
+
+          // Fast path: use cached edge accessor.
+          auto it = edge_set_property_cache.find(cache_key);
+          if (it != edge_set_property_cache.end()) {
+            auto ret =
+                it->second.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
+            if (!ret) {
+              throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
+            }
+            return;
+          }
 
           std::optional<std::tuple<EdgeRef,
                                    memgraph::storage::EdgeTypeId,
                                    memgraph::storage::Vertex *,
                                    memgraph::storage::Vertex *>>
               edge_info;
-          if (replication_edge_preamble && replication_edge_preamble->edge_gid == data.gid) {
-            // Fast path: use preamble from/to for O(1) lookup (replication-only).
-            auto from_vertex = transaction->FindVertex(replication_edge_preamble->from_gid, View::NEW);
-            if (!from_vertex) {
-              throw utils::BasicException("Failed to find from vertex {} when setting edge property (preamble).",
-                                          replication_edge_preamble->from_gid.AsUint());
-            }
-            auto to_vertex = transaction->FindVertex(replication_edge_preamble->to_gid, View::NEW);
-            if (!to_vertex) {
-              throw utils::BasicException("Failed to find to vertex {} when setting edge property (preamble).",
-                                          replication_edge_preamble->to_gid.AsUint());
-            }
-            auto edge_type = transaction->NameToEdgeType(replication_edge_preamble->edge_type);
-            auto edge = transaction->FindEdge(data.gid, View::NEW, edge_type, &*from_vertex, &*to_vertex);
-            if (!edge) {
-              throw utils::BasicException("Couldn't find edge {} when setting property (preamble).", edge_gid);
-            }
-            edge_info.emplace(edge->edge_, edge_type, from_vertex->vertex_, to_vertex->vertex_);
-            replication_edge_preamble.reset();
-          } else {
-            // Slow path: resolve edge via edge_acc / FindEdge (WAL or legacy replication).
-            auto edge = edge_acc.find(data.gid);
-            if (edge == edge_acc.end()) {
-              throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
-            }
+
+          // Slow path: resolve edge via edge_acc / FindEdge (WAL or legacy replication).
+          auto edge = edge_acc.find(data.gid);
+          if (edge == edge_acc.end()) {
+            throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
+          }
+          {
+            bool is_visible = true;
+            Delta *local_delta = nullptr;
             {
-              bool is_visible = true;
-              Delta *local_delta = nullptr;
-              {
-                auto guard = std::shared_lock{edge->lock};
-                is_visible = !edge->deleted();
-                local_delta = edge->delta();
-              }
-              ApplyDeltasForRead(
-                  &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
-                    switch (delta.action) {
-                      case Delta::Action::ADD_LABEL:
-                      case Delta::Action::REMOVE_LABEL:
-                      case Delta::Action::SET_PROPERTY:
-                      case Delta::Action::ADD_IN_EDGE:
-                      case Delta::Action::ADD_OUT_EDGE:
-                      case Delta::Action::REMOVE_IN_EDGE:
-                      case Delta::Action::REMOVE_OUT_EDGE:
-                        break;
-                      case Delta::Action::RECREATE_OBJECT: {
-                        is_visible = true;
-                        break;
-                      }
-                      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                      case Delta::Action::DELETE_OBJECT: {
-                        is_visible = false;
-                        break;
-                      }
-                    }
-                  });
-              if (!is_visible) {
-                throw utils::BasicException("Edge {} isn't visible when setting property.", edge_gid);
-              }
+              auto guard = std::shared_lock{edge->lock};
+              is_visible = !edge->deleted();
+              local_delta = edge->delta();
             }
-
-            auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
-              if (data.from_gid.has_value()) {
-                auto vertex_acc = storage->vertices_.access();
-                auto from_vertex = vertex_acc.find(data.from_gid);
-                if (from_vertex == vertex_acc.end())
-                  throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
-                                              data.from_gid->AsUint());
-
-                auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
-                  return std::get<2>(in) == raw_edge_ref;
+            ApplyDeltasForRead(
+                &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
+                  switch (delta.action) {
+                    case Delta::Action::ADD_LABEL:
+                    case Delta::Action::REMOVE_LABEL:
+                    case Delta::Action::SET_PROPERTY:
+                    case Delta::Action::ADD_IN_EDGE:
+                    case Delta::Action::ADD_OUT_EDGE:
+                    case Delta::Action::REMOVE_IN_EDGE:
+                    case Delta::Action::REMOVE_OUT_EDGE:
+                      break;
+                    case Delta::Action::RECREATE_OBJECT: {
+                      is_visible = true;
+                      break;
+                    }
+                    case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                    case Delta::Action::DELETE_OBJECT: {
+                      is_visible = false;
+                      break;
+                    }
+                  }
                 });
-                if (found_edge == from_vertex->out_edges.end()) {
-                  throw utils::BasicException(
-                      "Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid, from_vertex->gid.AsUint());
-                }
-                const auto &[et, vt, er] = *found_edge;
-                return std::tuple{er, et, &*from_vertex, vt};
-              }
-              auto found_edge = storage->FindEdge(edge->gid);
-              if (!found_edge) {
-                constexpr auto src_loc{std::source_location()};
-                throw utils::BasicException(
-                    "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
-              }
-              const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
-              return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
-            });
-            edge_info.emplace(edge_ref, edge_type, from_vertex, vertex_to);
+            if (!is_visible) {
+              throw utils::BasicException("Edge {} isn't visible when setting property.", edge_gid);
+            }
           }
 
-          auto const &[edge_ref, edge_type, from_vertex, vertex_to] = *edge_info;
-          auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
+          auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
+            if (data.from_gid.has_value()) {
+              auto vertex_acc = storage->vertices_.access();
+              auto from_vertex = vertex_acc.find(data.from_gid);
+              if (from_vertex == vertex_acc.end())
+                throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
+                                            data.from_gid->AsUint());
+
+              auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
+                return std::get<2>(in) == raw_edge_ref;
+              });
+              if (found_edge == from_vertex->out_edges.end()) {
+                throw utils::BasicException(
+                    "Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid, from_vertex->gid.AsUint());
+              }
+              const auto &[et, vt, er] = *found_edge;
+              return std::tuple{er, et, &*from_vertex, vt};
+            }
+            auto found_edge = storage->FindEdge(edge->gid);
+            if (!found_edge) {
+              constexpr auto src_loc{std::source_location()};
+              throw utils::BasicException(
+                  "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
+            }
+            const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
+            return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
+          });
+          edge_info.emplace(edge_ref, edge_type, from_vertex, vertex_to);
+
+          auto const &[er, et, fv, tv] = *edge_info;
+          EdgeAccessor ea{er, et, fv, tv, storage, &transaction->GetTransaction()};
+          edge_set_property_cache.emplace(cache_key, ea);
           auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (!ret) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
@@ -1413,6 +1453,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
+          edge_set_property_cache.clear();
           if (!commit_accessor || commit_timestamp != delta_timestamp) {
             throw utils::BasicException("Invalid commit data!");
           }
