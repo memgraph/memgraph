@@ -899,18 +899,6 @@ void ReplicaStream::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t con
   EncodeDelta(&encoder, storage, storage_->config_.salient.items, delta, vertex, final_commit_timestamp);
 }
 
-void ReplicaStream::AppendDelta(const Transaction::ReplicationEdgePreamble &preamble,
-                                uint64_t const final_commit_timestamp, Storage *storage) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteMarker(durability::Marker::SECTION_DELTA);
-  encoder.WriteUint(final_commit_timestamp);
-  encoder.WriteMarker(durability::Marker::DELTA_REPLICATION_EDGE_SET_PROPERTY_PREAMBLE);
-  encoder.WriteUint(preamble.from_gid.AsUint());
-  encoder.WriteUint(preamble.to_gid.AsUint());
-  encoder.WriteUint(preamble.edge_gid.AsUint());
-  encoder.WriteString(storage->name_id_mapper_->IdToName(preamble.edge_type.AsUint()));
-}
-
 auto ReplicaStream::AppendDelta(const Delta &delta, Edge *edge, uint64_t const final_commit_timestamp, Storage *storage)
     -> void {
   replication::Encoder encoder(stream_.GetBuilder());

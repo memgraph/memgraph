@@ -103,6 +103,7 @@ from functools import wraps
 
 
 def check_connection(host, timeout=3.0):
+    return False
     try:
         socket.create_connection(host, timeout=timeout)
         return True
