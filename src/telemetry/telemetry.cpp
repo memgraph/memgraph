@@ -198,7 +198,7 @@ void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::a
     auto stats = dbms_handler.Stats();
     stats.users = auth->AllUsers().size();
     stats.roles = auth->AllRoles().size();
-    stats.num_parameters = parameters.CountParameters(memgraph::parameters::ParameterScope::GLOBAL);
+    stats.num_parameters = parameters.CountParameters();
     return ToJson(stats);
   });
 }

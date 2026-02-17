@@ -117,7 +117,6 @@ void Load(EchoMessage *echo, Reader *reader);
 
 using Echo = memgraph::rpc::RequestResponse<EchoMessage, EchoMessage>;
 
-// Used by rpc_versioning test: response type with single version (no Downgrade).
 struct TestResSingleVersion {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN,
                                                    .name = "TestResSingleVersion"};

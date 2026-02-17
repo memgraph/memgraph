@@ -150,9 +150,7 @@ std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) co
   return parameters;
 }
 
-size_t Parameters::CountParameters(ParameterScope scope) const {
-  return storage_.Size(std::string(ScopePrefix(scope)));
-}
+size_t Parameters::CountParameters() const { return storage_.Size(); }
 
 bool Parameters::DeleteAllParameters(system::Transaction *txn) {
   std::vector<std::string> keys_to_delete;

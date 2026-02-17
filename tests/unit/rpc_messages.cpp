@@ -38,9 +38,9 @@ void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder);
 
 void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
 
-void Save(const rpc_versioning_test::TestResSingleVersion & /*self*/, Builder * /*builder*/) {}
+void Save(const TestResSingleVersion & /*self*/, Builder * /*builder*/) {}
 
-void Load(rpc_versioning_test::TestResSingleVersion * /*self*/, Reader * /*reader*/) {}
+void Load(TestResSingleVersion * /*self*/, Reader * /*reader*/) {}
 }  // namespace memgraph::slk
 
 void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
@@ -63,8 +63,6 @@ void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgra
 
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
-void rpc_versioning_test::TestResSingleVersion::Load(TestResSingleVersion * /*self*/,
-                                                     memgraph::slk::Reader * /*reader*/) {}
+void TestResSingleVersion::Load(TestResSingleVersion * /*self*/, memgraph::slk::Reader * /*reader*/) {}
 
-void rpc_versioning_test::TestResSingleVersion::Save(const TestResSingleVersion & /*self*/,
-                                                     memgraph::slk::Builder * /*builder*/) {}
+void TestResSingleVersion::Save(const TestResSingleVersion & /*self*/, memgraph::slk::Builder * /*builder*/) {}

@@ -68,7 +68,7 @@ struct Parameters {
   /**
    * @brief Return the number of parameters for a given scope.
    */
-  size_t CountParameters(ParameterScope scope = ParameterScope::GLOBAL) const;
+  size_t CountParameters() const;
 
   /**
    * @brief Delete all parameters.
