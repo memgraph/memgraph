@@ -57,9 +57,12 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
         LOG_FATAL("Cannot parse previously saved configuration of replication role.");
         return;
       }
+      default: {
+        std::unreachable();
+      }
     }
   }
-  auto replication_data = std::move(fetched_replication_data).value();
+  auto &replication_data = fetched_replication_data.value();
 #ifdef MG_ENTERPRISE
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data.data_)) {
@@ -74,6 +77,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   } else {
     spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data.data_).uuid_));
   }
+
   replication_data_ = std::move(replication_data);
 }
 
@@ -147,8 +151,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     // To get here this must be the case
     role_persisted_.store(RolePersisted::YES, std::memory_order_release);
 
-    ReplicationData_t result;
-    result.deltas_batch_progress_size_ = data.deltas_batch_progress_size;
+    ReplicationData_t result{.deltas_batch_progress_size_ = data.deltas_batch_progress_size};
 
     auto visit_result = std::visit(
         utils::Overloaded{
@@ -414,6 +417,20 @@ void ReplicationState::Shutdown() {
   };
 
   std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_.data_);
+}
+
+auto ReplicationState::GetDeltasBatchProgressSize() const -> uint64_t {
+  return replication_data_.deltas_batch_progress_size_;
+}
+
+void ReplicationState::UpdateDeltasBatchProgressSize(uint64_t const new_value) {
+  replication_data_.deltas_batch_progress_size_ = new_value;
+  if (IsMain()) {
+    TryPersistRoleMain(std::get<RoleMainData>(replication_data_.data_).uuid_);
+  } else {
+    auto const &replica = std::get<RoleReplicaData>(replication_data_.data_);
+    TryPersistRoleReplica(replica.config, replica.uuid_);
+  }
 }
 
 }  // namespace memgraph::replication

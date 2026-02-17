@@ -109,17 +109,17 @@ TEST(RpcVersioning, GetDBHistories) {
 
         if (request_version == memgraph::coordination::GetDatabaseHistoriesReqV1::kVersion) {
           memgraph::coordination::GetDatabaseHistoriesResV1 res;
-          res.instance_info.last_committed_system_timestamp = 81;
-          res.instance_info.dbs_info = std::vector{memgraph::replication_coordination_glue::InstanceDBInfoV1{
-                                                       .db_uuid = "123", .latest_durable_timestamp = 4},
-                                                   memgraph::replication_coordination_glue::InstanceDBInfoV1{
-                                                       .db_uuid = "1234", .latest_durable_timestamp = 13}};
+          res.arg_.last_committed_system_timestamp = 81;
+          res.arg_.dbs_info = std::vector{memgraph::replication_coordination_glue::InstanceDBInfoV1{
+                                              .db_uuid = "123", .latest_durable_timestamp = 4},
+                                          memgraph::replication_coordination_glue::InstanceDBInfoV1{
+                                              .db_uuid = "1234", .latest_durable_timestamp = 13}};
 
           memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
         } else {
           memgraph::coordination::GetDatabaseHistoriesRes res;
-          res.instance_info.last_committed_system_timestamp = 81;
-          res.instance_info.dbs_info = std::vector{
+          res.arg_.last_committed_system_timestamp = 81;
+          res.arg_.dbs_info = std::vector{
               memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "123", .num_committed_txns = 2},
               memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "1234", .num_committed_txns = 22}};
 
@@ -138,25 +138,25 @@ TEST(RpcVersioning, GetDBHistories) {
 
     auto reply = stream.SendAndWait();
 
-    EXPECT_EQ(reply.instance_info.last_committed_system_timestamp, 81);
+    EXPECT_EQ(reply.arg_.last_committed_system_timestamp, 81);
     auto const dbs_info_res = std::vector{
         {memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "123", .num_committed_txns = 2},
          memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "1234", .num_committed_txns = 22}}};
-    EXPECT_EQ(reply.instance_info.dbs_info, dbs_info_res);
+    EXPECT_EQ(reply.arg_.dbs_info, dbs_info_res);
   }
 
   {
     // Send old version request
     auto stream = client.Stream<memgraph::coordination::GetDatabaseHistoriesRpcV1>();
     auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.instance_info.last_committed_system_timestamp, 81);
+    EXPECT_EQ(reply.arg_.last_committed_system_timestamp, 81);
     auto const dbs_info_res = std::vector{
         {memgraph::replication_coordination_glue::InstanceDBInfoV1{.db_uuid = "123", .latest_durable_timestamp = 4},
          memgraph::replication_coordination_glue::InstanceDBInfoV1{
              .db_uuid = "1234",
              .latest_durable_timestamp = 13,
          }}};
-    EXPECT_EQ(reply.instance_info.dbs_info, dbs_info_res);
+    EXPECT_EQ(reply.arg_.dbs_info, dbs_info_res);
   }
 }
 
@@ -216,8 +216,8 @@ TEST(RpcVersioning, StateCheckRpc) {
     // Send old version request
     auto stream = client.Stream<memgraph::coordination::StateCheckRpcV1>();
     auto reply = stream.SendAndWait();
-    EXPECT_FALSE(reply.state.is_replica);
-    EXPECT_TRUE(reply.state.is_writing_enabled);
+    EXPECT_FALSE(reply.arg_.is_replica);
+    EXPECT_TRUE(reply.arg_.is_writing_enabled);
   }
 }
 #endif

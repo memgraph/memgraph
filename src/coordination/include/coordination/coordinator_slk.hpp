@@ -131,7 +131,7 @@ inline void Load(coordination::InstanceStateV1 *obj, Reader *reader) {
   Load(&obj->is_writing_enabled, reader);
 }
 
-inline void Save(const coordination::InstanceState &obj, Builder *builder) {
+inline void Save(const coordination::InstanceStateV2 &obj, Builder *builder) {
   Save(obj.is_replica, builder);
   Save(obj.uuid, builder);
   Save(obj.is_writing_enabled, builder);
@@ -139,12 +139,22 @@ inline void Save(const coordination::InstanceState &obj, Builder *builder) {
   Save(obj.replicas_num_txns, builder);
 }
 
-inline void Load(coordination::InstanceState *obj, Reader *reader) {
+inline void Load(coordination::InstanceStateV2 *obj, Reader *reader) {
   Load(&obj->is_replica, reader);
   Load(&obj->uuid, reader);
   Load(&obj->is_writing_enabled, reader);
   Load(&obj->main_num_txns, reader);
   Load(&obj->replicas_num_txns, reader);
+}
+
+inline void Save(const coordination::InstanceState &obj, Builder *builder) {
+  Save(obj.inner_state, builder);
+  Save(obj.deltas_batch_progress_size, builder);
+}
+
+inline void Load(coordination::InstanceState *obj, Reader *reader) {
+  Load(&obj->inner_state, reader);
+  Load(&obj->deltas_batch_progress_size, reader);
 }
 
 inline void Save(const coordination::ReplicaDBLagData &obj, Builder *builder) {

@@ -62,11 +62,14 @@ struct RoleReplicaData {
 };
 
 struct ReplicationData_t {
-  std::variant<RoleMainData, RoleReplicaData> data_;
   // Common data for both replica and main
   // The source value is stored in Raft distributed config, this is only a cached value
-  // on the data instance's side.
+  // on the data instance's side. Needs to be accessed in a thread-safe way using ReplState lock because two threads are
+  // using this value:
+  // 1. RPC thread that handles communication with coordinators
+  // 2. RPC thread used for communication with main (if instance is replica)
   uint64_t deltas_batch_progress_size_{kDefaultDeltasBatchProgressSize};
+  std::variant<RoleMainData, RoleReplicaData> data_;
 };
 
 // Global (instance) level object
@@ -155,6 +158,9 @@ struct ReplicationState {
   std::optional<nlohmann::json> GetTelemetryJson() const;
 
   void Shutdown();
+
+  auto GetDeltasBatchProgressSize() const -> uint64_t;
+  void UpdateDeltasBatchProgressSize(uint64_t new_value);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
