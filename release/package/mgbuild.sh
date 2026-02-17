@@ -641,7 +641,7 @@ build_memgraph () {
   fi
 
   # add LD_LIBRARY_PATH to the command
-  CMD_START="$CMD_START && export LD_LIBRARY_PATH=/opt/toolchain-v$toolchain_version/lib64:/opt/toolchain-v$toolchain_version/lib:\$LD_LIBRARY_PATH"
+  CMD_START="source /opt/toolchain-$toolchain_version/activate && $CMD_START"
 
 
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
