@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include <gflags/gflags.h>
 
 #include "communication/bolt/client.hpp"
+#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/timer.hpp"
@@ -145,17 +146,22 @@ class GraphSession {
     QueryDataT ret;
     try {
       ret = ExecuteWithoutCatch(fmt::format("UNWIND RANGE({}, {}) AS r CREATE (n:{} {{id: r}}) RETURN count(n)",
-                                            vertex_id_, vertex_id_ + vertices_count - 1, indexed_label_));
+                                            vertex_id_,
+                                            vertex_id_ + vertices_count - 1,
+                                            indexed_label_));
     } catch (const ExceptionT &e) {
       LOG_FATAL("Runner {} vertices creation failed because of: {}", id_, e.what());
     }
     MG_ASSERT(ret.records.size(), "Runner {} the vertices creation query should have returned a row!", id_);
 
-    MG_ASSERT(ret.records[0][0].ValueInt() == vertices_count, "Runner {} created {} vertices instead of {}!", id_,
-              ret.records[0][0].ValueInt(), vertices_count);
+    MG_ASSERT(ret.records[0][0].ValueInt() == vertices_count,
+              "Runner {} created {} vertices instead of {}!",
+              id_,
+              ret.records[0][0].ValueInt(),
+              vertices_count);
     for (uint64_t i = 0; i < vertices_count; ++i) {
-      MG_ASSERT(vertices_.insert(vertex_id_ + i).second, "Runner {} vertex with ID {} shouldn't exist!", id_,
-                vertex_id_ + i);
+      MG_ASSERT(
+          vertices_.insert(vertex_id_ + i).second, "Runner {} vertex with ID {} shouldn't exist!", id_, vertex_id_ + i);
     }
     vertex_id_ += vertices_count;
   }
@@ -166,7 +172,8 @@ class GraphSession {
         Execute(fmt::format("MATCH (n:{} {{id: {}}}) OPTIONAL MATCH (n)-[r]-() "
                             "WITH n, n.id as n_id, labels(n) as labels_n, collect(r.id) as r_ids "
                             "DETACH DELETE n RETURN n_id, labels_n, r_ids",
-                            indexed_label_, vertex_id));
+                            indexed_label_,
+                            vertex_id));
     if (ret.records.size() > 0) {
       std::set<uint64_t> processed_vertices;
       auto &record = ret.records[0];
@@ -195,7 +202,8 @@ class GraphSession {
     if (edges_count == 0) return;
     auto edges_per_node = (double)edges_count / vertices_.size();
     MG_ASSERT(std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001,
-              "Runner {} edges per node not a whole number!", id_);
+              "Runner {} edges per node not a whole number!",
+              id_);
 
     QueryDataT ret;
     try {
@@ -205,7 +213,10 @@ class GraphSession {
                                           "MATCH (b:{0} {{id: id}}) WITH a, b "
                                           "CREATE (a)-[e:EdgeType {{id: counter(\"edge\", {3})}}]->(b) "
                                           "RETURN count(e)",
-                                          indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(), edge_id_));
+                                          indexed_label_,
+                                          (int64_t)edges_per_node - 1,
+                                          vertices_.size(),
+                                          edge_id_));
     } catch (const ExceptionT &e) {
       LOG_FATAL("Runner {} edges creation failed because of: {}", id_, e.what());
     }
@@ -219,10 +230,14 @@ class GraphSession {
   }
 
   void CreateEdge() {
-    auto ret = Execute(
-        fmt::format("MATCH (from:{} {{id: {}}}), (to:{} {{id: {}}}) "
-                    "CREATE (from)-[e:EdgeType {{id: {}}}]->(to) RETURN 1",
-                    indexed_label_, RandomElement(vertices_), indexed_label_, RandomElement(vertices_), edge_id_));
+    auto ret =
+        Execute(fmt::format("MATCH (from:{} {{id: {}}}), (to:{} {{id: {}}}) "
+                            "CREATE (from)-[e:EdgeType {{id: {}}}]->(to) RETURN 1",
+                            indexed_label_,
+                            RandomElement(vertices_),
+                            indexed_label_,
+                            RandomElement(vertices_),
+                            edge_id_));
     if (ret.records.size() > 0) {
       MG_ASSERT(edges_.insert(edge_id_).second, "Runner {} edge with ID {} shouldn't exist!", id_, edge_id_);
       ++edge_id_;
@@ -234,8 +249,8 @@ class GraphSession {
     auto label = RandomElement(labels_);
     // add a label on a vertex that didn't have that label
     // yet (we need that for book-keeping)
-    auto ret = Execute(fmt::format("MATCH (v:{} {{id: {}}}) WHERE not v:{} SET v:{} RETURN 1", indexed_label_,
-                                   vertex_id, label, label));
+    auto ret = Execute(fmt::format(
+        "MATCH (v:{} {{id: {}}}) WHERE not v:{} SET v:{} RETURN 1", indexed_label_, vertex_id, label, label));
     if (ret.records.size() > 0) {
       labels_vertices_[label].insert(vertex_id);
     }
@@ -266,11 +281,13 @@ class GraphSession {
         "MATCH p=()-[e]->() WHERE e.id > {} AND e.id < {} WITH project(p) as graph WITH graph.nodes as nodes "
         "UNWIND nodes as n RETURN n.x "
         "as x ORDER BY x DESC",
-        lo, hi));
+        lo,
+        hi));
     Execute(fmt::format(
         "MATCH p=()-[e]->() WHERE e.id > {} AND e.id < {} WITH project(p) as graph WITH graph.edges as edges "
         "UNWIND edges as e RETURN e.prop as y ORDER BY y DESC",
-        lo, hi));
+        lo,
+        hi));
   }
 
   /** Checks if the local info corresponds to DB state */
@@ -283,15 +300,23 @@ class GraphSession {
       } catch (const ExceptionT &e) {
         LOG_FATAL("Runner {} couldn't execute {} ID retrieval because of: {}", id_, what, e.what());
       }
-      MG_ASSERT(ret.records.size() == container.size(), "Runner {} expected {} {}, found {}!", id_, container.size(),
-                what, ret.records.size());
+      MG_ASSERT(ret.records.size() == container.size(),
+                "Runner {} expected {} {}, found {}!",
+                id_,
+                container.size(),
+                what,
+                ret.records.size());
       for (size_t i = 0; i < ret.records.size(); ++i) {
         MG_ASSERT(ret.records[i].size() == 1, "Runner {} received an invalid ID row for {}!", id_, what);
         auto id = ret.records[i][0].ValueInt();
         MG_ASSERT(container.find(id) != container.end(),
                   "Runner {} couldn't find ID {} for {}! Examined {} items out "
                   "of {} items!",
-                  id_, id, what, i, ret.records.size());
+                  id_,
+                  id,
+                  what,
+                  i,
+                  ret.records.size());
       }
     };
 
@@ -299,7 +324,8 @@ class GraphSession {
     test_set(fmt::format("MATCH (:{0})-[r]->(:{0}) RETURN r.id", indexed_label_), edges_, "edges");
 
     for (auto &item : labels_vertices_) {
-      test_set(fmt::format("MATCH (n:{}:{}) RETURN n.id", indexed_label_, item.first), item.second,
+      test_set(fmt::format("MATCH (n:{}:{}) RETURN n.id", indexed_label_, item.first),
+               item.second,
                fmt::format("vertices with label '{}'", item.first));
     }
 
