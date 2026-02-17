@@ -4308,22 +4308,23 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto *storage = db_acc->storage();
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
-  storage::VectorIndexConfigMap vector_index_config;
-  if (vector_index_query->config_expression_) {
-    auto config_tv = vector_index_query->config_expression_->Accept(evaluator);
-    if (!config_tv.IsMap()) {
-      throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
-    }
-    std::map<std::string, TypedValue, std::less<>> transformed_map;
-    for (const auto &[k, v] : config_tv.ValueMap()) {
-      transformed_map.emplace(std::string(k), v);
-    }
-    vector_index_config = VectorIndexConfigFromTypedMap(transformed_map);
-  } else {
-    vector_index_config = ParseVectorIndexConfigMap(vector_index_query->configs_, evaluator);
-  }
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
+      const auto vector_index_config = std::visit(
+          utils::Overloaded{
+              [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+              [&evaluator](Expression *expr) {
+                auto config_tv = expr->Accept(evaluator);
+                if (!config_tv.IsMap()) {
+                  throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+                }
+                std::map<std::string, TypedValue, std::less<>> transformed_map;
+                for (const auto &[k, v] : config_tv.ValueMap()) {
+                  transformed_map.emplace(std::string(k), v);
+                }
+                return VectorIndexConfigFromTypedMap(transformed_map);
+              }},
+          vector_index_query->config_);
       handler = [dba,
                  storage,
                  vector_index_config,
@@ -4417,20 +4418,21 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
 
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
-  storage::VectorIndexConfigMap vector_index_config;
-  if (vector_index_query->config_expression_) {
-    auto config_tv = vector_index_query->config_expression_->Accept(evaluator);
-    if (!config_tv.IsMap()) {
-      throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
-    }
-    std::map<std::string, TypedValue, std::less<>> transformed_map;
-    for (const auto &[k, v] : config_tv.ValueMap()) {
-      transformed_map.emplace(std::string(k), v);
-    }
-    vector_index_config = VectorIndexConfigFromTypedMap(transformed_map);
-  } else {
-    vector_index_config = ParseVectorIndexConfigMap(vector_index_query->configs_, evaluator);
-  }
+  storage::VectorIndexConfigMap vector_index_config = std::visit(
+      utils::Overloaded{
+          [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+          [&evaluator](Expression *expr) {
+            auto config_tv = expr->Accept(evaluator);
+            if (!config_tv.IsMap()) {
+              throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+            }
+            std::map<std::string, TypedValue, std::less<>> transformed_map;
+            for (const auto &[k, v] : config_tv.ValueMap()) {
+              transformed_map.emplace(std::string(k), v);
+            }
+            return VectorIndexConfigFromTypedMap(transformed_map);
+          }},
+      vector_index_query->config_);
   handler = [dba,
              storage,
              vector_index_config,

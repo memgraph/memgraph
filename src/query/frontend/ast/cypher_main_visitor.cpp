@@ -572,10 +572,9 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVe
   index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
-    index_query->configs_ =
-        std::any_cast<std::unordered_map<Expression *, Expression *>>(config_ctx->configMap()->accept(this));
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
   } else {
-    index_query->config_expression_ = std::any_cast<Expression *>(config_ctx->expression()->accept(this));
+    index_query->config_ = std::any_cast<Expression *>(config_ctx->expression()->accept(this));
   }
   return index_query;
 }
@@ -587,10 +586,9 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorEdgeIndex(MemgraphCypher::Crea
   index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
   auto *config_ctx = ctx->configsMap;
   if (config_ctx->configMap()) {
-    index_query->configs_ =
-        std::any_cast<std::unordered_map<Expression *, Expression *>>(config_ctx->configMap()->accept(this));
+    index_query->config_ = std::any_cast<ConfigMap>(config_ctx->configMap()->accept(this));
   } else {
-    index_query->config_expression_ = std::any_cast<Expression *>(config_ctx->expression()->accept(this));
+    index_query->config_ = std::any_cast<Expression *>(config_ctx->expression()->accept(this));
   }
   query_ = index_query;
   return index_query;
