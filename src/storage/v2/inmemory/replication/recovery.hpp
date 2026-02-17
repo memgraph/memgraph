@@ -70,12 +70,30 @@ bool WriteFiles(const T &paths, std::filesystem::path const &root_data_dir, repl
   }
   return true;
 }
+enum class WriteFilesError : uint8_t { WRITE_FILE_ERROR };
+
+inline auto WriteFilesErrorMsg(WriteFilesError err) -> std::string {
+  switch (err) {
+    case WriteFilesError::WRITE_FILE_ERROR: {
+      return "Failed to load files";
+    }
+    default:
+      std::unreachable();
+  }
+}
+
+using TransferDurabilityFilesError = std::variant<rpc::RpcError, WriteFilesError>;
+
+inline auto TransferDurabilityFilesErrorMsg(TransferDurabilityFilesError const &global_err) -> std::string {
+  return std::visit(utils::Overloaded{[](rpc::RpcError err) { return rpc::GetRpcErrorMsg(err); },
+                                      [](WriteFilesError err) { return WriteFilesErrorMsg(err); }},
+                    global_err);
+}
 
 template <rpc::IsRpc T, typename R, typename... Args>
-std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
-                                                            std::filesystem::path const &root_data_dir,
-                                                            replication_coordination_glue::ReplicationMode const mode,
-                                                            Args &&...args) {
+std::expected<typename T::Response, TransferDurabilityFilesError> TransferDurabilityFiles(
+    const R &files, rpc::Client &client, std::filesystem::path const &root_data_dir,
+    replication_coordination_glue::ReplicationMode const mode, Args &&...args) {
   utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
   std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
 
@@ -90,7 +108,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
 
   // If dealing with ASYNC replica and couldn't obtain the lock
   if (!maybe_stream_result) {
-    return std::nullopt;
+    return std::unexpected{rpc::RpcError::FAILED_TO_GET_RPC_STREAM};
   }
 
   slk::Builder *builder = maybe_stream_result->GetBuilder();
@@ -99,10 +117,11 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
 
   // If writing files failed, fail the task by returning empty optional
   if (replication::Encoder encoder(builder); !WriteFiles(files, root_data_dir, encoder)) {
-    return std::nullopt;
+    return std::unexpected{WriteFilesError::WRITE_FILE_ERROR};
   }
 
-  return maybe_stream_result->SendAndWaitProgress();
+  return maybe_stream_result->SendAndWaitProgress().transform_error(
+      [](rpc::RpcError e) -> TransferDurabilityFilesError { return e; });
 }
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,10 +58,10 @@ int main(int argc, char **argv) {
 
   // Initialize the server.
   EchoData echo_data;
-  memgraph::communication::ServerContext server_context(FLAGS_server_key_file, FLAGS_server_cert_file,
-                                                        FLAGS_server_ca_file, FLAGS_server_verify_peer);
-  memgraph::communication::Server<EchoSession, EchoData> server({"127.0.0.1", 0}, &echo_data, &server_context, -1,
-                                                                "SSL", 1);
+  memgraph::communication::ServerContext server_context(
+      FLAGS_server_key_file, FLAGS_server_cert_file, FLAGS_server_ca_file, FLAGS_server_verify_peer);
+  memgraph::communication::Server<EchoSession, EchoData> server(
+      {"127.0.0.1", 0}, &echo_data, &server_context, -1, "SSL", 1);
   server.Start();
 
   // Initialize the client.
@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
   // Perform echo.
   MG_ASSERT(client.Write(message), "Client couldn't send message!");
   spdlog::info("Client sent message.");
-  MG_ASSERT(client.Read(message.size()), "Client couldn't receive message!");
+  MG_ASSERT(client.Read(message.size()).has_value(), "Client couldn't receive message!");
   spdlog::info("Client received message.");
   MG_ASSERT(std::string(reinterpret_cast<const char *>(client.GetData()), message.size()) == message,
             "Received message isn't equal to sent message!");

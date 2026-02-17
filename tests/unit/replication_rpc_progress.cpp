@@ -115,7 +115,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
       true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
-  EXPECT_NO_THROW(stream.Finalize());
+  ASSERT_TRUE(stream.Finalize().has_value());
 }
 
 // Timeout immediately
@@ -160,7 +160,9 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
       true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
-  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+  auto const res = stream.Finalize();
+  ASSERT_FALSE(res.has_value());
+  ASSERT_EQ(res.error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 // First send progress, then timeout
@@ -209,7 +211,9 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 
-  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+  auto const res = stream.Finalize();
+  ASSERT_FALSE(res.has_value());
+  ASSERT_EQ(res.error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 // First send progress, then timeout
@@ -244,7 +248,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
 
   auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
-  EXPECT_NO_THROW(stream.SendAndWaitProgress());
+  ASSERT_TRUE(stream.SendAndWaitProgress().has_value());
 }
 
 // First send progress, then timeout
@@ -284,7 +288,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
 
   auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  ASSERT_EQ(stream.SendAndWaitProgress().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 // First send progress, then timeout
@@ -318,7 +322,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
-  EXPECT_NO_THROW(stream.SendAndWaitProgress());
+  ASSERT_TRUE(stream.SendAndWaitProgress().has_value());
 }
 
 // First send progress, then timeout
@@ -357,7 +361,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  ASSERT_EQ(stream.SendAndWaitProgress().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 // Timeout immediately
@@ -405,11 +409,11 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
 
   {
     auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
-    EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+    ASSERT_EQ(stream.SendAndWaitProgress().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
   }
 
   {
     auto wal_files_stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
-    EXPECT_NO_THROW(wal_files_stream.SendAndWaitProgress());
+    ASSERT_TRUE(wal_files_stream.SendAndWaitProgress().has_value());
   }
 }

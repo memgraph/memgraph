@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,16 +19,18 @@
 #undef TRUE
 #undef FALSE
 
+#include <expected>
 #include <span>
 #include <string_view>
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
-#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 
 namespace memgraph::communication {
+
+enum class ClientCommunicationError : uint8_t { TIMEOUT_ERROR, GENERIC_ERROR };
 
 /**
  * This class implements a generic network Client.
@@ -82,7 +84,8 @@ class Client final {
    * succeeded and `false` if it didn't.
    * Propagates timeout_ms to Socket::WaitForReadyRead.
    */
-  bool Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt);
+  auto Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
 
   /**
    * This function returns a pointer to the read data that is currently stored
