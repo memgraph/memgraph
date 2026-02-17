@@ -145,7 +145,7 @@ class PriorityThreadPool {
    * worker (e.g. continuation after yield, to respect thread-local state).
    * worker_id must be in [0, GetNumMixedWorkers()).
    */
-  void ScheduledAddTaskOnWorker(uint16_t worker_id, TaskSignature new_task, Priority priority);
+  void RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature new_task, Priority priority);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
@@ -173,11 +173,12 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+      bool pinned{false};          // if true, task must run on this worker (not stealable)
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    void push(TaskSignature new_task, TaskID id, bool pinned = false);
 
     void stop();
 
@@ -188,7 +189,8 @@ class PriorityThreadPool {
    private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
-    std::priority_queue<Work> work_;
+    std::priority_queue<Work> work_;         // Stealable work
+    std::priority_queue<Work> work_pinned_;  // Pinned to this worker (never stolen)
 
     // Stats
     std::atomic_bool has_pending_work_{false};
