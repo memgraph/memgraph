@@ -317,24 +317,15 @@ jobs:
           docker tag ${RC_IMAGE} ${RELEASE_IMAGE_AMD}
           docker push ${RELEASE_IMAGE_AMD}
 
-          # Setup manifest list for release image
-          docker manifest create ${RELEASE_IMAGE} \
-          --amend ${RELEASE_IMAGE_AMD} \
-          --amend ${RELEASE_IMAGE_ARM}
-          docker manifest push ${RELEASE_IMAGE}
+          docker buildx imagetools create -t "${RELEASE_IMAGE}" \
+            "${RELEASE_IMAGE_AMD}" \
+            "${RELEASE_IMAGE_ARM}"
 
           if [[ "${{ matrix.build_type }}" == "Release" ]]; then
-            # Setup manifest list for latest image
-            RELEASE_IMAGE_LATEST="${docker_repo_release}:latest"
-            docker manifest create ${RELEASE_IMAGE_LATEST} \
-            --amend ${RELEASE_IMAGE_AMD} \
-            --amend ${RELEASE_IMAGE_ARM}
-            docker manifest push ${RELEASE_IMAGE_LATEST}
-            echo "Successfully published ${RELEASE_IMAGE} and ${RELEASE_IMAGE_LATEST} to DockerHub!"
-          else
-            echo "Successfully published ${RELEASE_IMAGE} to DockerHub!"
+            docker buildx imagetools create -t "${docker_repo_release}:latest" \
+              "${RELEASE_IMAGE_AMD}" \
+              "${RELEASE_IMAGE_ARM}"
           fi
-
 
       - name: Clean up temporary images
         run: |
@@ -496,32 +487,22 @@ jobs:
             echo "Skipping amd64 promotion: RC package not available."
           fi
 
-          # Build the manifest list from the promoted images
-          manifest_images=""
-          if [ "${has_rc_package_amd}" = "true" ]; then
-            manifest_images="$manifest_images --amend ${release_image_amd}"
-          fi
-          if [ "${has_rc_package_arm}" = "true" ]; then
-            manifest_images="$manifest_images --amend ${release_image_arm}"
-          fi
-
-          if [ -n "$manifest_images" ]; then
-            echo "Creating and pushing manifest for ${release_image} with images:$manifest_images"
-            docker manifest create ${release_image} $manifest_images
-            docker manifest push ${release_image}
-            echo "Successfully published ${release_image} to DockerHub!"
-          else
-            echo "No images promoted; skipping manifest creation."
+          if [ "${has_rc_package_amd}" = "true" ] && [ "${has_rc_package_arm}" = "true" ]; then
+            docker buildx imagetools create -t "${release_image}" "${release_image_amd}" "${release_image_arm}"
+          elif [ "${has_rc_package_amd}" = "true" ]; then
+            docker buildx imagetools create -t "${release_image}" "${release_image_amd}"
+          elif [ "${has_rc_package_arm}" = "true" ]; then
+            docker buildx imagetools create -t "${release_image}" "${release_image_arm}"
           fi
 
-          # Setup and push the 'latest' manifest if production image
+          # Setup and publish 'latest' only for production image (image_ext == "")
           if [[ -z "${{ matrix.image_ext }}" ]]; then
-            if [ -n "$manifest_images" ]; then
-              docker manifest create ${release_image_latest} $manifest_images
-              docker manifest push ${release_image_latest}
-              echo "Successfully published ${release_image_latest} to DockerHub!"
-            else
-              echo "No images promoted; skipping 'latest' manifest creation."
+            if [ "${has_rc_package_amd}" = "true" ] && [ "${has_rc_package_arm}" = "true" ]; then
+              docker buildx imagetools create -t "${release_image_latest}" "${release_image_amd}" "${release_image_arm}"
+            elif [ "${has_rc_package_amd}" = "true" ]; then
+              docker buildx imagetools create -t "${release_image_latest}" "${release_image_amd}"
+            elif [ "${has_rc_package_arm}" = "true" ]; then
+              docker buildx imagetools create -t "${release_image_latest}" "${release_image_arm}"
             fi
           fi
 
@@ -547,5 +528,5 @@ jobs:
   TriggerBSLUpdate:
     if: ${{ github.event.inputs.update_bsl == 'true' }}
     uses: ./.github/workflows/update-bsl.yml
-    needs: [PromotePackage, PromoteDocker]
+    needs: [PromotePackage, PromoteDocker, PromoteDockerMAGE]
     secrets: inherit
