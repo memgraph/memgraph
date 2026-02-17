@@ -12,6 +12,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <tuple>
+#include <vector>
 
 #include "flags/general.hpp"
 #include "spdlog/spdlog.h"
@@ -443,8 +444,7 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
   std::unordered_set<Gid> src_edge_ids;
   std::unordered_set<Gid> dest_edge_ids;
 
-  auto try_adding_partial_delete_vertices = [this, &vertices](
-                                                auto &partial_delete_vertices, auto &edge_ids, auto &item) {
+  auto try_adding_partial_delete_vertices = [&vertices](auto &partial_delete_vertices, auto &edge_ids, auto &item) {
     // For the nodes on the other end of the edge, they might not get deleted in the system but only cut out
     // of the edge. Therefore, information is gathered in this step to account for every vertices' in and out
     // edges and what must be deleted
@@ -548,14 +548,23 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
           bool const we_move_to_deleted = reverse_vertex_order;  // true when clearing out_edges
           if (we_move_to_deleted) {
             auto &opposing_list = opposing_vertex->in_edges;
-            {
-              std::unique_lock opposing_lock{opposing_vertex->lock};
+            // Lock order: same vertex must not lock twice (self-loop); otherwise lock by gid to avoid deadlock.
+            auto update_opposing_ref = [&]() {
+              size_t idx = 0;
               for (auto &t : opposing_list) {
                 if (std::get<2>(t).GetGid() == edge_gid) {
                   std::get<2>(t) = EdgeRef(edge_gid);
                   break;
                 }
+                ++idx;
               }
+            };
+            if (opposing_vertex == vertex_ptr) {
+              // Self-loop: we already hold vertex_ptr->lock, do not take it again.
+              update_opposing_ref();
+            } else {
+              std::unique_lock opposing_lock{opposing_vertex->lock};
+              update_opposing_ref();
             }
             auto *edge_ptr = edge_ref.GetEdgePtr();
             if (this->storage_->config_.salient.items.properties_on_edges) {
@@ -626,21 +635,34 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     MG_ASSERT(!vertex_ptr->deleted(), "Invalid database state!");
 
     auto mid = std::partition(
-        edges_attached_to_vertex->begin(), edges_attached_to_vertex->end(), [this, &set_for_erasure](auto &edge) {
+        edges_attached_to_vertex->begin(), edges_attached_to_vertex->end(), [&set_for_erasure](auto &edge) {
           auto const &[edge_type, opposing_vertex, edge_ref] = edge;
           auto const edge_gid = edge_ref.GetGid();
           return !set_for_erasure.contains(edge_gid);
         });
 
-    // Light edges: move to deleted_light_edges skiplist only when clearing out_edges (once per edge).
-    // The other vertex's list is updated to EdgeRef(gid) so deltas never hold the pointer.
+    using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
+    std::vector<EdgeTriple> to_delete(mid, edges_attached_to_vertex->end());
+    auto const num_to_delete = to_delete.size();
 
-    // Process edges one-by-one to ensure MVCC checks happen with locks held.
-    // Deltas are created per edge, but erasing edges from the vector happens at
-    // the end. If OOM occurs, some edges may have deltas created but remain in
-    // the vector.
-    for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
-      auto const &[edge_type, opposing_vertex, edge_ref] = *it;
+    vertex_lock.unlock();
+
+    // Process each edge with vertices locked in gid order to avoid deadlock (same as CreateEdge / FindEdges).
+    for (auto &item : to_delete) {
+      auto const &[edge_type, opposing_vertex, edge_ref] = item;
+
+      // Lock both vertices in gid order to avoid deadlock (same as CreateEdge / FindEdges).
+      Vertex *first_vertex = vertex_ptr->gid < opposing_vertex->gid ? vertex_ptr : opposing_vertex;
+      Vertex *second_vertex = vertex_ptr->gid < opposing_vertex->gid ? opposing_vertex : vertex_ptr;
+      std::unique_lock first_lock{first_vertex->lock};
+      std::unique_lock second_lock{second_vertex->lock, std::defer_lock};
+      if (first_vertex != second_vertex) {
+        second_lock.lock();
+      }
+      if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (opposing_vertex != vertex_ptr && !PrepareForWrite(&transaction_, opposing_vertex)) {
+        return std::unexpected{Error::SERIALIZATION_ERROR};
+      }
 
       std::unique_lock<utils::RWSpinLock> guard;
       if (storage_->config_.salient.items.properties_on_edges && edge_ref.HasPointer()) {
@@ -653,27 +675,23 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         auto const edge_gid = edge_ref.GetGid();
         EdgeRef ref_for_delta = edge_ref;
         if (storage_->config_.salient.items.storage_light_edge && edge_ref.HasPointer()) {
-          // Move to deleted_light_edges only on out_edge (once per edge); delta uses Gid only.
-          bool const we_move_to_deleted = !reverse_vertex_order;  // we're clearing out_edges
+          bool const we_move_to_deleted = !reverse_vertex_order;
           if (we_move_to_deleted) {
-            auto &opposing_list = opposing_vertex->in_edges;  // other side of the edge
-            {
-              std::unique_lock opposing_lock{opposing_vertex->lock};
-              for (auto &t : opposing_list) {
-                if (std::get<2>(t).GetGid() == edge_gid) {
-                  std::get<2>(t) = EdgeRef(edge_gid);
-                  break;
-                }
+            auto &opposing_list = opposing_vertex->in_edges;
+            for (auto &t : opposing_list) {
+              if (std::get<2>(t).GetGid() == edge_gid) {
+                std::get<2>(t) = EdgeRef(edge_gid);
+                break;
               }
             }
             auto edge_ptr = edge_ref.GetEdgePtr();
             if (storage_->config_.salient.items.properties_on_edges) {
               MarkEdgeAsDeleted(edge_ptr);
             }
-            guard.unlock();  // release before MoveLightEdgeToDeleted moves edge into skiplist
+            guard.unlock();
             storage_->MoveLightEdgeToDeleted(edge_ptr, transaction_.transaction_id, &pending_deleted_light_edges_);
           }
-          ref_for_delta = EdgeRef(edge_gid);  // delta never holds the pointer
+          ref_for_delta = EdgeRef(edge_gid);
         } else if (storage_->config_.salient.items.properties_on_edges && edge_ref.HasPointer()) {
           MarkEdgeAsDeleted(edge_ref.GetEdgePtr());
         }
@@ -698,6 +716,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
       });
     }
 
+    vertex_lock.lock();
     edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
 
     return std::make_optional<ReturnType>();

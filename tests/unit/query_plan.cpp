@@ -1023,6 +1023,42 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
   }
 }
 
+// With storage_light_edges, edge indices must not be used: plan should match the no-index case.
+TYPED_TEST(TestPlanner, LightEdgesEdgeTypeIndexNotUsed) {
+  FakeDbAccessor dba;
+  auto indexed_edge_type = dba.EdgeType("indexed_edgetype");
+  dba.SetIndexCount(indexed_edge_type, 1);
+  dba.SetStorageLightEdges(true);
+
+  // Same query as MatchEdgeTypeIndex, but with light edges we must get ScanAll+Expand (no edge index).
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(
+          NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("anon2"))),
+      RETURN("r")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, LightEdgesEdgeTypePropertyIndexNotUsed) {
+  FakeDbAccessor dba;
+  auto edge_type = dba.EdgeType("indexed_edgetype");
+  auto prop = dba.Property("indexed_property");
+  dba.SetIndexCount(edge_type, prop, 1);
+  dba.SetStorageLightEdges(true);
+
+  // Same query as MatchEdgeTypePropertyIndexExistence (IS NOT NULL), but with light edges we must get
+  // ScanAll+Expand+Filter (no edge type property index).
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(
+          NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("anon2"))),
+      WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))),
+      RETURN("r")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
   FakeDbAccessor dba;
   auto edge_type = dba.EdgeType("indexed_edgetype");
