@@ -13,33 +13,9 @@
 
 #include "utils/exceptions.hpp"
 
-#include <utility>
-
 namespace memgraph::rpc {
 
 // TODO: (andi) Rename exceptions.hpp to errors
-
-enum class RpcError : uint8_t {
-  UNSUPPORTED_RPC_VERSION_ERROR,
-  GENERIC_RPC_ERROR,
-  SLK_RPC_ERROR,
-  FAILED_TO_GET_RPC_STREAM
-};
-
-inline auto GetRpcErrorMsg(RpcError error) -> std::string {
-  switch (error) {
-    case RpcError::UNSUPPORTED_RPC_VERSION_ERROR:
-      return "UnsupportedRpcVersionError";
-    case RpcError::GENERIC_RPC_ERROR:
-      return "GenericRpcError";
-    case RpcError::SLK_RPC_ERROR:
-      return "SlkRpcError";
-    case RpcError::FAILED_TO_GET_RPC_STREAM:
-      return "FailedToGetRpcStream";
-    default:
-      std::unreachable();
-  }
-}
 
 /// Exception that is thrown whenever a RPC call fails.
 /// This exception inherits `std::exception` directly because
@@ -51,16 +27,6 @@ class RpcFailedException : public utils::BasicException {
   explicit RpcFailedException(std::string_view const msg) : utils::BasicException(msg) {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
-};
-
-class UnsupportedRpcVersionException final : public RpcFailedException {
- public:
-  UnsupportedRpcVersionException()
-      : RpcFailedException(
-            "Couldn't communicate with the cluster! RPC protocol version not supported. "
-            "Please contact your database administrator.") {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(UnsupportedRpcVersionException);
 };
 
 class GenericRpcFailedException final : public RpcFailedException {

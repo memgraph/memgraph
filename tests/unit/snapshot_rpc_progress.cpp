@@ -407,7 +407,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SnapshotRpc>(UUID{}, UUID{});
-  ASSERT_EQ(stream.value().SendAndWaitProgress().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
+  ASSERT_EQ(stream.value().SendAndWaitProgress().error(), memgraph::utils::RpcError::GENERIC_RPC_ERROR);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {

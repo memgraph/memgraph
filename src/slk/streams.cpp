@@ -19,7 +19,7 @@
 
 namespace memgraph::slk {
 
-Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) : write_func_(std::move(write_func)) {}
+Builder::Builder(BuilderWriteFunction write_func) : write_func_(std::move(write_func)) {}
 
 bool Builder::IsEmpty() const { return pos_ == 0; }
 
@@ -43,16 +43,17 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 }
 
 // Differs from saving normal buffer by not leaving space of 4B at the beginning of the buffer for size
-void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
+auto Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) -> BuilderWriteFunction::result_type {
   size_t offset = 0;
   while (size > 0) {
-    FlushFileSegment();
+    if (auto const res = FlushFileSegment(); !res.has_value()) return res;
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
     memcpy(segment_.data() + pos_, data + offset, to_write);
     size -= to_write;
     pos_ += to_write;
     offset += to_write;
   }
+  return {};
 }
 
 // This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
@@ -64,16 +65,19 @@ void Builder::PrepareForFileSending() {
 
 void Builder::Finalize() { FlushSegment(true); }
 
-void Builder::FlushInternal(size_t const size, bool const has_more) {
-  write_func_(segment_.data(), size, has_more);
+auto Builder::FlushInternal(size_t const size, bool const has_more) -> BuilderWriteFunction::result_type {
+  if (auto const res = write_func_(segment_.data(), size, has_more); !res.has_value()) {
+    return res;
+  }
   pos_ = 0;
+  return {};
 }
 
 // Flushes data and resets position
-void Builder::FlushFileSegment() {
-  if (pos_ < kSegmentMaxDataSize) return;
+auto Builder::FlushFileSegment() -> BuilderWriteFunction::result_type {
+  if (pos_ < kSegmentMaxDataSize) return {};  // not a failure
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
-  FlushInternal(pos_, true);
+  return FlushInternal(pos_, true);
 }
 
 void Builder::SaveFooter(uint64_t const total_size) {

@@ -115,7 +115,7 @@ class Client {
 
     slk::Builder *GetBuilder() { return &req_builder_; }
 
-    auto SendAndWaitProgress() -> std::expected<typename RPC::Response, RpcError> {
+    auto SendAndWaitProgress() -> std::expected<typename RPC::Response, utils::RpcError> {
       auto final_res_type = RPC::Response::kType;
       auto req_type = RPC::Request::kType;
 
@@ -139,7 +139,7 @@ class Client {
             // Logically invalid state, connection is still up, defunct stream and release
             defunct_ = true;
             guard_.unlock();
-            return std::unexpected{RpcError::GENERIC_RPC_ERROR};
+            return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
           }
           if (ret.status == slk::StreamStatus::PARTIAL) {
             if (auto const result = self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
@@ -151,7 +151,7 @@ class Client {
               self_->Shutdown();
               guard_.unlock();
               // TODO: (andi) Handle the timeout error
-              return std::unexpected{RpcError::GENERIC_RPC_ERROR};
+              return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
             }
           } else {
             response_data_size = ret.stream_size;
@@ -185,7 +185,7 @@ class Client {
           defunct_ = true;
           guard_.unlock();
           self_->client_->ShiftData(response_data_size);
-          return std::unexpected{RpcError::GENERIC_RPC_ERROR};
+          return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
         }
 
         spdlog::trace("[RpcClient] received {}, version {}, from endpoint {}:{}.",
@@ -198,7 +198,7 @@ class Client {
       }
     }
 
-    auto SendAndWait() -> std::expected<typename RPC::Response, RpcError> {
+    auto SendAndWait() -> std::expected<typename RPC::Response, utils::RpcError> {
       auto res_type = RPC::Response::kType;
       auto req_type = RPC::Request::kType;
 
@@ -221,7 +221,7 @@ class Client {
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;
           guard_.unlock();
-          return std::unexpected{RpcError::GENERIC_RPC_ERROR};
+          return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
           if (auto const result = self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
@@ -233,7 +233,7 @@ class Client {
             self_->Shutdown();
             guard_.unlock();
             // TODO: (andi) Handle the error
-            return std::unexpected{RpcError::GENERIC_RPC_ERROR};
+            return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
           }
         } else {
           response_data_size = ret.stream_size;
@@ -259,7 +259,7 @@ class Client {
         // Logically invalid state, connection is still up, defunct stream and release
         defunct_ = true;
         guard_.unlock();
-        return std::unexpected{RpcError::GENERIC_RPC_ERROR};
+        return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
       }
 
       spdlog::trace("[RpcClient] received {}, version {} from endpoint {}:{}.",
@@ -274,16 +274,18 @@ class Client {
     bool IsDefunct() const { return defunct_; }
 
    private:
-    // TODO: (andi) Handle throwing exceptions
-    static auto GenBuilderCallback(Client *client, StreamHandler *self, std::optional<int> timeout_ms) {
-      return [client, self, timeout_ms](const uint8_t *data, size_t size, bool have_more) {
-        if (self->defunct_) throw GenericRpcFailedException();
+    static auto GenBuilderCallback(Client *client, StreamHandler *self, std::optional<int> timeout_ms)
+        -> slk::BuilderWriteFunction {
+      return [client, self, timeout_ms](
+                 const uint8_t *data, size_t size, bool have_more) -> slk::BuilderWriteFunction::result_type {
+        if (self->defunct_) return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
         if (!client->client_->Write(data, size, have_more, timeout_ms)) {
           self->defunct_ = true;
           client->Shutdown();
           self->guard_.unlock();
-          throw GenericRpcFailedException();
+          return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
         }
+        return {};
       };
     }
 
@@ -306,7 +308,7 @@ class Client {
   ///                                          the client and to await the
   ///                                          response from the server
   template <IsRpc RPC, class... Args>
-  auto Stream(Args &&...args) -> std::expected<StreamHandler<RPC>, RpcError> {
+  auto Stream(Args &&...args) -> std::expected<StreamHandler<RPC>, utils::RpcError> {
     return StreamWithLoad<RPC>(
         [](auto *reader) {
           typename RPC::Response response;
@@ -328,7 +330,7 @@ class Client {
    */
   template <IsRpc Rpc, class... Args>
   auto TryStream(std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args)
-      -> std::expected<StreamHandler<Rpc>, RpcError> {
+      -> std::expected<StreamHandler<Rpc>, utils::RpcError> {
     return StreamWithLoad<Rpc>(
         [](auto *reader) {
           typename Rpc::Response response;
@@ -342,7 +344,7 @@ class Client {
 
   template <IsRpc RpcNew, class RpcOld, class... Args>
   auto UpgradeStream(StreamHandler<RpcOld> &&old_stream_handler, Args &&...args)
-      -> std::expected<StreamHandler<RpcNew>, RpcError> {
+      -> std::expected<StreamHandler<RpcNew>, utils::RpcError> {
     return StreamWithLoad<RpcNew>(
         [](auto *reader) {
           typename RpcNew::Response response;
@@ -360,12 +362,12 @@ class Client {
   auto StreamWithLoad(std::function<typename Rpc::Response(slk::Reader *)> res_load,
                       std::optional<std::chrono::milliseconds> const &try_lock_timeout,
                       std::optional<std::unique_lock<utils::ResourceLock>> guard_arg, Args &&...args)
-      -> std::expected<StreamHandler<Rpc>, RpcError> {
+      -> std::expected<StreamHandler<Rpc>, utils::RpcError> {
     typename Rpc::Request request(std::forward<Args>(args)...);
     auto req_type = Rpc::Request::kType;
     auto req_type_name = std::string_view{req_type.name};
 
-    auto guard = std::invoke([&]() -> std::expected<std::unique_lock<utils::ResourceLock>, RpcError> {
+    auto guard = std::invoke([&]() -> std::expected<std::unique_lock<utils::ResourceLock>, utils::RpcError> {
       // Upgrade stream with existing lock
       if (guard_arg) {
         return std::move(*guard_arg);
@@ -375,7 +377,7 @@ class Client {
       if (!try_lock_timeout) {
         local_guard.lock();
       } else if (!local_guard.try_lock_for(*try_lock_timeout)) {
-        return std::unexpected{RpcError::FAILED_TO_GET_RPC_STREAM};
+        return std::unexpected{utils::RpcError::FAILED_TO_GET_RPC_STREAM};
       }
       return local_guard;  // RVO
     });
@@ -396,7 +398,7 @@ class Client {
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
-        return std::unexpected{RpcError::GENERIC_RPC_ERROR};
+        return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
       }
     }
 
@@ -428,7 +430,7 @@ class Client {
   /// @returns TRequestResponse::Response object that was specified to be
   ///                                     returned by the RPC call
   template <IsRpc Rpc, class... Args>
-  auto Call(Args &&...args) -> std::expected<typename Rpc::Response, RpcError> {
+  auto Call(Args &&...args) -> std::expected<typename Rpc::Response, utils::RpcError> {
     auto stream = Stream<Rpc>(std::forward<Args>(args)...);
     if (!stream.has_value()) return std::unexpected{stream.error()};
     return stream.value().SendAndWait();
@@ -437,7 +439,7 @@ class Client {
   /// Same as `Call` but the first argument is a response loading function.
   template <IsRpc Rpc, class... Args>
   auto CallWithLoad(std::function<typename Rpc::Response(slk::Reader *)> load, Args &&...args)
-      -> std::expected<typename Rpc::Response, RpcError> {
+      -> std::expected<typename Rpc::Response, utils::RpcError> {
     auto stream = StreamWithLoad(load, std::forward<Args>(args)...);
     if (!stream.has_value()) return std::unexpected{stream.error()};
     return stream.value().SendAndWait();

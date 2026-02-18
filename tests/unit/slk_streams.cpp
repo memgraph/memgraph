@@ -22,9 +22,13 @@
 
 TEST(Builder, SingleSegment) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(5);
   builder.Save(input.data(), input.size());
@@ -48,9 +52,13 @@ TEST(Builder, SingleSegment) {
 
 TEST(Builder, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(memgraph::slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
@@ -87,14 +95,18 @@ TEST(Builder, MultipleSegments) {
 
 TEST(Builder, PrepareForFileSending) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(100);
   builder.PrepareForFileSending();
   ASSERT_TRUE(builder.GetFileData());
-  builder.SaveFileBuffer(input.data(), input.size());
+  ASSERT_TRUE(builder.SaveFileBuffer(input.data(), input.size()).has_value());
   builder.Finalize();
 
   ASSERT_EQ(buffer.size(), input.size() + sizeof(memgraph::slk::SegmentSize) + sizeof(memgraph::slk::SegmentSize));
@@ -117,9 +129,13 @@ TEST(Builder, PrepareForFileSending) {
 
 TEST(Builder, FlushWithoutFile) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(20);
   builder.Save(input.data(), input.size());
@@ -150,9 +166,13 @@ TEST(Reader, InitializeReaderWithHave) {
 
 TEST(Reader, SingleSegment) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(5);
   builder.Save(input.data(), input.size());
@@ -230,9 +250,13 @@ TEST(Reader, SingleSegment) {
 
 TEST(Reader, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(memgraph::slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
@@ -310,9 +334,13 @@ TEST(Reader, MultipleSegments) {
 
 TEST(CheckStreamStatus, SingleSegment) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(5);
   builder.Save(input.data(), input.size());
@@ -359,9 +387,13 @@ TEST(CheckStreamStatus, SingleSegment) {
 
 TEST(CheckStreamStatus, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto input = GetRandomData(memgraph::slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
@@ -438,9 +470,13 @@ TEST(CheckStreamStatus, InvalidSegment) {
 
 TEST(CheckStreamStatus, StreamCompleteNoFileData) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto const input = GetRandomData(20);
   ASSERT_FALSE(builder.GetFileData());
@@ -455,13 +491,17 @@ TEST(CheckStreamStatus, StreamCompleteNoFileData) {
 
 TEST(CheckStreamStatus, WholeFileInSegment) {
   std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
-  });
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   auto const file_data = GetRandomData(5);
   builder.PrepareForFileSending();
-  builder.SaveFileBuffer(file_data.data(), file_data.size());
+  ASSERT_TRUE(builder.SaveFileBuffer(file_data.data(), file_data.size()).has_value());
   builder.Finalize();
 
   auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());

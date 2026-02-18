@@ -26,7 +26,7 @@ extern const Event SwapMainUUIDRpcFail;
 namespace memgraph::replication_coordination_glue {
 
 inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uuid) {
-  auto const res = std::invoke([&rpc_client_, &uuid]() -> std::expected<SwapMainUUIDRes, rpc::RpcError> {
+  auto const res = std::invoke([&rpc_client_, &uuid]() -> std::expected<SwapMainUUIDRes, utils::RpcError> {
     auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)};
     if (!stream.has_value()) return std::unexpected{stream.error()};
     return stream.value().SendAndWait();

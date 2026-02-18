@@ -27,7 +27,7 @@ class CoordinatorInstanceConnector {
     auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
     if (!stream.has_value()) {
       spdlog::error(
-          "Failed to receive response to {}: {}", Rpc::Request::kType.name, rpc::GetRpcErrorMsg(stream.error()));
+          "Failed to receive response to {}: {}", Rpc::Request::kType.name, utils::GetRpcErrorMsg(stream.error()));
       return ReturnType{};
     }
     auto res = stream.value().SendAndWait();
@@ -35,7 +35,7 @@ class CoordinatorInstanceConnector {
     if (res.has_value()) {
       return res.value().arg_;
     }
-    spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, rpc::GetRpcErrorMsg(res.error()));
+    spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, utils::GetRpcErrorMsg(res.error()));
     return ReturnType{};
   }
 

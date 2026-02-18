@@ -133,9 +133,13 @@ void RpcMessageDeliverer::Execute() {
   }
 
   slk::Reader req_reader = GetReqReader();
-  slk::Builder res_builder([&](const uint8_t *data, size_t const size, bool const have_more) {
-    output_stream_->Write(data, size, have_more);
-  });
+  slk::Builder res_builder(
+      [&](const uint8_t *data, size_t const size, bool const have_more) -> slk::BuilderWriteFunction::result_type {
+        if (output_stream_->Write(data, size, have_more)) {
+          return {};
+        }
+        return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
+      });
 
   auto const maybe_message_header = LoadMessageHeader(&req_reader);
   if (!maybe_message_header.has_value()) {

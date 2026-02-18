@@ -350,11 +350,13 @@ bool LicenseChecker::IsEnterpriseValidFast() const {
 
 std::string Encode(const License &license) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool /*have_more*/) {
-    for (size_t i = 0; i < size; ++i) {
-      buffer.push_back(data[i]);
-    }
-  });
+  slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool /*have_more*/) -> slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
 
   slk::Save(license.organization_name, &builder);
   slk::Save(license.valid_until, &builder);

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,9 +42,9 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  void WriteFileBuffer(const uint8_t *buffer, size_t buffer_size);
+  auto WriteFileBuffer(const uint8_t *buffer, size_t buffer_size) -> slk::BuilderWriteFunction::result_type;
 
-  void WriteFileData(utils::InputFile *file);
+  auto WriteFileData(utils::InputFile *file) -> slk::BuilderWriteFunction::result_type;
 
   bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write);
 
