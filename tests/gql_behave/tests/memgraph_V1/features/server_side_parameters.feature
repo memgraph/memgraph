@@ -47,6 +47,18 @@ Feature: Server-side parameters
             | 'x'  | '"global_val"' | 'global'   |
             | 'y'  | '"db_val"'     | 'database' |
 
+    Scenario: Cannot set database parameter when global parameter with same name exists
+        Given an empty graph
+        And having executed:
+            """
+            SET GLOBAL PARAMETER x='global_val'
+            """
+        When executing query:
+            """
+            SET PARAMETER x='db_val'
+            """
+        Then an error should be raised
+
     Scenario: Unset database parameter
         Given an empty graph
         And having executed:
@@ -56,6 +68,34 @@ Feature: Server-side parameters
         When executing query:
             """
             UNSET PARAMETER x
+            """
+        When executing query:
+            """
+            SHOW PARAMETERS
+            """
+        Then the result should be empty
+
+    Scenario: Changing database shows only that database's parameters
+        Given an empty graph
+        And having executed:
+            """
+            CREATE DATABASE db_a;
+            """
+        And having executed:
+            """
+            CREATE DATABASE db_b;
+            """
+        And having executed:
+            """
+            USE DATABASE db_a;
+            """
+        And having executed:
+            """
+            SET PARAMETER x='from_a';
+            """
+        And having executed:
+            """
+            USE DATABASE db_b;
             """
         When executing query:
             """

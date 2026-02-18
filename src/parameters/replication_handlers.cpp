@@ -45,7 +45,8 @@ void SetParameterHandler(system::ReplicaHandlerAccessToState &system_state_acces
     return;
   }
 
-  if (parameters.SetParameter(req.parameter.name, req.parameter.value, req.parameter.scope_context)) {
+  if (parameters.SetParameter(req.parameter.name, req.parameter.value, req.parameter.scope_context) ==
+      parameters::SetParameterResult::Success) {
     res = SetParameterRes(true);
   }
 

@@ -105,11 +105,12 @@ std::string_view ScopeContextToDisplayString(std::string_view scope_context) {
 
 Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(storage_path) {}
 
-bool Parameters::SetParameter(std::string_view name, std::string_view value, std::string_view scope_context,
-                              system::Transaction *txn) {
-  if (!storage_.Put(MakeKey(name, scope_context), value)) return false;
+SetParameterResult Parameters::SetParameter(std::string_view name, std::string_view value,
+                                            std::string_view scope_context, system::Transaction *txn) {
+  if (!scope_context.empty() && GetParameter(name, {}).has_value()) return SetParameterResult::GlobalAlreadyExists;
+  if (!storage_.Put(MakeKey(name, scope_context), value)) return SetParameterResult::StorageError;
   if (txn) txn->AddAction<SetParameterAction>(name, value, scope_context);
-  return true;
+  return SetParameterResult::Success;
 }
 
 std::optional<std::string> Parameters::GetParameter(std::string_view name, std::string_view scope_context) const {

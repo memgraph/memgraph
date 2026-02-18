@@ -2794,8 +2794,18 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
           }
           scope_context = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
         }
-        if (!parameters->SetParameter(parameter_name, value_str, scope_context, &*interpreter->system_transaction_)) {
-          throw QueryRuntimeException("Failed to set parameter '{}'", parameter_name);
+        switch (
+            parameters->SetParameter(parameter_name, value_str, scope_context, &*interpreter->system_transaction_)) {
+          case parameters::SetParameterResult::Success:
+            break;
+          case parameters::SetParameterResult::GlobalAlreadyExists:
+            throw QueryRuntimeException(
+                "Cannot set database parameter '{}' because a global parameter with that name already exists.",
+                parameter_name);
+          case parameters::SetParameterResult::StorageError:
+            throw QueryRuntimeException("Failed to set parameter '{}' (storage error).", parameter_name);
+          default:
+            throw QueryRuntimeException("Failed to set parameter '{}'.", parameter_name);
         }
         spdlog::info("Set parameter '{}' with value '{}' (scope: {})",
                      parameter_name,

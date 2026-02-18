@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -23,6 +24,14 @@ namespace memgraph::parameters {
 
 /// Empty scope_context = global; non-empty = database (UUID as string).
 std::string_view ScopeContextToDisplayString(std::string_view scope_context);
+
+enum class SetParameterResult : std::uint8_t {
+  Success,
+  /// A global parameter with this name already exists; cannot set a database-scoped parameter.
+  GlobalAlreadyExists,
+  /// Storage failed to persist the parameter.
+  StorageError,
+};
 
 struct ParameterInfo {
   std::string name;
@@ -46,8 +55,8 @@ struct Parameters {
    * @param scope_context Empty = global; non-empty = database UUID as string.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  bool SetParameter(std::string_view name, std::string_view value, std::string_view scope_context = {},
-                    system::Transaction *txn = nullptr);
+  SetParameterResult SetParameter(std::string_view name, std::string_view value, std::string_view scope_context = {},
+                                  system::Transaction *txn = nullptr);
 
   /**
    * @brief Get a parameter with a given name and scope context.
