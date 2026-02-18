@@ -547,12 +547,16 @@ granularPrivilege : NOTHING | READ | UPDATE | SET LABEL | REMOVE LABEL | SET PRO
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
-defaultLabelPermissions : GRANT granularPrivilegeList
-                        | DENY ALL
+allPermissions : ALL | ASTERISK ;
+
+defaultLabelPermissions : GRANT allPermissions
+                        | GRANT granularPrivilegeList
+                        | DENY allPermissions
                         ;
 
-defaultEdgeTypePermissions : GRANT granularPrivilegeList
-                           | DENY ALL
+defaultEdgeTypePermissions : GRANT allPermissions
+                           | GRANT granularPrivilegeList
+                           | DENY allPermissions
                            ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
