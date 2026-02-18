@@ -89,5 +89,66 @@ def test_mt_with_hidden_files(test_name):
     execute_and_fetch_all(cursor, "RETURN 0")
 
 
+def test_recovery_on_startup_false_recovers_tenants_but_not_data(test_name):
+    """With data-recovery-on-startup=false, tenant databases exist after restart but their data is not recovered."""
+    instances = {
+        "with_recovery": {
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=true",
+                "--storage-wal-enabled=true",
+                "--storage-snapshot-on-exit=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/with_recovery.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+        },
+        "no_recovery": {
+            "args": [
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+                "--storage-wal-enabled=true",
+                "--storage-snapshot-on-exit=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/no_recovery.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+        },
+    }
+
+    # Phase 1: start with recovery, create tenant, add data, snapshot, stop
+    interactive_mg_runner.start(instances, "with_recovery")
+    conn = connect(host="localhost", port=7687)
+    cursor = conn.cursor()
+
+    execute_and_fetch_all(cursor, "CREATE DATABASE tenant_db;")
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_db;")
+    execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1});")
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    interactive_mg_runner.kill_all()
+
+    # Phase 2: restart with data-recovery-on-startup=false
+    interactive_mg_runner.start(instances, "no_recovery")
+    conn = connect(host="localhost", port=7687)
+    cursor = conn.cursor()
+
+    # Tenants are recovered: tenant_db should exist
+    databases = execute_and_fetch_all(cursor, "SHOW DATABASES;")
+    db_names = [row[0] for row in databases]
+    assert "tenant_db" in db_names, f"Expected tenant_db in SHOW DATABASES, got {db_names}"
+
+    # Data is not recovered: tenant should be empty
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_db;")
+    count_result = execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n) AS c;")
+    assert count_result[0][0] == 0, f"Expected 0 nodes when recovery disabled, got {count_result[0][0]}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

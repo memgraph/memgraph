@@ -17,6 +17,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "dbms/rpc.hpp"
+#include "license/license.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
@@ -140,8 +141,7 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool recovery_on_startup)
-    : default_config_{std::move(config)}, auth_{auth} {
+DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(config)} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 
@@ -164,50 +164,24 @@ DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool r
   Durability::Migrate(durability_.get(), root);
   auto directories = std::set{std::string{kDefaultDB}};
 
-  // TODO: Problem is if user doesn't set this up "database" name won't be recovered
-  // but if storage-recover-on-startup is true storage will be recovered which is an issue
-  spdlog::info("Data recovery on startup set to {}", recovery_on_startup);
-  if (recovery_on_startup) {
-    auto it = durability_->begin(std::string(kDBPrefix));
-    auto end = durability_->end(std::string(kDBPrefix));
-    for (; it != end; ++it) {
-      const auto &[key, config_json] = *it;
-      const auto name = key.substr(kDBPrefix.size());
-      auto json = nlohmann::json::parse(config_json);
-      const auto uuid = json.at("uuid").get<utils::UUID>();
-      const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
-      spdlog::info("Restoring database {} at {}.", name, rel_dir);
-      auto new_db = New_(name, uuid, nullptr, rel_dir);
-      MG_ASSERT(new_db.has_value(), "Failed while creating database {}.", name);
-      directories.emplace(rel_dir.filename());
-      spdlog::info("Database {} restored.", name);
-    }
-  } else {  // Clear databases from the durability list and auth
-    auto locked_auth = auth_.Lock();
-    auto it = durability_->begin(std::string{kDBPrefix});
-    auto end = durability_->end(std::string{kDBPrefix});
-    for (; it != end; ++it) {
-      const auto &[key, _] = *it;
-      const auto name = key.substr(kDBPrefix.size());
-      if (name == kDefaultDB) continue;
-      spdlog::warn(
-          "Data recovery on startup not set, this will result in dropping database in case of multi-tenancy enabled.");
-      locked_auth->DeleteDatabase(name);
-      durability_->Delete(key);
-    }
-    // When data recovery is disabled, we need to remove all text indices to ensure a clean state.
-    // Text indices use Tantivy files, and removing them prevents
-    // stale index data from being present in the system.
-    auto text_indices_dir = root / storage::kTextIndicesDirectory;
-    std::error_code ec;
-    std::filesystem::remove_all(text_indices_dir, ec);
-    if (ec) {
-      LOG_FATAL("Failed to remove text indices directory {}: {}", text_indices_dir.string(), ec.message());
-    }
+  // Restore databases
+  auto it = durability_->begin(std::string(kDBPrefix));
+  auto end = durability_->end(std::string(kDBPrefix));
+  for (; it != end; ++it) {
+    const auto &[key, config_json] = *it;
+    const auto name = key.substr(kDBPrefix.size());
+    auto json = nlohmann::json::parse(config_json);
+    const auto uuid = json.at("uuid").get<utils::UUID>();
+    const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
+    spdlog::info("Restoring database {} at {}.", name, rel_dir);
+    auto new_db = New_(name, uuid, nullptr, rel_dir);
+    MG_ASSERT(new_db.has_value(), "Failed while creating database {}.", name);
+    directories.emplace(rel_dir.filename());
+    spdlog::info("Database {} restored.", name);
   }
 
   /*
-   * DATABASES CLEAN UP
+   * DATABASES CLEAN UPg
    */
   // Clean the unused directories
   for (const auto &entry : std::filesystem::directory_iterator(db_dir)) {

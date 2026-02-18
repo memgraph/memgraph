@@ -24,7 +24,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "auth/auth.hpp"
 #include "constants.hpp"
 #include "dbms/database.hpp"
 #include "kvstore/kvstore.hpp"
@@ -118,11 +117,8 @@ class DbmsHandler {
    * @brief Initialize the handler.
    *
    * @param configs storage configuration
-   * @param auth pointer to the global authenticator
-   * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config, auth::SynchedAuth &auth,
-              bool recovery_on_startup);  // TODO If more arguments are added use a config struct
+  DbmsHandler(storage::Config config);
 #else
   /**
    * @brief Initialize the handler. A single database is supported in community edition.
@@ -658,7 +654,6 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
-  auth::SynchedAuth &auth_;                       //!< Synchronized auth::Auth
 #endif
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
