@@ -15,6 +15,7 @@
 #include <queue>
 #include <utility>
 
+#include "query/plan/preprocess.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
@@ -81,10 +82,21 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
 
       // if we are expanding from an edge, we will not do any change, but at some point need to throw
       // as expanding from edge in a path is invalid
-      if (is_expanding_from_node2 && (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST ||
-                                      !expansion.edge->filter_lambda_.accumulated_path)) {
-        // BFS can be flipped when there's no accumulated path (path order doesn't matter for filtering).
-        // When a filter lambda uses accumulated path, path order matters during traversal, so no flip.
+      bool can_flip = true;
+      if (expansion.edge->filter_lambda_.accumulated_path) {
+        can_flip = false;  // Path order matters when accumulated path is used
+      } else if (expansion.edge->filter_lambda_.expression && expansion.edge->filter_lambda_.inner_node) {
+        // When filter references inner_node (e.g. n.id <> 3), flipping is unsafe: both BFS and DFS
+        // only filter the node we expand TO, not the start vertex. When flipped, the new start is
+        // never filtered, so paths from filtered-out nodes can appear. See ExpandVariableCursor
+        // (DFS) try_expand and SingleSourceShortestPathCursor (BFS) expand_pair in operator.cpp.
+        UsedSymbolsCollector collector(symbol_table);
+        expansion.edge->filter_lambda_.expression->Accept(collector);
+        if (collector.symbols_.contains(symbol_table.at(*expansion.edge->filter_lambda_.inner_node))) {
+          can_flip = false;
+        }
+      }
+      if (is_expanding_from_node2 && can_flip) {
         std::swap(expansion.node1, expansion.node2);
         expansion.is_flipped = true;
         if (expansion.direction != EdgeAtom::Direction::BOTH) {
