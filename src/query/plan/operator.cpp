@@ -4232,21 +4232,29 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
   switch (type_) {
-    case EdgeAtom::Type::BREADTH_FIRST:
+    case EdgeAtom::Type::BREADTH_FIRST: {
       return common_.existing_node ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem)
                                    : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-    case EdgeAtom::Type::DEPTH_FIRST:
+    }
+    case EdgeAtom::Type::DEPTH_FIRST: {
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
-    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
+    }
+    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH: {
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
-    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
+    }
+    case EdgeAtom::Type::ALL_SHORTEST_PATHS: {
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::KSHORTEST:
+    }
+    case EdgeAtom::Type::KSHORTEST: {
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::SINGLE:
+    }
+    case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
+    }
+    default:
+      std::unreachable();
   }
-}
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
 std::string ExpandVariable::ToString() const {
   return fmt::format(
