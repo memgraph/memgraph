@@ -276,6 +276,7 @@ class Client {
     bool IsDefunct() const { return defunct_; }
 
    private:
+    // TODO: (andi) Handle throwing exceptions
     static auto GenBuilderCallback(Client *client, StreamHandler *self, std::optional<int> timeout_ms) {
       return [client, self, timeout_ms](const uint8_t *data, size_t size, bool have_more) {
         if (self->defunct_) throw GenericRpcFailedException();
@@ -330,6 +331,7 @@ class Client {
    * @param args  Arguments to propagate to StreamWithLoad
    * @return nullopt if couldn't try_lock, StreamHandler otherwise
    */
+  // TODO: (andi) Needs removing exception
   template <class TRequestResponse, class... Args>
   std::optional<StreamHandler<TRequestResponse>> TryStream(
       std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
@@ -363,6 +365,7 @@ class Client {
   }
 
   /// Same as `Stream` but the first argument is a response loading function.
+  /// TODO: (andi) Needs updating also
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,

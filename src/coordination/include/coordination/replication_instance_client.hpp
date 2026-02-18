@@ -92,7 +92,7 @@ class ReplicationInstanceClient {
           return stream.SendAndWait();
         });
 
-    if (res.has_value() && res.value()) {
+    if (res.has_value() && res.value().arg_) {
       metrics::IncrementCounter(RpcInfo<Rpc>::succCounter);
       return true;
     }

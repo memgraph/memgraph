@@ -83,7 +83,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
 
   auto stream = client.Stream<Echo>("Sending request");
   auto reply = stream.SendAndWait();
-  EXPECT_EQ(reply.data, "Sending reply");
+  EXPECT_EQ(reply.value().data, "Sending reply");
 }
 
 // Simulate something long executing on server.
@@ -118,7 +118,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Echo>("Sending request");
-  EXPECT_THROW(stream.SendAndWait(), GenericRpcFailedException);
+  ASSERT_EQ(stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 // Simulate server with one thread being busy processing other RPC message.
@@ -176,7 +176,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   auto sum_thread_ = std::jthread([&sum_stream]() { sum_stream.SendAndWait(); });
   // Wait so that server receives first SumReq and then EchoMessage
   std::this_thread::sleep_for(100ms);
-  EXPECT_THROW(echo_stream.SendAndWait(), GenericRpcFailedException);
+  ASSERT_EQ(echo_stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 TEST(RpcTimeout, SendingToWrongSocket) {
@@ -210,7 +210,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Echo>("Sending request");
-  EXPECT_THROW(stream.SendAndWait(), GenericRpcFailedException);
+  ASSERT_EQ(stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 template <memgraph::rpc::IsRpc T>
@@ -232,7 +232,7 @@ template <memgraph::rpc::IsRpc T>
 void SendAndAssert(Client &client) {
   rpc_akn.store(false);
   auto stream = client.Stream<T>();
-  EXPECT_THROW(stream.SendAndWait(), GenericRpcFailedException);
+  ASSERT_EQ(stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
   rpc_akn.store(true);  // Signal the timeout occurred
   rpc_akn.wait(false);  // Wait for the reset
 }
