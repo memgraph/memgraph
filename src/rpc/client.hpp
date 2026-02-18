@@ -200,7 +200,7 @@ class Client {
       }
     }
 
-    typename TRequestResponse::Response SendAndWait() {
+    auto SendAndWait() -> std::expected<typename TRequestResponse::Response, RpcError> {
       auto res_type = TRequestResponse::Response::kType;
       auto req_type = TRequestResponse::Request::kType;
 
@@ -223,7 +223,7 @@ class Client {
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;
           guard_.unlock();
-          throw GenericRpcFailedException();
+          return std::unexpected{RpcError::GENERIC_RPC_ERROR};
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
           if (auto const result = self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
@@ -235,7 +235,7 @@ class Client {
             self_->Shutdown();
             guard_.unlock();
             // TODO: (andi) Handle the error
-            throw GenericRpcFailedException();
+            return std::unexpected{RpcError::GENERIC_RPC_ERROR};
           }
         } else {
           response_data_size = ret.stream_size;
@@ -249,8 +249,7 @@ class Client {
 
       auto const maybe_message_header = LoadMessageHeader(&res_reader);
       if (!maybe_message_header.has_value()) {
-        // return std::unexpected{maybe_message_header.error()};
-        throw UnsupportedRpcVersionException();
+        return std::unexpected{maybe_message_header.error()};
       }
 
       // Check the response ID.
@@ -262,7 +261,7 @@ class Client {
         // Logically invalid state, connection is still up, defunct stream and release
         defunct_ = true;
         guard_.unlock();
-        throw GenericRpcFailedException();
+        return std::unexpected{RpcError::GENERIC_RPC_ERROR};
       }
 
       spdlog::trace("[RpcClient] received {}, version {} from endpoint {}:{}.",
