@@ -131,13 +131,7 @@ struct MinMemgraph {
   explicit MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
         repl_state{ReplicationStateRootPath(conf)},
-        dbms{conf
-#ifdef MG_ENTERPRISE
-             ,
-             auth,
-             true
-#endif
-        },
+        dbms{conf},
         db_acc{dbms.Get()},
         db{*db_acc.get()},
         repl_handler(repl_state, dbms
