@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,13 +30,13 @@ class ClientPool {
       : endpoint_(std::move(endpoint)), context_(context) {}
 
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response Call(Args &&...args) {
+  auto Call(Args &&...args) -> std::expected<typename TRequestResponse::Response, RpcError> {
     return WithUnusedClient(
         [&](const auto &client) { return client->template Call<TRequestResponse>(std::forward<Args>(args)...); });
   }
 
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response CallWithLoad(Args &&...args) {
+  auto CallWithLoad(Args &&...args) -> std::expected<typename TRequestResponse::Response, RpcError> {
     return WithUnusedClient([&](const auto &client) {
       return client->template CallWithLoad<TRequestResponse>(std::forward<Args>(args)...);
     });

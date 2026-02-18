@@ -411,12 +411,14 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   }
 
   try {
-    auto stream{
-        client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(std::move(replica_stream->GetStreamHandler()),
-                                                                          decision,
-                                                                          main_uuid_,
-                                                                          storage_uuid,
-                                                                          durability_commit_timestamp)};
+    auto const res = std::invoke([]() {
+      auto stream{client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(
+          std::move(replica_stream->GetStreamHandler()),
+          decision,
+          main_uuid_,
+          storage_uuid,
+          durability_commit_timestamp)};
+    });
     auto const res = stream.SendAndWait().success;
     if (res) {
       auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
