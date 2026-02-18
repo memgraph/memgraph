@@ -790,6 +790,21 @@ package_memgraph() {
     echo "Check output: $check_output"
     exit 1
   fi
+  echo "mgconsole found in package"
+
+  # check that the package has the required licenses
+  licenses=(
+    "MEL.pdf"
+    "BSL.txt"
+    "APL.txt"
+  )
+  for license in "${licenses[@]}"; do
+    if ! grep -q "$license" <<< "$check_output"; then
+      echo "Error: $license license not found in package"
+      exit 1
+    fi
+  done
+  echo "Package has the required licenses"
 }
 
 package_docker() {
