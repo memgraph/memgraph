@@ -1418,11 +1418,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // If graph is chain-like or tree-like, bidirectional shines
     if (branching_factor_estimate <= 2.0) return true;
 
-    // 4. Otherwise fall back to conservative math
+    // 4. Otherwise fall back to conservative math.
+    // We estimate the "effective diameter" (h) using the Random Graph model: h = log_d(V).
     double hop_count_estimate = std::log(vertex_cnt) / std::log(std::max(branching_factor_estimate, 1.01));
+    // Clamp the estimate to realistic bounds:
+    // - 2.0: Heuristic is unreliable for trivial 1-hop connections.
+    // - 12.0: Prevents exponential explosion in the math for sparse/disconnected graphs.
     hop_count_estimate = std::clamp(hop_count_estimate, 2.0, 12.0);
 
-    return target_cnt < std::pow(branching_factor_estimate, hop_count_estimate / 2.0) / 8.0;
+    // Bidirectional BFS is beneficial if the meeting point frontier (d^(h/2)) is reached
+    // much faster than the full single-source traversal to the target.
+
+    // Given both cursors use similar PMR-based structures, a factor of 4.0 is a
+    // reasonable middle ground to account for setup/teardown of the two frontiers
+    // for every pair, especially since the current STShortestPath implementation
+    // does not share traversal work between different source-sink pairs.
+    const double bidirectional_overhead_factor = 4.0;
+    const double estimated_midpoint_frontier = std::pow(branching_factor_estimate, hop_count_estimate / 2.0);
+
+    return target_cnt < (estimated_midpoint_frontier / bidirectional_overhead_factor);
   }
 
   // Estimates cardinality for indexed scan operators only.
