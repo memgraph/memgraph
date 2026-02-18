@@ -3816,6 +3816,9 @@ class ParameterQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::ParameterQuery::Action action_;
+  /// If true, parameter is global; if false, parameter is for the current database (SET PARAMETER vs SET GLOBAL
+  /// PARAMETER).
+  bool is_global_scope_{true};
   std::string parameter_name_;
   /// SET parameter value: either a single expression (literal or parameter) or a config-style map (like WITH CONFIG).
   std::variant<Expression *, std::unordered_map<Expression *, Expression *>> parameter_value_{
@@ -3824,6 +3827,7 @@ class ParameterQuery : public memgraph::query::Query {
   ParameterQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ParameterQuery>();
     object->action_ = action_;
+    object->is_global_scope_ = is_global_scope_;
     object->parameter_name_ = parameter_name_;
     object->parameter_value_ = std::visit(
         [storage](auto &&arg) -> std::variant<Expression *, std::unordered_map<Expression *, Expression *>> {

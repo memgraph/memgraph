@@ -14,6 +14,73 @@ Feature: Server-side parameters
             | name | value       | scope   |
             | 'x'  | '"value"' | 'global' |
 
+    Scenario: Set database parameter and show parameters
+        Given an empty graph
+        When executing query:
+            """
+            SET PARAMETER x='value'
+            """
+        When executing query:
+            """
+            SHOW PARAMETERS
+            """
+        Then the result should be:
+            | name | value       | scope    |
+            | 'x'  | '"value"' | 'database' |
+
+    Scenario: Set both global and database parameter and show parameters
+        Given an empty graph
+        When executing query:
+            """
+            SET GLOBAL PARAMETER x='global_val'
+            """
+        When executing query:
+            """
+            SET PARAMETER y='db_val'
+            """
+        When executing query:
+            """
+            SHOW PARAMETERS
+            """
+        Then the result should be (ignoring element order for lists):
+            | name | value          | scope    |
+            | 'x'  | '"global_val"' | 'global'   |
+            | 'y'  | '"db_val"'     | 'database' |
+
+    Scenario: Unset database parameter
+        Given an empty graph
+        And having executed:
+            """
+            SET PARAMETER x='value'
+            """
+        When executing query:
+            """
+            UNSET PARAMETER x
+            """
+        When executing query:
+            """
+            SHOW PARAMETERS
+            """
+        Then the result should be empty
+
+    Scenario: Use database parameter in query
+        Given an empty graph
+        And having executed:
+            """
+            SET PARAMETER x='value'
+            """
+        And having executed:
+            """
+            CREATE (:Node {property: $x});
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                           |
+            | (:Node {property: 'value'}) |
+
     Scenario: Set global parameters (literal and from client parameter) and show
         Given an empty graph
         And parameters are:

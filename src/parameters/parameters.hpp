@@ -21,14 +21,14 @@
 
 namespace memgraph::parameters {
 
-enum class ParameterScope : uint8_t { GLOBAL };
-
-std::string_view ParameterScopeToString(ParameterScope scope);
+/// Empty scope_context = global; non-empty = database (UUID as string).
+std::string_view ScopeContextToDisplayString(std::string_view scope_context);
 
 struct ParameterInfo {
   std::string name;
   std::string value;
-  ParameterScope scope;
+  /// Empty = global parameter; non-empty = database UUID (as string).
+  std::string scope_context;
 };
 
 /**
@@ -42,28 +42,37 @@ struct Parameters {
   explicit Parameters(const std::filesystem::path &storage_path);
 
   /**
-   * @brief Set a parameter with a given name, value, and scope.
+   * @brief Set a parameter with a given name, value, and scope context.
+   * @param scope_context Empty = global; non-empty = database UUID as string.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  bool SetParameter(std::string_view name, std::string_view value, ParameterScope scope = ParameterScope::GLOBAL,
+  bool SetParameter(std::string_view name, std::string_view value, std::string_view scope_context = {},
                     system::Transaction *txn = nullptr);
 
   /**
-   * @brief Get a parameter with a given name and scope.
+   * @brief Get a parameter with a given name and scope context.
+   * @param scope_context Empty = global; non-empty = database UUID as string.
    */
-  std::optional<std::string> GetParameter(std::string_view name, ParameterScope scope = ParameterScope::GLOBAL) const;
+  std::optional<std::string> GetParameter(std::string_view name, std::string_view scope_context = {}) const;
 
   /**
-   * @brief Delete a parameter with a given name and scope.
+   * @brief Delete a parameter with a given name and scope context.
+   * @param scope_context Empty = global; non-empty = database UUID as string.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  bool UnsetParameter(std::string_view name, ParameterScope scope = ParameterScope::GLOBAL,
-                      system::Transaction *txn = nullptr);
+  bool UnsetParameter(std::string_view name, std::string_view scope_context = {}, system::Transaction *txn = nullptr);
 
   /**
-   * @brief Get all parameters with a given scope.
+   * @brief Get all parameters for a scope context.
+   * @param scope_context Empty = global; non-empty = database UUID as string.
    */
-  std::vector<ParameterInfo> GetAllParameters(ParameterScope scope) const;
+  std::vector<ParameterInfo> GetAllParameters(std::string_view scope_context = {}) const;
+
+  /**
+   * @brief Get all parameters visible in a session: global plus parameters for the given database (if any).
+   * @param database_uuid Optional current database UUID as string. If empty, returns only global parameters.
+   */
+  std::vector<ParameterInfo> GetAllParametersForSession(std::string_view database_uuid = {}) const;
 
   /**
    * @brief Return the number of parameters for a given scope.

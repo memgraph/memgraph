@@ -41,7 +41,8 @@ namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
-                            parameters::Parameters const *global_parameters) -> Parameters {
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
+    -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
@@ -51,9 +52,18 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
       parameters.Add(param_index, it->second);
       continue;
     }
-    // Fallback to global parameter if available.
-    if (global_parameters) {
-      auto opt = global_parameters->GetParameter(param_key, parameters::ParameterScope::GLOBAL);
+    // Fallback to server-side parameters: database (current DB) first, then global.
+    if (server_parameters) {
+      if (!database_uuid.empty()) {
+        auto opt = server_parameters->GetParameter(param_key, database_uuid);
+        if (opt) {
+          TypedValue value;
+          query::from_json(nlohmann::json::parse(*opt), value);
+          parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+          continue;
+        }
+      }
+      auto opt = server_parameters->GetParameter(param_key, {});
       if (opt) {
         TypedValue value;
         query::from_json(nlohmann::json::parse(*opt), value);
@@ -68,17 +78,16 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       parameters::Parameters const *global_parameters) {
+                       parameters::Parameters const *server_parameters, std::string_view database_uuid) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // get parameters (user-specified + global parameters)
-  // ATM we don't need to correctly materise actual PropertyValues exepct Strings
-  // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
-  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, global_parameters);
+  // Get parameters (user + database-scoped then global server parameters when database_uuid provided).
+  // Used for visitor resolution of dynamic labels/edge types and for execution.
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid);
 
   // Cache the query's AST if it isn't already.
   auto hash = stripped_query.stripped_query().hash();

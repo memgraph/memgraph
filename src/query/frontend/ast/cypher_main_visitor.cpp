@@ -3893,6 +3893,7 @@ antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQu
 antlrcpp::Any CypherMainVisitor::visitSetParameter(MemgraphCypher::SetParameterContext *ctx) {
   auto *parameter_query = storage_->Create<ParameterQuery>();
   parameter_query->action_ = ParameterQuery::Action::SET_PARAMETER;
+  parameter_query->is_global_scope_ = (ctx->GLOBAL() != nullptr);
   parameter_query->parameter_name_ = std::any_cast<std::string>(ctx->parameterName()->symbolicName()->accept(this));
   if (ctx->parameterValue()->literal()) {
     parameter_query->parameter_value_ = std::any_cast<Expression *>(ctx->parameterValue()->accept(this));
@@ -3910,6 +3911,7 @@ antlrcpp::Any CypherMainVisitor::visitSetParameter(MemgraphCypher::SetParameterC
 antlrcpp::Any CypherMainVisitor::visitUnsetParameter(MemgraphCypher::UnsetParameterContext *ctx) {
   auto *parameter_query = storage_->Create<ParameterQuery>();
   parameter_query->action_ = ParameterQuery::Action::UNSET_PARAMETER;
+  parameter_query->is_global_scope_ = (ctx->GLOBAL() != nullptr);
   parameter_query->parameter_name_ = std::any_cast<std::string>(ctx->parameterName()->symbolicName()->accept(this));
   return parameter_query;
 }

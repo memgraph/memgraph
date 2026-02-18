@@ -2758,7 +2758,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
   evaluation_context.parameters = query_parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-  constexpr auto kParamScope = parameters::ParameterScope::GLOBAL;
+  const bool is_global_scope = parameter_query->is_global_scope_;
 
   Callback callback;
   switch (parameter_query->action_) {
@@ -2780,15 +2780,27 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       callback.fn = [parameter_name = parameter_query->parameter_name_,
                      value_str,
                      parameters = interpreter_context->parameters,
-                     interpreter]() {
+                     interpreter,
+                     is_global_scope]() {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        if (!parameters->SetParameter(parameter_name, value_str, kParamScope, &*interpreter->system_transaction_)) {
+        std::string scope_context;
+        if (!is_global_scope) {
+          if (!interpreter->current_db_.db_acc_) {
+            throw QueryRuntimeException(
+                "No current database for SET PARAMETER. Use a database or SET GLOBAL PARAMETER.");
+          }
+          scope_context = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+        }
+        if (!parameters->SetParameter(parameter_name, value_str, scope_context, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Failed to set parameter '{}'", parameter_name);
         }
-        spdlog::info("Set parameter '{}' with value '{}'", parameter_name, value_str);
+        spdlog::info("Set parameter '{}' with value '{}' (scope: {})",
+                     parameter_name,
+                     value_str,
+                     is_global_scope ? "global" : "database");
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -2796,32 +2808,46 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
     case ParameterQuery::Action::UNSET_PARAMETER: {
       callback.fn = [parameter_name = parameter_query->parameter_name_,
                      parameters = interpreter_context->parameters,
-                     interpreter]() {
+                     interpreter,
+                     is_global_scope]() {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        if (!parameters->UnsetParameter(parameter_name, kParamScope, &*interpreter->system_transaction_)) {
+        std::string scope_context;
+        if (!is_global_scope) {
+          if (!interpreter->current_db_.db_acc_) {
+            throw QueryRuntimeException(
+                "No current database for UNSET PARAMETER. Use a database or UNSET GLOBAL PARAMETER.");
+          }
+          scope_context = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+        }
+        if (!parameters->UnsetParameter(parameter_name, scope_context, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Parameter '{}' does not exist", parameter_name);
         }
-        spdlog::info("Unset parameter '{}'", parameter_name);
+        spdlog::info("Unset parameter '{}' (scope: {})", parameter_name, is_global_scope ? "global" : "database");
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }
     case ParameterQuery::Action::SHOW_PARAMETERS: {
       callback.header = {"name", "value", "scope"};
-      callback.fn = [parameters = interpreter_context->parameters]() {
+      callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
         if (!parameters) {
           throw QueryRuntimeException("Parameters are not available");
         }
-        auto all_params = parameters->GetAllParameters(parameters::ParameterScope::GLOBAL);
+        std::string database_uuid;
+        if (interpreter->current_db_.db_acc_) {
+          database_uuid = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+        }
+        auto all_params = parameters->GetAllParametersForSession(database_uuid);
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
         for (const auto &param : all_params) {
-          results.emplace_back(std::vector<TypedValue>{TypedValue(param.name),
-                                                       TypedValue(param.value),
-                                                       TypedValue(parameters::ParameterScopeToString(param.scope))});
+          results.emplace_back(
+              std::vector<TypedValue>{TypedValue(param.name),
+                                      TypedValue(param.value),
+                                      TypedValue(parameters::ScopeContextToDisplayString(param.scope_context))});
         }
         return results;
       };
@@ -3435,11 +3461,14 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
   auto inner_query = parsed_query.query_string.substr(kExplainQueryStart.size());
+  std::string database_uuid_str{current_db.db_acc_->get()->uuid()};
+  std::string_view database_uuid{database_uuid_str};
   ParsedQuery parsed_inner_query = ParseQuery(inner_query,
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
                                               interpreter_context->config.query,
-                                              interpreter_context->parameters);
+                                              interpreter_context->parameters,
+                                              database_uuid);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -3528,11 +3557,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   // looked up using their positions within the string that was parsed. These
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
+  std::string database_uuid_str{current_db.db_acc_->get()->uuid()};
+  std::string_view database_uuid{database_uuid_str};
   ParsedQuery parsed_inner_query = ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()),
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
                                               interpreter_context->config.query,
-                                              interpreter_context->parameters);
+                                              interpreter_context->parameters,
+                                              database_uuid);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
@@ -8079,11 +8111,15 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
+    std::string database_uuid_str;
+    if (current_db_.db_acc_) database_uuid_str = std::string{current_db_.db_acc_->get()->uuid()};
+    std::string_view database_uuid{database_uuid_str};
     ParsedQuery parsed_query = ParseQuery(query_string,
                                           params_getter(nullptr),
                                           &interpreter_context_->ast_cache,
                                           interpreter_context_->config.query,
-                                          interpreter_context_->parameters);
+                                          interpreter_context_->parameters,
+                                          database_uuid);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
     return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
@@ -8408,8 +8444,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.db_acc_) {
       // fix parameters, enums requires storage to map to correct enum value
       parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
+      std::string database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
       parsed_query.parameters = PrepareQueryParameters(
-          parsed_query.stripped_query, parsed_query.user_parameters, interpreter_context_->parameters);
+          parsed_query.stripped_query, parsed_query.user_parameters, interpreter_context_->parameters, database_uuid);
     }
 
 #ifdef MG_ENTERPRISE

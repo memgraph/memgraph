@@ -175,7 +175,7 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                  std::string_view db_name, TriggerPrivilegeContext privilege_context)
     : name_{std::move(name)},
-      parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
+      parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config, nullptr, {})},
       event_type_{event_type},
       creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
