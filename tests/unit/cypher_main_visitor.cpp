@@ -2801,6 +2801,48 @@ TEST_P(CypherMainVisitorTest, CreateUserWithDefaultPermissions) {
                     AuthQuery::FineGrainedPrivilege::REMOVE_LABEL,
                     AuthQuery::FineGrainedPrivilege::SET_PROPERTY},
                    {});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT LABEL PERMISSIONS GRANT ALL",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::ALL},
+                   {});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT LABEL PERMISSIONS GRANT *",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::ALL},
+                   {});
+
+  check_auth_query(&ast_generator,
+                   "CREATE USER user WITH DEFAULT LABEL PERMISSIONS DENY *",
+                   AuthQuery::Action::CREATE_USER,
+                   "user",
+                   {},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::NOTHING},
+                   {});
 }
 
 TEST_P(CypherMainVisitorTest, CreateRoleWithDefaultPermissions) {
@@ -2850,6 +2892,38 @@ TEST_P(CypherMainVisitorTest, CreateRoleWithDefaultPermissions) {
                    {},
                    {},
                    {AuthQuery::FineGrainedPrivilege::NOTHING},
+                   {AuthQuery::FineGrainedPrivilege::NOTHING});
+
+  check_auth_query(&ast_generator,
+                   "CREATE ROLE admin "
+                   "WITH DEFAULT LABEL PERMISSIONS GRANT ALL "
+                   "WITH DEFAULT EDGE_TYPE PERMISSIONS GRANT ALL",
+                   AuthQuery::Action::CREATE_ROLE,
+                   "",
+                   {"admin"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::ALL},
+                   {AuthQuery::FineGrainedPrivilege::ALL});
+
+  check_auth_query(&ast_generator,
+                   "CREATE ROLE mixed "
+                   "WITH DEFAULT LABEL PERMISSIONS GRANT * "
+                   "WITH DEFAULT EDGE_TYPE PERMISSIONS DENY *",
+                   AuthQuery::Action::CREATE_ROLE,
+                   "",
+                   {"mixed"},
+                   "",
+                   {},
+                   {},
+                   {},
+                   {},
+                   {},
+                   {AuthQuery::FineGrainedPrivilege::ALL},
                    {AuthQuery::FineGrainedPrivilege::NOTHING});
 }
 
