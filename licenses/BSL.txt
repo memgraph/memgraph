@@ -21,7 +21,7 @@ ADDITIONAL USE GRANT:   You may use the Licensed Work in production in
                         c) use the Licensed Work to create a work or solution
                         which competes (or might reasonably be expected to
                         compete) with the Licensed Work.
-CHANGE DATE:            2030-11-02
+CHANGE DATE:            2030-17-02
 CHANGE LICENSE:         Apache License, Version 2.0
 
 For information about alternative licensing arrangements, please visit: https://memgraph.com/legal.

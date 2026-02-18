@@ -27,6 +27,10 @@ echo "Memgraph is up and running!"
 source $SCRIPT_DIR/check_container_logs.sh
 check_container_logs
 
+# check that the container has the required licenses
+source $SCRIPT_DIR/check_container_licenses.sh
+check_container_licenses
+
 # Test features using mgconsole.
 for test_file_path in "$SCRIPT_DIR/mgconsole/"*; do
   if [ "$(basename $test_file_path)" == "README.md" ]; then
