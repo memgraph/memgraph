@@ -9020,17 +9020,15 @@ void Interpreter::Commit() {
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
-      // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
-      bool can_replicate =
+    // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
 #ifdef MG_ENTERPRISE
-          license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity();
-#else
-          system_transaction_->CanReplicateInCommunity();  // Community: no license, only parameters replicate
-#endif
-      if (!can_replicate) {
-        return system_transaction_->Commit(memgraph::system::DoNothing{});
+      if (license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity()) {
+        return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
+      return system_transaction_->Commit(memgraph::system::DoNothing{});
+#else
       return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+#endif
     };
 
     auto const replica_commit = [&](replication::RoleReplicaData &) {
