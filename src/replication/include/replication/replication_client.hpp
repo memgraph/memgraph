@@ -60,7 +60,7 @@ struct ReplicationClient {
             // Measure callbacks also to see how long it takes between scheduled runs
             utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
             auto const res = std::invoke(
-                [this]() -> std::expected<replication_coordination_glue::FrequentHeartbeatRes, rpc::RpcError> {
+                [this]() -> std::expected<replication_coordination_glue::FrequentHeartbeatRes, utils::RpcError> {
                   auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
                   if (!stream.has_value()) return std::unexpected{stream.error()};
                   return stream.value().SendAndWait();
