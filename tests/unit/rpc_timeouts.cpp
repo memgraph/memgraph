@@ -82,7 +82,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Echo>("Sending request");
-  auto reply = stream.SendAndWait();
+  auto reply = stream.value().SendAndWait();
   EXPECT_EQ(reply.value().data, "Sending reply");
 }
 
@@ -118,7 +118,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Echo>("Sending request");
-  ASSERT_EQ(stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
+  ASSERT_EQ(stream.value().SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 // Simulate server with one thread being busy processing other RPC message.
@@ -173,10 +173,10 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   auto sum_stream = sum_client.Stream<SumV1>(10, 10);
   auto echo_stream = echo_client.Stream<Echo>("Sending request");
   // Don't block main test thread so echo_stream could timeout
-  auto sum_thread_ = std::jthread([&sum_stream]() { sum_stream.SendAndWait(); });
+  auto sum_thread_ = std::jthread([&sum_stream]() { sum_stream.value().SendAndWait(); });
   // Wait so that server receives first SumReq and then EchoMessage
   std::this_thread::sleep_for(100ms);
-  ASSERT_EQ(echo_stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
+  ASSERT_EQ(echo_stream.value().SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 TEST(RpcTimeout, SendingToWrongSocket) {
@@ -210,7 +210,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Echo>("Sending request");
-  ASSERT_EQ(stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
+  ASSERT_EQ(stream.value().SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 template <memgraph::rpc::IsRpc T>
@@ -232,7 +232,7 @@ template <memgraph::rpc::IsRpc T>
 void SendAndAssert(Client &client) {
   rpc_akn.store(false);
   auto stream = client.Stream<T>();
-  ASSERT_EQ(stream.SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
+  ASSERT_EQ(stream.value().SendAndWait().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
   rpc_akn.store(true);  // Signal the timeout occurred
   rpc_akn.wait(false);  // Wait for the reset
 }
