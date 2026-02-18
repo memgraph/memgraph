@@ -75,16 +75,19 @@ void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
-  try {
+  auto const res = std::invoke([this]() -> std::expected<StateCheckRes, rpc::RpcError> {
     utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
-    auto res = stream.SendAndWait();
+    return stream.SendAndWait();
+  });
+
+  if (res.has_value()) {
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
-    return res.arg_;
-  } catch (rpc::RpcFailedException const &e) {
-    spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
+    return res.value().arg_;
+  } else {
+    spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", rpc::GetRpcErrorMsg(res.error()));
     metrics::IncrementCounter(metrics::StateCheckRpcFail);
-    return {};
+    return std::nullopt;
   }
 }
 
