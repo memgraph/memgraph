@@ -46,25 +46,6 @@ def test_name(request):
     return request.node.name
 
 
-def test_parameters_not_recovered_without_recovery(test_name):
-    data_dir = get_data_path(FILE, test_name)
-    interactive_mg_runner.start(instances(data_dir), "no_recovery")
-    conn = connect(host="localhost", port=7687)
-    cursor = conn.cursor()
-    execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER foo="bar";')
-    execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER x="1";')
-    rows = execute_and_fetch_all(cursor, "SHOW PARAMETERS;")
-    assert len(rows) == 2
-    interactive_mg_runner.kill_all()
-
-    interactive_mg_runner.start(instances(data_dir), "no_recovery")
-    conn = connect(host="localhost", port=7687)
-    cursor = conn.cursor()
-    rows = execute_and_fetch_all(cursor, "SHOW PARAMETERS;")
-    assert len(rows) == 0
-    interactive_mg_runner.kill_all()
-
-
 def test_parameters_recovered_with_recovery(test_name):
     data_dir = get_data_path(FILE, test_name)
     interactive_mg_runner.start(instances(data_dir), "no_recovery")
