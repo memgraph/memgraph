@@ -51,13 +51,7 @@ int main(int argc, char **argv) {
       ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           auth_,
-                                           false
-#endif
-  );
+  memgraph::dbms::DbmsHandler dbms_handler(db_config);
   memgraph::query::InterpreterContext interpreter_context_({},
                                                            nullptr,
                                                            &dbms_handler,
