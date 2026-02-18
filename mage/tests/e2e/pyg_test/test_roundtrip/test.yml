@@ -1,0 +1,7 @@
+query: >
+  CALL pyg.export_to_json(["feat", "label"], []) YIELD json_data
+  CALL pyg.import_from_dict(json_data, "PyGNode", "CONNECTS", ["feat", "label"], []) YIELD nodes_created, edges_created
+  RETURN nodes_created, edges_created;
+output:
+  - nodes_created: 2
+    edges_created: 1
