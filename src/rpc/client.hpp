@@ -72,14 +72,13 @@ class Client {
          std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
 
   /// Object used to handle streaming of request data to the RPC server.
-  template <class TRequestResponse>
+  template <IsRpc RPC>
   class StreamHandler {
    private:
     friend class Client;
 
     StreamHandler(Client *self, std::unique_lock<utils::ResourceLock> &&guard,
-                  std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
-                  std::optional<int> timeout_ms)
+                  std::function<typename RPC::Response(slk::Reader *)> res_load, std::optional<int> timeout_ms)
         : self_(self),
           timeout_ms_(timeout_ms),
           guard_(std::move(guard)),
@@ -116,9 +115,9 @@ class Client {
 
     slk::Builder *GetBuilder() { return &req_builder_; }
 
-    auto SendAndWaitProgress() -> std::expected<typename TRequestResponse::Response, RpcError> {
-      auto final_res_type = TRequestResponse::Response::kType;
-      auto req_type = TRequestResponse::Request::kType;
+    auto SendAndWaitProgress() -> std::expected<typename RPC::Response, RpcError> {
+      auto final_res_type = RPC::Response::kType;
+      auto req_type = RPC::Request::kType;
 
       auto req_type_name = std::string_view{req_type.name};
       auto final_res_type_name = std::string_view{final_res_type.name};
@@ -127,7 +126,7 @@ class Client {
       req_builder_.Finalize();
       spdlog::trace("[RpcClient] sent {}, version {}, to {}",
                     req_type_name,
-                    TRequestResponse::Request::kVersion,
+                    RPC::Request::kVersion,
                     self_->client_->endpoint().SocketAddress());
 
       while (true) {
@@ -199,9 +198,9 @@ class Client {
       }
     }
 
-    auto SendAndWait() -> std::expected<typename TRequestResponse::Response, RpcError> {
-      auto res_type = TRequestResponse::Response::kType;
-      auto req_type = TRequestResponse::Request::kType;
+    auto SendAndWait() -> std::expected<typename RPC::Response, RpcError> {
+      auto res_type = RPC::Response::kType;
+      auto req_type = RPC::Request::kType;
 
       auto req_type_name = std::string_view{req_type.name};
       auto res_type_name = std::string_view{res_type.name};
@@ -211,7 +210,7 @@ class Client {
 
       spdlog::trace("[RpcClient] sent {}, version {}, to {}",
                     req_type_name,
-                    TRequestResponse::Request::kVersion,
+                    RPC::Request::kVersion,
                     self_->client_->endpoint().SocketAddress());
 
       // Receive the response.
@@ -293,7 +292,7 @@ class Client {
     bool defunct_ = false;
     std::unique_lock<utils::ResourceLock> guard_;
     slk::Builder req_builder_;
-    std::function<typename TRequestResponse::Response(slk::Reader *)> res_load_;
+    std::function<typename RPC::Response(slk::Reader *)> res_load_;
   };
 
   /// Stream a previously defined and registered RPC call. This function can
