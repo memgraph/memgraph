@@ -159,3 +159,9 @@ workloads:
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/schema_info_queries_permission.py"]
     <<: *schema_info_in_memory_queries
+
+  - name: "fine-grained-permissions-matrix"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/fine_grained_permission_matrix.py"]
+    <<: *create_delete_query_modules_in_memory_cluster
