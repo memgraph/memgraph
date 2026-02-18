@@ -97,7 +97,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
               main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
               std::string{main_repl_state.epoch_.id()});
 
-          if (!hb_stream) {
+          if (!hb_stream.has_value()) {
             return std::nullopt;
           }
 
@@ -114,7 +114,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
             main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
             std::string{main_repl_state.epoch_.id()});
 
-        if (auto const local_res = hb_stream.SendAndWait(); local_res.has_value()) {
+        if (!hb_stream.has_value()) {
+          return std::nullopt;
+        }
+
+        if (auto const local_res = hb_stream.value().SendAndWait(); local_res.has_value()) {
           return local_res.value();
         }
         return std::nullopt;
@@ -368,34 +372,34 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     case READY: {
       try {
         utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
-        std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
-        // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
-              std::optional{kCommitRpcTimeout},
-              main_uuid_,
-              storage->uuid(),
-              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              TwoPhaseCommit(),
-              durability_commit_timestamp);
-        } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
-          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
-              main_uuid_,
-              storage->uuid(),
-              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              TwoPhaseCommit(),
-              durability_commit_timestamp));
-        }
+        auto maybe_stream_handler = std::invoke([&]() {
+          if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+            return client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
+                std::optional{kCommitRpcTimeout},
+                main_uuid_,
+                storage->uuid(),
+                storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+                TwoPhaseCommit(),
+                durability_commit_timestamp);
+          } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
+            return client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
+                main_uuid_,
+                storage->uuid(),
+                storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+                TwoPhaseCommit(),
+                durability_commit_timestamp);
+          }
+        });
 
-        if (!maybe_stream_handler) {
+        if (!maybe_stream_handler.has_value()) {
           spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
           *locked_state = MAYBE_BEHIND;
           return std::nullopt;
         }
 
         *locked_state = REPLICATING;
-        return ReplicaStream(storage, std::move(*maybe_stream_handler));
+        return ReplicaStream(storage, std::move(maybe_stream_handler.value()));
       } catch (const rpc::RpcFailedException &) {
         *locked_state = MAYBE_BEHIND;
         LogRpcFailure();
@@ -426,7 +430,10 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
           main_uuid_,
           storage_uuid,
           durability_commit_timestamp)};
-      return stream.SendAndWait();
+      if (!stream.has_value()) {
+        return std::unexpected{stream.error()};
+      }
+      return stream.value().SendAndWait();
     });
     if (res.has_value() && res->success) {
       auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {

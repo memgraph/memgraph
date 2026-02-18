@@ -62,7 +62,8 @@ struct ReplicationClient {
             auto const res = std::invoke(
                 [this]() -> std::expected<replication_coordination_glue::FrequentHeartbeatRes, rpc::RpcError> {
                   auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
-                  return stream.SendAndWait();
+                  if (!stream.has_value()) return std::unexpected{stream.error()};
+                  return stream.value().SendAndWait();
                 });
 
             if (res.has_value()) {
@@ -85,11 +86,14 @@ struct ReplicationClient {
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
+  // TODO: (andi) Do you need try-catch here?
+  // TODO: (andi) Do you want to handle specifically error
   bool StreamAndFinalizeDelta(auto &&check, Args &&...args) {
     try {
       auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
+      if (!stream.has_value()) return false;
       // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-      auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
+      auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream.value())]() mutable {
         if (stream.IsDefunct()) {
           state_.WithLock([](auto &state) { state = State::BEHIND; });
           return false;

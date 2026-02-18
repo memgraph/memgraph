@@ -78,7 +78,8 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
   auto const res = std::invoke([this]() -> std::expected<StateCheckRes, rpc::RpcError> {
     utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
-    return stream.SendAndWait();
+    if (!stream.has_value()) return std::unexpected{stream.error()};
+    return stream.value().SendAndWait();
   });
 
   if (res.has_value()) {
@@ -95,7 +96,8 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
   auto const res = std::invoke([this]() -> std::expected<GetDatabaseHistoriesRes, rpc::RpcError> {
     utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
-    return stream.SendAndWait();
+    if (!stream.has_value()) return std::unexpected{stream.error()};
+    return stream.value().SendAndWait();
   });
 
   if (res.has_value()) {
@@ -111,7 +113,8 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
 auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
   auto const res = std::invoke([this]() -> std::expected<ReplicationLagRes, rpc::RpcError> {
     auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
-    return stream.SendAndWait();
+    if (!stream.has_value()) return std::unexpected{stream.error()};
+    return stream.value().SendAndWait();
   });
 
   if (res.has_value()) {

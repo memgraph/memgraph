@@ -221,8 +221,9 @@ TEST(Rpc, Stream) {
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>("hello");
-  memgraph::slk::Save("world", stream.GetBuilder());
-  auto echo = stream.SendAndWait();
+  auto &stream_val = stream.value();
+  memgraph::slk::Save("world", stream_val.GetBuilder());
+  auto echo = stream_val.SendAndWait();
   EXPECT_EQ(echo.value().data, "helloworld");
 
   server.Shutdown();
@@ -252,8 +253,9 @@ TEST(Rpc, StreamLarge) {
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>(testdata1);
-  memgraph::slk::Save(testdata2, stream.GetBuilder());
-  auto echo = stream.SendAndWait();
+  auto &stream_val = stream.value();
+  memgraph::slk::Save(testdata2, stream_val.GetBuilder());
+  auto echo = stream_val.SendAndWait();
   EXPECT_EQ(echo.value().data, testdata1 + testdata2);
 
   server.Shutdown();
@@ -285,8 +287,9 @@ TEST(Rpc, StreamJumbo) {
   memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>(testdata1);
-  memgraph::slk::Save(testdata2, stream.GetBuilder());
-  auto echo = stream.SendAndWait();
+  auto &stream_val = stream.value();
+  memgraph::slk::Save(testdata2, stream_val.GetBuilder());
+  auto echo = stream_val.SendAndWait();
   EXPECT_EQ(echo.value().data, testdata1 + testdata2);
 
   server.Shutdown();

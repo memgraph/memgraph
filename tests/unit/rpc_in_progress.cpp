@@ -75,7 +75,7 @@ TEST(RpcInProgress, SingleProgress) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  auto reply = stream.SendAndWaitProgress();
+  auto reply = stream.value().SendAndWaitProgress();
   EXPECT_EQ(reply.value().sum, 5);
 }
 
@@ -130,7 +130,7 @@ TEST(RpcInProgress, MultipleProgresses) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  auto reply = stream.SendAndWaitProgress();
+  auto reply = stream.value().SendAndWaitProgress();
   EXPECT_EQ(reply.value().sum, 5);
 }
 
@@ -174,7 +174,7 @@ TEST(RpcInProgress, Timeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  ASSERT_EQ(stream.SendAndWaitProgress().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
+  ASSERT_EQ(stream.value().SendAndWaitProgress().error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
 }
 
 TEST(RpcInProgress, NoTimeout) {
@@ -209,5 +209,5 @@ TEST(RpcInProgress, NoTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  ASSERT_TRUE(stream.SendAndWaitProgress().has_value());
+  ASSERT_TRUE(stream.value().SendAndWaitProgress().has_value());
 }
