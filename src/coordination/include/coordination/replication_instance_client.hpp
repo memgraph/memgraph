@@ -86,12 +86,14 @@ class ReplicationInstanceClient {
   template <rpc::IsRpc Rpc, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<Rpc>::timerLabel};
-    auto const res = std::invoke(
-        [this, ... fwd_args = std::forward<Args>(args)]() -> std::expected<typename Rpc::Response, rpc::RpcError> {
-          auto stream{rpc_client_.Stream<Rpc>(std::forward<decltype(fwd_args)>(fwd_args)...)};
-          return stream.SendAndWait();
-        });
+    auto stream{rpc_client_.Stream<Rpc>(std::forward<Args>(args)...)};
+    if (!stream.has_value()) {
+      spdlog::error("Received unsuccessful response to {}.", Rpc::Request::kType.name);
+      metrics::IncrementCounter(RpcInfo<Rpc>::failCounter);
+      return false;
+    }
 
+    auto const res = stream.value().SendAndWait();
     if (res.has_value() && res.value().arg_) {
       metrics::IncrementCounter(RpcInfo<Rpc>::succCounter);
       return true;

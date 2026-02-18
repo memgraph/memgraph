@@ -90,21 +90,17 @@ inline auto TransferDurabilityFilesErrorMsg(TransferDurabilityFilesError const &
                     global_err);
 }
 
-template <rpc::IsRpc T, typename R, typename... Args>
-std::expected<typename T::Response, TransferDurabilityFilesError> TransferDurabilityFiles(
+template <rpc::IsRpc Rpc, typename R, typename... Args>
+std::expected<typename Rpc::Response, TransferDurabilityFilesError> TransferDurabilityFiles(
     const R &files, rpc::Client &client, std::filesystem::path const &root_data_dir,
     replication_coordination_glue::ReplicationMode const mode, Args &&...args) {
-  utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
-  std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
+  utils::MetricsTimer const timer{RpcInfo<Rpc>::timerLabel};
 
-  // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds
-  // rpc stream and which needs to be executed
-  if (mode == replication_coordination_glue::ReplicationMode::ASYNC) {
-    maybe_stream_result = client.TryStream<T>(kRecoveryRpcTimeout, std::forward<Args>(args)...);
-  } else {
-    // in SYNC and STRICT_SYNC mode, we block until we obtain RPC lock
-    maybe_stream_result.emplace(client.Stream<T>(std::forward<Args>(args)...));
-  }
+  // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which
+  // holds rpc stream and which needs to be executed
+  auto maybe_stream_result = (mode == replication_coordination_glue::ReplicationMode::ASYNC)
+                                 ? client.TryStream<Rpc>(kRecoveryRpcTimeout, std::forward<Args>(args)...)
+                                 : client.Stream<Rpc>(std::forward<Args>(args)...);
 
   // If dealing with ASYNC replica and couldn't obtain the lock
   if (!maybe_stream_result) {

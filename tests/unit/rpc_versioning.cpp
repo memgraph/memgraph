@@ -72,13 +72,13 @@ TEST(RpcVersioning, SumUpgrade) {
   {
     // Send new version request
     auto stream = client.Stream<Sum>(std::initializer_list<int>{35, 30});
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
     EXPECT_EQ(reply.value().sum, std::vector<int>{65});
   }
   {
     // Send old versioned request
     auto stream = client.Stream<SumV1>(10, 12);
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
     EXPECT_EQ(reply.value().sum, 22);
   }
 }
@@ -135,7 +135,7 @@ TEST(RpcVersioning, GetDBHistories) {
     // Send new version request
     auto stream = client.Stream<memgraph::coordination::GetDatabaseHistoriesRpc>();
 
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
 
     EXPECT_EQ(reply.value().arg_.last_committed_system_timestamp, 81);
     auto const dbs_info_res = std::vector{
@@ -147,7 +147,7 @@ TEST(RpcVersioning, GetDBHistories) {
   {
     // Send old version request
     auto stream = client.Stream<memgraph::coordination::GetDatabaseHistoriesRpcV1>();
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
     EXPECT_EQ(reply.value().arg_.last_committed_system_timestamp, 81);
     auto const dbs_info_res = std::vector{
         {memgraph::replication_coordination_glue::InstanceDBInfoV1{.db_uuid = "123", .latest_durable_timestamp = 4},
@@ -205,7 +205,7 @@ TEST(RpcVersioning, StateCheckRpc) {
   {
     // Send new version request
     auto stream = client.Stream<memgraph::coordination::StateCheckRpc>();
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
 
     EXPECT_FALSE(reply.value().arg_.inner_state.is_replica);
     EXPECT_TRUE(reply.value().arg_.inner_state.is_writing_enabled);
@@ -216,7 +216,7 @@ TEST(RpcVersioning, StateCheckRpc) {
   {
     // Send old version request
     auto stream = client.Stream<memgraph::coordination::StateCheckRpcV1>();
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
     EXPECT_FALSE(reply.value().arg_.is_replica);
     EXPECT_TRUE(reply.value().arg_.is_writing_enabled);
   }
