@@ -97,11 +97,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
               main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
               std::string{main_repl_state.epoch_.id()});
 
-          std::optional<replication::HeartbeatRes> res;
-          if (hb_stream) {
-            res.emplace(hb_stream->SendAndWait());
+          if (!hb_stream) {
+            return std::nullopt;
           }
-          return res;
+
+          if (auto const local_res = hb_stream->SendAndWait(); local_res.has_value()) {
+            return local_res.value();
+          }
+          return std::nullopt;
         }
 
         // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
@@ -110,7 +113,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
             main_storage->uuid(),
             main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
             std::string{main_repl_state.epoch_.id()});
-        return hb_stream.SendAndWait();
+
+        if (auto const local_res = hb_stream.SendAndWait(); local_res.has_value()) {
+          return local_res.value();
+        }
+        return std::nullopt;
       });
 
   if (!maybe_heartbeat_res) {
@@ -297,6 +304,7 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
   });
 }
 
+// TODO: (andi) Handle
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector) {
   try {
     UpdateReplicaState(main_storage, protector);
@@ -411,22 +419,25 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   }
 
   try {
-    auto const res = std::invoke([]() {
+    auto const res = std::invoke([&]() -> std::expected<replication::FinalizeCommitRes, rpc::RpcError> {
       auto stream{client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(
           std::move(replica_stream->GetStreamHandler()),
           decision,
           main_uuid_,
           storage_uuid,
           durability_commit_timestamp)};
+      return stream.SendAndWait();
     });
-    auto const res = stream.SendAndWait().success;
-    if (res) {
+    if (res.has_value() && res->success) {
       auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
         return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
       };
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+      return res->success;
     }
-    return res;
+    spdlog::error("FinalizeCommitRpc failed");
+    return false;
+
   } catch (const rpc::RpcFailedException &) {
     // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
     return false;

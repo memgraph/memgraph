@@ -31,28 +31,27 @@ bool SendSwapUUID(const char *address, int port, const char *uuid) {
 }
 
 bool SendPromoteToMain(const char *address, int port, const char *uuid) {
-  try {
-    memgraph::communication::ClientContext cntxt{};
-    memgraph::io::network::Endpoint endpoint{address, static_cast<uint16_t>(port)};
-    memgraph::rpc::Client rpc_client{endpoint, &cntxt};
-    memgraph::utils::UUID new_uuid{};
-    new_uuid.set(uuid);
-    // Hard code the cluster definition... change if needed
-    memgraph::coordination::ReplicationClientsInfo replication_clients_info;
-    replication_clients_info.push_back(memgraph::coordination::ReplicationClientInfo{
-        .instance_name = "instance_1",
-        .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
-        .replication_server = {"127.0.0.1", 10001}});
-    replication_clients_info.push_back(memgraph::coordination::ReplicationClientInfo{
-        .instance_name = "instance_2",
-        .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
-        .replication_server = {"127.0.0.1", 10002}});
-    auto stream{
-        rpc_client.Stream<memgraph::coordination::PromoteToMainRpc>(new_uuid, std::move(replication_clients_info))};
-    return stream.SendAndWait().arg_;
-  } catch (...) {
-    return false;
+  memgraph::communication::ClientContext cntxt{};
+  memgraph::io::network::Endpoint endpoint{address, static_cast<uint16_t>(port)};
+  memgraph::rpc::Client rpc_client{endpoint, &cntxt};
+  memgraph::utils::UUID new_uuid{};
+  new_uuid.set(uuid);
+  // Hard code the cluster definition... change if needed
+  memgraph::coordination::ReplicationClientsInfo replication_clients_info;
+  replication_clients_info.push_back(memgraph::coordination::ReplicationClientInfo{
+      .instance_name = "instance_1",
+      .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
+      .replication_server = {"127.0.0.1", 10001}});
+  replication_clients_info.push_back(memgraph::coordination::ReplicationClientInfo{
+      .instance_name = "instance_2",
+      .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
+      .replication_server = {"127.0.0.1", 10002}});
+  auto stream{
+      rpc_client.Stream<memgraph::coordination::PromoteToMainRpc>(new_uuid, std::move(replication_clients_info))};
+  if (auto const res = stream.SendAndWait(); res.has_value()) {
+    return res.value().arg_;
   }
+  return false;
 }
 
 int main(int argc, char **argv) {
