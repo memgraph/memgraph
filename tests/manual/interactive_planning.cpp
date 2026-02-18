@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -143,10 +143,15 @@ class InteractiveDbAccessor {
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
   auto NameToLabel(const std::string &name) { return dba_->NameToLabel(name); }
+
   auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
+
   auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
+
   auto LabelToName(memgraph::storage::LabelId id) { return dba_->LabelToName(id); }
+
   auto PropertyToName(memgraph::storage::PropertyId id) { return dba_->PropertyToName(id); }
+
   auto EdgeTypeToName(memgraph::storage::EdgeTypeId id) { return dba_->EdgeTypeToName(id); }
 
   auto GetStorageAccessor() { return dba_->GetStorageAccessor(); }
@@ -268,6 +273,8 @@ class InteractiveDbAccessor {
                                              memgraph::storage::PropertyId property) const {
     return std::nullopt;
   }
+
+  int64_t EdgesCount() { return dba_->EdgesCount(); }
 
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id) {
     auto edge_type = dba_->EdgeTypeToName(edge_type_id);
@@ -528,6 +535,7 @@ class InteractiveDbAccessor {
       property_value_vertex_count_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_edge_count_;
+
   // TODO: Cache faked index counts by range.
 
   int64_t ReadVertexCount(const std::string &message) const {
@@ -672,8 +680,8 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
     interactive_plans.push_back(
         InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy), std::move(rewritten_plan), cost});
   }
-  std::stable_sort(interactive_plans.begin(), interactive_plans.end(),
-                   [](const auto &a, const auto &b) { return a.cost < b.cost; });
+  std::stable_sort(
+      interactive_plans.begin(), interactive_plans.end(), [](const auto &a, const auto &b) { return a.cost < b.cost; });
   return interactive_plans;
 }
 
