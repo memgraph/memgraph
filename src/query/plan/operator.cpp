@@ -2696,10 +2696,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         input_cursor_(self_.input()->MakeCursor(mem)),
         processed_(mem),
         to_visit_next_(mem),
-        to_visit_current_(mem) {
-    // When existing_node is true, we expand from destination (node_symbol) instead of source (input_symbol_)
-    // This happens when only destination index exists (single-source BFS from destination)
-  }
+        to_visit_current_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -2813,10 +2810,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         to_visit_next_.clear();
         processed_.clear();
 
-        // When existing_node is true, we expand from destination (node_symbol) instead of source (input_symbol_)
-        // This happens when only destination index exists (single-source BFS from destination)
-        const auto &vertex_value =
-            self_.common_.existing_node ? frame[self_.common_.node_symbol] : frame[self_.input_symbol_];
+        const auto &vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
         lower_bound_ =
