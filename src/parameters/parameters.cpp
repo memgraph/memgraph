@@ -11,14 +11,12 @@
 
 #include <fmt/format.h>
 
-#include "flags/general.hpp"
 #include "parameters/parameters.hpp"
 #include "parameters/parameters_rpc.hpp"
 #include "replication/include/replication/replication_client.hpp"
 #include "replication/include/replication/state.hpp"
 #include "system/include/system/action.hpp"
 #include "system/include/system/transaction.hpp"
-#include "utils/file.hpp"
 
 namespace memgraph::parameters {
 
@@ -35,13 +33,6 @@ std::string_view ScopePrefix(ParameterScope scope) {
 
 std::string MakeKey(ParameterScope scope, std::string_view name) {
   return fmt::format("{}{}", ScopePrefix(scope), name);
-}
-
-std::filesystem::path PrepareStoragePath(const std::filesystem::path &storage_path) {
-  if (!FLAGS_data_recovery_on_startup && utils::DirExists(storage_path)) {
-    utils::DeleteDir(storage_path);
-  }
-  return storage_path;
 }
 
 }  // namespace
@@ -120,7 +111,7 @@ std::string_view ParameterScopeToString(ParameterScope scope) {
   }
 }
 
-Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(PrepareStoragePath(storage_path)) {}
+Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(storage_path) {}
 
 bool Parameters::SetParameter(std::string_view name, std::string_view value, ParameterScope scope,
                               system::Transaction *txn) {
