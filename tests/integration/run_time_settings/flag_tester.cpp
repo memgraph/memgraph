@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
 #include "utils/logging.hpp"
@@ -54,11 +55,16 @@ int main(int argc, char **argv) {
       // First try to encode the flags as float; if that fails just compare the raw strings
       try {
         MG_ASSERT(std::stof(settings_value) == std::stof(FLAGS_value),
-                  "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!", FLAGS_field, FLAGS_value,
+                  "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!",
+                  FLAGS_field,
+                  FLAGS_value,
                   settings_value);
       } catch (const std::invalid_argument &) {
-        MG_ASSERT(settings_value == FLAGS_value, "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!",
-                  FLAGS_field, FLAGS_value, settings_value);
+        MG_ASSERT(settings_value == FLAGS_value,
+                  "Failed when checking \"{}\"; expected \"{}\", found \"{}\"!",
+                  FLAGS_field,
+                  FLAGS_value,
+                  settings_value);
       }
       return 0;
     }
