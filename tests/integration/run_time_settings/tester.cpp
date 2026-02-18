@@ -12,6 +12,7 @@
 #include <gflags/gflags.h>
 
 #include "communication/bolt/client.hpp"
+#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
 
