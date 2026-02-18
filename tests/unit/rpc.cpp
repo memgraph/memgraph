@@ -79,7 +79,7 @@ TEST(Rpc, Abort) {
   });
 
   memgraph::utils::Timer const timer;
-  EXPECT_THROW(client.Call<SumV1>(10, 20), RpcFailedException);
+  ASSERT_EQ(client.Call<SumV1>(10, 20).error(), memgraph::rpc::RpcError::GENERIC_RPC_ERROR);
   EXPECT_LT(timer.Elapsed(), 200ms);
 
   thread.join();
