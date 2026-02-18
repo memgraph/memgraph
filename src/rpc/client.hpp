@@ -434,15 +434,15 @@ class Client {
   ///                            RPC call (eg. connection failed, remote end
   ///                            died, etc.)
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response Call(Args &&...args) {
+  auto Call(Args &&...args) -> std::expected<typename TRequestResponse::Response, RpcError> {
     auto stream = Stream<TRequestResponse>(std::forward<Args>(args)...);
     return stream.SendAndWait();
   }
 
   /// Same as `Call` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
-  typename TRequestResponse::Response CallWithLoad(
-      std::function<typename TRequestResponse::Response(slk::Reader *)> load, Args &&...args) {
+  auto CallWithLoad(std::function<typename TRequestResponse::Response(slk::Reader *)> load, Args &&...args)
+      -> std::expected<typename TRequestResponse::Response, RpcError> {
     auto stream = StreamWithLoad(load, std::forward<Args>(args)...);
     return stream.SendAndWait();
   }

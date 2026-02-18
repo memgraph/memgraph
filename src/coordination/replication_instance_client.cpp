@@ -84,38 +84,42 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
   if (res.has_value()) {
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
     return res.value().arg_;
-  } else {
-    spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", rpc::GetRpcErrorMsg(res.error()));
-    metrics::IncrementCounter(metrics::StateCheckRpcFail);
-    return std::nullopt;
   }
+  spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", rpc::GetRpcErrorMsg(res.error()));
+  metrics::IncrementCounter(metrics::StateCheckRpcFail);
+  return std::nullopt;
 }
 
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     -> std::optional<replication_coordination_glue::InstanceInfo> {
-  try {
+  auto const res = std::invoke([this]() -> std::expected<GetDatabaseHistoriesRes, rpc::RpcError> {
     utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
-    auto res = stream.SendAndWait();
-    metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
-    return res.arg_;
+    return stream.SendAndWait();
+  });
 
-  } catch (const rpc::RpcFailedException &e) {
-    spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
-    metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
-    return {};
+  if (res.has_value()) {
+    metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
+    return res.value().arg_;
   }
+  spdlog::error("Failed to receive response to GetDatabaseHistories. Error occurred: {}",
+                rpc::GetRpcErrorMsg(res.error()));
+  metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
+  return std::nullopt;
 }
 
 auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
-  try {
+  auto const res = std::invoke([this]() -> std::expected<ReplicationLagRes, rpc::RpcError> {
     auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
-    auto res = stream.SendAndWait();
-    return res.arg_;
-  } catch (const rpc::RpcFailedException &e) {
-    spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
-    return {};
+    return stream.SendAndWait();
+  });
+
+  if (res.has_value()) {
+    return res.value().arg_;
   }
+  spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}",
+                rpc::GetRpcErrorMsg(res.error()));
+  return std::nullopt;
 }
 
 }  // namespace memgraph::coordination
