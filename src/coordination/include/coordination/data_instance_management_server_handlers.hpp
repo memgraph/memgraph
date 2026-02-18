@@ -54,9 +54,9 @@ class DataInstanceManagementServerHandlers {
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                 coordination::ReplicationClientInfo const &config) -> bool;
 
-  static void UpdateDeltasBatchProgressSize(replication::ReplicationHandler &replication_handler,
-                                            uint64_t request_version, slk::Reader *req_reader,
-                                            slk::Builder *res_builder);
+  static void UpdateDeltasBatchProgressSizeHandler(replication::ReplicationHandler &replication_handler,
+                                                   uint64_t request_version, slk::Reader *req_reader,
+                                                   slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::dbms

@@ -95,6 +95,14 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
                              slk::Builder *res_builder) -> void {
         RegisterReplicaOnMainHandler(replication_handler, request_version, req_reader, res_builder);
       });
+
+  server.Register<coordination::UpdateDataInstanceConfigRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version,
+                             slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        UpdateDeltasBatchProgressSizeHandler(replication_handler, request_version, req_reader, res_builder);
+      });
 }
 
 void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::ReplicationHandler &replication_handler,
@@ -424,7 +432,7 @@ void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
   spdlog::info("Enabled writing on main.");
 }
 
-void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSize(
+void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSizeHandler(
     replication::ReplicationHandler &replication_handler, uint64_t request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
   coordination::UpdateDataInstanceConfigReq req;
