@@ -181,7 +181,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   }
 
   /*
-   * DATABASES CLEAN UPg
+   * DATABASES CLEAN UP
    */
   // Clean the unused directories
   for (const auto &entry : std::filesystem::directory_iterator(db_dir)) {
