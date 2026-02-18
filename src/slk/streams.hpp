@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -56,20 +57,25 @@ class SlkBuilderException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(SlkBuilderException)
 };
 
+using BuilderWriteFunction = std::function<std::expected<void, utils::RpcError>(const uint8_t *, size_t, bool)>;
+
 /// Builder used to create a SLK segment stream.
 class Builder {
  public:
-  explicit Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
+  explicit Builder(BuilderWriteFunction write_func);
 
-  Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func)
+  Builder(Builder &&other, BuilderWriteFunction write_func)
       : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{other.segment_} {
-    other.write_func_ = [](const uint8_t *, size_t, bool) { /* Moved builder is defunct, no write possible */ };
+    other.write_func_ = [](const uint8_t *, size_t, bool) -> BuilderWriteFunction::result_type {
+      /* Moved builder is defunct, no write possible */
+      return {};
+    };
   }
 
   /// Function used internally by SLK to serialize the data.
   void Save(const uint8_t *data, uint64_t size);
 
-  void SaveFileBuffer(const uint8_t *data, uint64_t size);
+  auto SaveFileBuffer(const uint8_t *data, uint64_t size) -> BuilderWriteFunction::result_type;
 
   // Flushes the previous segment because sending the file requires that we start with the segment start. File data
   // cannot start in the middle of the segment.
@@ -87,14 +93,14 @@ class Builder {
 
   bool GetFileData() const;
 
-  void FlushInternal(size_t size, bool has_more);
+  auto FlushInternal(size_t size, bool has_more) -> BuilderWriteFunction::result_type;
 
  private:
-  void FlushFileSegment();
+  auto FlushFileSegment() -> BuilderWriteFunction::result_type;
 
   bool file_data_{false};
 
-  std::function<void(const uint8_t *, size_t, bool)> write_func_;
+  BuilderWriteFunction write_func_;
   size_t pos_{0};
   std::array<uint8_t, kSegmentMaxTotalSize> segment_;
 };

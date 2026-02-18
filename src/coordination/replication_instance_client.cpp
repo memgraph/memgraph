@@ -75,7 +75,7 @@ void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
-  auto const res = std::invoke([this]() -> std::expected<StateCheckRes, rpc::RpcError> {
+  auto const res = std::invoke([this]() -> std::expected<StateCheckRes, utils::RpcError> {
     utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
     if (!stream.has_value()) return std::unexpected{stream.error()};
@@ -86,14 +86,14 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
     return res.value().arg_;
   }
-  spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", rpc::GetRpcErrorMsg(res.error()));
+  spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", utils::GetRpcErrorMsg(res.error()));
   metrics::IncrementCounter(metrics::StateCheckRpcFail);
   return std::nullopt;
 }
 
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     -> std::optional<replication_coordination_glue::InstanceInfo> {
-  auto const res = std::invoke([this]() -> std::expected<GetDatabaseHistoriesRes, rpc::RpcError> {
+  auto const res = std::invoke([this]() -> std::expected<GetDatabaseHistoriesRes, utils::RpcError> {
     utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     if (!stream.has_value()) return std::unexpected{stream.error()};
@@ -105,13 +105,13 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     return res.value().arg_;
   }
   spdlog::error("Failed to receive response to GetDatabaseHistories. Error occurred: {}",
-                rpc::GetRpcErrorMsg(res.error()));
+                utils::GetRpcErrorMsg(res.error()));
   metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
   return std::nullopt;
 }
 
 auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
-  auto const res = std::invoke([this]() -> std::expected<ReplicationLagRes, rpc::RpcError> {
+  auto const res = std::invoke([this]() -> std::expected<ReplicationLagRes, utils::RpcError> {
     auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
     if (!stream.has_value()) return std::unexpected{stream.error()};
     return stream.value().SendAndWait();
@@ -121,7 +121,7 @@ auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optiona
     return res.value().arg_;
   }
   spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}",
-                rpc::GetRpcErrorMsg(res.error()));
+                utils::GetRpcErrorMsg(res.error()));
   return std::nullopt;
 }
 

@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <expected>
 
-#include "rpc/exceptions.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
@@ -57,8 +57,7 @@ struct ProtocolMessageHeader {
       0};  // request/response version. 0 is safe default because 1 is the first version for all messages
 };
 
-// @throws UnsupportedRpcVersionException
-inline auto LoadMessageHeader(slk::Reader *reader) -> std::expected<ProtocolMessageHeader, RpcError> {
+inline auto LoadMessageHeader(slk::Reader *reader) -> std::expected<ProtocolMessageHeader, utils::RpcError> {
   ProtocolMessageHeader header;
   slk::Load(&header.protocol_version, reader);
   switch (header.protocol_version) {
@@ -75,7 +74,7 @@ inline auto LoadMessageHeader(slk::Reader *reader) -> std::expected<ProtocolMess
       slk::Load(&header.message_version, reader);
       break;
     default:
-      return std::unexpected{RpcError::UNSUPPORTED_RPC_VERSION_ERROR};
+      return std::unexpected{utils::RpcError::UNSUPPORTED_RPC_VERSION_ERROR};
   }
   return header;
 }

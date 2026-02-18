@@ -98,7 +98,10 @@ class Loopback {
   memgraph::slk::Builder *GetBuilder() {
     MG_ASSERT(!builder_, "You have already allocated a builder!");
     builder_ = std::make_unique<memgraph::slk::Builder>(
-        [this](const uint8_t *data, size_t size, bool have_more) { Write(data, size, have_more); });
+        [this](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+          Write(data, size, have_more);
+          return {};
+        });
     return builder_.get();
   }
 

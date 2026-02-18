@@ -82,10 +82,10 @@ inline auto WriteFilesErrorMsg(WriteFilesError err) -> std::string {
   }
 }
 
-using TransferDurabilityFilesError = std::variant<rpc::RpcError, WriteFilesError>;
+using TransferDurabilityFilesError = std::variant<utils::RpcError, WriteFilesError>;
 
 inline auto TransferDurabilityFilesErrorMsg(TransferDurabilityFilesError const &global_err) -> std::string {
-  return std::visit(utils::Overloaded{[](rpc::RpcError err) { return rpc::GetRpcErrorMsg(err); },
+  return std::visit(utils::Overloaded{[](utils::RpcError err) { return utils::GetRpcErrorMsg(err); },
                                       [](WriteFilesError err) { return WriteFilesErrorMsg(err); }},
                     global_err);
 }
@@ -104,7 +104,7 @@ std::expected<typename Rpc::Response, TransferDurabilityFilesError> TransferDura
 
   // If dealing with ASYNC replica and couldn't obtain the lock
   if (!maybe_stream_result) {
-    return std::unexpected{rpc::RpcError::FAILED_TO_GET_RPC_STREAM};
+    return std::unexpected{utils::RpcError::FAILED_TO_GET_RPC_STREAM};
   }
 
   slk::Builder *builder = maybe_stream_result->GetBuilder();
@@ -117,7 +117,7 @@ std::expected<typename Rpc::Response, TransferDurabilityFilesError> TransferDura
   }
 
   return maybe_stream_result->SendAndWaitProgress().transform_error(
-      [](rpc::RpcError e) -> TransferDurabilityFilesError { return e; });
+      [](utils::RpcError e) -> TransferDurabilityFilesError { return e; });
 }
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,

@@ -308,19 +308,21 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
   });
 }
 
-// TODO: (andi) Handle
+// TODO: (andi) Handle. Use old error message but don't catch UnsupportedRpcVersionException
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector) {
   try {
     UpdateReplicaState(main_storage, protector);
-  } catch (const rpc::UnsupportedRpcVersionException &) {
-    replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-    spdlog::error(
-        utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
-                               "deployed is not a compatible version.",
-                               client_.name_,
-                               client_.rpc_client_.Endpoint().SocketAddress(),
-                               "https://memgr.ph/replication"));
-  } catch (const rpc::RpcFailedException &) {
+  }
+  // catch (const rpc::UnsupportedRpcVersionException &) {
+  //   replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+  //   spdlog::error(
+  //       utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
+  //                              "deployed is not a compatible version.",
+  //                              client_.name_,
+  //                              client_.rpc_client_.Endpoint().SocketAddress(),
+  //                              "https://memgr.ph/replication"));
+  // }
+  catch (const rpc::RpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.",
                                          client_.name_,
@@ -423,7 +425,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   }
 
   try {
-    auto const res = std::invoke([&]() -> std::expected<replication::FinalizeCommitRes, rpc::RpcError> {
+    auto const res = std::invoke([&]() -> std::expected<replication::FinalizeCommitRes, utils::RpcError> {
       auto stream{client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(
           std::move(replica_stream->GetStreamHandler()),
           decision,
@@ -940,7 +942,7 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-auto ReplicaStream::Finalize() -> std::expected<replication::PrepareCommitRes, rpc::RpcError> {
+auto ReplicaStream::Finalize() -> std::expected<replication::PrepareCommitRes, utils::RpcError> {
   utils::MetricsTimer const timer{metrics::PrepareCommitRpc_us};
   return stream_.SendAndWaitProgress();
 }
