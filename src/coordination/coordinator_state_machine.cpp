@@ -17,6 +17,7 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
@@ -222,7 +223,8 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
     }
 
     if (json.contains(kDeltasBatchProgressSize.data())) {
-      auto const deltas_batch_progress_size = json.value(kDeltasBatchProgressSize.data(), 100'000);
+      auto const deltas_batch_progress_size =
+          json.value(kDeltasBatchProgressSize.data(), replication_coordination_glue::kDefaultDeltasBatchProgressSize);
       delta_state.deltas_batch_progress_size_ = deltas_batch_progress_size;
     }
 

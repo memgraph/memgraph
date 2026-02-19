@@ -11,6 +11,7 @@
 
 #include "replication/status.hpp"
 #include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -56,7 +57,8 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   // This value did not exist in V1, hence default DurabilityVersion::V1
   auto const version = j.value(kVersion, DurabilityVersion::V1);
-  uint64_t const deltas_batch_progress_size = j.value(kDeltasBatchProgressSize, 100'000UL);
+  uint64_t const deltas_batch_progress_size =
+      j.value(kDeltasBatchProgressSize, replication_coordination_glue::kDefaultDeltasBatchProgressSize);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   replication_coordination_glue::ReplicationRole role;
   j.at(kReplicationRole).get_to(role);

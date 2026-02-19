@@ -267,7 +267,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
     case durability::DurabilityVersion::V5: {
       // In V6 deltas_batch_progress_size was added
       data.version = durability::DurabilityVersion::V6;
-      data.deltas_batch_progress_size = kDefaultDeltasBatchProgressSize;
+      data.deltas_batch_progress_size = replication_coordination_glue::kDefaultDeltasBatchProgressSize;
       if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) return false;
       break;
     }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,9 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #pragma once
 
 namespace memgraph::replication_coordination_glue {
+
+constexpr uint64_t kDefaultDeltasBatchProgressSize{100'000};
 
 // Multiple versions because of changes in the RPC protocol, we need this in order to support ISSU
 struct InstanceDBInfoV1 {

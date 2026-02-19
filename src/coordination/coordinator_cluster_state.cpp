@@ -13,6 +13,7 @@
 
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/constants.hpp"
+#include "replication_coordination_glue/common.hpp"
 
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
@@ -281,7 +282,8 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   uint64_t const max_replica_read_lag = j.value(kMaxReplicaReadLag.data(), std::numeric_limits<uint64_t>::max());
   instance_state.SetMaxReplicaReadLag(max_replica_read_lag);
 
-  uint64_t const deltas_batch_progress_size = j.value(kDeltasBatchProgressSize.data(), 100'000);
+  uint64_t const deltas_batch_progress_size =
+      j.value(kDeltasBatchProgressSize.data(), replication_coordination_glue::kDefaultDeltasBatchProgressSize);
   instance_state.SetDeltasBatchProgressSize(deltas_batch_progress_size);
 }
 

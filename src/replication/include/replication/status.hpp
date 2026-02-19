@@ -16,6 +16,7 @@
 #include <nlohmann/json_fwd.hpp>
 
 #include "replication/config.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::replication::durability {
@@ -51,7 +52,7 @@ struct ReplicationRoleEntry {
   DurabilityVersion version =
       DurabilityVersion::V6;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
-  uint64_t deltas_batch_progress_size{100'000};
+  uint64_t deltas_batch_progress_size{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
 };

@@ -14,6 +14,7 @@
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_client.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
@@ -28,8 +29,6 @@
 #include "nlohmann/json_fwd.hpp"
 
 namespace memgraph::replication {
-
-constexpr uint64_t kDefaultDeltasBatchProgressSize{100'000};
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
@@ -68,7 +67,7 @@ struct ReplicationData_t {
   // using this value:
   // 1. RPC thread that handles communication with coordinators
   // 2. RPC thread used for communication with main (if instance is replica)
-  uint64_t deltas_batch_progress_size_{kDefaultDeltasBatchProgressSize};
+  uint64_t deltas_batch_progress_size_{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
   std::variant<RoleMainData, RoleReplicaData> data_;
 };
 

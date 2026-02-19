@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
@@ -151,7 +152,7 @@ class CoordinatorClusterState {
   // The option controls what is the maximum lag allowed on the replica for the specific database when the routing
   // table is requested.
   uint64_t max_replica_read_lag_{std::numeric_limits<uint64_t>::max()};
-  uint64_t deltas_batch_progress_size_{100'000};
+  uint64_t deltas_batch_progress_size_{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
   mutable utils::ResourceLock app_lock_;
 };
 
