@@ -1408,9 +1408,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // 1. Pair explosion guard
     if (source_cnt * target_cnt > 1024) return false;
 
-    // 2. Balance heuristic
+    // 2. Balance heuristic.
+    // Bidirectional search is most effective when the source and target sets are
+    // somewhat balanced. However, thanks to the exponential savings of d^(h/2),
+    // it can still win even with significant imbalance.
     const double ratio = std::max(source_cnt, target_cnt) / std::min(source_cnt, target_cnt);
-    if (ratio > 4.0) return false;
+    if (ratio > 10.0) return false;
 
     // 3. Branching factor (cheap structural hint)
     // edge_cnt is the number of edges in the graph, mg doesn't support bidirectional edges
