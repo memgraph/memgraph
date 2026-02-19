@@ -1526,7 +1526,7 @@ TEST(AuthWithFineGrainedTest, UniversalRevokeRemovesNothingRules) {
   FineGrainedAccessPermissions perms;
 
   perms.Grant({"Label1"}, FineGrainedPermission::READ);
-  perms.Grant({"Label2"}, FineGrainedPermission::NOTHING);
+  perms.Deny({"Label2"}, kAllPermissions);
 
   ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
   ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
