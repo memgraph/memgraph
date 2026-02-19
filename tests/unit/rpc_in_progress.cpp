@@ -173,7 +173,7 @@ TEST(RpcInProgress, Timeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  ASSERT_EQ(stream.value().SendAndWaitProgress().error(), memgraph::utils::RpcError::GENERIC_RPC_ERROR);
+  ASSERT_EQ(stream.value().SendAndWaitProgress().error(), memgraph::utils::RpcError::TIMEOUT_ERROR);
 }
 
 TEST(RpcInProgress, NoTimeout) {
