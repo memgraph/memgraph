@@ -136,7 +136,6 @@ NEXT                    : N E X T ;
 NO                      : N O ;
 NODE_LABELS             : N O D E UNDERSCORE L A B E L S ;
 NODES                   : N O D E S ;
-NOTHING                 : N O T H I N G ;
 NULLIF                  : N U L L I F ;
 OF_TOKEN                : O F ;
 OFF                     : O F F ;

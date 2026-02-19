@@ -2428,7 +2428,6 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
  * @return AuthQuery::FineGrainedPrivilege
  */
 antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) {
-  if (ctx->NOTHING()) return AuthQuery::FineGrainedPrivilege::NOTHING;
   if (ctx->READ()) return AuthQuery::FineGrainedPrivilege::READ;
   if (ctx->UPDATE()) return AuthQuery::FineGrainedPrivilege::UPDATE;
   if (ctx->SET() && ctx->LABEL()) return AuthQuery::FineGrainedPrivilege::SET_LABEL;
@@ -2452,11 +2451,6 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
 
     if (seen.contains(priv)) {
       throw SemanticException("Duplicate permission in permissions list");
-    }
-
-    if ((priv == AuthQuery::FineGrainedPrivilege::NOTHING && !seen.empty()) ||
-        (priv != AuthQuery::FineGrainedPrivilege::NOTHING && seen.contains(AuthQuery::FineGrainedPrivilege::NOTHING))) {
-      throw SemanticException("Cannot combine NOTHING with other permissions");
     }
 
     if ((priv == AuthQuery::FineGrainedPrivilege::ALL && !seen.empty()) ||
