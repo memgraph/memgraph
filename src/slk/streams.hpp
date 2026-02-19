@@ -83,11 +83,11 @@ class Builder {
 
   /// Function that should be called after all `slk::Save` operations are done. This should be called only once,
   /// at the end of the message
-  void Finalize();
+  auto Finalize() -> BuilderWriteFunction::result_type;
 
   bool IsEmpty() const;
 
-  void FlushSegment(bool final_segment, bool force_flush = false);
+  auto FlushSegment(bool final_segment, bool force_flush = false) -> BuilderWriteFunction::result_type;
 
   void SaveFooter(uint64_t total_size);
 

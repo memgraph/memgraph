@@ -109,7 +109,9 @@ std::expected<typename Rpc::Response, TransferDurabilityFilesError> TransferDura
 
   slk::Builder *builder = maybe_stream_result->GetBuilder();
 
-  builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true);
+  if (auto const res = builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true); !res.has_value()) {
+    return std::unexpected{res.error()};
+  }
 
   // If writing files failed, fail the task by returning empty optional
   if (replication::Encoder encoder(builder); !WriteFiles(files, root_data_dir, encoder)) {

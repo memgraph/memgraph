@@ -348,7 +348,7 @@ bool LicenseChecker::IsEnterpriseValidFast() const {
   return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);
 }
 
-std::string Encode(const License &license) {
+auto Encode(const License &license) -> std::expected<std::string, utils::RpcError> {
   std::vector<uint8_t> buffer;
   slk::Builder builder(
       [&buffer](const uint8_t *data, size_t size, bool /*have_more*/) -> slk::BuilderWriteFunction::result_type {
@@ -362,7 +362,9 @@ std::string Encode(const License &license) {
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
   slk::Save(license.type, &builder);
-  builder.Finalize();
+  if (auto const res = builder.Finalize(); !res.has_value()) {
+    return std::unexpected{res.error()};
+  }
 
   return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());
 }

@@ -13,12 +13,7 @@
 
 #include <concepts>
 
-#include "storage/v2/replication/serialization.hpp"
 #include "utils/typeinfo.hpp"
-
-namespace memgraph::storage::replication {
-struct FinalizeCommitRes;
-}  // namespace memgraph::storage::replication
 
 namespace memgraph::slk {
 class Reader;
@@ -26,6 +21,14 @@ class Builder;
 }  // namespace memgraph::slk
 
 namespace memgraph::rpc {
+
+// Special type of RPC message
+struct InProgressRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_IN_PROGRESS_RES, .name = "InProgressRes"};
+  static constexpr uint64_t kVersion{1};
+
+  InProgressRes() = default;
+};
 
 using MessageSize = uint32_t;
 

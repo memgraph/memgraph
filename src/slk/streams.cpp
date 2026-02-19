@@ -63,7 +63,7 @@ void Builder::PrepareForFileSending() {
   file_data_ = true;
 }
 
-void Builder::Finalize() { FlushSegment(true); }
+auto Builder::Finalize() -> BuilderWriteFunction::result_type { return FlushSegment(true); }
 
 auto Builder::FlushInternal(size_t const size, bool const has_more) -> BuilderWriteFunction::result_type {
   if (auto const res = write_func_(segment_.data(), size, has_more); !res.has_value()) {
@@ -84,8 +84,8 @@ void Builder::SaveFooter(uint64_t const total_size) {
   memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
 }
 
-void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
-  if (!force_flush && !final_segment && pos_ < kSegmentMaxDataSize) return;
+auto Builder::FlushSegment(bool const final_segment, bool const force_flush) -> BuilderWriteFunction::result_type {
+  if (!force_flush && !final_segment && pos_ < kSegmentMaxDataSize) return {};
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
 
   auto total_size = std::invoke([&]() -> size_t {
@@ -105,7 +105,7 @@ void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
     total_size += sizeof(SegmentSize);
   }
 
-  FlushInternal(total_size, !final_segment);
+  return FlushInternal(total_size, !final_segment);
 }
 
 bool Builder::GetFileData() const { return file_data_; }
