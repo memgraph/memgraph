@@ -67,7 +67,7 @@ enum class Permission : uint64_t {
 #ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
-  NOTHING       = 0,
+  NONE          = 0,
   READ          = 1U << 0U,  // 1
   // Bit 1 reserved: was UPDATE in Memgraph 3.8 and earlier, replaced by SET_LABEL, REMOVE_LABEL, SET_PROPERTY
   // Bit 2 reserved: was CREATE_DELETE in Memgraph 3.6 and earlier
@@ -254,8 +254,8 @@ enum class MatchingMode : uint8_t { ANY, EXACTLY };
 
 struct FineGrainedAccessRule {
   std::unordered_set<std::string> symbols;
-  FineGrainedPermission grants{FineGrainedPermission::NOTHING};
-  FineGrainedPermission denies{FineGrainedPermission::NOTHING};
+  FineGrainedPermission grants{FineGrainedPermission::NONE};
+  FineGrainedPermission denies{FineGrainedPermission::NONE};
   MatchingMode matching_mode{MatchingMode::ANY};
 
   bool operator==(const FineGrainedAccessRule &other) const = default;

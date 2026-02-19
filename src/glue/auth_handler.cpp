@@ -257,10 +257,10 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   for (const auto &rule : permissions.GetRules()) {
     auto entity_name = build_entity_name(rule);
 
-    if (rule.grants != memgraph::auth::FineGrainedPermission::NOTHING) {
+    if (rule.grants != memgraph::auth::FineGrainedPermission::NONE) {
       add_permission(entity_name, static_cast<uint64_t>(rule.grants), memgraph::auth::PermissionLevel::GRANT, false);
     }
-    if (rule.denies != memgraph::auth::FineGrainedPermission::NOTHING) {
+    if (rule.denies != memgraph::auth::FineGrainedPermission::NONE) {
       add_permission(entity_name, static_cast<uint64_t>(rule.denies), memgraph::auth::PermissionLevel::DENY, false);
     }
   }

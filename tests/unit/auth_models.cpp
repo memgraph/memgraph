@@ -184,8 +184,8 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(static_cast<uint64_t>(rule_a->grants), 1);
     ASSERT_EQ(static_cast<uint64_t>(rule_b->grants), 1);
     ASSERT_EQ(static_cast<uint64_t>(rule_c->grants), 3);
-    // rule_d had granted=0 (NOTHING) in legacy format, migrated to deny all
-    ASSERT_EQ(rule_d->grants, memgraph::auth::FineGrainedPermission::NOTHING);
+    // rule_d had granted=0 in legacy format, migrated to deny all
+    ASSERT_EQ(rule_d->grants, memgraph::auth::FineGrainedPermission::NONE);
     ASSERT_EQ(rule_d->denies, memgraph::auth::kAllPermissions);
     ASSERT_EQ(auth_object.db_access().GetMain(), "db1");
     ASSERT_EQ(auth_object.db_access().GetAllowAll(), true);

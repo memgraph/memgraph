@@ -215,8 +215,8 @@ std::string PermissionLevelToString(PermissionLevel level) {
 
 #ifdef MG_ENTERPRISE
 std::string FineGrainedPermissionToString(uint64_t const permission) {
-  if (static_cast<FineGrainedPermission>(permission) == FineGrainedPermission::NOTHING) {
-    return "NOTHING";
+  if (permission == 0) {
+    return "";
   }
 
   std::vector<std::string> permissions;
@@ -414,11 +414,10 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> s
   for (auto &&rule : rules_) {
     if (rule_matches(rule)) {
       any_rule_matched = true;
-      // @TODO remove NOTHING from bitmask enum
-      if ((rule.denies & fine_grained_permission) != FineGrainedPermission::NOTHING) {
+      if ((rule.denies & fine_grained_permission) != FineGrainedPermission::NONE) {
         return PermissionLevel::DENY;
       }
-      if ((rule.grants & fine_grained_permission) != FineGrainedPermission::NOTHING) {
+      if ((rule.grants & fine_grained_permission) != FineGrainedPermission::NONE) {
         any_grant = true;
       }
     }
@@ -461,7 +460,7 @@ void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &
     it->denies = it->denies & ~fine_grained_permission;
     it->grants = it->grants | fine_grained_permission;
   } else {
-    rules_.push_back({symbols, fine_grained_permission, FineGrainedPermission::NOTHING, matching_mode});
+    rules_.push_back({symbols, fine_grained_permission, FineGrainedPermission::NONE, matching_mode});
   }
 }
 
@@ -486,7 +485,7 @@ void FineGrainedAccessPermissions::Deny(std::unordered_set<std::string> const &s
     it->grants = it->grants & ~fine_grained_permission;
     it->denies = it->denies | fine_grained_permission;
   } else {
-    rules_.push_back({symbols, FineGrainedPermission::NOTHING, fine_grained_permission, matching_mode});
+    rules_.push_back({symbols, FineGrainedPermission::NONE, fine_grained_permission, matching_mode});
   }
 }
 
@@ -511,7 +510,7 @@ void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const 
     it->grants = it->grants & ~fine_grained_permission;
     it->denies = it->denies & ~fine_grained_permission;
 
-    if (it->grants == FineGrainedPermission::NOTHING && it->denies == FineGrainedPermission::NOTHING) {
+    if (it->grants == FineGrainedPermission::NONE && it->denies == FineGrainedPermission::NONE) {
       rules_.erase(it);
     }
   }
@@ -557,7 +556,7 @@ void FineGrainedAccessPermissions::RevokeAll(FineGrainedPermission const fine_gr
   for (auto it = rules_.begin(); it != rules_.end();) {
     it->grants = it->grants & ~fine_grained_permission;
     it->denies = it->denies & ~fine_grained_permission;
-    if (it->grants == FineGrainedPermission::NOTHING && it->denies == FineGrainedPermission::NOTHING) {
+    if (it->grants == FineGrainedPermission::NONE && it->denies == FineGrainedPermission::NONE) {
       it = rules_.erase(it);
     } else {
       ++it;
@@ -643,8 +642,8 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
         }
       }
 
-      auto grants = FineGrainedPermission::NOTHING;
-      auto denies = FineGrainedPermission::NOTHING;
+      auto grants = FineGrainedPermission::NONE;
+      auto denies = FineGrainedPermission::NONE;
 
       if (rule_json.contains(kGranted) && rule_json[kGranted].is_number()) {
         auto granted_val = rule_json[kGranted].get<uint64_t>();
