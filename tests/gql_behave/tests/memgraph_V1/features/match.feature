@@ -1002,7 +1002,7 @@ Feature: Match
     Scenario: Using OR expression with index and property filter on different labels with two property indices
         Given an empty graph
         And with new index :LabelA(y)
-        And with new index :LabelB(x)
+        And with new index :LabelB(name)
         And having executed:
             """
             CREATE (:LabelA {x: 1, name: 'A1'})
