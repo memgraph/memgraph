@@ -191,7 +191,7 @@
                               (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
 
                               (utils/cannot-get-shared-access? e)
-                              (assoc op :type :ok :value {:str "Cannot get shared access storage."})
+                              (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
 
                               (or (utils/query-forbidden-on-replica? e)
                                   (utils/query-forbidden-on-main? e))
