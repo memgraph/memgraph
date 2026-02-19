@@ -164,7 +164,10 @@ def pyg_import_from_dict(
     edge_property_names: mgp.Nullable[mgp.List[str]] = None,
 ) -> mgp.Record(nodes_created=int, edges_created=int):
     """Import PyG data from a JSON string into Memgraph."""
-    pyg_dict = json.loads(json_data)
+    try:
+        pyg_dict = json.loads(json_data)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON data: {e}")
 
     nodes_data, edges_data = pyg_dict_to_graph_data(
         pyg_dict=pyg_dict,
@@ -315,7 +318,10 @@ def tf_import_from_dict(
     default_edge_type: str = "CONNECTS",
 ) -> mgp.Record(nodes_created=int, edges_created=int):
     """Import TF-GNN data from a JSON string into Memgraph."""
-    tfgnn_dict = json.loads(json_data)
+    try:
+        tfgnn_dict = json.loads(json_data)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON data: {e}")
 
     nodes_data, edges_data = tfgnn_dict_to_graph_data(
         tfgnn_dict=tfgnn_dict,
