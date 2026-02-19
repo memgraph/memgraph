@@ -3292,26 +3292,36 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
-    auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
-      while (true) {
-        auto *older = delta->next.load(std::memory_order_acquire);
-        if (older == nullptr ||
-            older->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp)
-          break;
-        delta = older;
-      }
-      while (true) {
-        auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
-        // Only encode if this delta belongs to our transaction and matches filter
-        if (ts == current_commit_timestamp && filter(delta->action)) {
-          callback(*delta, parent, durability_commit_timestamp);
-        }
-        auto prev = delta->prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::DELTA) break;
-        delta = prev.delta;
-      }
-    };
+    // When get_in_vertex_gid / get_edge_type are provided (e.g. for edge SET_PROPERTY in phase 3), they are
+    // called to get the optional in-vertex GID and edge type for WAL/replication encoding.
+    auto const no_op_get_in_vertex_gid = [](const Delta &, void *) { return std::optional<Gid>{}; };
+    auto const no_op_get_edge_type = [](const Delta &, void *) { return std::optional<EdgeTypeId>{}; };
+    auto find_and_apply_deltas =
+        [&](const auto *delta, auto *parent, auto filter, auto get_in_vertex_gid, auto get_edge_type) {
+          while (true) {
+            auto *older = delta->next.load(std::memory_order_acquire);
+            if (older == nullptr ||
+                older->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp)
+              break;
+            delta = older;
+          }
+          while (true) {
+            auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+            // Only encode if this delta belongs to our transaction and matches filter
+            if (ts == current_commit_timestamp && filter(delta->action)) {
+              auto *parent_ptr = const_cast<void *>(static_cast<const void *>(parent));
+              callback(*delta,
+                       parent,
+                       durability_commit_timestamp,
+                       get_in_vertex_gid(*delta, parent_ptr),
+                       get_edge_type(*delta, parent_ptr));
+            }
+            auto prev = delta->prev.Get();
+            MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
+            if (prev.type != PreviousPtr::Type::DELTA) break;
+            delta = prev.delta;
+          }
+        };
 
     // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
     // don't traverse them in that order. That is because for each delta we need
@@ -3330,6 +3340,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // this is the case, we can process the subchain as normal, but we *do*
     // need to look upstream to find the vertex at the head. To optimise this,
     // we use a `DeltaVertexCache` on subchain heads.
+    // Edge SET_PROPERTY in-vertex GIDs are recorded on the transaction when SetProperty is called
+    // (see CreateAndLinkDeltaForEdgeSetProperty in edge_accessor.cpp), so no pre-pass is needed.
 
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
@@ -3338,25 +3350,30 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-            return true;
+      find_and_apply_deltas(
+          &delta,
+          prev.vertex,
+          [](auto action) {
+            switch (action) {
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT:
+              case Delta::Action::SET_PROPERTY:
+              case Delta::Action::ADD_LABEL:
+              case Delta::Action::REMOVE_LABEL:
+                return true;
 
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-          default:
-            LOG_FATAL("Unknown Delta Action");
-        }
-      });
+              case Delta::Action::RECREATE_OBJECT:
+              case Delta::Action::ADD_IN_EDGE:
+              case Delta::Action::ADD_OUT_EDGE:
+              case Delta::Action::REMOVE_IN_EDGE:
+              case Delta::Action::REMOVE_OUT_EDGE:
+                return false;
+              default:
+                LOG_FATAL("Unknown Delta Action");
+            }
+          },
+          no_op_get_in_vertex_gid,
+          no_op_get_edge_type);
     }
     // 2. Process all Vertex deltas and store all operations that create edges.
     for (const auto &delta : transaction_.deltas) {
@@ -3378,48 +3395,60 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       } else {
         vertex = vertex_cache.GetVertexFromDelta(&delta);
       }
-      find_and_apply_deltas(&delta, vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-            return false;
-          default:
-            LOG_FATAL("Unknown Delta Action");
-        }
-      });
+      find_and_apply_deltas(
+          &delta,
+          vertex,
+          [](auto action) {
+            switch (action) {
+              case Delta::Action::REMOVE_OUT_EDGE:
+                return true;
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT:
+              case Delta::Action::RECREATE_OBJECT:
+              case Delta::Action::SET_PROPERTY:
+              case Delta::Action::ADD_LABEL:
+              case Delta::Action::REMOVE_LABEL:
+              case Delta::Action::ADD_IN_EDGE:
+              case Delta::Action::ADD_OUT_EDGE:
+              case Delta::Action::REMOVE_IN_EDGE:
+                return false;
+              default:
+                LOG_FATAL("Unknown Delta Action");
+            }
+          },
+          no_op_get_in_vertex_gid,
+          no_op_get_edge_type);
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
-      find_and_apply_deltas(&delta, prev.edge, [](auto action) {
-        switch (action) {
-          case Delta::Action::SET_PROPERTY:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-          default:
-            LOG_FATAL("Unknown Delta Action");
-        }
-      });
+      find_and_apply_deltas(
+          &delta,
+          prev.edge,
+          [](auto action) {
+            switch (action) {
+              case Delta::Action::SET_PROPERTY:
+                return true;
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT:
+              case Delta::Action::RECREATE_OBJECT:
+              case Delta::Action::ADD_LABEL:
+              case Delta::Action::REMOVE_LABEL:
+              case Delta::Action::ADD_IN_EDGE:
+              case Delta::Action::ADD_OUT_EDGE:
+              case Delta::Action::REMOVE_IN_EDGE:
+              case Delta::Action::REMOVE_OUT_EDGE:
+                return false;
+              default:
+                LOG_FATAL("Unknown Delta Action");
+            }
+          },
+          [&](const Delta &, void *p) {
+            return transaction_.GetEdgeSetPropertyInVertexGid(static_cast<Edge *>(p)->gid);
+          },
+          [&](const Delta &, void *p) { return transaction_.GetEdgeSetPropertyEdgeType(static_cast<Edge *>(p)->gid); });
     }
     // 4. Process all Vertex deltas and store all operations that delete edges.
     for (const auto &delta : transaction_.deltas) {
@@ -3427,24 +3456,29 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::ADD_OUT_EDGE:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-          default:
-            LOG_FATAL("Unknown Delta Action");
-        }
-      });
+      find_and_apply_deltas(
+          &delta,
+          prev.vertex,
+          [](auto action) {
+            switch (action) {
+              case Delta::Action::ADD_OUT_EDGE:
+                return true;
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT:
+              case Delta::Action::RECREATE_OBJECT:
+              case Delta::Action::SET_PROPERTY:
+              case Delta::Action::ADD_LABEL:
+              case Delta::Action::REMOVE_LABEL:
+              case Delta::Action::ADD_IN_EDGE:
+              case Delta::Action::REMOVE_IN_EDGE:
+              case Delta::Action::REMOVE_OUT_EDGE:
+                return false;
+              default:
+                LOG_FATAL("Unknown Delta Action");
+            }
+          },
+          no_op_get_in_vertex_gid,
+          no_op_get_edge_type);
     }
     // 5. Process all Vertex deltas and store all operations that delete vertices.
     for (const auto &delta : transaction_.deltas) {
@@ -3452,32 +3486,45 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, prev.vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::RECREATE_OBJECT:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-          default:
-            LOG_FATAL("Unknown Delta Action");
-        }
-      });
+      find_and_apply_deltas(
+          &delta,
+          prev.vertex,
+          [](auto action) {
+            switch (action) {
+              case Delta::Action::RECREATE_OBJECT:
+                return true;
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT:
+              case Delta::Action::SET_PROPERTY:
+              case Delta::Action::ADD_LABEL:
+              case Delta::Action::REMOVE_LABEL:
+              case Delta::Action::ADD_IN_EDGE:
+              case Delta::Action::ADD_OUT_EDGE:
+              case Delta::Action::REMOVE_IN_EDGE:
+              case Delta::Action::REMOVE_OUT_EDGE:
+                return false;
+              default:
+                LOG_FATAL("Unknown Delta Action");
+            }
+          },
+          no_op_get_in_vertex_gid,
+          no_op_get_edge_type);
     }
   };
 
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
-    append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
-      mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
-      replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+    append_deltas([&](const Delta &delta,
+                      auto *parent,
+                      uint64_t durability_commit_timestamp_arg,
+                      std::optional<Gid>
+                          in_vertex_gid,
+                      std::optional<EdgeTypeId>
+                          edge_type_id) {
+      mem_storage->wal_file_->AppendDelta(
+          delta, parent, durability_commit_timestamp_arg, mem_storage, in_vertex_gid, edge_type_id);
+      replicating_txn.AppendDelta(
+          delta, parent, durability_commit_timestamp_arg, mem_storage, in_vertex_gid, edge_type_id);
       // We send in progress msg every 10s. RPC timeout on main is configured with 30s
       if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
         timer.ResetStartTime();

@@ -1144,8 +1144,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   uint64_t prev_printed_timestamp = 0;
 
-  // Cache (edge_gid, delta_timestamp) -> EdgeAccessor. Filled on EdgeCreate or on first SET_PROPERTY resolution;
-  // reused for subsequent SET_PROPERTY.
+  // Cache (edge_gid, delta_timestamp, edge_type) -> EdgeAccessor. Filled on EdgeCreate or on first SET_PROPERTY
+  // resolution; reused for subsequent SET_PROPERTY.
   struct EdgeSetPropertyCacheKey {
     uint64_t edge_gid{};
     uint64_t delta_timestamp{};
@@ -1310,7 +1310,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         },
         [&](WalEdgeSetProperty const &data) {
           auto const edge_gid = data.gid.AsUint();
-          spdlog::trace("   Delta {}. Edge {} set property", current_delta_idx, edge_gid);
+          spdlog::trace("   Delta {}. Edge {} set property (from_gid={} to_gid={})",
+                        current_delta_idx,
+                        edge_gid,
+                        data.from_gid.has_value() ? static_cast<int64_t>(data.from_gid->AsUint()) : -1,
+                        data.to_gid.has_value() ? static_cast<int64_t>(data.to_gid->AsUint()) : -1);
           if (!storage->config_.salient.items.properties_on_edges)
             throw utils::BasicException(
                 "Can't set properties on edges because properties on edges "
@@ -1378,6 +1382,28 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
             if (data.from_gid.has_value()) {
+              if (data.to_gid.has_value() && data.edge_type.has_value()) {
+                auto to_vertex = transaction->FindVertex(*data.to_gid, View::NEW);
+                if (!to_vertex)
+                  throw utils::BasicException("Failed to find to vertex {} when setting edge property.",
+                                              data.to_gid->AsUint());
+
+                auto from_vertex = transaction->FindVertex(*data.from_gid, View::NEW);
+                if (!from_vertex)
+                  throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
+                                              data.from_gid->AsUint());
+
+                auto const edge_type_id = transaction->NameToEdgeType(*data.edge_type);
+                auto found_edge = transaction->FindEdge(data.gid, View::NEW, edge_type_id, &*from_vertex, &*to_vertex);
+                if (!found_edge) {
+                  constexpr auto src_loc{std::source_location()};
+                  throw utils::BasicException(
+                      "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
+                }
+                return std::tuple{
+                    found_edge->edge_, found_edge->edge_type_, found_edge->from_vertex_, found_edge->to_vertex_};
+              }
+
               auto vertex_acc = storage->vertices_.access();
               auto from_vertex = vertex_acc.find(data.from_gid);
               if (from_vertex == vertex_acc.end())

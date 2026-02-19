@@ -292,6 +292,26 @@ auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_
 }
 
 template <bool is_read>
+auto Decode(utils::tag_type<std::optional<Gid>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::optional<Gid>, void> {
+  const auto has_value = decoder->ReadBool();
+  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    if (*has_value) {
+      const auto gid = decoder->ReadUint();
+      if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
+      return Gid::FromUint(*gid);
+    }
+    return std::nullopt;
+  } else {
+    if (*has_value) {
+      const auto gid = decoder->ReadUint();
+      if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
+    }
+  }
+}
+
+template <bool is_read>
 auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::string, void> {
   if constexpr (is_read) {
@@ -548,6 +568,23 @@ auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDec
   }
   if constexpr (is_read) {
     return std::nullopt;
+  } else {
+    // Skip the bytes so the stream stays in sync when reading newer format with older version
+    Decode<false>(utils::tag_t<Type>, decoder, version);
+  }
+}
+
+// When Type is std::optional<X>, return optional<X> (not optional<optional<X>>) so struct aggregate init works.
+template <bool is_read, auto MIN_VER, typename X>
+auto Decode(utils::tag_type<VersionDependant<MIN_VER, std::optional<X>>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::optional<X>, void> {
+  if (MIN_VER <= version) {
+    return Decode<is_read>(utils::tag_t<std::optional<X>>, decoder, version);
+  }
+  if constexpr (is_read) {
+    return std::nullopt;
+  } else {
+    Decode<false>(utils::tag_t<std::optional<X>>, decoder, version);
   }
 }
 
@@ -863,7 +900,8 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
   }
 }
 
-void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp) {
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
+                 std::optional<Gid> in_vertex_gid, std::optional<EdgeTypeId> edge_type_id) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
@@ -884,6 +922,13 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
           ToExternalPropertyValue(edge->properties.GetProperty(delta.property.key), storage->name_id_mapper_.get()));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint((*delta.property.out_vertex).gid.AsUint());
+      // In-vertex GID for faster replica resolution (edges into supernode: use to_vertex->in_edges).
+      encoder->WriteBool(in_vertex_gid.has_value());
+      if (in_vertex_gid) {
+        encoder->WriteUint(in_vertex_gid->AsUint());
+      }
+      // Edge type name for replica FindEdge (from kExtendedEdgeSetProperty); tracked on transaction like in_vertex.
+      encoder->WriteString(edge_type_id ? storage->name_id_mapper_->IdToName(edge_type_id->AsUint()) : std::string{});
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1146,6 +1191,18 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) {
           const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
             if (data.from_gid.has_value()) {
+              // Fast path: direct vertex lookups when to_gid and edge_type are in WAL (no scan over out_edges).
+              if (data.to_gid.has_value() && data.edge_type.has_value() && !data.edge_type->empty()) {
+                const auto to_vertex = vertex_acc.find(*data.to_gid);
+                if (to_vertex == vertex_acc.end())
+                  throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+                const auto from_vertex = vertex_acc.find(*data.from_gid);
+                if (from_vertex == vertex_acc.end())
+                  throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
+                                        ret->last_durable_timestamp);
+                const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*data.edge_type));
+                return std::tuple{EdgeRef{&*edge}, edge_type_id, &*from_vertex, &*to_vertex};
+              }
               const auto from_vertex = vertex_acc.find(data.from_gid);
               if (from_vertex == vertex_acc.end())
                 throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
@@ -1584,13 +1641,17 @@ WalFile::~WalFile() {
   }
 }
 
-void WalFile::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage) {
+void WalFile::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage,
+                          std::optional<Gid> in_vertex_gid, std::optional<EdgeTypeId> edge_type_id) {
+  (void)in_vertex_gid;
+  (void)edge_type_id;
   EncodeDelta(&wal_, storage, items_, delta, vertex, timestamp);
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage) {
-  EncodeDelta(&wal_, storage, delta, edge, timestamp);
+void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage,
+                          std::optional<Gid> in_vertex_gid, std::optional<EdgeTypeId> edge_type_id) {
+  EncodeDelta(&wal_, storage, delta, edge, timestamp, in_vertex_gid, edge_type_id);
   UpdateStats(timestamp);
 }
 

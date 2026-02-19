@@ -14,6 +14,7 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
@@ -149,6 +150,29 @@ struct Transaction {
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
+  /// Record in-vertex GID for an edge SET_PROPERTY (used when encoding WAL/replication; edge was created before
+  /// this tx). Only in-memory storage populates this.
+  void RecordEdgeSetPropertyInVertex(Gid edge_gid, Gid in_vertex_gid) {
+    edge_set_property_in_vertex_gid_[edge_gid] = in_vertex_gid;
+  }
+
+  std::optional<Gid> GetEdgeSetPropertyInVertexGid(Gid edge_gid) const {
+    auto it = edge_set_property_in_vertex_gid_.find(edge_gid);
+    if (it == edge_set_property_in_vertex_gid_.end()) return std::nullopt;
+    return it->second;
+  }
+
+  /// Record edge type for an edge SET_PROPERTY (used when encoding WAL/replication). Only in-memory storage populates.
+  void RecordEdgeSetPropertyEdgeType(Gid edge_gid, EdgeTypeId edge_type_id) {
+    edge_set_property_edge_type_[edge_gid] = edge_type_id;
+  }
+
+  std::optional<EdgeTypeId> GetEdgeSetPropertyEdgeType(Gid edge_gid) const {
+    auto it = edge_set_property_edge_type_.find(edge_gid);
+    if (it == edge_set_property_edge_type_.end()) return std::nullopt;
+    return it->second;
+  }
+
   void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
     point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
     manyDeltasCache.Invalidate(vertex, label);
@@ -196,6 +220,9 @@ struct Transaction {
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage
   ModifiedEdgesMap modified_edges_{};
+  /// Edge GID -> in-vertex GID for edge SET_PROPERTY when edge was created before this tx (for WAL/replication).
+  std::unordered_map<Gid, Gid> edge_set_property_in_vertex_gid_{};
+  std::unordered_map<Gid, EdgeTypeId> edge_set_property_edge_type_{};
   rocksdb::Transaction *disk_transaction_{};
   /// Main storage
   std::optional<utils::SkipList<Vertex>> vertices_{};

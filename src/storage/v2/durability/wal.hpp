@@ -195,11 +195,15 @@ struct WalEdgeSetProperty {
   }
 
   using ctr_types =
-      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
+      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>,
+                 VersionDependant<kExtendedEdgeSetProperty, std::optional<Gid>>,
+                 VersionDependant<kExtendedEdgeSetProperty, std::string>>;
   Gid gid;
   std::string property;
   ExternalPropertyValue value;
   std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
+  std::optional<Gid> to_gid;    //!< In-vertex GID for faster replica resolution (from kExtendedEdgeSetProperty)
+  std::optional<std::string> edge_type;  //!< Edge type name for FindEdge (from kExtendedEdgeSetProperty)
 };
 
 struct WalEdgeCreate : EdgeOpInfo {};
@@ -498,7 +502,9 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
                  uint64_t timestamp);
 
 /// Function used to encode a `Delta` that originated from an `Edge`.
-void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp);
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
+                 std::optional<Gid> in_vertex_gid = std::nullopt,
+                 std::optional<EdgeTypeId> edge_type_id = std::nullopt);
 
 /// Function used to encode the transaction start
 /// Returns the position in the WAL where the flag 'commit' is about to be written
@@ -574,8 +580,12 @@ class WalFile {
 
   ~WalFile();
 
-  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage);
-  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage,
+                   std::optional<Gid> in_vertex_gid = std::nullopt,
+                   std::optional<EdgeTypeId> edge_type_id = std::nullopt);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage,
+                   std::optional<Gid> in_vertex_gid = std::nullopt,
+                   std::optional<EdgeTypeId> edge_type_id = std::nullopt);
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.
