@@ -26,6 +26,7 @@ namespace {
 constexpr auto kRoleName = "rolename";
 constexpr auto kPermissions = "permissions";
 constexpr auto kGranted = "granted";
+constexpr auto kDenied = "denied";
 constexpr auto kSymbols = "symbols";
 constexpr auto kMatching = "matching";
 constexpr auto kGrants = "grants";
@@ -987,11 +988,11 @@ TEST(AuthModule, UserSerialization) {
   json[kFineGrainedPermissions][kEdgeTypePermissions][kGlobalPermission] = -1;
   ASSERT_EQ(json, user.Serialize());
 
-  user.fine_grained_access_handler().label_permissions().Grant({"DenyLabel"},
-                                                               memgraph::auth::FineGrainedPermission::NOTHING);
-  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
-      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kMatching, "ANY"}})});
-  json[kFineGrainedPermissions][kLabelPermissions][kGlobalPermission] = -1;
+  user.fine_grained_access_handler().label_permissions().Deny({"DenyLabel"}, memgraph::auth::kAllPermissions);
+  json[kFineGrainedPermissions][kLabelPermissions]["rules"] = nlohmann::json::array({nlohmann::json::object(
+      {{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kDenied, 249}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kLabelPermissions]["global_grants"] = -1;
+  json[kFineGrainedPermissions][kLabelPermissions]["global_denies"] = -1;
   ASSERT_EQ(json, user.Serialize());
 
   user.fine_grained_access_handler().label_permissions().Grant({"ExactLabel"},
