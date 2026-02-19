@@ -122,7 +122,7 @@ struct LicenseChecker {
 void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings);
 
 std::optional<License> Decode(std::string_view license_key);
-std::string Encode(const License &license);
+auto Encode(const License &license) -> std::expected<std::string, utils::RpcError>;
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern LicenseChecker global_license_checker;

@@ -123,7 +123,10 @@ class Client {
       auto final_res_type_name = std::string_view{final_res_type.name};
 
       // Finalize the request.
-      req_builder_.Finalize();
+      if (auto const res = req_builder_.Finalize(); !res.has_value()) {
+        return std::unexpected{res.error()};
+      }
+
       spdlog::trace("[RpcClient] sent {}, version {}, to {}",
                     req_type_name,
                     RPC::Request::kVersion,
@@ -206,7 +209,9 @@ class Client {
       auto res_type_name = std::string_view{res_type.name};
 
       // Finalize the request.
-      req_builder_.Finalize();
+      if (auto const res = req_builder_.Finalize(); !res.has_value()) {
+        return std::unexpected{res.error()};
+      }
 
       spdlog::trace("[RpcClient] sent {}, version {}, to {}",
                     req_type_name,
