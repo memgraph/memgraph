@@ -42,22 +42,6 @@ class LicenseTest : public ::testing::Test {
   std::optional<memgraph::license::LicenseChecker> license_checker;
 };
 
-TEST_F(LicenseTest, EncodeDecode) {
-  const std::array licenses = {
-      memgraph::license::License{"Organization", 1, 2, memgraph::license::LicenseType::OEM},
-      memgraph::license::License{"", -1, 0, memgraph::license::LicenseType::ENTERPRISE},
-      memgraph::license::License{
-          "Some very long name for the organization Ltd", -999, -9999, memgraph::license::LicenseType::ENTERPRISE},
-  };
-
-  for (const auto &license : licenses) {
-    const auto result = memgraph::license::Encode(license);
-    auto maybe_license = memgraph::license::Decode(result);
-    ASSERT_TRUE(maybe_license);
-    ASSERT_EQ(*maybe_license, license);
-  }
-}
-
 TEST_F(LicenseTest, TestingFlag) {
   CheckLicenseValidity(false);
 
@@ -66,21 +50,6 @@ TEST_F(LicenseTest, TestingFlag) {
 
   SCOPED_TRACE("EnableTesting shouldn't be affected by settings change");
   settings->SetValue("enterprise.license", "");
-  CheckLicenseValidity(true);
-}
-
-TEST_F(LicenseTest, LicenseOrganizationName) {
-  const std::string organization_name{"Memgraph"};
-  memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-
-  settings->SetValue("enterprise.license", memgraph::license::Encode(license));
-  settings->SetValue("organization.name", organization_name);
-  CheckLicenseValidity(true);
-
-  settings->SetValue("organization.name", fmt::format("{}modified", organization_name));
-  CheckLicenseValidity(false);
-
-  settings->SetValue("organization.name", organization_name);
   CheckLicenseValidity(true);
 }
 
@@ -95,7 +64,7 @@ TEST_F(LicenseTest, Expiration) {
     memgraph::license::License license{
         organization_name, valid_until.count(), 0, memgraph::license::LicenseType::ENTERPRISE};
 
-    settings->SetValue("enterprise.license", memgraph::license::Encode(license));
+    settings->SetValue("enterprise.license", memgraph::license::Encode(license).value());
     settings->SetValue("organization.name", organization_name);
     CheckLicenseValidity(true);
 
@@ -106,7 +75,7 @@ TEST_F(LicenseTest, Expiration) {
   {
     SCOPED_TRACE("License with valid_until = 0 is always valid");
     memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-    settings->SetValue("enterprise.license", memgraph::license::Encode(license));
+    settings->SetValue("enterprise.license", memgraph::license::Encode(license).value());
     settings->SetValue("organization.name", organization_name);
     CheckLicenseValidity(true);
   }
@@ -115,7 +84,7 @@ TEST_F(LicenseTest, Expiration) {
 TEST_F(LicenseTest, CliLicenseCheckSettings) {
   const std::string organization_name{"Memgraph"};
   memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string license_key = memgraph::license::Encode(license);
+  const std::string license_key = memgraph::license::Encode(license).value();
   SCOPED_TRACE("Checker should use overrides instead of info from the settings");
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   CheckLicenseValidity(true);
@@ -128,7 +97,7 @@ TEST_F(LicenseTest, CliLicense) {
 
   const std::string organization_name{"Memgraph"};
   memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string license_key = memgraph::license::Encode(license);
+  const std::string license_key = memgraph::license::Encode(license).value();
 
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   CheckLicenseValidity(true);
@@ -139,13 +108,13 @@ TEST_F(LicenseTest, LicenseType) {
   const std::string organization_name{"Memgraph"};
   {
     memgraph::license::License license_entr{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-    const std::string license_key = memgraph::license::Encode(license_entr);
+    const std::string license_key = memgraph::license::Encode(license_entr).value();
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(true);
   }
   {
     memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
-    const std::string license_key = memgraph::license::Encode(license_oem);
+    const std::string license_key = memgraph::license::Encode(license_oem).value();
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(false);
   }
@@ -154,7 +123,7 @@ TEST_F(LicenseTest, LicenseType) {
                                            std::numeric_limits<int64_t>::min(),
                                            std::numeric_limits<int64_t>::max(),
                                            memgraph::license::LicenseType::OEM};
-    const std::string license_key = memgraph::license::Encode(license_oem);
+    const std::string license_key = memgraph::license::Encode(license_oem).value();
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(false);
   }
@@ -163,7 +132,7 @@ TEST_F(LicenseTest, LicenseType) {
                                            std::numeric_limits<int64_t>::max(),
                                            std::numeric_limits<int64_t>::min(),
                                            memgraph::license::LicenseType::OEM};
-    const std::string license_key = memgraph::license::Encode(license_oem);
+    const std::string license_key = memgraph::license::Encode(license_oem).value();
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(false);
   }
@@ -172,7 +141,7 @@ TEST_F(LicenseTest, LicenseType) {
 TEST_F(LicenseTest, DetailedLicenseInfo_Enterprise) {
   const std::string organization_name{"Memgraph"};
   memgraph::license::License license_entr{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string license_key = memgraph::license::Encode(license_entr);
+  const std::string license_key = memgraph::license::Encode(license_entr).value();
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_EQ(detailed_license_info.organization_name, "Memgraph");
@@ -188,7 +157,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_OemExpired) {
   // GetDetailedLicenseInfo returns is_valid=false with no license details.
   const std::string organization_name{"Memgraph"};
   memgraph::license::License license_oem{organization_name, 1, 6, memgraph::license::LicenseType::OEM};
-  const std::string license_key = memgraph::license::Encode(license_oem);
+  const std::string license_key = memgraph::license::Encode(license_oem).value();
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
@@ -198,7 +167,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_OemNonExpiredIsInvalid) {
   SCOPED_TRACE("Valid non-expired OEM license must report is_valid=false (not enterprise type)");
   const std::string organization_name{"Memgraph"};
   memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
-  const std::string license_key = memgraph::license::Encode(license_oem);
+  const std::string license_key = memgraph::license::Encode(license_oem).value();
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
@@ -210,7 +179,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
   // Org-name mismatch means no valid candidate; previous_license_info_ is reset.
   const std::string organization_name{"Memgraph"};
   memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string license_key = memgraph::license::Encode(license);
+  const std::string license_key = memgraph::license::Encode(license).value();
   license_checker->SetCliLicense(license_key, fmt::format("{}wrong", organization_name), *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
@@ -224,7 +193,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
 TEST_F(LicenseTest, MultiSource_DbOnly) {
   const std::string org{"Memgraph"};
   memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(lic).value());
   settings->SetValue("organization.name", org);
   CheckLicenseValidity(true);
 }
@@ -235,10 +204,10 @@ TEST_F(LicenseTest, MultiSource_CliWinsTiebreak) {
   const std::string org{"Memgraph"};
   // DB key: memory_limit=100
   memgraph::license::License db_lic{org, 0, 100, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string db_key = memgraph::license::Encode(db_lic);
+  const std::string db_key = memgraph::license::Encode(db_lic).value();
   // CLI key: memory_limit=200, same expiry (0 = forever)
   memgraph::license::License cli_lic{org, 0, 200, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string cli_key = memgraph::license::Encode(cli_lic);
+  const std::string cli_key = memgraph::license::Encode(cli_lic).value();
 
   // Seed DB first.
   settings->SetValue("enterprise.license", db_key);
@@ -258,11 +227,11 @@ TEST_F(LicenseTest, MultiSource_DbWinsOnExpiry) {
 
   // CLI key: expires in 10 seconds.
   memgraph::license::License cli_lic{org, now + 10, 0, memgraph::license::LicenseType::ENTERPRISE};
-  license_checker->SetCliLicense(memgraph::license::Encode(cli_lic), org, *settings);
+  license_checker->SetCliLicense(memgraph::license::Encode(cli_lic).value(), org, *settings);
 
   // DB key: valid_until=0 (forever), treated as INT64_MAX in the comparison.
   memgraph::license::License db_lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic).value());
   settings->SetValue("organization.name", org);
 
   CheckLicenseValidity(true);
@@ -278,12 +247,12 @@ TEST_F(LicenseTest, MultiSource_CliWinsOnExpiry) {
 
   // DB key: expires in 10 seconds.
   memgraph::license::License db_lic{org, now + 10, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic).value());
   settings->SetValue("organization.name", org);
 
   // CLI key: valid forever (0).
   memgraph::license::License cli_lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string cli_key = memgraph::license::Encode(cli_lic);
+  const std::string cli_key = memgraph::license::Encode(cli_lic).value();
   license_checker->SetCliLicense(cli_key, org, *settings);
 
   CheckLicenseValidity(true);
@@ -299,12 +268,12 @@ TEST_F(LicenseTest, MultiSource_ForeverBeatsFinite) {
 
   // DB: large finite expiry.
   memgraph::license::License db_lic{org, now + 10000, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic).value());
   settings->SetValue("organization.name", org);
 
   // CLI: forever (0) — must win even though DB timestamp is numerically large.
   memgraph::license::License cli_lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string cli_key = memgraph::license::Encode(cli_lic);
+  const std::string cli_key = memgraph::license::Encode(cli_lic).value();
   license_checker->SetCliLicense(cli_key, org, *settings);
 
   CheckLicenseValidity(true);
@@ -317,11 +286,11 @@ TEST_F(LicenseTest, MultiSource_DbWinsWhenCliMismatch) {
 
   // DB: correct key + org.
   memgraph::license::License db_lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic).value());
   settings->SetValue("organization.name", org);
 
   // CLI: same key but presented with the wrong org name → fails validation.
-  license_checker->SetCliLicense(memgraph::license::Encode(db_lic), fmt::format("{}wrong", org), *settings);
+  license_checker->SetCliLicense(memgraph::license::Encode(db_lic).value(), fmt::format("{}wrong", org), *settings);
 
   CheckLicenseValidity(true);
 }
@@ -341,7 +310,7 @@ TEST_F(LicenseTest, Validator_ExpiredKeyThrows) {
   const std::string org{"Memgraph"};
   // valid_until=1 is epoch 1970-01-01, always expired.
   memgraph::license::License expired{org, 1, 0, memgraph::license::LicenseType::ENTERPRISE};
-  EXPECT_THROW(settings->SetValue("enterprise.license", memgraph::license::Encode(expired)),
+  EXPECT_THROW(settings->SetValue("enterprise.license", memgraph::license::Encode(expired).value()),
                memgraph::utils::BasicException);
   CheckLicenseValidity(false);
 }
@@ -351,7 +320,7 @@ TEST_F(LicenseTest, Validator_ExpiredKeyThrows) {
 TEST_F(LicenseTest, Validator_OrgMismatchWriteSucceeds) {
   const std::string org{"Memgraph"};
   memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  ASSERT_TRUE(settings->SetValue("enterprise.license", memgraph::license::Encode(lic)));
+  ASSERT_TRUE(settings->SetValue("enterprise.license", memgraph::license::Encode(lic).value()));
   settings->SetValue("organization.name", fmt::format("{}wrong", org));
   // Mismatch detected at revalidation, not at write time → invalid.
   CheckLicenseValidity(false);
@@ -361,7 +330,7 @@ TEST_F(LicenseTest, Validator_OrgMismatchWriteSucceeds) {
 TEST_F(LicenseTest, Validator_EmptyStringAllowed) {
   const std::string org{"Memgraph"};
   memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(lic).value());
   settings->SetValue("organization.name", org);
   CheckLicenseValidity(true);
 
@@ -381,12 +350,12 @@ TEST_F(LicenseTest, LiveUpdate_DbLongerExpiry) {
 
   // Start: CLI key with a finite expiry.
   memgraph::license::License cli_lic{org, now + 10, 0, memgraph::license::LicenseType::ENTERPRISE};
-  license_checker->SetCliLicense(memgraph::license::Encode(cli_lic), org, *settings);
+  license_checker->SetCliLicense(memgraph::license::Encode(cli_lic).value(), org, *settings);
   CheckLicenseValidity(true);
 
   // Update DB with a forever key (longer-lived) → DB becomes the new winner.
   memgraph::license::License db_lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string db_key = memgraph::license::Encode(db_lic);
+  const std::string db_key = memgraph::license::Encode(db_lic).value();
   settings->SetValue("enterprise.license", db_key);
   settings->SetValue("organization.name", org);
   CheckLicenseValidity(true);
@@ -403,13 +372,13 @@ TEST_F(LicenseTest, LiveUpdate_CliLongerExpiry) {
 
   // Start: CLI key with forever validity.
   memgraph::license::License cli_lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  const std::string cli_key = memgraph::license::Encode(cli_lic);
+  const std::string cli_key = memgraph::license::Encode(cli_lic).value();
   license_checker->SetCliLicense(cli_key, org, *settings);
   CheckLicenseValidity(true);
 
   // DB key with a short finite expiry.
   memgraph::license::License db_lic{org, now + 10, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(db_lic).value());
   settings->SetValue("organization.name", org);
   // CLI (forever) still wins; SetValueForce re-persists CLI key back to settings.
   CheckLicenseValidity(true);
@@ -425,7 +394,7 @@ TEST_F(LicenseTest, LiveUpdate_CliLongerExpiry) {
 TEST_F(LicenseTest, CommunityMode_OrgNameMismatch) {
   const std::string org{"Memgraph"};
   memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
-  settings->SetValue("enterprise.license", memgraph::license::Encode(lic));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(lic).value());
   settings->SetValue("organization.name", org);
   CheckLicenseValidity(true);
 

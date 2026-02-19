@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <expected>
 
+#include "slk/serialization.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/typeinfo.hpp"
 
