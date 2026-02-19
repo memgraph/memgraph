@@ -19,7 +19,6 @@
 
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
-#include "rpc/exceptions.hpp"
 #include "rpc/messages.hpp"  // necessary include
 #include "rpc/version.hpp"
 #include "slk/streams.hpp"
@@ -61,7 +60,7 @@ class Client {
       {"FrequentHeartbeatReq"sv, 5000},        // coord to data instances
       {"HeartbeatReq"sv, 10'000},              // main to replica
       {"SystemRecoveryReq"sv, 30'000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
-      {"PrepareCommitReq"sv, 30'000},   // Waiting 30'' on a progress/final response
+      {"PrepareCommitReq"sv, 500},      // Waiting 30'' on a progress/final response
       {"FinalizeCommitReq"sv, 10'000},  // Waiting 10'' on a final response
       {"CurrentWalReq"sv, 30'000},      // Waiting 30'' on a progress/final response
       {"WalFilesReq"sv, 30'000},        // Waiting 30'' on a progress/final response
@@ -153,7 +152,9 @@ class Client {
               defunct_ = true;
               self_->Shutdown();
               guard_.unlock();
-              // TODO: (andi) Handle the timeout error
+              if (result.error() == communication::ClientCommunicationError::TIMEOUT_ERROR) {
+                return std::unexpected{utils::RpcError::TIMEOUT_ERROR};
+              }
               return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
             }
           } else {
@@ -241,7 +242,10 @@ class Client {
             defunct_ = true;
             self_->Shutdown();
             guard_.unlock();
-            // TODO: (andi) Handle the error
+
+            if (result.error() == communication::ClientCommunicationError::TIMEOUT_ERROR) {
+              return std::unexpected{utils::RpcError::TIMEOUT_ERROR};
+            }
             return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
           }
         } else {
@@ -370,7 +374,6 @@ class Client {
   }
 
   /// Same as `Stream` but the first argument is a response loading function.
-  /// TODO: (andi) Needs updating also GenBuilderCallback, other things are done
   template <IsRpc Rpc, class... Args>
   auto StreamWithLoad(std::function<typename Rpc::Response(slk::Reader *)> res_load,
                       std::optional<std::chrono::milliseconds> const &try_lock_timeout,

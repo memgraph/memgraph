@@ -334,6 +334,10 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           spdlog::warn(
               "PeriodicCommit warning: At least one STRICT_SYNC replica has not confirmed committing last transaction. "
               "Transaction will be aborted on all instances.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::TimeoutReplicationError>) {
+          spdlog::warn(
+              "PeriodicCommit warning: At least one replica reached an RPC timeout. Please set a smaller parameter "
+              "value for 'deltas_batch_progress_size' using 'SET COORDINATOR SETTING' query on the coordinator.");
         } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
           throw QueryException(
               "PeriodicCommit failed: Unable to commit due to constraint "
