@@ -22,6 +22,7 @@
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/operator.hpp"
 #include "query_common.hpp"
 #include "storage/v2/property_value.hpp"
@@ -184,17 +185,24 @@ class Yield : public memgraph::query::plan::LogicalOperator {
     YieldCursor(const Yield *self, memgraph::query::plan::UniqueCursorPtr input_cursor)
         : self_(self), input_cursor_(std::move(input_cursor)), pull_index_(self_->values_.size()) {}
 
-    bool Pull(memgraph::query::Frame &frame, memgraph::query::ExecutionContext &context) override {
-      if (pull_index_ == self_->values_.size()) {
-        if (!input_cursor_->Pull(frame, context)) return false;
-        pull_index_ = 0;
+    memgraph::query::plan::PullAwaitable Pull(memgraph::query::Frame &frame,
+                                              memgraph::query::ExecutionContext &context) override {
+      if (pull_index_ < self_->values_.size()) {
+        for (size_t i = 0; i < self_->values_[pull_index_].size(); ++i) {
+          auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, context.evaluation_context.memory);
+          frame_writer.Write(self_->modified_symbols_[i], self_->values_[pull_index_][i]);
+        }
+        pull_index_++;
+        co_return true;
       }
+      if (!co_await input_cursor_->Pull(frame, context)) co_return false;
+      pull_index_ = 0;
       for (size_t i = 0; i < self_->values_[pull_index_].size(); ++i) {
         auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, context.evaluation_context.memory);
         frame_writer.Write(self_->modified_symbols_[i], self_->values_[pull_index_][i]);
       }
       pull_index_++;
-      return true;
+      co_return true;
     }
 
     void Reset() override {
@@ -218,7 +226,11 @@ std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::quer
   std::vector<std::vector<memgraph::query::TypedValue>> output;
   {
     memgraph::query::Frame frame(context->symbol_table.max_position());
-    while (cursor->Pull(frame, *context)) {
+    for (;;) {
+      auto awaitable = cursor->Pull(frame, *context);
+      if (memgraph::query::plan::RunPullToCompletion(awaitable, *context).status !=
+          memgraph::query::plan::PullRunResult::Status::HasRow)
+        break;
       output.emplace_back();
       for (const auto &symbol : output_symbols) {
         output.back().push_back(frame[symbol]);

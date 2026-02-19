@@ -647,7 +647,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   }
 
   // don't return the execution summary as it's not finished
-  return {{"has_more", TypedValue(true)}};
+  auto ret = std::map<std::string, TypedValue>{{"has_more", TypedValue(true)}};
+  if (query_execution->summary.contains("yielded")) {
+    ret.emplace("yielded", query_execution->summary.at("yielded"));
+  }
+  return ret;
 }
 
 }  // namespace memgraph::query

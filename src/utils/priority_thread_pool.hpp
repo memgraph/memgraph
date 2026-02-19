@@ -23,6 +23,7 @@
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 namespace memgraph::utils {
 // Thread-safe mask that returns the position of first set bit
@@ -123,8 +124,8 @@ class PriorityThreadPool {
   using TaskID = uint64_t;
   using ThreadInitCallback = std::function<void()>;
 
-  PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
-                     ThreadInitCallback thread_init_callback = nullptr);
+  PriorityThreadPool(uint16_t work_threads_count, ThreadInitCallback thread_init_callback = nullptr,
+                     WorkerYieldRegistry *yield_registry = nullptr);
 
   ~PriorityThreadPool();
 
@@ -138,6 +139,13 @@ class PriorityThreadPool {
   void ShutDown();
 
   void ScheduledAddTask(TaskSignature new_task, Priority priority);
+
+  /**
+   * Schedules a task on a specific worker. Use when the task must run on that
+   * worker (e.g. continuation after yield, to respect thread-local state).
+   * worker_id must be in [0, GetNumMixedWorkers()).
+   */
+  void RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature new_task, Priority priority);
 
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
@@ -165,21 +173,24 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+      bool pinned{false};          // if true, task must run on this worker (not stealable)
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    void push(TaskSignature new_task, TaskID id, bool pinned = false);
 
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads);
+    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads,
+                    WorkerYieldRegistry *yield_registry);
 
    private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
-    std::priority_queue<Work> work_;
+    std::priority_queue<Work> work_;         // Stealable work
+    std::priority_queue<Work> work_pinned_;  // Pinned to this worker (never stolen)
 
     // Stats
     std::atomic_bool has_pending_work_{false};
@@ -187,6 +198,10 @@ class PriorityThreadPool {
     std::atomic_bool run_{true};
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
+
+    // Set by operator() for LP workers; used in push() to request yield when adding HP task to busy worker
+    WorkerYieldRegistry *yield_registry_{nullptr};
+    uint16_t worker_id_{0};
 
     friend class PriorityThreadPool;
   };
@@ -202,8 +217,9 @@ class PriorityThreadPool {
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
-  std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
-  std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+  std::atomic<TaskID> task_id_;  // Generates a unique tasks id | MSB signals high priority
+
+  WorkerYieldRegistry *yield_registry_{nullptr};
 };
 
 class CollectionScheduler {

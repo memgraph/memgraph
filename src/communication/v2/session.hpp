@@ -52,6 +52,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 #include "flags/scheduler.hpp"
 
@@ -397,29 +398,52 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
-    session_context_->AddTask(
-        [shared_this = shared_from_this()](const auto thread_priority) {
-          try {
-            while (true) {
-              if (shared_this->session_.Execute()) {
-                // Check if we can just steal this task (loop through)
-                if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
-                  // Task priority lower; reschedule
-                  shared_this->DoWork();
-                  return;
-                }
-              } else {
-                // Handled all data,  async wait for new incoming data
-                shared_this->DoRead();
-                return;
-              }
+    session_context_->AddTask([shared_this = shared_from_this()](
+                                  const auto thread_priority) { shared_this->DoWorkLoop(thread_priority, false); },
+                              session_.ApproximateQueryPriority());
+  }
+
+  // NOTE This is done outside the worker pool, so we can just call it directly.
+  void DoWorkLoop(utils::Priority thread_priority, bool continue_after_yield = false) {
+    try {
+      while (true) {
+        if (session_.Execute(continue_after_yield)) {
+          // Next iteration is normal (read from buffer if needed), not a yield resume.
+          continue_after_yield = false;
+          // Returned true: either we yielded (signal was set) or we're done with this chunk.
+          auto *yield_signal = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+          if (yield_signal && yield_signal->load(std::memory_order_acquire)) {
+            // We yielded; reschedule on the same worker so continuation runs on same thread.
+            if (auto wid = utils::WorkerYieldRegistry::GetCurrentWorkerId()) {
+              // Use HIGH so the continuation runs promptly and is not starved by other HP work.
+              session_context_->AddTaskOnWorker(
+                  *wid,
+                  [shared_this = shared_from_this()](const auto p) { shared_this->DoWorkLoop(p, true); },
+                  utils::Priority::HIGH);  // TODO Store task prioirty and use it here
+              return;
             }
-          } catch (const std::exception & /* unused */) {
-            boost::asio::post(shared_this->strand_,
-                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+            DoWork();
+            return;
           }
-        },
-        session_.ApproximateQueryPriority());
+          // Task priority lower; reschedule on any worker
+          if (thread_priority > session_.ApproximateQueryPriority()) {
+            DoWork();
+            return;
+          }
+          // More work (e.g. state Yielded) but yield_signal was cleared (e.g. we're the continuation task).
+          // Loop with continue_after_yield=true so next Execute() calls ContinuePull().
+          continue_after_yield = true;
+        } else {
+          // Handled all data, async wait for new incoming data
+          DoRead();
+          return;
+        }
+      }
+    } catch (const std::exception &) {
+      boost::asio::post(strand_, [shared_this = shared_from_this(), eptr = std::current_exception()]() {
+        shared_this->HandleException(eptr);
+      });
+    }
   }
 
   void OnError(const boost::system::error_code &ec) {

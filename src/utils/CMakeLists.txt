@@ -53,6 +53,7 @@ target_sources(mg-utils
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
+    worker_yield_signal.hpp
     barrier.hpp
     transparent_compare.hpp
     compile_time.hpp

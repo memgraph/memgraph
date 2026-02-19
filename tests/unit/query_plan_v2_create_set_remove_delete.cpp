@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/operator.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -58,7 +59,11 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
   Frame frame(context.symbol_table.max_position());
   auto cursor = create_node.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
-  while (cursor->Pull(frame, context)) {
+  for (;;) {
+    auto awaitable = cursor->Pull(frame, context);
+    if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+        memgraph::query::plan::PullRunResult::Status::HasRow)
+      break;
     ++count;
     const auto &node_value = frame[node.symbol];
     EXPECT_EQ(node_value.type(), TypedValue::Type::Vertex);
@@ -85,7 +90,13 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
     Frame frame(context.symbol_table.max_position());
     auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
     int count = 0;
-    while (cursor->Pull(frame, context)) ++count;
+    for (;;) {
+      auto awaitable = cursor->Pull(frame, context);
+      if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+          memgraph::query::plan::PullRunResult::Status::HasRow)
+        break;
+      ++count;
+    }
     EXPECT_EQ(count, 0);
   }
   {
@@ -94,7 +105,13 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
     Frame frame(context.symbol_table.max_position());
     auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
     int count = 0;
-    while (cursor->Pull(frame, context)) ++count;
+    for (;;) {
+      auto awaitable = cursor->Pull(frame, context);
+      if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+          memgraph::query::plan::PullRunResult::Status::HasRow)
+        break;
+      ++count;
+    }
     EXPECT_EQ(count, 0);
   }
 }
@@ -115,7 +132,13 @@ TYPED_TEST(QueryPlan, ScanAll) {
   Frame frame(context.symbol_table.max_position());
   auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
-  while (cursor->Pull(frame, context)) ++count;
+  for (;;) {
+    auto awaitable = cursor->Pull(frame, context);
+    if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+        memgraph::query::plan::PullRunResult::Status::HasRow)
+      break;
+    ++count;
+  }
   EXPECT_EQ(count, 42);
 }
 
@@ -147,6 +170,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   Frame frame(context.symbol_table.max_position());
   auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
-  while (cursor->Pull(frame, context)) ++count;
+  for (;;) {
+    auto awaitable = cursor->Pull(frame, context);
+    if (memgraph::query::plan::RunPullToCompletion(awaitable, context).status !=
+        memgraph::query::plan::PullRunResult::Status::HasRow)
+      break;
+    ++count;
+  }
   EXPECT_EQ(count, 42);
 }

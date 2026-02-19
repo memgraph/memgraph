@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/operator.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
@@ -73,7 +74,15 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
   // stream out results
   auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
   std::vector<std::vector<TypedValue>> results;
-  while (cursor->Pull(frame, *context)) {
+  while (true) {
+    auto awaitable = cursor->Pull(frame, *context);
+    PullRunResult result;
+    do {
+      result = RunPullToCompletion(awaitable, *context);
+    } while (result.status == PullRunResult::Status::Yielded);
+
+    if (result.status != PullRunResult::Status::HasRow) break;
+
     std::vector<TypedValue> values;
     for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
     results.emplace_back(values);
@@ -86,7 +95,14 @@ int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
   auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
-  while (cursor->Pull(frame, *context)) {
+  while (true) {
+    auto awaitable = cursor->Pull(frame, *context);
+    PullRunResult result;
+    do {
+      result = RunPullToCompletion(awaitable, *context);
+    } while (result.status == PullRunResult::Status::Yielded);
+
+    if (result.status != PullRunResult::Status::HasRow) break;
     count++;
   }
   return count;

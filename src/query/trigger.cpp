@@ -15,6 +15,7 @@
 #include <cstdint>
 
 #include "dbms/database.hpp"
+#include "plan/cursor_awaitable.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -293,7 +294,13 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
     frame_writer.Write(plan.symbol_table().at(identifier), context.GetTypedValue(tag, dba));
   }
 
-  while (cursor->Pull(frame, ctx));
+  // NOTE: Does not need to be a coroutine.
+  // Trigger can be executed from the Commit (where we don't want to yield)
+  // or in a separate thread that does not need to yield to other work.
+  while (true) {
+    auto awaitable = cursor->Pull(frame, ctx);
+    if (plan::RunPullToCompletion(awaitable, ctx).status != plan::PullRunResult::Status::HasRow) break;
+  }
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);

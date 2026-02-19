@@ -21,6 +21,7 @@
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable_core.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
 #include "storage/v2/id_types.hpp"
@@ -83,7 +84,7 @@ class Cursor {
   ///     other information.
   ///
   /// @throws QueryRuntimeException if something went wrong with execution
-  virtual bool Pull(Frame &, ExecutionContext &) = 0;
+  virtual PullAwaitable Pull(Frame &, ExecutionContext &) = 0;
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -330,7 +331,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
   class OnceCursor : public Cursor {
    public:
     OnceCursor() = default;
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -409,7 +410,7 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
   class CreateNodeCursor : public Cursor {
    public:
     CreateNodeCursor(const CreateNode &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -504,7 +505,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   class CreateExpandCursor : public Cursor {
    public:
     CreateExpandCursor(const CreateExpand &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1034,7 +1035,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
    public:
     ExpandCursor(const Expand &, utils::MemoryResource *);
     ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
     ExpansionInfo GetExpansionInfo(Frame &);
@@ -1059,7 +1060,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     int64_t prev_input_degree_{-1};
     int64_t prev_existing_degree_{-1};
 
-    bool InitEdges(Frame &, ExecutionContext &);
+    PullAwaitable InitEdges(Frame &, ExecutionContext &);
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
@@ -1263,7 +1264,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   class FilterCursor : public Cursor {
    public:
     FilterCursor(const Filter &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1314,7 +1315,7 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   class ProduceCursor : public Cursor {
    public:
     ProduceCursor(const Produce &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1365,7 +1366,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   class DeleteCursor : public Cursor {
    public:
     DeleteCursor(const Delete &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1376,7 +1377,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
     std::optional<uint64_t> buffer_size_;
     uint64_t pulled_{0};
 
-    void UpdateDeleteBuffer(Frame &, ExecutionContext &);
+    PullAwaitable UpdateDeleteBuffer(Frame &, ExecutionContext &);
   };
 };
 
@@ -1416,7 +1417,7 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   class SetPropertyCursor : public Cursor {
    public:
     SetPropertyCursor(const SetProperty &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1458,7 +1459,7 @@ class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
   class SetNestedPropertyCursor : public Cursor {
    public:
     SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1512,7 +1513,7 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
   class SetPropertiesCursor : public Cursor {
    public:
     SetPropertiesCursor(const SetProperties &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1555,7 +1556,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
   class SetLabelsCursor : public Cursor {
    public:
     SetLabelsCursor(const SetLabels &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1596,7 +1597,7 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   class RemovePropertyCursor : public Cursor {
    public:
     RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1638,7 +1639,7 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
   class RemoveNestedPropertyCursor : public Cursor {
    public:
     RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1681,7 +1682,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   class RemoveLabelsCursor : public Cursor {
    public:
     RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1736,7 +1737,7 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   class EdgeUniquenessFilterCursor : public Cursor {
    public:
     EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2326,7 +2327,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
   class SkipCursor : public Cursor {
    public:
     SkipCursor(const Skip &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2369,7 +2370,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
   class EvaluatePatternFilterCursor : public Cursor {
    public:
     EvaluatePatternFilterCursor(const EvaluatePatternFilter &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2423,7 +2424,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
   class LimitCursor : public Cursor {
    public:
     LimitCursor(const Limit &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2525,7 +2526,7 @@ class Merge : public memgraph::query::plan::LogicalOperator {
   class MergeCursor : public Cursor {
    public:
     MergeCursor(const Merge &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2579,7 +2580,7 @@ class Optional : public memgraph::query::plan::LogicalOperator {
   class OptionalCursor : public Cursor {
    public:
     OptionalCursor(const Optional &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2698,7 +2699,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
   class UnionCursor : public Cursor {
    public:
     UnionCursor(const Union &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -3003,7 +3004,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   class ApplyCursor : public Cursor {
    public:
     ApplyCursor(const Apply &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
+    PullAwaitable Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -3043,7 +3044,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   class IndexedJoinCursor : public Cursor {
    public:
     IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *);
-    bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    PullAwaitable Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
     void Shutdown() override;
     void Reset() override;
 

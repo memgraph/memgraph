@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,16 +12,18 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <memory>
 #include <thread>
 
 #include <utils/priority_thread_pool.hpp>
+#include <utils/worker_yield_signal.hpp>
 #include "utils/synchronized.hpp"
 
 using namespace std::chrono_literals;
 
 TEST(PriorityThreadPool, Basic) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::PriorityThreadPool pool{1};
 
   utils::Synchronized<std::vector<int>> output;
   constexpr size_t n_tasks = 100;
@@ -41,7 +43,7 @@ TEST(PriorityThreadPool, Basic) {
 
 TEST(PriorityThreadPool, Basic2) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::PriorityThreadPool pool{1};
 
   // Figure out which thread is the low/high
   std::atomic<std::thread::id> low_th = std::thread::id{0};
@@ -95,15 +97,39 @@ TEST(PriorityThreadPool, Basic2) {
 
 TEST(PriorityThreadPool, LowHigh) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  memgraph::utils::PriorityThreadPool pool(1, nullptr, &registry);
 
   std::atomic_bool block{true};
-  // Block mixed work thread and see if the high priority thread takes over
-  pool.ScheduledAddTask(
-      [&](auto) {
-        while (block) block.wait(true);
-      },
-      utils::Priority::LOW);
+  std::atomic<bool> lp_saw_yield{false};
+
+  // LP task checks yield flag and reschedules itself on same worker when yield is requested
+  struct LoopTask : std::enable_shared_from_this<LoopTask> {
+    std::atomic_bool *block;
+    std::atomic<bool> *lp_saw_yield;
+    utils::PriorityThreadPool *pool;
+
+    LoopTask(std::atomic_bool *b, std::atomic<bool> *s, utils::PriorityThreadPool *p)
+        : block(b), lp_saw_yield(s), pool(p) {}
+
+    void operator()(utils::Priority) {
+      while (*block) {
+        auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+        if (sig && sig->load(std::memory_order_acquire)) {
+          *lp_saw_yield = true;
+          if (auto wid = utils::WorkerYieldRegistry::GetCurrentWorkerId()) {
+            pool->RescheduleTaskOnWorker(
+                *wid, [self = shared_from_this()](utils::Priority p) { (*self)(p); }, utils::Priority::LOW);
+          }
+          return;
+        }
+        std::this_thread::sleep_for(1ms);
+      }
+    }
+  };
+
+  auto loop_task = std::make_shared<LoopTask>(&block, &lp_saw_yield, &pool);
+  pool.ScheduledAddTask([loop_task](auto p) { (*loop_task)(p); }, utils::Priority::LOW);
 
   // Wait for the task to be scheduled
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -117,7 +143,7 @@ TEST(PriorityThreadPool, LowHigh) {
     pool.ScheduledAddTask([&, i](auto) { output->push_back(i); }, utils::Priority::HIGH);
   }
 
-  // Wait for the HIGH priority tasks to finish
+  // Wait for the HIGH priority tasks to finish (LP task yields when yield is set on HP add)
   while (output->size() < n_tasks / 2) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
@@ -127,57 +153,239 @@ TEST(PriorityThreadPool, LowHigh) {
     ASSERT_EQ(output[0], n_tasks / 2);
     ASSERT_TRUE(std::is_sorted(output.begin(), output.end()));
   });
+  ASSERT_TRUE(lp_saw_yield.load()) << "LP task must see yield when HP tasks are added";
 
   // Unblock mixed work thread and close
   block = false;
-  block.notify_one();
+  block.notify_all();
   pool.ShutDown();
   pool.AwaitShutdown();
 }
 
-TEST(PriorityThreadPool, MultipleLow) {
+TEST(PriorityThreadPool, ScheduledAddTaskOnWorker_PinnedRunsOnDesignatedWorker) {
   using namespace memgraph;
-  constexpr auto kLP = 8;
-  memgraph::utils::PriorityThreadPool pool{kLP, 1};
+  constexpr uint16_t kWorkers = 2;
+  memgraph::utils::PriorityThreadPool pool{kWorkers};
 
-  std::atomic_bool block{true};
-  // Block all mixed work thread and see if the high priority thread takes over
-  for (int i = 0; i < kLP; ++i) {
+  std::atomic<std::thread::id> worker0_thread_id;
+  std::atomic<std::thread::id> worker1_thread_id;
+  std::atomic<bool> worker0_seen{false};
+  std::atomic<bool> worker1_seen{false};
+
+  // Identify which thread is worker 0 and which is worker 1 by scheduling pinned tasks
+  pool.RescheduleTaskOnWorker(
+      0,
+      [&](auto) {
+        worker0_thread_id = std::this_thread::get_id();
+        worker0_seen = true;
+      },
+      utils::Priority::LOW);
+  pool.RescheduleTaskOnWorker(
+      1,
+      [&](auto) {
+        worker1_thread_id = std::this_thread::get_id();
+        worker1_seen = true;
+      },
+      utils::Priority::LOW);
+
+  while (!worker0_seen || !worker1_seen) std::this_thread::sleep_for(1ms);
+
+  ASSERT_NE(worker0_thread_id.load(), worker1_thread_id.load());
+
+  // Schedule another pinned task on worker 0 and verify it runs on worker 0's thread
+  std::atomic<bool> pinned_ran_on_worker0{false};
+  pool.RescheduleTaskOnWorker(
+      0,
+      [&](auto) { pinned_ran_on_worker0 = (std::this_thread::get_id() == worker0_thread_id.load()); },
+      utils::Priority::LOW);
+
+  while (!pinned_ran_on_worker0) std::this_thread::sleep_for(1ms);
+  ASSERT_TRUE(pinned_ran_on_worker0);
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, ScheduledAddTaskOnWorker_ReschedulingRunsOnSameWorker) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 2;
+  memgraph::utils::PriorityThreadPool pool{kWorkers};
+
+  std::atomic<std::thread::id> first_task_thread_id;
+  std::atomic<std::thread::id> continuation_thread_id;
+  std::atomic<bool> first_done{false};
+  std::atomic<bool> continuation_done{false};
+
+  // Schedule on worker 0 a task that reschedules a continuation on worker 0 (simulating yield resume)
+  pool.RescheduleTaskOnWorker(
+      0,
+      [&, &pool = pool](auto) {
+        first_task_thread_id = std::this_thread::get_id();
+        first_done = true;
+        // Reschedule continuation on same worker (pinned, same task id semantics)
+        pool.RescheduleTaskOnWorker(
+            0,
+            [&](auto) {
+              continuation_thread_id = std::this_thread::get_id();
+              continuation_done = true;
+            },
+            utils::Priority::HIGH);
+      },
+      utils::Priority::LOW);
+
+  while (!continuation_done) std::this_thread::sleep_for(1ms);
+
+  ASSERT_EQ(first_task_thread_id.load(), continuation_thread_id.load())
+      << "Rescheduling on same worker must run continuation on the same thread";
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, ScheduledAddTaskOnWorker_PinnedNotStolen) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 2;
+  memgraph::utils::PriorityThreadPool pool{kWorkers};
+
+  std::atomic<bool> worker1_busy{true};
+  std::atomic<std::thread::id> worker0_thread_id;
+  std::atomic<bool> pinned_ran_on_worker0{false};
+
+  // Keep worker 1 busy so it would otherwise try to steal from worker 0
+  pool.RescheduleTaskOnWorker(
+      1,
+      [&](auto) {
+        while (worker1_busy) worker1_busy.wait(true);
+      },
+      utils::Priority::LOW);
+
+  std::this_thread::sleep_for(10ms);
+
+  // Worker 0 runs this task, then schedules a pinned continuation on worker 0
+  pool.RescheduleTaskOnWorker(
+      0,
+      [&, &pool = pool](auto) {
+        worker0_thread_id = std::this_thread::get_id();
+        pool.RescheduleTaskOnWorker(
+            0,
+            [&](auto) { pinned_ran_on_worker0 = (std::this_thread::get_id() == worker0_thread_id.load()); },
+            utils::Priority::HIGH);
+      },
+      utils::Priority::LOW);
+
+  while (!pinned_ran_on_worker0) std::this_thread::sleep_for(1ms);
+  ASSERT_TRUE(pinned_ran_on_worker0) << "Pinned continuation must run on same worker, not be stolen";
+
+  worker1_busy = false;
+  worker1_busy.notify_one();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Yield flag: set when adding a high-priority task; tasks must read it inside and yield when set.
+// These tests use a pool with WorkerYieldRegistry so RequestYieldForWorker is called on HP push.
+
+TEST(PriorityThreadPool, YieldFlag_NotSetWhenOnlyLowPriority) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 2;
+  memgraph::utils::WorkerYieldRegistry registry(kWorkers);
+  memgraph::utils::PriorityThreadPool pool(kWorkers, nullptr, &registry);
+
+  std::atomic<int> completed{0};
+  std::atomic<int> saw_yield_requested{0};
+  constexpr int n_tasks = 50;
+
+  for (int i = 0; i < n_tasks; ++i) {
     pool.ScheduledAddTask(
         [&](auto) {
-          while (block) block.wait(true);
+          for (int j = 0; j < 100; ++j) {
+            auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+            if (sig && sig->load(std::memory_order_acquire)) saw_yield_requested.fetch_add(1);
+          }
+          completed.fetch_add(1);
         },
         utils::Priority::LOW);
   }
 
-  // Wait for the task to be scheduled
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  while (completed.load() != n_tasks) std::this_thread::sleep_for(1ms);
+  ASSERT_EQ(saw_yield_requested.load(), 0) << "Yield must not be set when only LP tasks are added";
 
-  utils::Synchronized<std::vector<int>> output;
-  constexpr size_t n_tasks = 100;
-  for (size_t i = 0; i < n_tasks / 2; ++i) {
-    pool.ScheduledAddTask([&, i](auto) { output->push_back(i); }, utils::Priority::LOW);
-  }
-  for (size_t i = n_tasks / 2; i < n_tasks; ++i) {
-    pool.ScheduledAddTask([&, i](auto) { output->push_back(i); }, utils::Priority::HIGH);
-  }
-
-  // Wait for the HIGH priority tasks to finish
-  while (output->size() < n_tasks / 2) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  // Check if only the HIGH priority tasks were executed and in order
-  output.WithLock([](const auto &output) {
-    ASSERT_EQ(output[0], n_tasks / 2);
-    ASSERT_TRUE(std::is_sorted(output.begin(), output.end()));
-  });
-
-  // Unblock mixed work thread and close
-  block = false;
-  block.notify_one();
   pool.ShutDown();
   pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, YieldFlag_NoYieldWhenHighPriorityAddedToOtherWorker) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 2;
+  memgraph::utils::WorkerYieldRegistry registry(kWorkers);
+  memgraph::utils::PriorityThreadPool pool(kWorkers, nullptr, &registry);
+
+  std::atomic<bool> worker0_done{false};
+  std::atomic<bool> worker0_saw_yield{false};
+
+  pool.RescheduleTaskOnWorker(
+      0,
+      [&](auto) {
+        for (int i = 0; i < 2'000'000; ++i) {
+          auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+          if (sig && sig->load(std::memory_order_acquire)) worker0_saw_yield = true;
+        }
+        worker0_done = true;
+      },
+      utils::Priority::LOW);
+
+  std::this_thread::sleep_for(1ms);
+  // Add HP only to worker 1; worker 0's yield signal must not be set
+  pool.RescheduleTaskOnWorker(1, [](auto) {}, utils::Priority::HIGH);
+
+  while (!worker0_done) std::this_thread::sleep_for(1ms);
+  ASSERT_FALSE(worker0_saw_yield.load()) << "Yield must not be set on worker 0 when HP is added only to worker 1";
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, YieldFlag_Stress) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 4;
+  memgraph::utils::WorkerYieldRegistry registry(kWorkers);
+  memgraph::utils::PriorityThreadPool pool(kWorkers, nullptr, &registry);
+
+  constexpr int kIterations = 30;
+  int requested_yields_seen = 0;
+
+  for (int iter = 0; iter < kIterations; ++iter) {
+    const uint16_t worker = static_cast<uint16_t>(iter % kWorkers);
+    std::atomic<bool> lp_running{false};
+    std::atomic<bool> lp_saw_yield{false};
+    std::atomic<bool> hp_ran{false};
+
+    pool.ScheduledAddTask(
+        [&](auto) {
+          lp_running = true;
+          for (int i = 0; i < 5'000'000; ++i) {
+            auto *sig = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+            if (sig && sig->load(std::memory_order_acquire)) {
+              lp_saw_yield = true;
+              return;
+            }
+          }
+        },
+        utils::Priority::LOW);
+
+    while (!lp_running) std::this_thread::sleep_for(0ms);
+    std::this_thread::sleep_for(0ms);
+
+    pool.ScheduledAddTask([&](auto) { hp_ran = true; }, utils::Priority::HIGH);
+
+    while (!hp_ran) std::this_thread::sleep_for(1ms);
+    if (lp_saw_yield) ++requested_yields_seen;
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_GT(requested_yields_seen, 0) << "At least one requested yield must be observed (no ignored yields)";
 }
 
 // TaskCollection Tests
@@ -247,7 +455,7 @@ TEST(TaskCollection, WaitOrSteal) {
 
 TEST(TaskCollection, ThreadPoolIntegration) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{2, 1};
+  memgraph::utils::PriorityThreadPool pool{2};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
@@ -273,7 +481,7 @@ TEST(TaskCollection, ThreadPoolIntegration) {
 
 TEST(TaskCollection, ConcurrentExecution) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{4, 2};
+  memgraph::utils::PriorityThreadPool pool{4};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
@@ -299,7 +507,7 @@ TEST(TaskCollection, ConcurrentExecution) {
 
 TEST(TaskCollection, MixedWaitAndSteal) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{1, 1};
+  memgraph::utils::PriorityThreadPool pool{1};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
@@ -453,7 +661,7 @@ TEST(TaskCollection, MultipleExecutionsPrevented) {
 
 TEST(TaskCollection, LargeTaskSet) {
   using namespace memgraph;
-  memgraph::utils::PriorityThreadPool pool{8, 2};
+  memgraph::utils::PriorityThreadPool pool{8};
   memgraph::utils::TaskCollection collection;
 
   std::atomic<int> counter{0};
