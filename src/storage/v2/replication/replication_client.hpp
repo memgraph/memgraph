@@ -11,10 +11,9 @@
 
 #pragma once
 
-#include "replication/config.hpp"
 #include "replication/replication_client.hpp"
-#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
+#include "rpc/exceptions.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/commit_ts_info.hpp"
 #include "storage/v2/database_protector.hpp"
@@ -36,6 +35,8 @@ struct Vertex;
 struct Edge;
 class Storage;
 class ReplicationStorageClient;
+
+enum class ReplicationError : uint8_t { TIMEOUT_ERROR, GENERIC_EROR };
 
 // Handler used for transferring the current transaction.
 // You need to acquire the RPC lock before creating ReplicaStream object
@@ -182,14 +183,14 @@ class ReplicationStorageClient {
    *
    * @param replica_stream replica stream to finalize the transaction on
    * @param durability_commit_timestamp
-   * @return true
-   * @return false
    */
-  [[nodiscard]] bool FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
-                                                uint64_t durability_commit_timestamp) const;
+  [[nodiscard]] auto FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
+                                                uint64_t durability_commit_timestamp) const
+      -> std::expected<void, ReplicationError>;
 
-  bool FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
-                                      uint64_t durability_commit_timestamp) const;
+  auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
+                                      uint64_t durability_commit_timestamp) const
+      -> std::expected<void, ReplicationError>;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid,
                                            uint64_t const durability_commit_timestamp,

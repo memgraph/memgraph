@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,8 +21,9 @@ namespace memgraph::storage {
 // When handling some other type of replica, it is checked whether there is another STRICT_SYNC replica. There are 2
 // possible cluster combinations: STRICT_SYNC and ASYNC or SYNC and ASYNC. If there are no STRICT_SYNC replicas in the
 // cluster, we send all deltas and commit immediately on replicas.
-auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool {
-  if (locked_clients->empty()) return true;
+auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args)
+    -> std::expected<void, ReplicationError> {
+  if (locked_clients->empty()) return {};
 
   MG_ASSERT(commit_args.replication_allowed(),
             "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
@@ -30,12 +31,13 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 
   auto const &db_acc = commit_args.database_protector();
   bool const should_run_2pc = ShouldRunTwoPC();
-  bool success{true};
+
+  std::expected<void, ReplicationError> status;
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                    replica_stream);
     // NOLINTNEXTLINE
-    auto const finalized = std::invoke([&]() -> bool {
+    auto const finalized = std::invoke([&]() -> std::expected<void, ReplicationError> {
       // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
       // NOLINTNEXTLINE
       if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
@@ -46,22 +48,25 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       // RPC stream gets destroyed => RPC lock released.
       if (!should_run_2pc) {
         // NOLINTNEXTLINE
-        bool const res =
+        auto const res =
             client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
         // Even if fails, we don't care, it's ASYNC
         if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-          return true;
+          return {};
         }
         return res;
       }
       // If ASYNC replica which is part of 2PC, just skip this
       // SYNC replica cannot be part of 2PC
-      return true;
+      return {};
     });
 
-    success &= finalized;
+    // Remember the error
+    if (!finalized.has_value()) {
+      status = finalized;
+    }
   }
-  return success;
+  return status;
 }
 
 // RPC locks will get released at the end of this function for all STRICT_SYNC and ASYNC replicas
@@ -79,7 +84,10 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
-        client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp);
+        // We don't need to check specifically status for async replication because task runs in background and here we
+        // always return status code OK.
+        DMG_ASSERT(
+            client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp));
       } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
         // We should only do this if we own the RPC lock.

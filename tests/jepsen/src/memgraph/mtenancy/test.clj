@@ -120,9 +120,9 @@
                                                                (mgquery/get-num-nodes session) first :c)]
                                              (conj acc-nodes db-num-nodes)))))
 
-                                     [] (mutils/get-all-dbs num-tenants))]
+                                     [] (mutils/get-all-dbs num-tenants))
 
-                             (assoc op :type :ok :value {:num-nodes num-nodes :node node}))
+                             (assoc op :type :ok :value {:num-nodes num-nodes :node node})])
                         ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                            (catch Exception e
                              (assoc op :type :fail :value (str e))))
@@ -140,9 +140,9 @@
                                                                (mgquery/get-num-edges session) first :c)]
                                              (conj acc-edges db-num-edges)))))
 
-                                     [] (mutils/get-all-dbs num-tenants))]
+                                     [] (mutils/get-all-dbs num-tenants))
 
-                             (assoc op :type :ok :value {:num-edges num-edges :node node}))
+                             (assoc op :type :ok :value {:num-edges num-edges :node node})])
 
 ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                            (catch Exception e

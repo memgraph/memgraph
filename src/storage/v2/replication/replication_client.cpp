@@ -454,8 +454,9 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
 }
 
 // Only STRICT_SYNC replicas can call this function
-bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
-                                                          uint64_t durability_commit_timestamp) const {
+auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
+                                                          uint64_t durability_commit_timestamp) const
+    -> std::expected<void, ReplicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -477,7 +478,7 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   });
 
   if (!continue_finalize) {
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_EROR};
   }
 
   if (!replica_stream || replica_stream->IsDefunct()) {
@@ -486,7 +487,7 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_EROR};
   }
 
   MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
@@ -498,21 +499,25 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return false;
+    if (maybe_response.error() == utils::RpcError::TIMEOUT_ERROR) {
+      return std::unexpected{ReplicationError::TIMEOUT_ERROR};
+    }
+    return std::unexpected{ReplicationError::GENERIC_EROR};
   }
 
   // NOLINTNEXTLINE
-  return replica_state_.WithLock([this, response = *maybe_response, durability_commit_timestamp](auto &state) mutable {
+  return replica_state_.WithLock([this, response = *maybe_response, durability_commit_timestamp](
+                                     auto &state) mutable -> std::expected<void, ReplicationError> {
     // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
     // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
     // MAYBE_BEHIND state if we missed next txn.
     if (state != ReplicaState::REPLICATING) {
-      return false;
+      return std::unexpected{ReplicationError::GENERIC_EROR};
     }
 
     if (!response.success) {
       state = ReplicaState::MAYBE_BEHIND;
-      return false;
+      return std::unexpected{ReplicationError::GENERIC_EROR};
     }
 
     auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
@@ -521,13 +526,14 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
     atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 
     state = ReplicaState::READY;
-    return true;
+    return {};
   });
 }
 
-bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
+auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
                                                               std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp) const {
+                                                              uint64_t durability_commit_timestamp) const
+    -> std::expected<void, ReplicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -549,7 +555,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   });
 
   if (!continue_finalize) {
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_EROR};
   }
 
   if (!replica_stream || replica_stream->IsDefunct()) {
@@ -558,13 +564,13 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return false;
+    return std::unexpected{ReplicationError::GENERIC_EROR};
   }
 
   auto task = [this,
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
-               durability_commit_timestamp]() mutable -> bool {
+               durability_commit_timestamp]() mutable -> std::expected<void, ReplicationError> {
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
 
     auto const maybe_response = replica_stream_obj->Finalize();
@@ -574,48 +580,51 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
         state = ReplicaState::MAYBE_BEHIND;
       });
       LogRpcFailure();
-      return false;
+      if (maybe_response.error() == utils::RpcError::TIMEOUT_ERROR) {
+        return std::unexpected{ReplicationError::TIMEOUT_ERROR};
+      }
+      return std::unexpected{ReplicationError::GENERIC_EROR};
     }
     // NOLINTNEXTLINE
-    return replica_state_.WithLock(
-        [this, response = *maybe_response, &replica_stream_obj, durability_commit_timestamp](auto &state) mutable {
-          replica_stream_obj.reset();
+    return replica_state_.WithLock([this, response = *maybe_response, &replica_stream_obj, durability_commit_timestamp](
+                                       auto &state) mutable -> std::expected<void, ReplicationError> {
+      replica_stream_obj.reset();
 
-          // It doesn't matter whether we started a new txn or not, we can increment here the number of known
-          // committed txns for replica
-          if (response.success) {
-            auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-              return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
-            };
-            atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-          }
+      // It doesn't matter whether we started a new txn or not, we can increment here the number of known
+      // committed txns for replica
+      if (response.success) {
+        auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+          return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
+        };
+        atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+      }
 
-          // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
-          // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-          // MAYBE_BEHIND state if we missed next txn.
-          if (state != ReplicaState::REPLICATING) {
-            return false;
-          }
+      // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
+      // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+      // MAYBE_BEHIND state if we missed next txn.
+      if (state != ReplicaState::REPLICATING) {
+        return std::unexpected{ReplicationError::GENERIC_EROR};
+      }
 
-          if (!response.success) {
-            state = ReplicaState::MAYBE_BEHIND;
-            return false;
-          }
+      if (!response.success) {
+        state = ReplicaState::MAYBE_BEHIND;
+        return std::unexpected{ReplicationError::GENERIC_EROR};
+      }
 
-          auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-            return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-          };
-          atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+      auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+        return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+      };
+      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 
-          state = ReplicaState::READY;
-          return true;
-        });
+      state = ReplicaState::READY;
+      return {};
+    });
   };
 
   if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
     // When in ASYNC mode, we ignore the return value from task() and always return true
     client_.thread_pool_.AddTask(std::move(task));
-    return true;
+    return {};
   }
 
   // If we are in SYNC mode, we return the result of task().
