@@ -89,7 +89,9 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
     case query::AuthQuery::FineGrainedPrivilege::READ:
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
-      return auth::FineGrainedPermission::UPDATE;
+      // UPDATE is a grammar shorthand for SET_LABEL | REMOVE_LABEL | SET_PROPERTY
+      return auth::FineGrainedPermission::SET_LABEL | auth::FineGrainedPermission::REMOVE_LABEL |
+             auth::FineGrainedPermission::SET_PROPERTY;
     case query::AuthQuery::FineGrainedPrivilege::SET_LABEL:
       return auth::FineGrainedPermission::SET_LABEL;
     case query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL:
