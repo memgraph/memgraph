@@ -1396,6 +1396,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   // Estimates whether STShortestPath (pairwise bidirectional BFS) is beneficial
   // compared to SingleSourceShortestPath.
+  // TODO: Add point index support, currently point index doesn't allow for exact cardinality estimation, only the whole
+  // index count.
   bool ShouldUseSTShortestPath(double source_cnt, double target_cnt, EdgeAtom::Direction direction) {
     if (source_cnt == 0 || target_cnt == 0) return false;
 
