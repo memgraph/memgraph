@@ -1702,14 +1702,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             filtered_property_ids;  // Used to check if all indices uses the same filter
         metadata.all_property_filters_same =
             true;  // Used to check if all indices uses the same filter -> if yes we can remove the filter
-        bool has_label_index = false;
-        bool has_label_property_index = false;
         for (const auto &index : best_group.indices) {
           if (std::holds_alternative<LabelIx>(index)) {
-            // For label-only indices, only set all_property_filters_same = false when mixed with
-            // LabelPropertyIndex (we'd need to keep the filter for rows from the label-only branch).
-            // When we have only LabelIx, the Union of ScanAllByLabel fully replaces the OR label check.
-            has_label_index = true;
+            metadata.all_property_filters_same = false;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
             auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
             if (prev) {
@@ -1724,7 +1719,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
           } else {
             auto &label_property_index = std::get<LabelPropertyIndex>(index);
-            has_label_property_index = true;
             metadata.labels_to_erase.push_back(label_property_index.label);
             if (filtered_property_ids && *filtered_property_ids != label_property_index.properties) {
               metadata.all_property_filters_same = false;
@@ -1761,9 +1755,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               prev = std::move(label_property_index_scan);
             }
           }
-        }
-        if (has_label_index && has_label_property_index) {
-          metadata.all_property_filters_same = false;
         }
         metadata.is_or_label_filter = true;
         return ScanByIndexResult{std::move(prev), std::move(metadata)};
