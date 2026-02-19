@@ -214,47 +214,55 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   };
 
   // Handle global grants
-  auto const global_permission = permissions.GetGlobalPermission();
-  if (global_permission) {
-    auto const level =
-        global_permission.value() == 0 ? memgraph::auth::PermissionLevel::DENY : memgraph::auth::PermissionLevel::GRANT;
-    add_permission(fmt::format("ALL {}S", permission_type), global_permission.value(), level, true);
+  auto const global_grants = permissions.GetGlobalGrants();
+  if (global_grants) {
+    add_permission(
+        fmt::format("ALL {}S", permission_type), global_grants.value(), memgraph::auth::PermissionLevel::GRANT, true);
   }
 
-  for (const auto &rule : permissions.GetPermissions()) {
-    std::string entity_name;
+  // Handle global denies
+  auto const global_denies = permissions.GetGlobalDenies();
+  if (global_denies) {
+    add_permission(
+        fmt::format("ALL {}S", permission_type), global_denies.value(), memgraph::auth::PermissionLevel::DENY, true);
+  }
+
+  auto build_entity_name = [&](const memgraph::auth::FineGrainedAccessRule &rule) {
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
-      entity_name = fmt::format("ALL {}S", permission_type);
-    } else {
-      // Sorting the labels and edge-types lexicographically just makes it
-      // easier in tests to check for exact text. This beats having to deal with
-      // the n! permutations that a rule description on n labels may take due to
-      // them being stored in an unordered_container.
-      std::vector<std::string> sorted_symbols = rule.symbols | ranges::to_vector;
-      ranges::sort(sorted_symbols);
-
-      auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
-      entity_name = entity_type;
-
-      bool first = true;
-      for (const auto &symbol : sorted_symbols) {
-        if (!first) {
-          entity_name += ",";
-        }
-        entity_name += fmt::format(" :{}", symbol);
-        first = false;
-      }
-
-      if (permission_type == "LABEL") {
-        auto const *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
-        entity_name += fmt::format(" MATCHING {}", matching_str);
-      }
+      return fmt::format("ALL {}S", permission_type);
     }
 
-    auto const level = (rule.permissions == memgraph::auth::FineGrainedPermission::NOTHING)
-                           ? memgraph::auth::PermissionLevel::DENY
-                           : memgraph::auth::PermissionLevel::GRANT;
-    add_permission(entity_name, static_cast<uint64_t>(rule.permissions), level, false);
+    std::vector<std::string> sorted_symbols = rule.symbols | ranges::to_vector;
+    ranges::sort(sorted_symbols);
+
+    auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
+    std::string entity_name = entity_type;
+
+    bool first = true;
+    for (const auto &symbol : sorted_symbols) {
+      if (!first) {
+        entity_name += ",";
+      }
+      entity_name += fmt::format(" :{}", symbol);
+      first = false;
+    }
+
+    if (permission_type == "LABEL") {
+      auto const *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+      entity_name += fmt::format(" MATCHING {}", matching_str);
+    }
+    return entity_name;
+  };
+
+  for (const auto &rule : permissions.GetRules()) {
+    auto entity_name = build_entity_name(rule);
+
+    if (rule.grants != memgraph::auth::FineGrainedPermission::NOTHING) {
+      add_permission(entity_name, static_cast<uint64_t>(rule.grants), memgraph::auth::PermissionLevel::GRANT, false);
+    }
+    if (rule.denies != memgraph::auth::FineGrainedPermission::NOTHING) {
+      add_permission(entity_name, static_cast<uint64_t>(rule.denies), memgraph::auth::PermissionLevel::DENY, false);
+    }
   }
 
   return fine_grained_permissions;

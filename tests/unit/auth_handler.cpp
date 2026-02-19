@@ -374,7 +374,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
   label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::CREATE);
   label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::READ);
-  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::UPDATE);
+  label_permission.Grant({label_repr},
+                         memgraph::auth::FineGrainedPermission::SET_LABEL |
+                             memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+                             memgraph::auth::FineGrainedPermission::SET_PROPERTY);
   label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
@@ -434,7 +437,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLabelThenAllAreDisplayed) {
   auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
   label_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  label_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::UPDATE);
+  label_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::SET_LABEL |
+                               memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+                               memgraph::auth::FineGrainedPermission::SET_PROPERTY);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{label_permission},
@@ -523,7 +528,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeTypeThenAllAreDisplayed) {
   auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
   edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::READ);
-  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::UPDATE);
+  edge_permission.Grant({edge_type_repr},
+                        memgraph::auth::FineGrainedPermission::SET_LABEL |
+                            memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+                            memgraph::auth::FineGrainedPermission::SET_PROPERTY);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -611,7 +619,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEdgeTypeThenAllAreDisplayed) {
   auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
   edge_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-  edge_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::UPDATE);
+  edge_permission.GrantGlobal(memgraph::auth::FineGrainedPermission::SET_LABEL |
+                              memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+                              memgraph::auth::FineGrainedPermission::SET_PROPERTY);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -1644,8 +1654,10 @@ TEST_F(AuthQueryHandlerFixture,
   role.fine_grained_access_handler().label_permissions().Grant({"Person"}, memgraph::auth::kAllPermissions);
   role.fine_grained_access_handler().label_permissions().Grant({"Company"},
                                                                memgraph::auth::FineGrainedPermission::READ);
-  role.fine_grained_access_handler().edge_type_permissions().Grant({"WORKS_FOR"},
-                                                                   memgraph::auth::FineGrainedPermission::UPDATE);
+  role.fine_grained_access_handler().edge_type_permissions().Grant(
+      {"WORKS_FOR"},
+      memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+          memgraph::auth::FineGrainedPermission::SET_PROPERTY);
 
   auth.value()->SaveRole(role);
 

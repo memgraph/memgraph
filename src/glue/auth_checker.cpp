@@ -283,9 +283,11 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
     return true;
   }
   auto const &permissions = GetCachedLabelPermissions();
-  auto const &global_permission = permissions.GetGlobalPermission();
-  return global_permission.has_value() && static_cast<memgraph::auth::FineGrainedPermission>(
-                                              global_permission.value()) == memgraph::auth::kAllPermissions;
+  auto const &global_grants = permissions.GetGlobalGrants();
+  auto const &global_denies = permissions.GetGlobalDenies();
+  return global_grants.has_value() &&
+         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) == memgraph::auth::kAllPermissions &&
+         !global_denies.has_value();
 }
 
 bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
@@ -293,10 +295,12 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
     return true;
   }
   auto const &permissions = GetCachedEdgePermissions();
-  auto const &global_permission = permissions.GetGlobalPermission();
-  return global_permission.has_value() && static_cast<memgraph::auth::FineGrainedPermission>(
-                                              global_permission.value()) == memgraph::auth::kAllPermissions;
-};
+  auto const &global_grants = permissions.GetGlobalGrants();
+  auto const &global_denies = permissions.GetGlobalDenies();
+  return global_grants.has_value() &&
+         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) == memgraph::auth::kAllPermissions &&
+         !global_denies.has_value();
+}
 
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
 
