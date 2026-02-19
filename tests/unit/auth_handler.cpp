@@ -681,7 +681,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermission) {
   auto label_permission = memgraph::auth::FineGrainedAccessPermissions();
   label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::READ);
-  label_permission.Grant({label_repr}, memgraph::auth::FineGrainedPermission::NOTHING);
+  label_permission.Deny({label_repr}, memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{label_permission},
@@ -711,7 +711,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPermission) {
   auto edge_permission = memgraph::auth::FineGrainedAccessPermissions();
   edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::READ);
-  edge_permission.Grant({edge_type_repr}, memgraph::auth::FineGrainedPermission::NOTHING);
+  edge_permission.Deny({edge_type_repr}, memgraph::auth::kAllPermissions);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
