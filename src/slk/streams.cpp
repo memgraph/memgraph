@@ -125,8 +125,9 @@ Reader::Reader(const uint8_t *data, size_t const size, size_t const have) : data
 
 void Reader::Load(uint8_t *data, uint64_t size) {
   size_t offset = 0;
-  while (size > 0) {
+  while (size > 0 && !error_) {
     GetSegment();
+    if (error_) return;
     size_t to_read = size;
     to_read = std::min(to_read, have_);
     memcpy(data + offset, data_ + pos_, to_read);
@@ -139,12 +140,18 @@ void Reader::Load(uint8_t *data, uint64_t size) {
 
 size_t Reader::GetPos() const { return pos_; }
 
-void Reader::Finalize() { GetSegment(true); }
+void Reader::Finalize() {
+  if (error_) return;
+  GetSegment(true);
+}
 
 void Reader::GetSegment(bool should_be_final) {
+  if (error_) return;
+
   if (have_ != 0) {
     if (should_be_final) {
-      throw SlkReaderLeftoverDataException("There is still leftover data in the SLK stream!");
+      // Leftover data is benign
+      spdlog::warn("There is still leftover data in the SLK stream.");
     }
     return;
   }
@@ -152,7 +159,9 @@ void Reader::GetSegment(bool should_be_final) {
   // Load new segment.
   SegmentSize len = 0;
   if (pos_ + sizeof(SegmentSize) > size_) {
-    throw SlkReaderException("Size data missing in SLK stream!");
+    spdlog::error("Size data missing in SLK stream!");
+    error_ = utils::RpcError::GENERIC_RPC_ERROR;
+    return;
   }
   memcpy(&len, data_ + pos_, sizeof(SegmentSize));
 
@@ -163,11 +172,13 @@ void Reader::GetSegment(bool should_be_final) {
       pos_ += sizeof(SegmentSize);
       return;
     }
-    throw SlkReaderException("Read kFileSegmentMask but the segment should not be final");
+    spdlog::error("Read kFileSegmentMask but the segment should not be final");
+    error_ = utils::RpcError::GENERIC_RPC_ERROR;
+    return;
   }
 
   if (should_be_final && len != 0) {
-    throw SlkReaderException(
+    spdlog::error(
         "Got a non-empty SLK segment when expecting the final segment! Have_: {}, Pos: {}, Size_: {}. Should be final: "
         "{}, Len: {}",
         have_,
@@ -175,10 +186,14 @@ void Reader::GetSegment(bool should_be_final) {
         size_,
         should_be_final,
         len);
+    error_ = utils::RpcError::GENERIC_RPC_ERROR;
+    return;
   }
 
   if (!should_be_final && len == 0) {
-    throw SlkReaderException("Got an empty SLK segment when expecting a non-empty segment!");
+    spdlog::error("Got an empty SLK segment when expecting a non-empty segment!");
+    error_ = utils::RpcError::GENERIC_RPC_ERROR;
+    return;
   }
 
   // The position is incremented after the checks above so that the new
@@ -186,8 +201,9 @@ void Reader::GetSegment(bool should_be_final) {
   pos_ += sizeof(SegmentSize);
 
   if (pos_ + len > size_) {
-    throw SlkReaderException(
-        "There isn't enough data in the SLK stream! Pos_ {}, len: {}, size_: {}", pos_, len, size_);
+    spdlog::error("There isn't enough data in the SLK stream! Pos_ {}, len: {}, size_: {}", pos_, len, size_);
+    error_ = utils::RpcError::GENERIC_RPC_ERROR;
+    return;
   }
   have_ = len;
 }
