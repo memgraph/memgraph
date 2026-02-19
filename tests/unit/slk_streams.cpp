@@ -182,12 +182,9 @@ TEST(Reader, SingleSegment) {
   for (size_t i = 0; i < buffer.size(); ++i) {
     memgraph::slk::Reader reader(buffer.data(), i);
     uint8_t block[memgraph::slk::kSegmentMaxDataSize];
-    ASSERT_THROW(
-        {
-          reader.Load(block, input.size());
-          reader.Finalize();
-        },
-        memgraph::slk::SlkReaderException);
+    reader.Load(block, input.size());
+    reader.Finalize();
+    ASSERT_TRUE(reader.GetError().has_value());
   }
 
   // test with complete data
@@ -196,17 +193,19 @@ TEST(Reader, SingleSegment) {
     uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size());
     reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
     auto output = BinaryData(block, input.size());
     ASSERT_EQ(output, input);
   }
 
-  // test with leftover data
+  // test with leftover data (benign, no error)
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
     memgraph::slk::Reader reader(extended_buffer.data(), extended_buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size());
     reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
     auto output = BinaryData(block, input.size());
     ASSERT_EQ(output, input);
   }
@@ -215,15 +214,17 @@ TEST(Reader, SingleSegment) {
   {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize];
-    ASSERT_THROW(reader.Load(block, memgraph::slk::kSegmentMaxDataSize), memgraph::slk::SlkReaderException);
+    reader.Load(block, memgraph::slk::kSegmentMaxDataSize);
+    ASSERT_TRUE(reader.GetError().has_value());
   }
 
-  // don't consume all data from the stream
+  // don't consume all data from the stream (leftover data is benign, no error)
   {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size() / 2);
-    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderLeftoverDataException);
+    reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
   }
 
   // read data with several loads
@@ -234,6 +235,7 @@ TEST(Reader, SingleSegment) {
       reader.Load(block + i, 1);
     }
     reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
     auto output = BinaryData(block, input.size());
     ASSERT_EQ(output, input);
   }
@@ -244,7 +246,8 @@ TEST(Reader, SingleSegment) {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size());
-    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
+    reader.Finalize();
+    ASSERT_TRUE(reader.GetError().has_value());
   }
 }
 
@@ -266,12 +269,9 @@ TEST(Reader, MultipleSegments) {
   for (size_t i = 0; i < buffer.size(); ++i) {
     memgraph::slk::Reader reader(buffer.data(), i);
     uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
-    ASSERT_THROW(
-        {
-          reader.Load(block, input.size());
-          reader.Finalize();
-        },
-        memgraph::slk::SlkReaderException);
+    reader.Load(block, input.size());
+    reader.Finalize();
+    ASSERT_TRUE(reader.GetError().has_value());
   }
 
   // test with complete data
@@ -280,17 +280,19 @@ TEST(Reader, MultipleSegments) {
     uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size());
     reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
     auto output = BinaryData(block, input.size());
     ASSERT_EQ(output, input);
   }
 
-  // test with leftover data
+  // test with leftover data (benign, no error)
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
     memgraph::slk::Reader reader(extended_buffer.data(), extended_buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size());
     reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
     auto output = BinaryData(block, input.size());
     ASSERT_EQ(output, input);
   }
@@ -299,15 +301,17 @@ TEST(Reader, MultipleSegments) {
   {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
-    ASSERT_THROW(reader.Load(block, memgraph::slk::kSegmentMaxDataSize * 2), memgraph::slk::SlkReaderException);
+    reader.Load(block, memgraph::slk::kSegmentMaxDataSize * 2);
+    ASSERT_TRUE(reader.GetError().has_value());
   }
 
-  // don't consume all data from the stream
+  // don't consume all data from the stream (leftover data is benign, no error)
   {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size() / 2);
-    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderLeftoverDataException);
+    reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
   }
 
   // read data with several loads
@@ -318,6 +322,7 @@ TEST(Reader, MultipleSegments) {
       reader.Load(block + i, 1);
     }
     reader.Finalize();
+    ASSERT_FALSE(reader.GetError().has_value());
     auto output = BinaryData(block, input.size());
     ASSERT_EQ(output, input);
   }
@@ -328,7 +333,8 @@ TEST(Reader, MultipleSegments) {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size());
-    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
+    reader.Finalize();
+    ASSERT_TRUE(reader.GetError().has_value());
   }
 }
 

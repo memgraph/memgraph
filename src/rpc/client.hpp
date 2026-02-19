@@ -197,7 +197,11 @@ class Client {
                       self_->endpoint_.GetAddress(),
                       self_->endpoint_.GetPort());
         self_->client_->ShiftData(response_data_size);
-        return res_load_(&res_reader);
+        auto response = res_load_(&res_reader);
+        if (auto err = res_reader.GetError()) {
+          return std::unexpected{*err};
+        }
+        return response;
       }
     }
 
@@ -273,7 +277,11 @@ class Client {
                     self_->endpoint_.GetAddress(),
                     self_->endpoint_.GetPort());
 
-      return res_load_(&res_reader);
+      auto response = res_load_(&res_reader);
+      if (auto err = res_reader.GetError()) {
+        return std::unexpected{*err};
+      }
+      return response;
     }
 
     bool IsDefunct() const { return defunct_; }

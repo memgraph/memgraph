@@ -168,12 +168,13 @@ void RpcMessageDeliverer::Execute() {
     it->second.callback(file_replication_handler_, maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
     req_reader.Finalize();
-  }
-  // NOLINTNEXTLINE
-  catch (const slk::SlkReaderLeftoverDataException &) {
-    // Skip, it may fail because not all data has been read, that's fine.
   } catch (const std::exception &e) {
     spdlog::error("Error occurred in the callback: {}", e.what());
+    throw SlkRpcFailedException();
+  }
+
+  if (req_reader.GetError()) {
+    spdlog::error("Error occurred while reading the RPC request stream");
     throw SlkRpcFailedException();
   }
 }

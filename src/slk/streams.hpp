@@ -122,13 +122,10 @@ class SlkReaderException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderException)
 };
 
-class SlkReaderLeftoverDataException : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-  SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderLeftoverDataException)
-};
-
 /// Reader used to read data from a SLK segment stream.
+/// When the reader encounters malformed data, it enters an error state.
+/// Subsequent Load() calls are no-ops. The error surfaces via GetError()
+/// at the caller's boundary.
 class Reader {
  public:
   Reader(const uint8_t *data, size_t size);
@@ -145,6 +142,8 @@ class Reader {
 
   const uint8_t *GetData() const { return data_; }
 
+  auto GetError() const -> std::optional<utils::RpcError> { return error_; }
+
  private:
   void GetSegment(bool should_be_final = false);
 
@@ -153,6 +152,7 @@ class Reader {
 
   size_t pos_{0};
   size_t have_{0};
+  std::optional<utils::RpcError> error_;
 };
 
 /// Stream status that is returned by the `CheckStreamComplete` function.
