@@ -32,6 +32,18 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+namespace {
+void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, Edge *edge, Vertex *from_vertex, Vertex *to_vertex,
+                                          EdgeTypeId edge_type_id, PropertyId property,
+                                          const PropertyValue &old_value) {
+  CreateAndLinkDelta(transaction, edge, Delta::SetPropertyTag(), from_vertex, property, old_value);
+  // Always record in-vertex and edge type so replication delta includes to_gid and edge_type.
+  transaction->RecordEdgeSetPropertyInVertex(edge->gid, to_vertex->gid);
+  transaction->RecordEdgeSetPropertyEdgeType(edge->gid, edge_type_id);
+}
+}  // namespace
+
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
                                                  View view, bool for_deleted) {
@@ -179,7 +191,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
+    CreateAndLinkDeltaForEdgeSetProperty(
+        transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
     edge_.ptr->properties.SetProperty(property, value);
     storage_->indices_.UpdateOnSetProperty(
         edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
@@ -222,7 +235,8 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
   utils::AtomicMemoryBlock([this, &properties, &schema_acc]() {
     for (const auto &[property, value] : properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
+      CreateAndLinkDeltaForEdgeSetProperty(
+          transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -267,7 +281,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
+      CreateAndLinkDeltaForEdgeSetProperty(
+          transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -309,8 +324,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(
-          transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first, property.second);
+      CreateAndLinkDeltaForEdgeSetProperty(
+          transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property.first, property.second);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {

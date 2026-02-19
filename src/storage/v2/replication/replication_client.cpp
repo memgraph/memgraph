@@ -894,15 +894,18 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replic
 }
 
 void ReplicaStream::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t const final_commit_timestamp,
-                                Storage *storage) {
+                                Storage *storage, std::optional<Gid> in_vertex_gid,
+                                std::optional<EdgeTypeId> edge_type_id) {
+  (void)in_vertex_gid;
+  (void)edge_type_id;
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, storage, storage_->config_.salient.items, delta, vertex, final_commit_timestamp);
 }
 
-auto ReplicaStream::AppendDelta(const Delta &delta, Edge *edge, uint64_t const final_commit_timestamp, Storage *storage)
-    -> void {
+auto ReplicaStream::AppendDelta(const Delta &delta, Edge *edge, uint64_t const final_commit_timestamp, Storage *storage,
+                                std::optional<Gid> in_vertex_gid, std::optional<EdgeTypeId> edge_type_id) -> void {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, storage, delta, edge, final_commit_timestamp);
+  EncodeDelta(&encoder, storage, delta, edge, final_commit_timestamp, in_vertex_gid, edge_type_id);
 }
 
 void ReplicaStream::AppendTransactionStart(uint64_t const final_commit_timestamp, bool const commit,
