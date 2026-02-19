@@ -1150,7 +1150,7 @@ TEST(AuthModule, RoleSerialization) {
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"ABC"})}, {kGranted, 1}, {kMatching, "ANY"}})});
   json[kFineGrainedPermissions][kEdgeTypePermissions][kGlobalPermission] = -1;
   ASSERT_EQ(json, role.Serialize());
-  role.fine_grained_access_handler().label_permissions().Grant({"CBA"}, memgraph::auth::FineGrainedPermission::NOTHING);
+  role.fine_grained_access_handler().label_permissions().Deny({"CBA"}, memgraph::auth::kAllPermissions);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"CBA"})}, {kGranted, 0}, {kMatching, "ANY"}})});
   json[kFineGrainedPermissions][kLabelPermissions][kGlobalPermission] = -1;
