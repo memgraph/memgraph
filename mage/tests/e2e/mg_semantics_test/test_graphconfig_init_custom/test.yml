@@ -1,0 +1,8 @@
+query: >
+  CALL mg_semantics.graphconfig_init({handleVocabUris: "IGNORE", keepLangTag: true}) YIELD param, value
+  WHERE param IN ["handleVocabUris", "keepLangTag"]
+  WITH param, value ORDER BY param
+  RETURN collect([param, value]) AS config;
+
+output:
+  - config: [["handleVocabUris", "IGNORE"], ["keepLangTag", true]]

@@ -1,0 +1,5 @@
+query: >
+  RETURN mg_semantics.rdf_get_value("42^^xsd__integer") AS value;
+
+output:
+  - value: "42"
