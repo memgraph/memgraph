@@ -57,70 +57,18 @@ std::optional<PropertyValue> TryConvertToVectorIndexProperty(Storage *storage, V
       PropertyValue::VectorIndexIdData{.ids = std::move(vector_index_ids), .vector = ListToVector(value)});
 }
 
-// Manages lock lifetime based on whether vertex currently has uncommitted
-// non-sequential deltas. Any transaction that has created non-sequential deltas may
-// abort and have to remove deltas from the middle of the delta chain. When a
-// vertex has these uncommitted non-sequential deltas in its chain, this read lock
-// must be held both when we read the `vertex.delta` AND continue to be held
-// whilst we walk the delta chain. For vertices with no uncommitted non-sequential
-// deltas, this uses the shorter lock duration of just reading `vertex.delta`
-// under lock.
-class VertexReadLock {
- public:
-  explicit VertexReadLock(memgraph::storage::Vertex const *vertex)
-      : vertex_{vertex}, lock_{vertex->lock, std::defer_lock} {}
-
-  class SnapshotGuard {
-   public:
-    explicit SnapshotGuard(VertexReadLock *manager, bool has_uncommitted_non_sequential_deltas)
-        : manager_{manager}, has_uncommitted_non_sequential_deltas_{has_uncommitted_non_sequential_deltas} {}
-
-    ~SnapshotGuard() {
-      if (!has_uncommitted_non_sequential_deltas_) {
-        manager_->lock_.unlock();
-      }
-    }
-
-    SnapshotGuard(SnapshotGuard const &) = delete;
-    SnapshotGuard(SnapshotGuard &&) = delete;
-    SnapshotGuard &operator=(SnapshotGuard const &) = delete;
-    SnapshotGuard &operator=(SnapshotGuard &&) = delete;
-
-   private:
-    VertexReadLock *manager_;
-    bool has_uncommitted_non_sequential_deltas_;
-  };
-
-  // `AcquireLock` can be called at most once per `VertexReadLock` instance.
-  // Calling it again on a `VertexReadLock` for which you've already acquired
-  // the lock could result in deadlock.
-  SnapshotGuard AcquireLock() {
-    lock_.lock();
-    return SnapshotGuard{this, vertex_->has_uncommitted_non_sequential_deltas};
-  }
-
- private:
-  memgraph::storage::Vertex const *vertex_;
-  std::shared_lock<memgraph::utils::RWSpinLock> lock_;
-};
-
 }  // namespace
 
 namespace detail {
 std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view) {
   bool exists = true;
   bool deleted = false;
-  Delta *delta = nullptr;
-  VertexReadLock read_lock(vertex);
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex->deleted;
-    delta = vertex->delta;
-  }
+
+  MvccRead reader{vertex, transaction, view, [&](Vertex const &v) { deleted = v.deleted; }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction->UseCache();
@@ -132,7 +80,7 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
       if (existsRes && deletedRes) return {*existsRes, *deletedRes};
     }
 
-    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
+    auto const n_processed = reader.ApplyDeltasForRead([&](Delta const &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
           Deleted_ActionMethod(deleted),
@@ -311,18 +259,15 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    has_label = std::ranges::contains(vertex_->labels, label);
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    has_label = std::ranges::contains(v.labels, label);
+                  }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -332,7 +277,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
       if (auto resLabel = cache.GetHasLabel(view, vertex_, label); resLabel) return {resLabel.value()};
     }
 
-    auto const n_processed = ApplyDeltasForRead(transaction_, delta, view, [&, label](const Delta &delta) {
+    auto const n_processed = reader.ApplyDeltasForRead([&, label](Delta const &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
@@ -359,18 +304,15 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;
   utils::small_vector<LabelId> labels;
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    labels = vertex_->labels;
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    labels = v.labels;
+                  }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -380,7 +322,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
       if (auto resLabels = cache.GetLabels(view, vertex_); resLabels) return {*resLabels};
     }
 
-    auto const n_processed = ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+    auto const n_processed = reader.ApplyDeltasForRead([&](Delta const &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
@@ -673,22 +615,20 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  auto value = std::invoke([&]() -> PropertyValue {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    delta = vertex_->delta;
-    auto prop_value = vertex_->properties.GetProperty(
-        property,
-        IndexedPropertyDecoder<Vertex>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
-    return prop_value;
-  });
+  PropertyValue value;
+
+  MvccRead reader{
+      vertex_, transaction_, view, [&](Vertex const &v) {
+        deleted = v.deleted;
+        value = v.properties.GetProperty(
+            property,
+            IndexedPropertyDecoder<Vertex>{
+                .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+      }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) [[unlikely]] {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) [[unlikely]] {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -698,16 +638,15 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
       if (auto resProperty = cache.GetProperty(view, vertex_, property); resProperty) return {*resProperty};
     }
 
-    auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
-          // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            PropertyValue_ActionMethod(value, property)
-          });
-          // clang-format on
-        });
+    auto const n_processed = reader.ApplyDeltasForRead([&exists, &deleted, &value, property](Delta const &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        PropertyValue_ActionMethod(value, property)
+      });
+      // clang-format on
+    });
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
@@ -746,19 +685,17 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    properties = vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{
+      vertex_, transaction_, view, [&](Vertex const &v) {
+        deleted = v.deleted;
+        properties = v.properties.Properties(IndexedPropertyDecoder<Vertex>{
+            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_});
+      }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -768,16 +705,15 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
       if (auto resProperties = cache.GetProperties(view, vertex_); resProperties) return {*resProperties};
     }
 
-    auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
-          // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            Properties_ActionMethod(properties)
-          });
-          // clang-format on
-        });
+    auto const n_processed = reader.ApplyDeltasForRead([&exists, &deleted, &properties](Delta const &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        Properties_ActionMethod(properties)
+      });
+      // clang-format on
+    });
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
@@ -798,17 +734,16 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
   bool deleted = false;
   std::vector<PropertyValue> property_values;
   property_values.reserve(properties.size());
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    auto property_paths = properties |
-                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                          r::to<std::vector<storage::PropertyPath>>();
-    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(property_paths);
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    auto property_paths =
+                        properties |
+                        rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
+                        r::to<std::vector<storage::PropertyPath>>();
+                    property_values = v.properties.ExtractPropertyValuesMissingAsNull(property_paths);
+                  }};
+
   auto properties_map =
       rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
         return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
@@ -817,7 +752,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -827,16 +762,15 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
       // Note: We don't have specific cache for properties by IDs, so we skip caching for now
     }
 
-    auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
-          // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            Properties_ActionMethod(properties_map)
-          });
-          // clang-format on
-        });
+    auto const n_processed = reader.ApplyDeltasForRead([&exists, &deleted, &properties_map](Delta const &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        Properties_ActionMethod(properties_map)
+      });
+      // clang-format on
+    });
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
@@ -927,23 +861,21 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   bool exists = true;
   bool deleted = false;
   auto in_edges = edge_store{};
-  Delta *delta = nullptr;
   int64_t expanded_count = 0;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    if (edge_types.empty() && !destination) {
-      expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, hops_limit, EdgeDirection::IN);
-    } else {
-      expanded_count = HandleExpansionsWithEdgeTypes(in_edges, edge_types, destination, hops_limit, EdgeDirection::IN);
-    }
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    if (edge_types.empty() && !destination) {
+                      expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, hops_limit, EdgeDirection::IN);
+                    } else {
+                      expanded_count = HandleExpansionsWithEdgeTypes(
+                          in_edges, edge_types, destination, hops_limit, EdgeDirection::IN);
+                    }
+                  }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -954,11 +886,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
         return EdgesVertexAccessorResult{.edges = BuildResultInEdges(*resInEdges), .expanded_count = expanded_count};
     }
 
-    auto const n_processed = ApplyDeltasForRead(
-        transaction_,
-        delta,
-        view,
-        [&exists, &deleted, &in_edges, &edge_types, &destination_vertex](const Delta &delta) {
+    auto const n_processed =
+        reader.ApplyDeltasForRead([&exists, &deleted, &in_edges, &edge_types, &destination_vertex](Delta const &delta) {
           // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
             Deleted_ActionMethod(deleted),
@@ -1016,24 +945,21 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   bool exists = true;
   bool deleted = false;
   auto out_edges = edge_store{};
-  Delta *delta = nullptr;
   int64_t expanded_count = 0;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    if (edge_types.empty() && !destination) {
-      expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, hops_limit, EdgeDirection::OUT);
-    } else {
-      expanded_count =
-          HandleExpansionsWithEdgeTypes(out_edges, edge_types, destination, hops_limit, EdgeDirection::OUT);
-    }
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    if (edge_types.empty() && !destination) {
+                      expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, hops_limit, EdgeDirection::OUT);
+                    } else {
+                      expanded_count = HandleExpansionsWithEdgeTypes(
+                          out_edges, edge_types, destination, hops_limit, EdgeDirection::OUT);
+                    }
+                  }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -1044,8 +970,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
         return EdgesVertexAccessorResult{.edges = BuildResultOutEdges(*resOutEdges), .expanded_count = expanded_count};
     }
 
-    auto const n_processed = ApplyDeltasForRead(
-        transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, &dst_vertex](const Delta &delta) {
+    auto const n_processed =
+        reader.ApplyDeltasForRead([&exists, &deleted, &out_edges, &edge_types, &dst_vertex](Delta const &delta) {
           // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
             Deleted_ActionMethod(deleted),
@@ -1089,18 +1015,15 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   bool exists = true;
   bool deleted = false;
   size_t degree = 0;
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    degree = vertex_->in_edges.size();
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    degree = v.in_edges.size();
+                  }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -1110,16 +1033,15 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
       if (auto resInDegree = cache.GetInDegree(view, vertex_); resInDegree) return {*resInDegree};
     }
 
-    auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &degree](const Delta &delta) {
-          // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            Degree_ActionMethod<EdgeDirection::IN>(degree)
-          });
-          // clang-format on
-        });
+    auto const n_processed = reader.ApplyDeltasForRead([&exists, &deleted, &degree](Delta const &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        Degree_ActionMethod<EdgeDirection::IN>(degree)
+      });
+      // clang-format on
+    });
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;
@@ -1146,18 +1068,15 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   bool exists = true;
   bool deleted = false;
   size_t degree = 0;
-  Delta *delta = nullptr;
-  VertexReadLock read_lock{vertex_};
-  {
-    auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted;
-    degree = vertex_->out_edges.size();
-    delta = vertex_->delta;
-  }
+
+  MvccRead reader{vertex_, transaction_, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    degree = v.out_edges.size();
+                  }};
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->UseCache();
@@ -1167,16 +1086,15 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
       if (auto resOutDegree = cache.GetOutDegree(view, vertex_); resOutDegree) return {*resOutDegree};
     }
 
-    auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &degree](const Delta &delta) {
-          // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            Degree_ActionMethod<EdgeDirection::OUT>(degree)
-          });
-          // clang-format on
-        });
+    auto const n_processed = reader.ApplyDeltasForRead([&exists, &deleted, &degree](Delta const &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        Degree_ActionMethod<EdgeDirection::OUT>(degree)
+      });
+      // clang-format on
+    });
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction_->manyDeltasCache;

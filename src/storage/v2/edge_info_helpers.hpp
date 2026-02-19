@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,13 +22,10 @@ namespace memgraph::storage {
 inline bool IsEdgeVisible(Edge *edge, const Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = true;
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge->lock};
-    deleted = edge->deleted;
-    delta = edge->delta;
-  }
-  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
+
+  MvccRead reader{edge, transaction, view, [&](Edge const &e) { deleted = e.deleted; }};
+
+  reader.ApplyDeltasForRead([&](Delta const &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:

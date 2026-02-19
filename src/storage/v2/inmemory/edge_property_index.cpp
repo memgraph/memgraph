@@ -65,59 +65,48 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
                                        Transaction const &tx) {
   bool exists = true;
   bool deleted = false;
-  Delta *delta = nullptr;
   utils::small_vector<Vertex::EdgeTriple> edges;
 
-  {
-    auto guard = std::shared_lock{from_vertex.lock};
-    deleted = from_vertex.deleted;
-    delta = from_vertex.delta;
-    edges = from_vertex.out_edges;
+  MvccRead vertex_reader{&from_vertex, &tx, View::OLD, [&](Vertex const &v) {
+                           deleted = v.deleted;
+                           edges = v.out_edges;
+                         }};
 
-    // If vertex has non-sequential deltas, hold lock while applying them
-    if (!from_vertex.has_uncommitted_non_sequential_deltas) {
-      guard.unlock();
-    }
+  vertex_reader.ApplyDeltasForRead([&](Delta const &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Exists_ActionMethod(exists),
+      Deleted_ActionMethod(deleted),
+      Edges_ActionMethod<EdgeDirection::OUT>(edges),
+    });
+    // clang-format on
+  });
 
-    // Create and drop index will always use snapshot isolation
-    if (delta) {
-      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-        // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Exists_ActionMethod(exists),
-          Deleted_ActionMethod(deleted),
-          Edges_ActionMethod<EdgeDirection::OUT>(edges),
-        });
-        // clang-format on
-      });
-    }
+  if (vertex_reader.OwnsLock()) {
+    vertex_reader.Unlock();
   }
+
   if (!exists || deleted || edges.empty()) {
     return;
   }
 
   for (auto const &[edge_type, to_vertex, edge_ref] : edges) {
+    exists = true;
+    deleted = false;
     PropertyValue property_value;
-    {
-      auto guard = std::shared_lock{edge_ref.ptr->lock};
-      exists = true;
-      deleted = false;
-      delta = edge_ref.ptr->delta;
-      property_value = edge_ref.ptr->properties.GetProperty(property);
-    }
 
-    if (delta) {
-      // Edge type is immutable so we don't need to check it
-      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-        // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Exists_ActionMethod(exists),
-          Deleted_ActionMethod(deleted),
-          PropertyValue_ActionMethod(property_value, property),
-        });
-        // clang-format on
+    MvccRead edge_reader{
+        edge_ref.ptr, &tx, View::OLD, [&](Edge const &e) { property_value = e.properties.GetProperty(property); }};
+
+    edge_reader.ApplyDeltasForRead([&](Delta const &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Exists_ActionMethod(exists),
+        Deleted_ActionMethod(deleted),
+        PropertyValue_ActionMethod(property_value, property),
       });
-    }
+      // clang-format on
+    });
 
     if (!exists || deleted || property_value.IsNull()) {
       continue;

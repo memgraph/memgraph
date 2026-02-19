@@ -69,24 +69,21 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
-  auto current_values_equal_to_value = std::vector<bool>{};
-  const Delta *delta = nullptr;
-  auto guard = std::shared_lock{vertex.lock};
-  delta = vertex.delta;
-  deleted = vertex.deleted;
-  if (!delta && deleted) return false;
-  has_label = std::ranges::contains(vertex.labels, label);
-  if (!delta && !has_label) return false;
-  current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
+  std::vector<bool> current_values_equal_to_value;
 
-  // If vertex has non-sequential deltas, hold lock while applying them
-  if (!vertex.has_uncommitted_non_sequential_deltas) {
-    guard.unlock();
-  }
+  MvccRead reader{&vertex, transaction, view, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    if (!v.delta && deleted) return;
+                    has_label = std::ranges::contains(v.labels, label);
+                    if (!v.delta && !has_label) return;
+                    current_values_equal_to_value = helper.MatchesValues(v.properties, values);
+                  }};
+
+  if (!reader.HasDeltas() && (deleted || !has_label)) return false;
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (reader.HasDeltas() && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = use_cache && transaction->UseCache();
@@ -119,20 +116,19 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
       }
     }
 
-    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
+    auto const n_processed = reader.ApplyDeltasForRead([&](Delta const &delta) {
       // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            HasLabel_ActionMethod(has_label, label),
-            PropertyValueMatch_ActionMethod(current_values_equal_to_value, helper, values)
-          });
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        HasLabel_ActionMethod(has_label, label),
+        PropertyValueMatch_ActionMethod(current_values_equal_to_value, helper, values)
+      });
       // clang-format on
     });
 
-    // If vertex has non-sequential deltas, we have now processed the delta and can unlock now
-    if (vertex.has_uncommitted_non_sequential_deltas) {
-      guard.unlock();
+    if (reader.OwnsLock()) {
+      reader.Unlock();
     }
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
@@ -381,35 +377,26 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 
   bool exists = true;
   bool deleted = false;
-  Delta *delta = nullptr;
   bool has_label = false;
   std::vector<PropertyValue> properties;
-  {
-    auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted;
-    delta = vertex.delta;
-    has_label = std::ranges::contains(vertex.labels, label);
-    properties = props.Extract(vertex.properties);
 
-    // If vertex has non-sequential deltas, hold lock while applying them
-    if (!vertex.has_uncommitted_non_sequential_deltas) {
-      guard.unlock();
-    }
+  MvccRead reader{&vertex, &tx, View::OLD, [&](Vertex const &v) {
+                    deleted = v.deleted;
+                    has_label = std::ranges::contains(v.labels, label);
+                    properties = props.Extract(v.properties);
+                  }};
 
-    // Create and drop index will always use snapshot isolation
-    if (delta) {
-      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
-        // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Exists_ActionMethod(exists),
-          Deleted_ActionMethod(deleted),
-          HasLabel_ActionMethod(has_label, label),
-          PropertyValuesUpdate_ActionMethod(props, properties)
-        });
-        // clang-format on
-      });
-    }
-  }
+  reader.ApplyDeltasForRead([&](Delta const &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Exists_ActionMethod(exists),
+      Deleted_ActionMethod(deleted),
+      HasLabel_ActionMethod(has_label, label),
+      PropertyValuesUpdate_ActionMethod(props, properties)
+    });
+    // clang-format on
+  });
+
   if (!exists || deleted || !has_label) {
     return;
   }

@@ -217,27 +217,21 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   bool exists = true;
   bool deleted = false;
   bool current_value_equal_to_value = value.IsNull();
-  const Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge.lock};
-    deleted = edge.deleted;
-    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
-    delta = edge.delta;
-  }
 
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Deleted_ActionMethod(deleted),
-        Exists_ActionMethod(exists),
-        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
-      });
-      // clang-format on
+  MvccRead reader{&edge, transaction, view, [&](Edge const &e) {
+                    deleted = e.deleted;
+                    current_value_equal_to_value = e.properties.IsPropertyEqual(key, value);
+                  }};
+
+  reader.ApplyDeltasForRead([&, key](Delta const &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Deleted_ActionMethod(deleted),
+      Exists_ActionMethod(exists),
+      PropertyValueMatch_ActionMethod(current_value_equal_to_value, key, value)
     });
-  }
+    // clang-format on
+  });
 
   return exists && !deleted && current_value_equal_to_value;
 }
