@@ -148,11 +148,11 @@ void Reader::Finalize() {
 void Reader::GetSegment(bool should_be_final) {
   if (error_) return;
 
+  // Leftover data is benign. It can happen for example that PrepareCommitReq is rejected because of a stale main
+  // uuid and then all of the deltas will be left in the stream. That's why it's not needed to check
+  // `should_be_final`.
+
   if (have_ != 0) {
-    if (should_be_final) {
-      // Leftover data is benign
-      spdlog::warn("There is still leftover data in the SLK stream.");
-    }
     return;
   }
 
