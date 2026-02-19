@@ -372,7 +372,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
       // When accumulated path is used, we cannot use ST shortest path algorithm.
-      if (!expand.filter_lambda_.accumulated_path_symbol) {
+      if (expand.filter_lambda_.accumulated_path_symbol) {
         return false;
       }
 
@@ -1445,7 +1445,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const double bidirectional_overhead_factor = 4.0;
     const double estimated_midpoint_frontier = std::pow(branching_factor_estimate, hop_count_estimate / 2.0);
 
-    return target_cnt < (estimated_midpoint_frontier / bidirectional_overhead_factor);
+    return std::max(source_cnt, target_cnt) < (estimated_midpoint_frontier / bidirectional_overhead_factor);
   }
 
   // Estimates cardinality for indexed scan operators only.
