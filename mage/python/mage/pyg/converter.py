@@ -257,7 +257,7 @@ class MemgraphPyGConverter:
             raise ValueError("Missing required field: 'edge_index'")
         if "num_nodes" not in pyg_dict:
             raise ValueError("Missing required field: 'num_nodes'")
-        
+
         edge_index = pyg_dict.get("edge_index", [[], []])
         num_nodes = pyg_dict.get("num_nodes", 0)
         x = pyg_dict.get("x", None)
