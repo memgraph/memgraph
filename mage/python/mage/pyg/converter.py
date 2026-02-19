@@ -113,7 +113,7 @@ class MemgraphPyGConverter:
             if src_id in self._node_id_to_idx and dst_id in self._node_id_to_idx:
                 source_indices.append(self._node_id_to_idx[src_id])
                 target_indices.append(self._node_id_to_idx[dst_id])
-            included_edges.append(edge)
+                included_edges.append(edge)
 
         edge_index = [source_indices, target_indices]
 
@@ -252,6 +252,12 @@ class MemgraphPyGConverter:
         Returns:
             Tuple of (nodes_data, edges_data) where each is a list of dicts
         """
+        # Validate required fields
+        if "edge_index" not in pyg_dict:
+            raise ValueError("Missing required field: 'edge_index'")
+        if "num_nodes" not in pyg_dict:
+            raise ValueError("Missing required field: 'num_nodes'")
+        
         edge_index = pyg_dict.get("edge_index", [[], []])
         num_nodes = pyg_dict.get("num_nodes", 0)
         x = pyg_dict.get("x", None)

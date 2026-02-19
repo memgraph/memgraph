@@ -261,7 +261,10 @@ def import_from_dict(
             'Node', 'EDGE', ['feature']) YIELD *;
         ```
     """
-    pyg_dict = json.loads(json_data)
+    try:
+        pyg_dict = json.loads(json_data)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON data: {e}")
 
     nodes_data, edges_data = pyg_dict_to_graph_data(
         pyg_dict=pyg_dict,
