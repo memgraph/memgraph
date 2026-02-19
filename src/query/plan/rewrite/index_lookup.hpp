@@ -1700,7 +1700,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         metadata.labels_to_erase.reserve(best_group.indices.size());
         std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
-        metadata.all_property_filters_same = true;
+        metadata.all_property_filters_same =
+            true;  // Used to check if all indices uses the same filter -> if yes we can remove the filter
         bool has_label_index = false;
         bool has_label_property_index = false;
         for (const auto &index : best_group.indices) {
