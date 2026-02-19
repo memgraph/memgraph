@@ -42,6 +42,7 @@ tools.build:sharedlinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enabl
 [options]
 boost/*:without_stacktrace=True
 boost/*:without_locale=True
+boost/*:without_cobalt=True
 {% if target_arch == "armv8" %}
 boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--target=aarch64-unknown-linux-gnu linkflags=--target=aarch64-unknown-linux-gnu
 {% elif enable_asan or enable_ubsan or enable_tsan %}
