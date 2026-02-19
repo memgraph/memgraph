@@ -379,7 +379,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto destination_result = FindBestScanByIndex(dst_scan);
       // If it has an index check that its not a point index
       bool destination_has_index =
-          destination_result.has_value() ? HasIndexedSource(destination_result->operator_->input()) : false;
+          destination_result.has_value() ? HasIndexedSource(destination_result->operator_) : false;
       bool source_has_index = HasIndexedSource(expand.input());
 
       if (destination_has_index && source_has_index) {
