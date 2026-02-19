@@ -371,12 +371,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
+      // When accumulated path is used, we cannot use ST shortest path algorithm.
+      if (!expand.filter_lambda_.accumulated_path_symbol) {
+        return false;
+      }
+
       auto destination_result = FindBestScanByIndex(dst_scan);
       bool destination_has_index = destination_result.has_value();
       bool source_has_index = HasIndexedSource(expand.input());
 
-      // When accumulated path is used, we cannot use ST shortest path algorithm.
-      if (destination_has_index && source_has_index && !expand.filter_lambda_.accumulated_path_symbol) {
+      if (destination_has_index && source_has_index) {
         // Both source and destination have indices - check if STShortestPath is beneficial
         // Estimate cardinalities: source from existing operator, destination from FindBestScanByIndex result
         double source_cardinality = EstimateIndexedScanCardinality(expand.input().get());
