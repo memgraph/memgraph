@@ -38,11 +38,4 @@ class SlkRpcFailedException final : public RpcFailedException {
   SPECIALIZE_GET_EXCEPTION_NAME(SlkRpcFailedException);
 };
 
-class FailedToGetRpcStreamException final : public RpcFailedException {
- public:
-  FailedToGetRpcStreamException() : RpcFailedException("Failed to get RPC stream by try-locking.") {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(FailedToGetRpcStreamException);
-};
-
 }  // namespace memgraph::rpc
