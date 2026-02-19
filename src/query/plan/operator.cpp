@@ -2695,7 +2695,13 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         input_cursor_(self_.input()->MakeCursor(mem)),
         processed_(mem),
         to_visit_next_(mem),
-        to_visit_current_(mem) {}
+        to_visit_current_(mem) {
+    DMG_ASSERT(!self_.common_.existing_node,
+               "Single source shortest path algorithm "
+               "should not be used when `existing_node` "
+               "flag is set, s-t shortest path algorithm "
+               "should be used instead!");
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;

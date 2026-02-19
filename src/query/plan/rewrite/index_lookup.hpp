@@ -377,7 +377,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       auto destination_result = FindBestScanByIndex(dst_scan);
-      bool destination_has_index = destination_result.has_value();
+      // If it has an index check that its not a point index
+      bool destination_has_index =
+          destination_result.has_value() ? HasIndexedSource(destination_result->operator_->input()) : false;
       bool source_has_index = HasIndexedSource(expand.input());
 
       if (destination_has_index && source_has_index) {
@@ -393,8 +395,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     } else {
-      std::unique_ptr<LogicalOperator> indexed_scan =
-          GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+      auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
       if (indexed_scan) {
         expand.set_input(std::move(indexed_scan));
         expand.common_.existing_node = true;
@@ -897,30 +898,30 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
 
-  void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
+  void SetOnParent(std::shared_ptr<LogicalOperator> input) {
     MG_ASSERT(input);
     if (prev_ops_.empty()) {
       MG_ASSERT(!new_root_);
-      new_root_ = input;
+      new_root_ = std::move(input);
       return;
     }
 
     auto *parent = prev_ops_.back();
     if (parent->HasSingleInput()) {
-      parent->set_input(input);
+      parent->set_input(std::move(input));
       return;
     }
 
     if (parent->GetTypeInfo() == Cartesian::kType) {
       auto *parent_cartesian = dynamic_cast<Cartesian *>(parent);
-      parent_cartesian->right_op_ = input;
-      parent_cartesian->right_symbols_ = input->ModifiedSymbols(*symbol_table_);
+      parent_cartesian->right_op_ = std::move(input);
+      parent_cartesian->right_symbols_ = parent_cartesian->right_op_->ModifiedSymbols(*symbol_table_);
       return;
     }
 
     if (parent->GetTypeInfo() == plan::RollUpApply::kType) {
       auto *parent_rollup = dynamic_cast<plan::RollUpApply *>(parent);
-      parent_rollup->input_ = input;
+      parent_rollup->input_ = std::move(input);
       return;
     }
 
@@ -1490,7 +1491,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (op->HasSingleInput()) {
       return EstimateIndexedScanCardinality(op->input().get());
     }
-    MG_ASSERT(false, "Unknown indexed scan operator type");
+
+    // this should never be reached because HasIndexedSource should filter out all other types of indices
+    spdlog::error("Unknown indexed scan operator type");
+    return static_cast<double>(db_->VerticesCount());
   }
 
   // Metadata about what needs to be erased when applying an indexed scan.
@@ -1506,7 +1510,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.
   // Returns the operator and metadata about what needs to be erased.
   struct ScanByIndexResult {
-    std::unique_ptr<LogicalOperator> operator_;
+    std::shared_ptr<LogicalOperator> operator_;
     ScanByIndexMetadata metadata_;
   };
 
@@ -1582,7 +1586,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *value = filter.id_filter->value_;
         metadata.filters_to_erase.push_back(filter);
         metadata.expressions_to_mark_for_removal.push_back(filter.expression);
-        return ScanByIndexResult{std::make_unique<ScanAllById>(input, node_symbol, value, view), std::move(metadata)};
+        return ScanByIndexResult{std::make_shared<ScanAllById>(input, node_symbol, value, view), std::move(metadata)};
       }
     }
     // Now try to see if we can use label+property index. If not, try to use
@@ -1697,13 +1701,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
         metadata.all_property_filters_same = true;
+        bool has_label_index = false;
         bool has_label_property_index = false;
         for (const auto &index : best_group.indices) {
           if (std::holds_alternative<LabelIx>(index)) {
             // For label-only indices, only set all_property_filters_same = false when mixed with
             // LabelPropertyIndex (we'd need to keep the filter for rows from the label-only branch).
             // When we have only LabelIx, the Union of ScanAllByLabel fully replaces the OR label check.
-            if (has_label_property_index) metadata.all_property_filters_same = false;
+            has_label_index = true;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
             auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
             if (prev) {
@@ -1756,6 +1761,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
           }
         }
+        if (has_label_index && has_label_property_index) {
+          metadata.all_property_filters_same = false;
+        }
         metadata.is_or_label_filter = true;
         return ScanByIndexResult{std::move(prev), std::move(metadata)};
       }
@@ -1774,9 +1782,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<Expression *> removed_expressions;
     if (metadata.is_or_label_filter) {
       filters_.EraseOrLabelFilter(metadata.node_symbol, metadata.labels_to_erase, &removed_expressions);
-      if (!metadata.all_property_filters_same) {
-        removed_expressions.clear();
-      }
     } else {
       for (const auto &label : metadata.labels_to_erase) {
         std::vector<Expression *> label_removed_expressions;
@@ -1787,8 +1792,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     // Mark expressions for removal
-    filter_exprs_for_removal_.insert(metadata.expressions_to_mark_for_removal.begin(),
-                                     metadata.expressions_to_mark_for_removal.end());
+    if (!metadata.is_or_label_filter || metadata.all_property_filters_same) {
+      filter_exprs_for_removal_.insert(metadata.expressions_to_mark_for_removal.begin(),
+                                       metadata.expressions_to_mark_for_removal.end());
+    }
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
   }
 
@@ -1801,7 +1808,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // In case of a "or" expression on labels the Distinct operator will be returned with the
   // Union operator as input. Union will have as input the ScanAll operator.
   // TODO: Add new operator instead of Distinct + Union
-  std::unique_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
+  std::shared_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
                                                   const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     auto result = FindBestScanByIndex(scan, max_vertex_count);
     if (!result) {
