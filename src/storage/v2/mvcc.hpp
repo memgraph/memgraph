@@ -285,8 +285,7 @@ inline bool ShouldSetNonSequentialBlockerUpstreamFlag(Transaction *transaction, 
     return false;
   }
 
-  auto const head_ts = head->commit_info->timestamp.load(std::memory_order_acquire);
-  if (head_ts != transaction->transaction_id) {
+  if (head->commit_info != transaction->commit_info.get()) {
     // Different transaction - we're non-sequential, so no upstream in our transaction
     return false;
   }
