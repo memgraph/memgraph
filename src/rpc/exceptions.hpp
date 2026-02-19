@@ -29,16 +29,6 @@ class RpcFailedException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
 
-class GenericRpcFailedException final : public RpcFailedException {
- public:
-  GenericRpcFailedException()
-      : RpcFailedException(
-            "Couldn't communicate with the cluster! Please contact your "
-            "database administrator.") {}
-
-  SPECIALIZE_GET_EXCEPTION_NAME(GenericRpcFailedException);
-};
-
 class SlkRpcFailedException final : public RpcFailedException {
  public:
   SlkRpcFailedException()

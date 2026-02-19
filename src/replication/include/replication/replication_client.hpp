@@ -86,41 +86,36 @@ struct ReplicationClient {
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
-  // TODO: (andi) Do you need try-catch here?
   // TODO: (andi) Do you want to handle specifically error
   bool StreamAndFinalizeDelta(auto &&check, Args &&...args) {
-    try {
-      auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
-      if (!stream.has_value()) return false;
-      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-      auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream.value())]() mutable {
-        if (stream.IsDefunct()) {
-          state_.WithLock([](auto &state) { state = State::BEHIND; });
-          return false;
-        }
-
-        if (auto const res = stream.SendAndWait(); res.has_value() && check(res.value())) {
-          return true;
-        }
-        // else: swallow error, fallthrough to error handling
-
-        // This replica needs SYSTEM recovery
-        state_.WithLock([](auto &state) { state = State::BEHIND; });
-        return false;
-      };
-
-      if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-        thread_pool_.AddTask(std::move(task));
-        return true;
-      }
-
-      return task();
-    } catch (rpc::GenericRpcFailedException const &) {
-      // This replica needs SYSTEM recovery
+    auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
+    if (!stream.has_value()) {
       state_.WithLock([](auto &state) { state = State::BEHIND; });
       return false;
     }
-  };
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+    auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream.value())]() mutable {
+      if (stream.IsDefunct()) {
+        state_.WithLock([](auto &state) { state = State::BEHIND; });
+        return false;
+      }
+
+      if (auto const res = stream.SendAndWait(); res.has_value() && check(res.value())) {
+        return true;
+      }
+      // else: swallow error, fallthrough to error handling
+      // This replica needs SYSTEM recovery
+      state_.WithLock([](auto &state) { state = State::BEHIND; });
+      return false;
+    };
+
+    if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+      thread_pool_.AddTask(std::move(task));
+      return true;
+    }
+
+    return task();
+  }
 
   void Shutdown();
 

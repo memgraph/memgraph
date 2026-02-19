@@ -38,7 +38,6 @@ using memgraph::replication::SystemRecoveryRpc;
 using memgraph::replication_coordination_glue::FrequentHeartbeatRpc;
 using memgraph::replication_coordination_glue::SwapMainUUIDRpc;
 using memgraph::rpc::Client;
-using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::storage::replication::HeartbeatRpc;

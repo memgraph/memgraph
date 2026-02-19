@@ -65,7 +65,10 @@ class Builder {
   explicit Builder(BuilderWriteFunction write_func);
 
   Builder(Builder &&other, BuilderWriteFunction write_func)
-      : write_func_{std::move(write_func)}, pos_{std::exchange(other.pos_, 0)}, segment_{other.segment_} {
+      : write_func_{std::move(write_func)},
+        pos_{std::exchange(other.pos_, 0)},
+        segment_{other.segment_},
+        error_{std::exchange(other.error_, std::nullopt)} {
     other.write_func_ = [](const uint8_t *, size_t, bool) -> BuilderWriteFunction::result_type {
       /* Moved builder is defunct, no write possible */
       return {};
@@ -73,6 +76,9 @@ class Builder {
   }
 
   /// Function used internally by SLK to serialize the data.
+  /// When the builder is in an error state (a previous write to the underlying
+  /// transport failed), this is a no-op. The error surfaces at Finalize() /
+  /// FlushSegment() / SendAndWait() time.
   void Save(const uint8_t *data, uint64_t size);
 
   auto SaveFileBuffer(const uint8_t *data, uint64_t size) -> BuilderWriteFunction::result_type;
@@ -93,6 +99,8 @@ class Builder {
 
   bool GetFileData() const;
 
+  auto GetError() const -> std::optional<utils::RpcError> { return error_; }
+
   auto FlushInternal(size_t size, bool has_more) -> BuilderWriteFunction::result_type;
 
  private:
@@ -103,6 +111,7 @@ class Builder {
   BuilderWriteFunction write_func_;
   size_t pos_{0};
   std::array<uint8_t, kSegmentMaxTotalSize> segment_;
+  std::optional<utils::RpcError> error_;
 };
 
 /// Exception that will be thrown if segments can't be decoded from the byte

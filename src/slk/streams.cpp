@@ -25,8 +25,10 @@ bool Builder::IsEmpty() const { return pos_ == 0; }
 
 void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
-  while (size > 0) {
+  while (size > 0 && !error_) {
     FlushSegment(false);
+    if (error_) return;
+
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
     if (file_data_) {
@@ -44,6 +46,7 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 
 // Differs from saving normal buffer by not leaving space of 4B at the beginning of the buffer for size
 auto Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) -> BuilderWriteFunction::result_type {
+  if (error_) return std::unexpected(*error_);
   size_t offset = 0;
   while (size > 0) {
     if (auto const res = FlushFileSegment(); !res.has_value()) return res;
@@ -58,6 +61,7 @@ auto Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) -> BuilderWrite
 
 // This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
 void Builder::PrepareForFileSending() {
+  if (error_) return;
   memcpy(segment_.data() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
   file_data_ = true;
@@ -66,7 +70,9 @@ void Builder::PrepareForFileSending() {
 auto Builder::Finalize() -> BuilderWriteFunction::result_type { return FlushSegment(true); }
 
 auto Builder::FlushInternal(size_t const size, bool const has_more) -> BuilderWriteFunction::result_type {
+  if (error_) return std::unexpected(*error_);
   if (auto const res = write_func_(segment_.data(), size, has_more); !res.has_value()) {
+    error_ = res.error();
     return res;
   }
   pos_ = 0;
@@ -75,16 +81,19 @@ auto Builder::FlushInternal(size_t const size, bool const has_more) -> BuilderWr
 
 // Flushes data and resets position
 auto Builder::FlushFileSegment() -> BuilderWriteFunction::result_type {
+  if (error_) return std::unexpected(*error_);
   if (pos_ < kSegmentMaxDataSize) return {};  // not a failure
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
   return FlushInternal(pos_, true);
 }
 
 void Builder::SaveFooter(uint64_t const total_size) {
+  if (error_) return;
   memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
 }
 
 auto Builder::FlushSegment(bool const final_segment, bool const force_flush) -> BuilderWriteFunction::result_type {
+  if (error_) return std::unexpected(*error_);
   if (!force_flush && !final_segment && pos_ < kSegmentMaxDataSize) return {};
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
 
