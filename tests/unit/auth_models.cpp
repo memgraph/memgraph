@@ -150,18 +150,18 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     }
     ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object.permissions().denies(), 0);
-    const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission();
+    const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants();
     ASSERT_TRUE(etp.has_value());
     ASSERT_EQ(etp.value(), 27);
-    const auto &etp_rules = auth_object.fine_grained_access_handler().edge_type_permissions().GetPermissions();
+    const auto &etp_rules = auth_object.fine_grained_access_handler().edge_type_permissions().GetRules();
     ASSERT_EQ(etp_rules.size(), 1);
     ASSERT_EQ(etp_rules[0].symbols, std::unordered_set<std::string>{"E"});
-    ASSERT_EQ(static_cast<uint64_t>(etp_rules[0].permissions), 1);
+    ASSERT_EQ(static_cast<uint64_t>(etp_rules[0].grants), 1);
 
-    const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalPermission();
+    const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalGrants();
     ASSERT_TRUE(lp.has_value());
     ASSERT_EQ(lp.value(), 27);
-    const auto &lp_rules = auth_object.fine_grained_access_handler().label_permissions().GetPermissions();
+    const auto &lp_rules = auth_object.fine_grained_access_handler().label_permissions().GetRules();
     ASSERT_EQ(lp_rules.size(), 4);
     // Check that we have rules for A, B, C, D (order doesn't matter in the JSON, so we'll check they exist)
     auto find_rule = [&lp_rules](const std::string &label) -> const memgraph::auth::FineGrainedAccessRule * {
@@ -180,10 +180,12 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_NE(rule_b, nullptr);
     ASSERT_NE(rule_c, nullptr);
     ASSERT_NE(rule_d, nullptr);
-    ASSERT_EQ(static_cast<uint64_t>(rule_a->permissions), 1);
-    ASSERT_EQ(static_cast<uint64_t>(rule_b->permissions), 1);
-    ASSERT_EQ(static_cast<uint64_t>(rule_c->permissions), 3);
-    ASSERT_EQ(static_cast<uint64_t>(rule_d->permissions), 0);
+    ASSERT_EQ(static_cast<uint64_t>(rule_a->grants), 1);
+    ASSERT_EQ(static_cast<uint64_t>(rule_b->grants), 1);
+    ASSERT_EQ(static_cast<uint64_t>(rule_c->grants), 3);
+    // rule_d had granted=0 (NOTHING) in legacy format, migrated to deny all
+    ASSERT_EQ(rule_d->grants, memgraph::auth::FineGrainedPermission::NOTHING);
+    ASSERT_EQ(rule_d->denies, memgraph::auth::kAllPermissions);
     ASSERT_EQ(auth_object.db_access().GetMain(), "db1");
     ASSERT_EQ(auth_object.db_access().GetAllowAll(), true);
     const auto grants = std::set<std::string, std::less<>>({"db1", "memgraph"});
@@ -208,9 +210,9 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
+        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
+        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_EQ(auth_object_no_license.db_access().GetMain(), "memgraph");
     ASSERT_EQ(auth_object_no_license.db_access().GetAllowAll(), false);
     ASSERT_TRUE(auth_object_no_license.db_access().GetGrants().size() == 1 &&
@@ -228,9 +230,8 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community.permissions().denies(), 0);
     ASSERT_FALSE(
-        auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(
-        auth_object_community.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
+        auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_community.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_EQ(auth_object_community.db_access().GetMain(), "memgraph");
     ASSERT_EQ(auth_object_community.db_access().GetAllowAll(), false);
     ASSERT_TRUE(auth_object_community.db_access().GetGrants().size() == 1 &&
@@ -249,12 +250,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
     ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
                      .edge_type_permissions()
-                     .GetGlobalPermission()
+                     .GetGlobalGrants()
                      .has_value());
-    ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
-                     .label_permissions()
-                     .GetGlobalPermission()
-                     .has_value());
+    ASSERT_FALSE(
+        auth_object_community_resaved.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_EQ(auth_object_community_resaved.db_access().GetMain(), "memgraph");
     ASSERT_EQ(auth_object_community_resaved.db_access().GetAllowAll(), false);
     ASSERT_TRUE(auth_object_community_resaved.db_access().GetGrants().size() == 1 &&
@@ -279,10 +278,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     }
     ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object.permissions().denies(), 0);
-    const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission();
+    const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants();
     ASSERT_TRUE(etp.has_value());
     ASSERT_EQ(etp.value(), 27);
-    const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalPermission();
+    const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalGrants();
     ASSERT_TRUE(lp.has_value());
     ASSERT_EQ(lp.value(), 27);
     ASSERT_EQ(auth_object.db_access().GetMain(), "db1");
@@ -304,9 +303,9 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
+        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
+        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_EQ(auth_object_no_license.db_access().GetMain(), "memgraph");
     ASSERT_EQ(auth_object_no_license.db_access().GetAllowAll(), false);
     ASSERT_TRUE(auth_object_no_license.db_access().GetGrants().size() == 1 &&
@@ -325,9 +324,8 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
     ASSERT_EQ(auth_object_community.permissions().denies(), 0);
     ASSERT_FALSE(
-        auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(
-        auth_object_community.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
+        auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_community.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_EQ(auth_object_community.db_access().GetMain(), "memgraph");
     ASSERT_EQ(auth_object_community.db_access().GetAllowAll(), false);
     ASSERT_TRUE(auth_object_community.db_access().GetGrants().size() == 1 &&
@@ -346,12 +344,10 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
     ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
                      .edge_type_permissions()
-                     .GetGlobalPermission()
+                     .GetGlobalGrants()
                      .has_value());
-    ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
-                     .label_permissions()
-                     .GetGlobalPermission()
-                     .has_value());
+    ASSERT_FALSE(
+        auth_object_community_resaved.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     ASSERT_EQ(auth_object_community_resaved.db_access().GetMain(), "memgraph");
     ASSERT_EQ(auth_object_community_resaved.db_access().GetAllowAll(), false);
     ASSERT_TRUE(auth_object_community_resaved.db_access().GetGrants().size() == 1 &&
@@ -522,17 +518,16 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_license = TypeParam::Deserialize(json);
     ASSERT_FALSE(
-        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(
-        auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
+        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
     // Without license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
+        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
+        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
   }
 
   // Missing edge permissions fine grained access handler (throw)
@@ -558,21 +553,20 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_license = TypeParam::Deserialize(json);
     ASSERT_FALSE(
-        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
-    ASSERT_TRUE(
-        auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
+    ASSERT_TRUE(auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetRules().empty());
     // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
     ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetRules().empty());
   }
 
   // TODO This should throw, the key exists, but the value is broken
@@ -585,21 +579,20 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_license = TypeParam::Deserialize(json);
     ASSERT_TRUE(
-        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
-    ASSERT_TRUE(
-        auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_TRUE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
+    ASSERT_TRUE(auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetRules().empty());
     // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
     ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
     ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetRules().empty());
   }
 
   // Missing label permissions fine grained access handler (throw)
@@ -626,21 +619,20 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_license = TypeParam::Deserialize(json);
     ASSERT_TRUE(
-        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
-    ASSERT_FALSE(
-        auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().label_permissions().GetRules().empty());
     // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
     ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
     ASSERT_FALSE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetRules().empty());
   }
 
   // TODO This should throw, the key exists, but the value is broken
@@ -653,21 +645,20 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_license = TypeParam::Deserialize(json);
     ASSERT_TRUE(
-        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
-    ASSERT_TRUE(
-        auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
+    ASSERT_TRUE(auth_object_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_TRUE(auth_object_license.fine_grained_access_handler().label_permissions().GetRules().empty());
     // Without license - should behave the same as with license
     memgraph::license::global_license_checker.DisableTesting();
     ASSERT_FALSE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
     const auto auth_object_no_license = TypeParam::Deserialize(json);
     ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalPermission().has_value());
-    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
+    ASSERT_FALSE(auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetRules().empty());
     ASSERT_TRUE(
-        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalPermission().has_value());
-    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetPermissions().empty());
+        auth_object_no_license.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
+    ASSERT_TRUE(auth_object_no_license.fine_grained_access_handler().label_permissions().GetRules().empty());
   }
 
   // Missing database access ( default to memgraph )
@@ -1052,8 +1043,11 @@ TEST(AuthModule, UserSerialization) {
   json[kFineGrainedPermissions][kLabelPermissions][kGlobalPermission] = -1;
   ASSERT_EQ(json, user.Serialize());
 
-  user.fine_grained_access_handler().label_permissions().Grant(
-      {"ExactLabel"}, memgraph::auth::FineGrainedPermission::UPDATE, memgraph::auth::MatchingMode::EXACTLY);
+  user.fine_grained_access_handler().label_permissions().Grant({"ExactLabel"},
+                                                               memgraph::auth::FineGrainedPermission::SET_LABEL |
+                                                                   memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+                                                                   memgraph::auth::FineGrainedPermission::SET_PROPERTY,
+                                                               memgraph::auth::MatchingMode::EXACTLY);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kMatching, "ANY"}}),
        nlohmann::json::object(
@@ -1072,7 +1066,9 @@ TEST(AuthModule, UserSerialization) {
   user.fine_grained_access_handler().label_permissions().Grant({"MultiPerm"},
                                                                memgraph::auth::FineGrainedPermission::READ);
   user.fine_grained_access_handler().label_permissions().Grant({"MultiPerm"},
-                                                               memgraph::auth::FineGrainedPermission::UPDATE);
+                                                               memgraph::auth::FineGrainedPermission::SET_LABEL |
+                                                                   memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
+                                                                   memgraph::auth::FineGrainedPermission::SET_PROPERTY);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kMatching, "ANY"}}),
        nlohmann::json::object(
