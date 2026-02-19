@@ -454,18 +454,14 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
-createRole : CREATE ROLE ifNotExists? role=userOrRoleName
-             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )?
-             ( WITH DEFAULT EDGE_TYPE PERMISSIONS defaultEdgeTypePermissions )? ;
+createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
 
 showRoles : SHOW ROLES ;
 
 createUser : CREATE USER ifNotExists? user=userOrRoleName
-             ( IDENTIFIED BY password=literal )?
-             ( WITH DEFAULT LABEL PERMISSIONS defaultLabelPermissions )?
-             ( WITH DEFAULT EDGE_TYPE PERMISSIONS defaultEdgeTypePermissions )? ;
+             ( IDENTIFIED BY password=literal )? ;
 
 ifNotExists : IF NOT EXISTS ;
 
@@ -546,18 +542,6 @@ privilege : CREATE
 granularPrivilege : NOTHING | READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
-
-allPermissions : ALL | ASTERISK ;
-
-defaultLabelPermissions : GRANT allPermissions
-                        | GRANT granularPrivilegeList
-                        | DENY allPermissions
-                        ;
-
-defaultEdgeTypePermissions : GRANT allPermissions
-                           | GRANT granularPrivilegeList
-                           | DENY allPermissions
-                           ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
