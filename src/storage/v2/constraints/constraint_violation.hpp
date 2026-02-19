@@ -42,7 +42,7 @@ struct ConstraintViolation {
   // While multiple properties are supported by unique constraints, the
   // `properties` set will always have exactly one element in the case of
   // existence constraint violation.
-  std::set<PropertyId> properties;
+  SortedPropertyIds properties;
 
   friend bool operator==(const ConstraintViolation &, const ConstraintViolation &) = default;
 };

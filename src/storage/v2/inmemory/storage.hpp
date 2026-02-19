@@ -562,7 +562,7 @@ class InMemoryStorage final : public Storage {
     /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
     /// @throw std::bad_alloc
     std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> CreateUniqueConstraint(
-        LabelId label, const std::set<PropertyId> &properties) override;
+        LabelId label, SortedPropertyIds const &properties) override;
 
     /// Removes an existing unique constraint.
     /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
@@ -572,8 +572,7 @@ class InMemoryStorage final : public Storage {
     /// * `NOT_FOUND` if the specified constraint was not found,
     /// * `EMPTY_PROPERTIES` if the property set is empty, or
     /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
-    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
-                                                           const std::set<PropertyId> &properties) override;
+    UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label, SortedPropertyIds const &properties) override;
 
     /// Create type constraint,
     /// Returns error result if already exists, or if constraint is already violated

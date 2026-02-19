@@ -31,8 +31,7 @@ namespace memgraph::storage {
 namespace {
 
 auto DoValidate(const Vertex &vertex, utils::SkipList<InMemoryUniqueConstraints::Entry>::Accessor &constraint_accessor,
-                const LabelId &label, const std::set<PropertyId> &properties)
-    -> std::expected<void, ConstraintViolation> {
+                const LabelId &label, SortedPropertyIds const &properties) -> std::expected<void, ConstraintViolation> {
   if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
     return {};
   }
@@ -98,7 +97,7 @@ std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array
 /// the last committed version of the given vertex contains the given label and
 /// set of property values. This function should be called when commit lock is
 /// active.
-bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::set<PropertyId> &properties,
+bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, SortedPropertyIds const &properties,
                                           const std::vector<PropertyValue> &value_array, const Transaction &transaction,
                                           uint64_t commit_timestamp) {
   MG_ASSERT(properties.size() == value_array.size(), "Invalid database state!");
@@ -193,7 +192,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
 /// Helper function for unique constraint garbage collection. Returns true if
 /// there's a reachable version of the vertex that has the given label and
 /// property values.
-bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::set<PropertyId> &properties,
+bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, SortedPropertyIds const &properties,
                                 const std::vector<PropertyValue> &values, uint64_t timestamp) {
   MG_ASSERT(properties.size() == values.size(), "Invalid database state!");
 
@@ -320,8 +319,8 @@ void InMemoryUniqueConstraints::IndividualConstraint::Publish(uint64_t commit_ti
 
 // --- ActiveConstraints implementation ---
 auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(uint64_t start_timestamp) const
-    -> std::vector<std::pair<LabelId, std::set<PropertyId>>> {
-  auto result = std::vector<std::pair<LabelId, std::set<PropertyId>>>{};
+    -> std::vector<std::pair<LabelId, SortedPropertyIds>> {
+  auto result = std::vector<std::pair<LabelId, SortedPropertyIds>>{};
   for (auto const &[label, inner] : *container_) {
     for (auto const &[properties, constraint] : inner) {
       if (constraint->status.IsVisible(start_timestamp)) {
@@ -333,49 +332,71 @@ auto InMemoryUniqueConstraints::ActiveConstraints::ListConstraints(uint64_t star
   return result;
 }
 
-void InMemoryUniqueConstraints::ActiveConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
-  for (const auto &label : vertex->labels) {
-    const auto &constraint = container_->find(label);
-    if (constraint == container_->end()) {
-      continue;
-    }
-
-    for (const auto &[props, individual_constraint] : constraint->second) {
-      // creation can only happen with read only access and here a write happened
-      // therefore the constraint is already registered/validated and we don't need to check status
-      auto values = vertex->properties.ExtractPropertyValues(props);
-
-      if (!values) {
-        continue;
-      }
-
-      // The skiplist is thread safe so we can access it via shared_ptr without holding the lock
-      // TODO: ATM we get one access per insertion, we could do the same as the Abort processor and gather first
-      //      then bulk insert per constraint (single access required)
-      auto acc = individual_constraint->skiplist.access();
-      acc.insert(Entry{.values = std::move(*values), .vertex = vertex, .timestamp = tx.start_timestamp});
-    }
-  }
-}
-
-auto InMemoryUniqueConstraints::ActiveConstraints::GetAbortProcessor() const -> AbortProcessor {
-  auto initial = AbortableInfo{};
+auto InMemoryUniqueConstraints::ActiveConstraints::GetValidationProcessor() const -> ValidationProcessor {
+  auto initial = ValidationInfo{};
   for (const auto &[label, val] : *container_) {
     auto &inner = initial[label];
     for (auto props : val | std::ranges::views::keys) {
       inner.emplace(props, ConstraintValue{});
     }
   }
-  return AbortProcessor{std::move(initial)};
+  return ValidationProcessor{std::move(initial)};
 }
 
-void InMemoryUniqueConstraints::ActiveConstraints::CollectForAbort(AbortProcessor &processor,
-                                                                   Vertex const *vertex) const {
-  processor.Collect(vertex);
+auto InMemoryUniqueConstraints::ActiveConstraints::ValidateAndCommitEntries(
+    ValidationInfo &&info,  // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved)
+    uint64_t start_timestamp, const Transaction *tx, uint64_t commit_timestamp)
+    -> std::expected<void, ConstraintViolation> {
+  MG_ASSERT(tx != nullptr, "Transaction must be provided for in-memory unique constraint validation");
+
+  // Constraint outer loop - one accessor per constraint (efficient)
+  for (auto &[label, inner] : info) {
+    for (auto &[properties, entries] : inner) {
+      // Empty entries means we have nothing to process for a given key
+      if (entries.empty()) continue;
+
+      auto const it1 = container_->find(label);
+      if (it1 == container_->end()) [[unlikely]] {
+        DMG_ASSERT(false, "ValidationInfo should only match what our constraints use");
+        continue;
+      }
+
+      auto const it2 = it1->second.find(properties);
+      if (it2 == it1->second.end()) [[unlikely]] {
+        DMG_ASSERT(false, "ValidationInfo should only match what our constraints use");
+        continue;
+      }
+
+      // Single accessor for both validation and insertion
+      auto acc = it2->second->skiplist.access();
+
+      for (auto &[values, vertex] : entries) {
+        // Skip deleted vertices
+        if (vertex->deleted) continue;
+
+        // First: check for conflicts (validation)
+        // Find all entries with same property values
+        auto it = acc.find_equal_or_greater(values);
+        while (it != acc.end() && it->values == values) {
+          if (it->vertex != vertex) {
+            // Potential conflict with different vertex - check MVCC visibility
+            if (LastCommittedVersionHasLabelProperty(*it->vertex, label, properties, values, *tx, commit_timestamp)) {
+              return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
+            }
+          }
+          ++it;
+        }
+
+        // No conflict found, insert the entry
+        acc.insert(Entry{.values = std::move(values), .vertex = vertex, .timestamp = start_timestamp});
+      }
+    }
+  }
+  return {};
 }
 
 void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
-    AbortableInfo &&info,  // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved)
+    ValidationInfo &&info,  // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved)
     uint64_t exact_start_timestamp) {
   // Constraint outer loop - one accessor per constraint (efficient)
   for (auto &[label, inner] : info) {
@@ -385,17 +406,17 @@ void InMemoryUniqueConstraints::ActiveConstraints::AbortEntries(
 
       auto const it1 = container_->find(label);
       if (it1 == container_->end()) [[unlikely]] {
-        DMG_ASSERT(false, "AbortableInfo should only match what our constraints use");
+        DMG_ASSERT(false, "ValidationInfo should only match what our constraints use");
         continue;
       }
 
       auto const it2 = it1->second.find(properties);
       if (it2 == it1->second.end()) [[unlikely]] {
-        DMG_ASSERT(false, "AbortableInfo should only match what our constraints use");
+        DMG_ASSERT(false, "ValidationInfo should only match what our constraints use");
         continue;
       }
 
-      // Single access to bulk process all in this unique constraints skip list
+      // Single access to bulk remove all entries from this constraint's skip list
       auto acc = it2->second->skiplist.access();
       for (auto &[values, vertex] : entries) {
         acc.remove(Entry{.values = std::move(values), .vertex = vertex, .timestamp = exact_start_timestamp});
@@ -436,7 +457,7 @@ auto InMemoryUniqueConstraints::GetCreationFunction(
 
 auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
+    const LabelId &label, SortedPropertyIds const &properties,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -476,7 +497,7 @@ auto InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 
 auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
+    const LabelId &label, SortedPropertyIds const &properties,
     std::optional<SnapshotObserverInfo> const &snapshot_info) const -> std::expected<void, ConstraintViolation> {
   for (const Vertex &vertex : vertex_accessor) {
     if (auto result = DoValidate(vertex, constraint_accessor, label, properties); !result.has_value()) {
@@ -490,7 +511,7 @@ auto InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
 }
 
 auto InMemoryUniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    LabelId label, SortedPropertyIds const &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) -> std::expected<CreationStatus, ConstraintViolation> {
   // TODO: we should do the proper register -> populate(with cancel + parallel) -> publish pattern
@@ -542,7 +563,7 @@ auto InMemoryUniqueConstraints::CreateConstraint(
   }
 }
 
-bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<PropertyId> &properties,
+bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, SortedPropertyIds const &properties,
                                                   uint64_t commit_timestamp) {
   auto constraint = GetIndividualConstraint(label, properties);
   if (!constraint) return false;
@@ -550,11 +571,9 @@ bool InMemoryUniqueConstraints::PublishConstraint(LabelId label, const std::set<
   return true;
 }
 
-auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<PropertyId> &properties)
-    -> DeletionStatus {
-  if (auto drop_properties_check_result = CheckPropertiesBeforeDeletion(properties);
-      drop_properties_check_result != DeletionStatus::SUCCESS) {
-    return drop_properties_check_result;
+auto InMemoryUniqueConstraints::DropConstraint(LabelId label, SortedPropertyIds const &properties) -> DeletionStatus {
+  if (auto status = CheckPropertiesBeforeDeletion(properties); status != DeletionStatus::SUCCESS) {
+    return status;
   }
 
   auto erased = container_.WithLock([&](ContainerPtr &container) -> bool {
@@ -574,58 +593,6 @@ auto InMemoryUniqueConstraints::DropConstraint(LabelId label, const std::set<Pro
   });
 
   return erased ? DeletionStatus::SUCCESS : DeletionStatus::NOT_FOUND;
-}
-
-auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
-                                         uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation> {
-  auto container = container_.WithReadLock(std::identity{});
-  for (const auto *const vertex : vertices) {
-    if (vertex->deleted) {
-      continue;
-    }
-    for (const auto &label : vertex->labels) {
-      const auto &constraint = container->find(label);
-      if (constraint == container->end()) {
-        continue;
-      }
-
-      for (const auto &[properties, individual_constraint] : constraint->second) {
-        auto value_array = vertex->properties.ExtractPropertyValues(properties);
-
-        if (!value_array) {
-          continue;
-        }
-
-        auto possible_conflicting = std::invoke([&] {
-          // NOLINTNEXTLINE(clang-analyzer-core.NullDereference,clang-analyzer-core.CallAndMessage)
-          auto acc = individual_constraint->skiplist.access();
-          auto it = acc.find_equal_or_greater(*value_array);
-          std::unordered_set<Vertex const *> res;
-          for (; it != acc.end(); ++it) {
-            if (*value_array != it->values) {
-              break;
-            }
-
-            // The `vertex` that is going to be committed violates a unique constraint
-            // if it's different than a vertex indexed in the list of constraints and
-            // has the same label and property value as the last committed version of
-            // the vertex from the list.
-            if (vertex != it->vertex) {
-              res.insert(it->vertex);
-            }
-          }
-          return res;
-        });
-
-        for (auto const *v : possible_conflicting) {
-          if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
-            return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
-          }
-        }
-      }
-    }
-  }
-  return {};
 }
 
 void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_active_start_timestamp,
@@ -679,8 +646,7 @@ void InMemoryUniqueConstraints::RunGC() {
   }
 }
 
-auto InMemoryUniqueConstraints::GetIndividualConstraint(const LabelId label,
-                                                        const std::set<PropertyId> &properties) const
+auto InMemoryUniqueConstraints::GetIndividualConstraint(const LabelId label, SortedPropertyIds const &properties) const
     -> IndividualConstraintPtr {
   return container_.WithReadLock([&](ContainerPtr const &index) -> IndividualConstraintPtr {
     auto it1 = index->find(label);

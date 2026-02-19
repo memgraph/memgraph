@@ -2512,11 +2512,15 @@ bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) con
   return std::ranges::all_of(properties, [this](const auto &prop) { return HasProperty(prop); });
 }
 
+bool PropertyStore::HasAllProperties(std::span<PropertyId const> properties) const {
+  return std::ranges::all_of(properties, [this](const auto &prop) { return HasProperty(prop); });
+}
+
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
   std::ranges::transform(
-      property_map, back_inserter(all_property_values), [](const auto &kv_entry) { return kv_entry.second; });
+      property_map, std::back_inserter(all_property_values), [](const auto &kv_entry) { return kv_entry.second; });
 
   return std::ranges::all_of(property_values, [&all_property_values](const PropertyValue &value) {
     return std::ranges::contains(all_property_values, value);
@@ -2524,12 +2528,12 @@ bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &prope
 }
 
 std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
-    const std::set<PropertyId> &properties) const {
+    std::span<PropertyId const> sorted_properties) const {
   auto get_property = [&](Reader &reader) -> std::optional<std::vector<PropertyValue>> {
     PropertyValue value;
     auto values = std::vector<PropertyValue>{};
-    values.reserve(properties.size());
-    for (auto property : properties) {
+    values.reserve(sorted_properties.size());
+    for (auto property : sorted_properties) {
       if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return std::nullopt;
       values.emplace_back(std::move(value));
     }

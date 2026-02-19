@@ -899,13 +899,13 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
   auto const has_any_unique_constraints = !transaction_.active_constraints_.unique_->empty();
   if (has_any_unique_constraints && transaction_.constraint_verification_info &&
       transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
-    // Before committing and validating vertices against unique constraints,
-    // we have to update unique constraints with the vertices that are going
-    // to be validated/committed. Use ActiveConstraints which holds the snapshot.
+    // Collect vertices to validate and their property values using ValidationProcessor.
+    // This pattern organizes entries by constraint for efficient single-accessor-per-constraint processing.
     const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
 
+    auto validation_processor = transaction_.active_constraints_.unique_->GetValidationProcessor();
     for (auto const *vertex : vertices_to_update) {
-      transaction_.active_constraints_.unique_->UpdateBeforeCommit(vertex, transaction_);
+      validation_processor.Collect(vertex);
     }
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -914,11 +914,13 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
     // aborted txn could delete one of vertices being deleted.
     auto acc = mem_storage->vertices_.access();
 
-    // TODO: UpdateBeforeCommit + Validate could be done in one pass, also use the AbortProcessor
-    //       pattern to gather, so we only require a single skip_list acccess
-    auto *mem_unique_constraints =
-        static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-    auto validation_result = mem_unique_constraints->Validate(vertices_to_update, transaction_, *commit_timestamp_);
+    // Combined validation and commit in single pass - validates each entry then inserts it.
+    // Uses single skip list accessor per constraint for both find (validation) and insert operations.
+    auto validation_result = transaction_.active_constraints_.unique_->ValidateAndCommitEntries(
+        std::move(validation_processor.validation_info_),
+        transaction_.start_timestamp,
+        &transaction_,
+        *commit_timestamp_);
     if (!validation_result.has_value()) {
       return std::unexpected{validation_result.error()};
     }
@@ -1307,13 +1309,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     if (has_any_unique_constraints && transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
       // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
-      // values. Use AbortProcessor pattern for efficient constraint-first iteration (one accessor per constraint).
+      // values. Use ValidationProcessor pattern for efficient constraint-first iteration (one accessor per constraint).
       auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-      auto abort_processor = transaction_.active_constraints_.unique_->GetAbortProcessor();
+      auto validation_processor = transaction_.active_constraints_.unique_->GetValidationProcessor();
       for (auto const *vertex : vertices_to_check) {
-        transaction_.active_constraints_.unique_->CollectForAbort(abort_processor, vertex);
+        validation_processor.Collect(vertex);
       }
-      transaction_.active_constraints_.unique_->AbortEntries(std::move(abort_processor.abortable_info_),
+      transaction_.active_constraints_.unique_->AbortEntries(std::move(validation_processor.validation_info_),
                                                              transaction_.start_timestamp);
     }
 
@@ -2133,7 +2135,7 @@ std::expected<void, StorageExistenceConstraintDroppingError> InMemoryStorage::In
 }
 
 std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
-InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
+InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, SortedPropertyIds const &properties) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Creating unique constraint requires a read only or unique access to the storage!");
@@ -2152,12 +2154,12 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
     mem_unique_constraints->PublishConstraint(label, properties, commit_ts);
   };
   transaction_.commit_callbacks_.Add(std::move(publisher));
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties.to_set());
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
 UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties) {
+    LabelId label, SortedPropertyIds const &properties) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
             "Dropping unique constraint requires a read only or unique access to the storage!");
@@ -2168,7 +2170,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties.to_set());
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
