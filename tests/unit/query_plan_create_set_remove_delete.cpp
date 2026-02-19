@@ -1379,8 +1379,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant({"label1"}, memgraph::auth::kAllPermissions);
-    user.fine_grained_access_handler().label_permissions().Grant({"label2"},
-                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().Deny({"label2"}, memgraph::auth::kAllPermissions);
     user.fine_grained_access_handler().label_permissions().Grant({"label3"}, memgraph::auth::kAllPermissions);
 
     auto storage_dba = this->db->Access(memgraph::storage::WRITE);
@@ -1562,8 +1561,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant({"label1"}, memgraph::auth::kAllPermissions);
-    user.fine_grained_access_handler().label_permissions().Grant({"label2"},
-                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().Deny({"label2"}, memgraph::auth::kAllPermissions);
     user.fine_grained_access_handler().label_permissions().Grant({"label3"}, memgraph::auth::kAllPermissions);
 
     auto storage_dba = this->db->Access(memgraph::storage::WRITE);
@@ -2273,7 +2271,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   {
     auto user = memgraph::auth::User{"denied_global"};
 
-    user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::kAllPermissions);
 
     this->SetVertexProperty(v);
     this->ExecuteSetPropertyOnVertex(user, 2);
@@ -2395,7 +2393,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
         static_cast<memgraph::auth::FineGrainedPermission>(
             memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
             memgraph::auth::FineGrainedPermission::SET_PROPERTY | memgraph::auth::FineGrainedPermission::READ));
-    user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::kAllPermissions);
 
     this->SetVertexProperty(v);
     this->ExecuteSetPropertyOnVertex(user, 2);
@@ -2438,7 +2436,7 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
 
     user.fine_grained_access_handler().label_permissions().Grant({this->vertex_label_name},
                                                                  memgraph::auth::kAllPermissions);
-    user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::kAllPermissions);
 
     this->SetVertexProperty(v);
     this->ExecuteSetPropertyOnVertex(user, 2);
