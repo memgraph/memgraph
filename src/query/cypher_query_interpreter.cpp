@@ -50,32 +50,26 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
     auto it = user_parameters.find(param_key);
     if (it != user_parameters.end()) {
       parameters.Add(param_index, it->second);
-      continue;
     }
     // Fallback to server-side parameters
-    if (server_parameters) {
-      if (!database_uuid.empty()) {
-        if (auto opt = server_parameters->GetParameter(param_key, database_uuid); opt) {
-          TypedValue value;
-          query::from_json(nlohmann::json::parse(*opt), value);
-          parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
-          continue;
-        }
-      }
-      if (auto opt = server_parameters->GetParameter(param_key, parameters::kGlobalScope); opt) {
-        TypedValue value;
-        query::from_json(nlohmann::json::parse(*opt), value);
-        parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
-      }
+    else if (auto opt = server_parameters->GetParameter(param_key, database_uuid); opt) {
+      TypedValue value;
+      query::from_json(nlohmann::json::parse(*opt), value);
+      parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+    } else if (auto opt = server_parameters->GetParameter(param_key, parameters::kGlobalScope); opt) {
+      TypedValue value;
+      query::from_json(nlohmann::json::parse(*opt), value);
+      parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+    } else {
+      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
     }
-    throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
   }
   return parameters;
 }
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       parameters::Parameters const *server_parameters, std::string_view database_uuid) {
+                       std::string_view database_uuid, parameters::Parameters const *server_parameters) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for

@@ -136,7 +136,7 @@ std::vector<ParameterInfo> Parameters::GetParameters(std::string_view database_u
 size_t Parameters::CountParameters() const { return storage_.Size(); }
 
 bool Parameters::DeleteAllParameters(system::Transaction *txn) {
-  if (!storage_.DeletePrefix("")) return false;
+  if (!storage_.DeletePrefix()) return false;
   if (txn) txn->AddAction<DeleteAllParametersAction>();
   return true;
 }

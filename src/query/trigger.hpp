@@ -40,7 +40,8 @@ struct Trigger {
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                    std::string_view db_name,
-                   TriggerPrivilegeContext privilege_context = TriggerPrivilegeContext::DEFINER);
+                   TriggerPrivilegeContext privilege_context = TriggerPrivilegeContext::DEFINER,
+                   parameters::Parameters const *server_parameters = nullptr);
 
   void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
@@ -98,13 +99,13 @@ struct TriggerStore {
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                       std::string_view db_name);
+                       std::string_view db_name, parameters::Parameters const *server_parameters = nullptr);
 
   void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
                   std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
-                  TriggerPrivilegeContext privilege_context);
+                  TriggerPrivilegeContext privilege_context, parameters::Parameters const *server_parameters = nullptr);
 
   void DropTrigger(const std::string &name);
   void DropAll();
@@ -131,7 +132,8 @@ struct TriggerStore {
  private:
   void RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                      std::string_view trigger_name, std::string_view trigger_data, std::string_view db_name);
+                      std::string_view trigger_name, std::string_view trigger_data, std::string_view db_name,
+                      parameters::Parameters const *server_parameters = nullptr);
 
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;

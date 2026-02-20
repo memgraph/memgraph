@@ -533,7 +533,7 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
       auto storage_accessor = db_acc->Access(memgraph::storage::WRITE);
       auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
       db_acc->trigger_store()->RestoreTriggers(
-          &ic->ast_cache, &dba, ic->config.query, ic->auth_checker, db_acc->name());
+          &ic->ast_cache, &dba, ic->config.query, ic->auth_checker, db_acc->name(), ic->parameters);
     }
   }
 }

@@ -173,9 +173,11 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                  TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
-                 std::string_view db_name, TriggerPrivilegeContext privilege_context)
+                 std::string_view db_name, TriggerPrivilegeContext privilege_context,
+                 parameters::Parameters const *server_parameters)
     : name_{std::move(name)},
-      parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config, nullptr, {})},
+      parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config,
+                                    std::string{db_accessor->GetStorageAccessor()->uuid()}, server_parameters)},
       event_type_{event_type},
       creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
@@ -343,7 +345,7 @@ TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move
 void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
                                   std::string_view trigger_name, std::string_view trigger_data,
-                                  std::string_view db_name) {
+                                  std::string_view db_name, parameters::Parameters const *server_parameters) {
   const auto get_failed_message = [&trigger_name = trigger_name](const std::string_view message) {
     return fmt::format("Failed to load trigger '{}'. {}", trigger_name, message);
   };
@@ -445,7 +447,8 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
                     query_config,
                     user,
                     std::string{db_name},
-                    privilege_context);
+                    privilege_context,
+                    server_parameters);
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -460,13 +463,14 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
 
 void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                                    const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                                   std::string_view db_name) {
+                                   std::string_view db_name, parameters::Parameters const *server_parameters) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
             "Cannot restore trigger when some triggers already exist!");
   spdlog::info("Loading triggers...");
 
   for (const auto &[trigger_name, trigger_data] : storage_) {
-    RestoreTrigger(query_cache, db_accessor, query_config, auth_checker, trigger_name, trigger_data, db_name);
+    RestoreTrigger(
+        query_cache, db_accessor, query_config, auth_checker, trigger_name, trigger_data, db_name, server_parameters);
   }
 }
 
@@ -474,7 +478,8 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
-                              std::string_view db_name, TriggerPrivilegeContext privilege_context) {
+                              std::string_view db_name, TriggerPrivilegeContext privilege_context,
+                              parameters::Parameters const *server_parameters) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -491,7 +496,8 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
                     query_config,
                     creator,
                     db_name,
-                    privilege_context);
+                    privilege_context,
+                    server_parameters);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;

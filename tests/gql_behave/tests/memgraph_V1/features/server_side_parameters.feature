@@ -103,6 +103,34 @@ Feature: Server-side parameters
             """
         Then the result should be empty
 
+    Scenario: Database-scoped parameter not visible from another database in query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE DATABASE db_x;
+            """
+        And having executed:
+            """
+            CREATE DATABASE db_y;
+            """
+        And having executed:
+            """
+            USE DATABASE db_x;
+            """
+        And having executed:
+            """
+            SET PARAMETER x='from_x';
+            """
+        And having executed:
+            """
+            USE DATABASE db_y;
+            """
+        When executing query:
+            """
+            CREATE (:Node {prop: $x})
+            """
+        Then an error should be raised
+
     Scenario: Use database parameter in query
         Given an empty graph
         And having executed:

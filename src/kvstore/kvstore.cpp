@@ -11,6 +11,7 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
+#include <iostream>
 
 #include "kvstore/kvstore.hpp"
 #include "kvstore/rocksdb_utils.hpp"
@@ -53,6 +54,7 @@ KVStore &KVStore::operator=(KVStore &&other) {
 }
 
 bool KVStore::Put(std::string_view key, std::string_view value) {
+  std::cout << "Put: " << key << " " << value << std::endl;
   auto s = pimpl_->db->Put(rocksdb::WriteOptions(), key, value);
   return s.ok();
 }
@@ -68,6 +70,7 @@ bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
 
 std::optional<std::string> KVStore::Get(std::string_view key) const noexcept {
   std::string value;
+  std::cout << "Get: " << key << std::endl;
   auto s = pimpl_->db->Get(rocksdb::ReadOptions(), key, &value);
   if (!s.ok()) return std::nullopt;
   return value;
@@ -88,12 +91,13 @@ bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
 }
 
 bool KVStore::DeletePrefix(const std::string &prefix) {
-  std::unique_ptr<rocksdb::Iterator> iter =
-      std::unique_ptr<rocksdb::Iterator>(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
+  rocksdb::WriteBatch batch;
+  std::unique_ptr<rocksdb::Iterator> iter(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
   for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
-    if (!pimpl_->db->Delete(rocksdb::WriteOptions(), iter->key()).ok()) return false;
+    batch.Delete(iter->key());
   }
-  return true;
+  auto s = pimpl_->db->Write(rocksdb::WriteOptions(), &batch);
+  return s.ok();
 }
 
 bool KVStore::SyncWal() {
