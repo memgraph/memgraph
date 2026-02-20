@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <cstdint>
 #include <string>
 #include <vector>
-
-#pragma once
 
 namespace memgraph::replication_coordination_glue {
 
