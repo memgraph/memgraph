@@ -1672,6 +1672,61 @@ TEST(AuthWithoutStorage, RoleSerializeDeserialize) {
   ASSERT_EQ(role, output);
 }
 
+TEST_F(AuthWithStorage, FineGrainedPermissionsGrantDenyRevoke) {
+  std::string const label = "Person";
+
+  {
+    FineGrainedAccessPermissions perms;
+    perms.Grant({label}, FineGrainedPermission::READ | FineGrainedPermission::DELETE);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::DELETE), PermissionLevel::GRANT);
+
+    perms.Deny({label}, FineGrainedPermission::DELETE);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions perms;
+    perms.Deny({label}, FineGrainedPermission::READ | FineGrainedPermission::CREATE);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+
+    perms.Grant({label}, FineGrainedPermission::READ);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions perms;
+    perms.Grant({label}, FineGrainedPermission::READ);
+    perms.Deny({label}, FineGrainedPermission::DELETE);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+
+    perms.Revoke({label}, FineGrainedPermission::READ | FineGrainedPermission::DELETE);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions perms;
+    perms.Grant({label}, FineGrainedPermission::READ | FineGrainedPermission::CREATE);
+    perms.Deny({label}, FineGrainedPermission::DELETE | FineGrainedPermission::SET_PROPERTY);
+    perms.GrantGlobal(FineGrainedPermission::SET_LABEL);
+    perms.DenyGlobal(FineGrainedPermission::REMOVE_LABEL);
+
+    perms.Revoke({label}, kAllPermissions);
+    perms.RevokeGlobal(kAllPermissions);
+
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::SET_LABEL), PermissionLevel::DENY);
+    ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::REMOVE_LABEL), PermissionLevel::DENY);
+  }
+}
+
 TEST_F(AuthWithStorage, UserWithRoleSerializeDeserialize) {
   auto role = auth->AddRole("role");
   ASSERT_TRUE(role);
