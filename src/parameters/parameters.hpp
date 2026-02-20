@@ -17,8 +17,7 @@
 
 namespace memgraph::parameters {
 
-inline constexpr std::string_view kGlobalPrefix = "global/";
-inline constexpr std::string_view kDatabasePrefix = "database/";
+inline constexpr std::string_view kGlobalScope = "global";
 
 enum class SetParameterResult : std::uint8_t {
   Success,
@@ -43,25 +42,25 @@ struct Parameters {
   explicit Parameters(const std::filesystem::path &storage_path);
 
   /**
-   * @brief Set a parameter with a given name, value, and scope context.
-   * @param scope_context Empty = global; non-empty = database UUID as string.
+   * @brief Set a parameter with a given name, value, and scope.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  SetParameterResult SetParameter(std::string_view name, std::string_view value, std::string_view scope_context,
+  SetParameterResult SetParameter(std::string_view name, std::string_view value, std::string_view scope,
                                   system::Transaction *txn = nullptr);
 
   /**
-   * @brief Get a parameter with a given name and scope context.
-   * @param scope_context Empty = global; non-empty = database UUID as string.
+   * @brief Get a parameter with a given name and scope.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
    */
-  std::optional<std::string> GetParameter(std::string_view name, std::string_view scope_context) const;
+  std::optional<std::string> GetParameter(std::string_view name, std::string_view scope) const;
 
   /**
-   * @brief Delete a parameter with a given name and scope context.
-   * @param scope_context Empty = global; non-empty = database UUID as string.
+   * @brief Delete a parameter with a given name and scope.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  bool UnsetParameter(std::string_view name, std::string_view scope_context, system::Transaction *txn = nullptr);
+  bool UnsetParameter(std::string_view name, std::string_view scope, system::Transaction *txn = nullptr);
 
   /**
    * @brief Get all global parameters.

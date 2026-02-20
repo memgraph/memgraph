@@ -22,21 +22,14 @@ namespace memgraph::parameters {
 
 namespace {
 
-std::string KeyPrefix(std::string_view scope_context) {
-  if (scope_context.empty()) return std::string(kGlobalPrefix);
-  return fmt::format("{}{}/", kDatabasePrefix, scope_context);
-}
-
-std::string MakeKey(std::string_view name, std::string_view scope_context) {
-  return fmt::format("{}{}", KeyPrefix(scope_context), name);
-}
+std::string MakeKey(std::string_view name, std::string_view scope) { return fmt::format("{}/{}", scope, name); }
 
 }  // namespace
 
 // --- System actions for replication (defined before Parameters methods that use them) ---
 
 struct SetParameterAction : memgraph::system::ISystemAction {
-  explicit SetParameterAction(std::string_view name, std::string_view value, std::string_view scope_context = {})
+  explicit SetParameterAction(std::string_view name, std::string_view value, std::string_view scope_context)
       : name_{name}, value_{value}, scope_context_{scope_context} {}
 
   void DoDurability() override { /* Done during Parameters execution */ }
@@ -63,7 +56,7 @@ struct SetParameterAction : memgraph::system::ISystemAction {
 };
 
 struct UnsetParameterAction : memgraph::system::ISystemAction {
-  explicit UnsetParameterAction(std::string_view name, std::string_view scope_context = {})
+  explicit UnsetParameterAction(std::string_view name, std::string_view scope_context)
       : name_{name}, scope_context_{scope_context} {}
 
   void DoDurability() override { /* Done during Parameters execution */ }
@@ -101,37 +94,38 @@ struct DeleteAllParametersAction : memgraph::system::ISystemAction {
 
 Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(storage_path) {}
 
-SetParameterResult Parameters::SetParameter(std::string_view name, std::string_view value,
-                                            std::string_view scope_context, system::Transaction *txn) {
-  if (!scope_context.empty() && GetParameter(name, {}).has_value()) return SetParameterResult::GlobalAlreadyExists;
-  if (!storage_.Put(MakeKey(name, scope_context), value)) return SetParameterResult::StorageError;
-  if (txn) txn->AddAction<SetParameterAction>(name, value, scope_context);
+SetParameterResult Parameters::SetParameter(std::string_view name, std::string_view value, std::string_view scope,
+                                            system::Transaction *txn) {
+  if (scope != kGlobalScope && GetParameter(name, kGlobalScope).has_value())
+    return SetParameterResult::GlobalAlreadyExists;
+  if (!storage_.Put(MakeKey(name, scope), value)) return SetParameterResult::StorageError;
+  if (txn) txn->AddAction<SetParameterAction>(name, value, scope);
   return SetParameterResult::Success;
 }
 
-std::optional<std::string> Parameters::GetParameter(std::string_view name, std::string_view scope_context) const {
-  return storage_.Get(MakeKey(name, scope_context));
+std::optional<std::string> Parameters::GetParameter(std::string_view name, std::string_view scope) const {
+  return storage_.Get(MakeKey(name, scope));
 }
 
-bool Parameters::UnsetParameter(std::string_view name, std::string_view scope_context, system::Transaction *txn) {
-  if (!storage_.Delete(MakeKey(name, scope_context))) return false;
-  if (txn) txn->AddAction<UnsetParameterAction>(name, scope_context);
+bool Parameters::UnsetParameter(std::string_view name, std::string_view scope, system::Transaction *txn) {
+  if (!storage_.Delete(MakeKey(name, scope))) return false;
+  if (txn) txn->AddAction<UnsetParameterAction>(name, scope);
   return true;
 }
 
 std::vector<ParameterInfo> Parameters::GetGlobalParameters() const {
   std::vector<ParameterInfo> parameters;
-  const std::string prefix(KeyPrefix({}));
+  const auto prefix = fmt::format("{}/", kGlobalScope);
   for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
-    parameters.emplace_back(
-        ParameterInfo{.name = it->first.substr(prefix.size()), .value = it->second, .scope_context = {}});
+    parameters.emplace_back(ParameterInfo{
+        .name = it->first.substr(prefix.size()), .value = it->second, .scope_context = std::string(kGlobalScope)});
   }
   return parameters;
 }
 
 std::vector<ParameterInfo> Parameters::GetParameters(std::string_view database_uuid) const {
   auto parameters = GetGlobalParameters();
-  const std::string prefix(KeyPrefix(database_uuid));
+  const auto prefix = fmt::format("{}/", database_uuid);
   for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
     parameters.emplace_back(ParameterInfo{
         .name = it->first.substr(prefix.size()), .value = it->second, .scope_context = std::string(database_uuid)});
@@ -142,8 +136,7 @@ std::vector<ParameterInfo> Parameters::GetParameters(std::string_view database_u
 size_t Parameters::CountParameters() const { return storage_.Size(); }
 
 bool Parameters::DeleteAllParameters(system::Transaction *txn) {
-  if (!storage_.DeletePrefix(std::string(kGlobalPrefix))) return false;
-  if (!storage_.DeletePrefix(std::string(kDatabasePrefix))) return false;
+  if (!storage_.DeletePrefix("")) return false;
   if (txn) txn->AddAction<DeleteAllParametersAction>();
   return true;
 }
@@ -157,16 +150,13 @@ bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
 }
 
 std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
-  auto out = GetGlobalParameters();
-  const std::string prefix(kDatabasePrefix);
-  for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+  std::vector<ParameterInfo> out;
+  for (auto it = storage_.begin(); it != storage_.end(); ++it) {
     const auto &key = it->first;
-    auto slash = key.find('/', prefix.size());
+    auto slash = key.find('/');
     DMG_ASSERT(slash != std::string::npos, "Corrupted parameter key: {}", key);
-    auto name = key.substr(slash + 1);
-    auto scope_context = key.substr(prefix.size(), slash - prefix.size());
     out.emplace_back(
-        ParameterInfo{.name = std::move(name), .value = it->second, .scope_context = std::move(scope_context)});
+        ParameterInfo{.name = key.substr(slash + 1), .value = it->second, .scope_context = key.substr(0, slash)});
   }
   return out;
 }

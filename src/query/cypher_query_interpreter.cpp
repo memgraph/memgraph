@@ -62,7 +62,7 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
           continue;
         }
       }
-      if (auto opt = server_parameters->GetParameter(param_key, {}); opt) {
+      if (auto opt = server_parameters->GetParameter(param_key, parameters::kGlobalScope); opt) {
         TypedValue value;
         query::from_json(nlohmann::json::parse(*opt), value);
         parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));

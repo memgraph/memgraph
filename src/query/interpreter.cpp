@@ -2758,8 +2758,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
   evaluation_context.parameters = query_parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-  const bool is_global_scope = parameter_query->is_global_scope_;
-
+  const auto is_global_scope = parameter_query->is_global_scope_;
   Callback callback;
   switch (parameter_query->action_) {
     case ParameterQuery::Action::SET_PARAMETER: {
@@ -2782,20 +2781,11 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
                      parameters = interpreter_context->parameters,
                      interpreter,
                      is_global_scope]() {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
-        }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        std::string scope_context;
-        if (!is_global_scope) {
-          if (!interpreter->current_db_.db_acc_) {
-            throw QueryRuntimeException(
-                "No current database for SET PARAMETER. Use a database or SET GLOBAL PARAMETER.");
-          }
-          scope_context = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
-        }
-        switch (
-            parameters->SetParameter(parameter_name, value_str, scope_context, &*interpreter->system_transaction_)) {
+        auto scope = is_global_scope ? std::string(parameters::kGlobalScope)
+                                     : std::string(interpreter->current_db_.db_acc_->get()->uuid());
+        auto res = parameters->SetParameter(parameter_name, value_str, scope, &*interpreter->system_transaction_);
+        switch (res) {
           case parameters::SetParameterResult::Success:
             break;
           case parameters::SetParameterResult::GlobalAlreadyExists:
@@ -2824,15 +2814,15 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
           throw QueryRuntimeException("Parameters are not available");
         }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        std::string scope_context;
+        std::string scope(parameters::kGlobalScope);
         if (!is_global_scope) {
           if (!interpreter->current_db_.db_acc_) {
             throw QueryRuntimeException(
                 "No current database for UNSET PARAMETER. Use a database or UNSET GLOBAL PARAMETER.");
           }
-          scope_context = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+          scope = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
         }
-        if (!parameters->UnsetParameter(parameter_name, scope_context, &*interpreter->system_transaction_)) {
+        if (!parameters->UnsetParameter(parameter_name, scope, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Parameter '{}' does not exist", parameter_name);
         }
         spdlog::info("Unset parameter '{}' (scope: {})", parameter_name, is_global_scope ? "global" : "database");
@@ -2857,7 +2847,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
           results.emplace_back(std::vector<TypedValue>{
               TypedValue(param.name),
               TypedValue(param.value),
-              TypedValue(param.scope_context.empty() ? parameters::kGlobalPrefix : parameters::kDatabasePrefix)});
+              TypedValue(param.scope_context == parameters::kGlobalScope ? "global" : "database")});
         }
         return results;
       };
