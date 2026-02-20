@@ -3529,13 +3529,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   // looked up using their positions within the string that was parsed. These
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
-  std::string database_uuid_str{current_db.db_acc_->get()->uuid()};
-  std::string_view database_uuid{database_uuid_str};
   ParsedQuery parsed_inner_query = ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()),
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
                                               interpreter_context->config.query,
-                                              database_uuid,
+                                              std::string{current_db.db_acc_->get()->uuid()},
                                               interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
@@ -8413,10 +8411,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     if (current_db_.db_acc_) {
       // fix parameters, enums requires storage to map to correct enum value
-      parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
-      std::string database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
-      parsed_query.parameters = PrepareQueryParameters(
-          parsed_query.stripped_query, parsed_query.user_parameters, interpreter_context_->parameters, database_uuid);
+      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query,
+                                                       parsed_query.user_parameters,
+                                                       interpreter_context_->parameters,
+                                                       std::string{current_db_.db_acc_->get()->uuid()});
     }
 
 #ifdef MG_ENTERPRISE
