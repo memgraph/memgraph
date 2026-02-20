@@ -42,7 +42,6 @@ constexpr auto kPasswordHash = "password_hash";
 
 namespace r = std::ranges;
 
-constexpr auto kGlobalPermission = "global_permission";  // legacy
 constexpr auto kGlobalGrants = "global_grants";
 constexpr auto kGlobalDenies = "global_denies";
 constexpr auto kFineGrainedPermissions = "fine_grained_permissions";
@@ -60,23 +59,7 @@ constexpr auto kSymbols = "symbols";
 constexpr auto kGranted = "granted";
 constexpr auto kDenied = "denied";
 constexpr auto kMatching = "matching";
-constexpr auto kRules = "rules";
-
-// Legacy permission bits for migration
-constexpr uint64_t kLegacyUpdateBit = 1U << 1U;  // UPDATE was bit 1 in Memgraph 3.8 and earlier
-
-// Migrate legacy permission bits to new format
-// - UPDATE (bit 1) -> SET_LABEL | REMOVE_LABEL | SET_PROPERTY
-uint64_t MigrateLegacyPermissions(uint64_t old_perms) {
-  uint64_t new_perms = old_perms;
-  if (old_perms & kLegacyUpdateBit) {
-    // Remove old UPDATE bit, add new granular bits
-    new_perms &= ~kLegacyUpdateBit;
-    new_perms |= static_cast<uint64_t>(FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
-                                       FineGrainedPermission::SET_PROPERTY);
-  }
-  return new_perms;
-}
+constexpr auto kPermissionsKey = "permissions";
 #endif
 
 // Constant list of all available permissions.
@@ -581,7 +564,7 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     rule_json[kMatching] = (rule.matching_mode == MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
     rules_json.push_back(rule_json);
   }
-  data[kRules] = rules_json;
+  data[kPermissionsKey] = rules_json;
 
   return data;
 }
@@ -600,35 +583,19 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   if (data.contains(kGlobalGrants)) {
     auto val = data.find(kGlobalGrants);
     if (val != data.end() && val->is_number_integer() && *val != -1) {
-      global_grants = MigrateLegacyPermissions(*val);
+      global_grants = *val;
     }
   }
   if (data.contains(kGlobalDenies)) {
     auto val = data.find(kGlobalDenies);
     if (val != data.end() && val->is_number_integer() && *val != -1) {
-      global_denies = MigrateLegacyPermissions(*val);
-    }
-  }
-
-  // @TODO do we need this, as our migration should handle it?
-  // Legacy format migration: global_permission -> global_grants
-  // If old format had NOTHING (0), convert to global_denies = ALL
-  if (!data.contains(kGlobalGrants) && data.contains(kGlobalPermission)) {
-    auto val = data.find(kGlobalPermission);
-    if (val != data.end() && val->is_number_integer() && *val != -1) {
-      auto old_perm = val->get<uint64_t>();
-      if (old_perm == 0) {
-        global_denies = static_cast<uint64_t>(kAllPermissions);
-      } else {
-        global_grants = MigrateLegacyPermissions(old_perm);
-      }
+      global_denies = *val;
     }
   }
 
   std::vector<FineGrainedAccessRule> rules;
 
-  auto rules_key = data.contains(kRules) ? kRules : kPermissions;
-  auto rules_json = data.find(rules_key);
+  auto rules_json = data.find(kPermissionsKey);
   if (rules_json != data.end() && rules_json->is_array()) {
     for (const auto &rule_json : *rules_json) {
       if (!rule_json.is_object()) continue;
@@ -646,16 +613,10 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
       auto denies = FineGrainedPermission::NONE;
 
       if (rule_json.contains(kGranted) && rule_json[kGranted].is_number()) {
-        auto granted_val = rule_json[kGranted].get<uint64_t>();
-        // Legacy migration: granted=0 (NOTHING) means deny all. @TODO needed?
-        if (!rule_json.contains(kDenied) && granted_val == 0) {
-          denies = kAllPermissions;
-        } else {
-          grants = static_cast<FineGrainedPermission>(MigrateLegacyPermissions(granted_val));
-        }
+        grants = static_cast<FineGrainedPermission>(rule_json[kGranted].get<uint64_t>());
       }
       if (rule_json.contains(kDenied) && rule_json[kDenied].is_number()) {
-        denies = static_cast<FineGrainedPermission>(MigrateLegacyPermissions(rule_json[kDenied].get<uint64_t>()));
+        denies = static_cast<FineGrainedPermission>(rule_json[kDenied].get<uint64_t>());
       }
 
       auto matching_mode = MatchingMode::ANY;

@@ -208,6 +208,7 @@ const std::string kVersion = "version";
 constexpr auto kVersionV1 = "V1";
 constexpr auto kVersionV2 = "V2";
 constexpr auto kVersionV3 = "V3";
+constexpr auto kVersionV4 = "V4";
 }  // namespace
 
 /**
@@ -392,6 +393,114 @@ void MigrateVersions(kvstore::KVStore &store) {
     version_str = kVersionV3;
     spdlog::info("Auth storage migration to V3 completed successfully");
   }
+
+  if (version_str == kVersionV3) {
+    spdlog::info("Migrating auth storage from V3 to V4");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV4}};
+
+    // V4 changes the fine-grained permissions JSON structure:
+    // - `global_permission` is split into `global_grants`/`global_denies`
+    // - permissions array entries gain a `denied` field
+    // - For labels: UPDATE (bit 1) expands to SET_PROPERTY | SET_LABEL | REMOVE_LABEL
+    // - For edge types: UPDATE (bit 1) becomes SET_PROPERTY (bit 1), which is the
+    //   same bit so no migration needed.
+    // - NOTHING becomes a DENY ALL
+
+    constexpr uint64_t kUpdate = 2;
+    constexpr uint64_t kSetProperty = 2;
+    constexpr uint64_t kSetLabel = 32;
+    constexpr uint64_t kRemoveLabel = 64;
+
+    // For labels: UPDATE -> SET_PROPERTY | SET_LABEL | REMOVE_LABEL
+    auto const migrate_label_permissions = [](uint64_t const v3_perm) -> uint64_t {
+      if (v3_perm & kUpdate) {
+        return (v3_perm & ~kUpdate) | kSetProperty | kSetLabel | kRemoveLabel;
+      }
+      return v3_perm;
+    };
+
+    constexpr uint64_t kAllPermissions = 123;  // READ|SET_PROPERTY|CREATE|DELETE|SET_LABEL|REMOVE_LABEL
+
+    auto const migrate_entity = [&](auto const &prefix) {
+      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
+        auto const &[key, value] = *it;
+        try {
+          auto data = nlohmann::json::parse(value);
+
+          auto const fg_it = data.find("fine_grained_permissions");
+          if (fg_it != data.end() && fg_it->is_object()) {
+            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
+              bool const is_label = std::string_view{perm_type} == "label_permissions";
+              auto const perm_it = fg_it->find(perm_type);
+              if (perm_it != fg_it->end() && perm_it->is_object()) {
+                auto &perm_data = *perm_it;
+
+                // Migrate global_permission -> global_grants/global_denies
+                auto const global_perm_it = perm_data.find("global_permission");
+                if (global_perm_it != perm_data.end()) {
+                  auto const old_perm = global_perm_it->template get<int64_t>();
+                  if (old_perm == 0) {
+                    // NOTHING -> deny all
+                    perm_data["global_grants"] = -1;
+                    perm_data["global_denies"] = kAllPermissions;
+                  } else if (old_perm == -1) {
+                    // No global permission set
+                    perm_data["global_grants"] = -1;
+                    perm_data["global_denies"] = -1;
+                  } else {
+                    auto new_perm = static_cast<uint64_t>(old_perm);
+                    if (is_label) new_perm = migrate_label_permissions(new_perm);
+                    perm_data["global_grants"] = new_perm;
+                    perm_data["global_denies"] = -1;
+                  }
+                  perm_data.erase("global_permission");
+                }
+
+                // Migrate permissions: add "denied" field, migrate permission values for labels
+                auto const perms_it = perm_data.find("permissions");
+                if (perms_it != perm_data.end() && perms_it->is_array()) {
+                  nlohmann::json new_permissions = nlohmann::json::array();
+                  for (auto const &old_rule : *perms_it) {
+                    nlohmann::json new_rule;
+                    new_rule["symbols"] = old_rule.value("symbols", nlohmann::json::array());
+                    new_rule["matching"] = old_rule.value("matching", "ANY");
+
+                    auto const granted = old_rule.value("granted", int64_t{0});
+                    if (granted == 0) {
+                      // granted=0 (NOTHING) -> deny all
+                      new_rule["granted"] = 0;
+                      new_rule["denied"] = kAllPermissions;
+                    } else {
+                      auto new_granted = static_cast<uint64_t>(granted);
+                      if (is_label) new_granted = migrate_label_permissions(new_granted);
+                      new_rule["granted"] = new_granted;
+                      new_rule["denied"] = 0;
+                    }
+                    new_permissions.push_back(std::move(new_rule));
+                  }
+                  perm_data["permissions"] = std::move(new_permissions);
+                }
+              }
+            }
+            puts.emplace(key, data.dump());
+          }
+        } catch (const nlohmann::json::exception &e) {
+          spdlog::error("Failed to migrate {}: {}", key, e.what());
+        }
+      }
+    };
+
+    migrate_entity(kUserPrefix);
+    migrate_entity(kRolePrefix);
+
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+
+    version_str = kVersionV4;
+    spdlog::info("Auth storage migration to V4 completed successfully");
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
@@ -435,7 +544,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kVersion, kVersionV3);
+    storage_.Put(kVersion, kVersionV4);
   }
 
 #ifdef MG_ENTERPRISE

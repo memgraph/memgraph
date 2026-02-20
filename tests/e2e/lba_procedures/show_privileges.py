@@ -56,7 +56,7 @@ def test_lba_procedures_show_privileges_first_user():
             "GLOBAL LABEL PERMISSION GRANTED TO USER",
         ),
         (
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE ON ALL EDGE_TYPES",
+            "CREATE, READ, SET PROPERTY, DELETE ON ALL EDGE_TYPES",
             "GRANT",
             "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER",
         ),
