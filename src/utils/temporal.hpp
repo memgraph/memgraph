@@ -271,7 +271,7 @@ struct LocalDateTime {
   explicit LocalDateTime(const std::chrono::time_point<TClock, TDuration> &time_point)
       : us_since_epoch_(std::chrono::duration_cast<std::chrono::microseconds>(time_point.time_since_epoch())) {}
 
-  explicit LocalDateTime(std::tm tm);
+  explicit LocalDateTime(std::tm tm, const std::chrono::time_zone *tz);
 
   /**
    * @brief Construct a new LocalDateTime object using local/calendar date and time.
@@ -281,7 +281,8 @@ struct LocalDateTime {
    * @param date_parameters
    * @param local_time_parameters
    */
-  explicit LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters);
+  explicit LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
+                         const std::chrono::time_zone *tz);
 
   /**
    * @brief Construct a new LocalDateTime object using local/calendar date and time.
@@ -525,7 +526,7 @@ struct ZonedDateTime {
   }
 
  public:
-  explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
+  explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters, const std::chrono::time_zone *tz);
   explicit ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::local_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
