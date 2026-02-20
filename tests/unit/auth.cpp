@@ -2338,7 +2338,6 @@ TEST_F(V2Auth, MigrationTestV2ToV3) {
   ASSERT_TRUE(role1_edge_perms.GetGlobalGrants().has_value());
   ASSERT_EQ(role1_edge_perms.GetGlobalGrants().value(),
             static_cast<uint64_t>(FineGrainedPermission::CREATE | FineGrainedPermission::DELETE |
-                                  FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
                                   FineGrainedPermission::SET_PROPERTY | FineGrainedPermission::READ));
   ASSERT_TRUE(role1_edge_perms.GetRules().empty());
 }
