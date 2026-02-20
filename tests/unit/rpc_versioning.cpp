@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "coordination/coordinator_rpc.hpp"
@@ -18,19 +17,19 @@
 
 #include "rpc_messages.hpp"
 
+#include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "slk/streams.hpp"
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
 
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
-using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
-using memgraph::slk::Load;
 using memgraph::storage::replication::HeartbeatRpc;
 
 using namespace std::string_view_literals;
@@ -221,3 +220,67 @@ TEST(RpcVersioning, StateCheckRpc) {
   }
 }
 #endif
+
+// Test: when request has 2 versions but response has only one version (no Downgrade),
+// SendFinalResponse(res, request_version=1, ...) throws because SaveWithDowngrade cannot produce v1.
+TEST(RpcVersioning, RequestTwoVersionsSingleVersionResponse_ThrowsWhenSendingV1) {
+  std::vector<uint8_t> sink;
+  memgraph::slk::Builder builder(
+      [&sink](const uint8_t *data, size_t size, bool) { sink.insert(sink.end(), data, data + size); });
+  TestResSingleVersion res;
+  EXPECT_THROW(memgraph::rpc::SaveWithDowngrade(res, 1, &builder), std::runtime_error);
+}
+
+// SystemRecoveryRpc: with ResV1 and Downgrade, both v1 and v2 requests get correct response.
+TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version,
+         auto *req_reader,
+         auto *res_builder) {
+        memgraph::replication::SystemRecoveryReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    auto stream =
+        client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
+                                                                0,
+                                                                std::vector<memgraph::storage::SalientConfig>{},
+                                                                memgraph::auth::Auth::Config{},
+                                                                std::vector<memgraph::auth::User>{},
+                                                                std::vector<memgraph::auth::Role>{},
+                                                                std::vector<memgraph::auth::UserProfiles::Profile>{});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+  }
+  {
+    auto stream =
+        client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
+                                                                0,
+                                                                std::vector<memgraph::storage::SalientConfig>{},
+                                                                memgraph::auth::Auth::Config{},
+                                                                std::vector<memgraph::auth::User>{},
+                                                                std::vector<memgraph::auth::Role>{},
+                                                                std::vector<memgraph::auth::UserProfiles::Profile>{},
+                                                                std::vector<memgraph::parameters::ParameterInfo>{});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+  }
+}

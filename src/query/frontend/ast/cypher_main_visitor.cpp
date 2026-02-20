@@ -2404,6 +2404,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->IMPERSONATE_USER()) return AuthQuery::Privilege::IMPERSONATE_USER;
   if (ctx->PROFILE_RESTRICTION()) return AuthQuery::Privilege::PROFILE_RESTRICTION;
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
+  if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -3880,6 +3881,49 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext * /*ctx*/) {
   query_ = storage_->Create<ShowConfigQuery>();
   return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "ParameterQuery should have exactly one child!");
+  auto *parameter_query = std::any_cast<ParameterQuery *>(ctx->children[0]->accept(this));
+  query_ = parameter_query;
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetParameter(MemgraphCypher::SetParameterContext *ctx) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::SET_PARAMETER;
+  parameter_query->parameter_name_ = std::any_cast<std::string>(ctx->parameterName()->symbolicName()->accept(this));
+  if (ctx->parameterValue()->literal()) {
+    parameter_query->parameter_value_ = std::any_cast<Expression *>(ctx->parameterValue()->accept(this));
+  } else if (ctx->parameterValue()->parameter()) {
+    parameter_query->parameter_value_ = std::any_cast<ParameterLookup *>(ctx->parameterValue()->accept(this));
+  } else if (ctx->parameterValue()->configMap()) {
+    parameter_query->parameter_value_ =
+        std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->parameterValue()->configMap()->accept(this));
+  } else {
+    throw SemanticException("Parameter value must be a literal, a parameter, or a config map");
+  }
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUnsetParameter(MemgraphCypher::UnsetParameterContext *ctx) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::UNSET_PARAMETER;
+  parameter_query->parameter_name_ = std::any_cast<std::string>(ctx->parameterName()->symbolicName()->accept(this));
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowParameters(MemgraphCypher::ShowParametersContext * /*ctx*/) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::SHOW_PARAMETERS;
+  return parameter_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDeleteAllParameters(MemgraphCypher::DeleteAllParametersContext * /*ctx*/) {
+  auto *parameter_query = storage_->Create<ParameterQuery>();
+  parameter_query->action_ = ParameterQuery::Action::DELETE_ALL_PARAMETERS;
+  return parameter_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) {

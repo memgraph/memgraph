@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include <nlohmann/json_fwd.hpp>
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "parameters/parameters.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 
@@ -44,7 +45,8 @@ class Telemetry final {
   void AddCollector(std::string name, FuncSig func);
 
   // Specialized collectors
-  void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth);
+  void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                           memgraph::parameters::Parameters const &parameters);
 
 #ifdef MG_ENTERPRISE
   void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler);

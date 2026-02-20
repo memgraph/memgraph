@@ -11,6 +11,8 @@
 
 #include "query/cypher_query_interpreter.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include "flags/experimental.hpp"
 #include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
@@ -26,6 +28,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
+#include "parameters/parameters.hpp"
 #include "query/plan_v2/ast_converter.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -37,36 +40,45 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            parameters::Parameters const *global_parameters) -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
-  // Check that all user-specified parameters are provided.
-  // TODO: parameters should be pre populated with user_parameters, hence positions
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
+    // Prefer user-provided parameter.
     auto it = user_parameters.find(param_key);
-
-    if (it == user_parameters.end()) {
-      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
+    if (it != user_parameters.end()) {
+      parameters.Add(param_index, it->second);
+      continue;
     }
-
-    parameters.Add(param_index, it->second);
+    // Fallback to global parameter if available.
+    if (global_parameters) {
+      auto opt = global_parameters->GetParameter(param_key, parameters::ParameterScope::GLOBAL);
+      if (opt) {
+        TypedValue value;
+        query::from_json(nlohmann::json::parse(*opt), value);
+        parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+        continue;
+      }
+    }
+    throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
   }
   return parameters;
 }
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
+                       parameters::Parameters const *global_parameters) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // get user-specified parameters
+  // get parameters (user-specified + global parameters)
   // ATM we don't need to correctly materise actual PropertyValues exepct Strings
   // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
-  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, global_parameters);
 
   // Cache the query's AST if it isn't already.
   auto hash = stripped_query.stripped_query().hash();

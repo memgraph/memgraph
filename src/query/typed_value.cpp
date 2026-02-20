@@ -16,7 +16,7 @@
 #include <cmath>
 #include <iosfwd>
 #include <memory>
-#include <ranges>
+#include <nlohmann/json.hpp>
 #include <string_view>
 #include <utility>
 
@@ -1966,6 +1966,91 @@ auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceS
       return std::nullopt;
     }
   }
+}
+
+void to_json(nlohmann::json &j, TypedValue::TVector const &value) {
+  j = nlohmann::json::array();
+  for (const auto &item : value) {
+    nlohmann::json elem;
+    to_json(elem, item);
+    j.push_back(std::move(elem));
+  }
+}
+
+void to_json(nlohmann::json &j, TypedValue::TMap const &value) {
+  j = nlohmann::json::object();
+  for (const auto &[key, val] : value) {
+    nlohmann::json elem;
+    to_json(elem, val);
+    j.emplace(std::string(key), std::move(elem));
+  }
+}
+
+void to_json(nlohmann::json &j, TypedValue const &value) {
+  switch (value.type()) {
+    case TypedValue::Type::Null:
+      j = nullptr;
+      break;
+    case TypedValue::Type::Bool:
+      j = value.ValueBool();
+      break;
+    case TypedValue::Type::Int:
+      j = value.ValueInt();
+      break;
+    case TypedValue::Type::Double:
+      j = value.ValueDouble();
+      break;
+    case TypedValue::Type::String:
+      j = value.ValueString();
+      break;
+    case TypedValue::Type::List:
+      j = value.ValueList();
+      break;
+    case TypedValue::Type::Map:
+      j = value.ValueMap();
+      break;
+    default:
+      throw utils::BasicException("Unsupported TypedValue type for JSON serialization");
+  }
+}
+
+void from_json(nlohmann::json const &j, TypedValue &value) {
+  if (j.is_null()) {
+    value = TypedValue{};
+    return;
+  }
+
+  if (j.is_boolean()) {
+    value = TypedValue(j.get<bool>());
+    return;
+  }
+
+  if (j.is_number_integer()) {
+    value = TypedValue(j.get<int64_t>());
+    return;
+  }
+
+  if (j.is_number_float()) {
+    value = TypedValue(j.get<double>());
+    return;
+  }
+
+  if (j.is_string()) {
+    value = TypedValue(j.get<std::string>());
+    return;
+  }
+
+  if (j.is_array()) {
+    value = TypedValue{j.get<std::vector<TypedValue>>()};
+    return;
+  }
+
+  if (j.is_object()) {
+    value = TypedValue{j.get<std::map<std::string, TypedValue>>()};
+    return;
+  }
+
+  throw utils::BasicException("Unsupported JSON type for TypedValue deserialization");
 }
 
 }  // namespace memgraph::query

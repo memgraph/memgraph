@@ -41,6 +41,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
@@ -357,6 +358,7 @@ int main(int argc, char **argv) {
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
+  auto parameters = std::make_shared<memgraph::parameters::Parameters>(data_directory / "parameters");
 
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
@@ -666,13 +668,12 @@ int main(int argc, char **argv) {
   //       We can now initialise the recovery of replication (which will include those subsystems)
   //       ReplicationHandler will handle the recovery
   auto replication_handler = memgraph::replication::ReplicationHandler{repl_state,
-                                                                       dbms_handler
-#ifdef MG_ENTERPRISE
-                                                                       ,
+                                                                       dbms_handler,
                                                                        system,
-                                                                       *auth_
+#ifdef MG_ENTERPRISE
+                                                                       *auth_,
 #endif
-  };
+                                                                       *parameters};
 
   auto db_acc = dbms_handler.Get();
 
@@ -698,6 +699,7 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
       settings.get(),
+      parameters.get(),
       &dbms_handler,
       repl_state,
       system,
@@ -807,7 +809,7 @@ int main(int argc, char **argv) {
                       FLAGS_data_directory,
                       std::chrono::hours(8),
                       1);
-    telemetry->AddStorageCollector(dbms_handler, *auth_);
+    telemetry->AddStorageCollector(dbms_handler, *auth_, *parameters);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
     telemetry->AddCoordinatorCollector(coordinator_state);

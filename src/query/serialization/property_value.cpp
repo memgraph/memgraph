@@ -15,7 +15,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "query/serialization/property_value.hpp"
+#include "serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
