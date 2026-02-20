@@ -72,7 +72,7 @@ bool WriteFiles(const T &paths, std::filesystem::path const &root_data_dir, repl
 }
 enum class WriteFilesError : uint8_t { WRITE_FILE_ERROR };
 
-inline auto WriteFilesErrorMsg(WriteFilesError err) -> std::string {
+inline auto WriteFilesErrorMsg(WriteFilesError err) -> std::string_view {
   switch (err) {
     case WriteFilesError::WRITE_FILE_ERROR: {
       return "Failed to load files";
@@ -84,7 +84,7 @@ inline auto WriteFilesErrorMsg(WriteFilesError err) -> std::string {
 
 using TransferDurabilityFilesError = std::variant<utils::RpcError, WriteFilesError>;
 
-inline auto TransferDurabilityFilesErrorMsg(TransferDurabilityFilesError const &global_err) -> std::string {
+inline auto TransferDurabilityFilesErrorMsg(TransferDurabilityFilesError const &global_err) -> std::string_view {
   return std::visit(utils::Overloaded{[](utils::RpcError err) { return utils::GetRpcErrorMsg(err); },
                                       [](WriteFilesError err) { return WriteFilesErrorMsg(err); }},
                     global_err);

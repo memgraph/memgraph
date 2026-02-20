@@ -386,7 +386,11 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
       });
 
       if (!maybe_stream_handler.has_value()) {
-        spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
+        if (maybe_stream_handler.error() == utils::RpcError::FAILED_TO_GET_RPC_STREAM) {
+          spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
+        } else {
+          LogRpcFailure();
+        }
         *locked_state = MAYBE_BEHIND;
         return std::nullopt;
       }
@@ -458,7 +462,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   });
 
   if (!continue_finalize) {
-    return std::unexpected{ReplicationError::GENERIC_EROR};
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   if (!replica_stream || replica_stream->IsDefunct()) {
@@ -467,7 +471,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return std::unexpected{ReplicationError::GENERIC_EROR};
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
@@ -482,7 +486,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
     if (maybe_response.error() == utils::RpcError::TIMEOUT_ERROR) {
       return std::unexpected{ReplicationError::TIMEOUT_ERROR};
     }
-    return std::unexpected{ReplicationError::GENERIC_EROR};
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   // NOLINTNEXTLINE
@@ -492,12 +496,12 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
     // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
     // MAYBE_BEHIND state if we missed next txn.
     if (state != ReplicaState::REPLICATING) {
-      return std::unexpected{ReplicationError::GENERIC_EROR};
+      return std::unexpected{ReplicationError::GENERIC_ERROR};
     }
 
     if (!response.success) {
       state = ReplicaState::MAYBE_BEHIND;
-      return std::unexpected{ReplicationError::GENERIC_EROR};
+      return std::unexpected{ReplicationError::GENERIC_ERROR};
     }
 
     auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
@@ -535,7 +539,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   });
 
   if (!continue_finalize) {
-    return std::unexpected{ReplicationError::GENERIC_EROR};
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   if (!replica_stream || replica_stream->IsDefunct()) {
@@ -544,7 +548,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
-    return std::unexpected{ReplicationError::GENERIC_EROR};
+    return std::unexpected{ReplicationError::GENERIC_ERROR};
   }
 
   auto task = [this,
@@ -563,7 +567,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       if (maybe_response.error() == utils::RpcError::TIMEOUT_ERROR) {
         return std::unexpected{ReplicationError::TIMEOUT_ERROR};
       }
-      return std::unexpected{ReplicationError::GENERIC_EROR};
+      return std::unexpected{ReplicationError::GENERIC_ERROR};
     }
     // NOLINTNEXTLINE
     return replica_state_.WithLock([this, response = *maybe_response, &replica_stream_obj, durability_commit_timestamp](
@@ -583,12 +587,12 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
       // MAYBE_BEHIND state if we missed next txn.
       if (state != ReplicaState::REPLICATING) {
-        return std::unexpected{ReplicationError::GENERIC_EROR};
+        return std::unexpected{ReplicationError::GENERIC_ERROR};
       }
 
       if (!response.success) {
         state = ReplicaState::MAYBE_BEHIND;
-        return std::unexpected{ReplicationError::GENERIC_EROR};
+        return std::unexpected{ReplicationError::GENERIC_ERROR};
       }
 
       auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
@@ -652,6 +656,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
         client_.name_,
         main_db_name);
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+    metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
     return;
   }
   auto const &steps = *maybe_steps;

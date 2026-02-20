@@ -86,7 +86,6 @@ struct ReplicationClient {
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
-  // TODO: (andi) Do you want to handle specifically error
   bool StreamAndFinalizeDelta(auto &&check, Args &&...args) {
     auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
     if (!stream.has_value()) {
@@ -127,7 +126,7 @@ struct ReplicationClient {
   // and we want to set replica to listen to main
   bool try_set_uuid{false};
 
-  enum class State {
+  enum class State : uint8_t {
     BEHIND,
     READY,
     RECOVERY,

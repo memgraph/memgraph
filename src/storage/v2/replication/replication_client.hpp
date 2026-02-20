@@ -35,7 +35,7 @@ struct Edge;
 class Storage;
 class ReplicationStorageClient;
 
-enum class ReplicationError : uint8_t { TIMEOUT_ERROR, GENERIC_EROR };
+enum class ReplicationError : uint8_t { TIMEOUT_ERROR, GENERIC_ERROR };
 
 // Handler used for transferring the current transaction.
 // You need to acquire the RPC lock before creating ReplicaStream object

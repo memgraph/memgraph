@@ -61,7 +61,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       return {};
     });
 
-    // Remember the error
+    // Last error wins approach
     if (!finalized.has_value()) {
       status.swap(finalized);
     }

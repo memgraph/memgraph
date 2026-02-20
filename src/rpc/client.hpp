@@ -152,7 +152,7 @@ class Client {
               defunct_ = true;
               self_->Shutdown();
               guard_.unlock();
-              if (result.error() == communication::ClientCommunicationError::TIMEOUT_ERROR) {
+              if (result.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
                 return std::unexpected{utils::RpcError::TIMEOUT_ERROR};
               }
               return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
@@ -243,7 +243,7 @@ class Client {
             self_->Shutdown();
             guard_.unlock();
 
-            if (result.error() == communication::ClientCommunicationError::TIMEOUT_ERROR) {
+            if (result.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
               return std::unexpected{utils::RpcError::TIMEOUT_ERROR};
             }
             return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
@@ -296,10 +296,14 @@ class Client {
       return [client, self, timeout_ms](
                  const uint8_t *data, size_t size, bool have_more) -> slk::BuilderWriteFunction::result_type {
         if (self->defunct_) return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
-        if (!client->client_->Write(data, size, have_more, timeout_ms)) {
+        auto const res = client->client_->Write(data, size, have_more, timeout_ms);
+        if (!res.has_value()) {
           self->defunct_ = true;
           client->Shutdown();
           self->guard_.unlock();
+          if (res.error() == io::network::ClientCommunicationError::TIMEOUT_ERROR) {
+            return std::unexpected{utils::RpcError::TIMEOUT_ERROR};
+          }
           return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
         }
         return {};
