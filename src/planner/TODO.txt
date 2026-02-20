@@ -1,16 +1,35 @@
 ## Core Infrastructure
-- [x] UnionFind datastructure
+- [x] UnionFind data structure
 - [x] E-node representation
 - [x] E-class representation
-- [x] E-graph structure
+- [x] E-graph structure with congruence closure
 - [x] E-graph fuzzer
-- [ ] Pattern matching engine
-- [ ] Cost model
+- [x] Pattern representation (variables, symbols, wildcards)
+- [x] Pattern builder with fluent DSL
+- [x] E-matching engine with symbol index
+- [x] Cost-based extractor
+- [x] Directory restructure (egraph/, pattern/, rewrite/, extract/)
 
-## Optimizations
-- [ ] Rule system for rewrites
+## Rewrite System
+- [x] RewriteRule with multi-pattern support
+- [x] Hash-join for multi-pattern matching
+- [x] Greedy join ordering to minimize Cartesian products
+- [x] Rewriter with equality saturation loop
+- [x] Configurable limits (iterations, e-nodes, timeout)
+- [x] Incremental matcher rebuild
+- [x] Buffer reuse (JoinContext, RewriteContext, EMatchContext)
+- [x] RuleSet immutable rule collection
+- [x] C++23 ranges for join operations
 
 ## Integration
-- [ ] Bridge to existing planner
-- [ ] Performance benchmarks
+- [x] Performance benchmarks (e-matching, rewrite)
+- [x] Inline rewrite rule (Identifier inlining)
+- [ ] Additional rewrite rules (constant folding, dead code elimination)
+- [ ] Full plan_v2 pipeline integration
+- [ ] Bridge to existing v1 planner
 - [ ] Migration strategy
+
+## Future Optimizations
+- [ ] Analysis-guided rewrites (e-class analysis)
+- [ ] Parallel rule application
+- [ ] Incremental e-graph rebuild tracking
