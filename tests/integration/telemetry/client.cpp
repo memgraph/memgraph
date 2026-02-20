@@ -53,13 +53,7 @@ int main(int argc, char **argv) {
 
   memgraph::system::System system_state;
   memgraph::parameters::Parameters parameters(data_directory / "parameters");
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           auth_,
-                                           false
-#endif
-  );
+  memgraph::dbms::DbmsHandler dbms_handler(db_config);
   memgraph::query::InterpreterContext interpreter_context_({},
                                                            nullptr,
                                                            nullptr,

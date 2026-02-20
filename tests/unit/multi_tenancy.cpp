@@ -114,7 +114,7 @@ class MultiTenantTest : public ::testing::Test {
           auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
           parameters{conf.durability.storage_directory},
           repl_state{ReplicationStateRootPath(conf)},
-          dbms{conf, auth, true},
+          dbms{conf},
           interpreter_context{{},
                               &settings,
                               &parameters,
