@@ -380,7 +380,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     std::vector<Vertex *> vertices(index_size);
     locked_index->export_keys(vertices.data(), 0, index_size);
 
-    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted; });
+    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted(); });
     encoder->WriteUint(valid_count);
 
     std::vector<float> buffer(dimension);
@@ -424,7 +424,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
         auto guard = std::shared_lock{vertex->lock};
-        return !vertex->deleted;
+        return !vertex->deleted();
       });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
@@ -449,7 +449,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index_size);
     locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
 
-    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
+    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted(); });
     for (const auto &vertex : deleted) {
       locked_index->remove(vertex);
     }
