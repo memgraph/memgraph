@@ -2850,14 +2850,14 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         if (interpreter->current_db_.db_acc_) {
           database_uuid = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
         }
-        auto all_params = parameters->GetAllParametersForSession(database_uuid);
+        auto all_params = parameters->GetAllParameters(database_uuid);
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
         for (const auto &param : all_params) {
           results.emplace_back(
               std::vector<TypedValue>{TypedValue(param.name),
                                       TypedValue(param.value),
-                                      TypedValue(parameters::ScopeContextToDisplayString(param.scope_context))});
+                                      TypedValue(param.scope_context.empty() ? "global" : "database")});
         }
         return results;
       };

@@ -99,10 +99,6 @@ struct DeleteAllParametersAction : memgraph::system::ISystemAction {
   void PostReplication(replication::RoleMainData &) const override {}
 };
 
-std::string_view ScopeContextToDisplayString(std::string_view scope_context) {
-  return scope_context.empty() ? "global" : "database";
-}
-
 Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(storage_path) {}
 
 SetParameterResult Parameters::SetParameter(std::string_view name, std::string_view value,
@@ -123,25 +119,18 @@ bool Parameters::UnsetParameter(std::string_view name, std::string_view scope_co
   return true;
 }
 
-std::vector<ParameterInfo> Parameters::GetAllParameters(std::string_view scope_context) const {
+std::vector<ParameterInfo> Parameters::GetAllParameters(std::string_view database_uuid) const {
   std::vector<ParameterInfo> parameters;
-  std::string prefix(KeyPrefix(scope_context));
-  parameters.reserve(storage_.Size(prefix));
-  for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
-    std::string param_name = it->first.substr(prefix.size());
-    parameters.emplace_back(
-        ParameterInfo{.name = std::move(param_name), .value = it->second, .scope_context = std::string(scope_context)});
-  }
-  return parameters;
-}
+  auto collect = [&](std::string_view scope) {
+    const std::string prefix(KeyPrefix(scope));
+    for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+      parameters.emplace_back(ParameterInfo{
+          .name = it->first.substr(prefix.size()), .value = it->second, .scope_context = std::string(scope)});
+    }
+  };
+  collect({});
+  if (!database_uuid.empty()) collect(database_uuid);
 
-std::vector<ParameterInfo> Parameters::GetAllParametersForSession(std::string_view database_uuid) const {
-  auto parameters = GetAllParameters({});
-  if (!database_uuid.empty()) {
-    auto db_params = GetAllParameters(database_uuid);
-    parameters.insert(
-        parameters.end(), std::make_move_iterator(db_params.begin()), std::make_move_iterator(db_params.end()));
-  }
   return parameters;
 }
 

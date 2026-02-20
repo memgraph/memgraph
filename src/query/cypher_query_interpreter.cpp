@@ -52,23 +52,20 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
       parameters.Add(param_index, it->second);
       continue;
     }
-    // Fallback to server-side parameters: database (current DB) first, then global.
+    // Fallback to server-side parameters
     if (server_parameters) {
       if (!database_uuid.empty()) {
-        auto opt = server_parameters->GetParameter(param_key, database_uuid);
-        if (opt) {
+        if (auto opt = server_parameters->GetParameter(param_key, database_uuid); opt) {
           TypedValue value;
           query::from_json(nlohmann::json::parse(*opt), value);
           parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
           continue;
         }
       }
-      auto opt = server_parameters->GetParameter(param_key, {});
-      if (opt) {
+      if (auto opt = server_parameters->GetParameter(param_key, {}); opt) {
         TypedValue value;
         query::from_json(nlohmann::json::parse(*opt), value);
         parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
-        continue;
       }
     }
     throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
