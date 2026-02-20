@@ -3816,8 +3816,6 @@ class ParameterQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::ParameterQuery::Action action_;
-  /// If true, parameter is global; if false, parameter is for the current database (SET PARAMETER vs SET GLOBAL
-  /// PARAMETER).
   bool is_global_scope_{true};
   std::string parameter_name_;
   /// SET parameter value: either a single expression (literal or parameter) or a config-style map (like WITH CONFIG).

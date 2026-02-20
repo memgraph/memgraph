@@ -24,16 +24,13 @@ namespace memgraph::parameters {
 
 enum class SetParameterResult : std::uint8_t {
   Success,
-  /// A global parameter with this name already exists; cannot set a database-scoped parameter.
   GlobalAlreadyExists,
-  /// Storage failed to persist the parameter.
   StorageError,
 };
 
 struct ParameterInfo {
   std::string name;
   std::string value;
-  /// Empty = global parameter; non-empty = database UUID (as string).
   std::string scope_context;
 };
 
@@ -69,10 +66,14 @@ struct Parameters {
   bool UnsetParameter(std::string_view name, std::string_view scope_context = {}, system::Transaction *txn = nullptr);
 
   /**
-   * @brief Get all parameters visible in a session: global plus parameters for the given database (if any).
-   * @param database_uuid Optional current database UUID as string. If empty, returns only global parameters.
+   * @brief Get all global parameters.
    */
-  std::vector<ParameterInfo> GetAllParameters(std::string_view database_uuid = {}) const;
+  std::vector<ParameterInfo> GetGlobalParameters() const;
+
+  /**
+   * @brief Get all parameters visible in a session: global plus database-scoped.
+   */
+  std::vector<ParameterInfo> GetParameters(std::string_view database_uuid) const;
 
   /**
    * @brief Return the number of parameters for a given scope.

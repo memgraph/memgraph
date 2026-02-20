@@ -119,18 +119,23 @@ bool Parameters::UnsetParameter(std::string_view name, std::string_view scope_co
   return true;
 }
 
-std::vector<ParameterInfo> Parameters::GetAllParameters(std::string_view database_uuid) const {
+std::vector<ParameterInfo> Parameters::GetGlobalParameters() const {
   std::vector<ParameterInfo> parameters;
-  auto collect = [&](std::string_view scope) {
-    const std::string prefix(KeyPrefix(scope));
-    for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
-      parameters.emplace_back(ParameterInfo{
-          .name = it->first.substr(prefix.size()), .value = it->second, .scope_context = std::string(scope)});
-    }
-  };
-  collect({});
-  if (!database_uuid.empty()) collect(database_uuid);
+  const std::string prefix(KeyPrefix({}));
+  for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+    parameters.emplace_back(
+        ParameterInfo{.name = it->first.substr(prefix.size()), .value = it->second, .scope_context = {}});
+  }
+  return parameters;
+}
 
+std::vector<ParameterInfo> Parameters::GetParameters(std::string_view database_uuid) const {
+  auto parameters = GetGlobalParameters();
+  const std::string prefix(KeyPrefix(database_uuid));
+  for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+    parameters.emplace_back(ParameterInfo{
+        .name = it->first.substr(prefix.size()), .value = it->second, .scope_context = std::string(database_uuid)});
+  }
   return parameters;
 }
 
@@ -152,20 +157,16 @@ bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
 }
 
 std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
-  std::vector<ParameterInfo> out;
-  auto global_params = GetAllParameters({});
-  out.insert(out.end(), std::make_move_iterator(global_params.begin()), std::make_move_iterator(global_params.end()));
-  // Iterate all keys with prefix "database/" to collect per-database parameters
-  static const std::string kDatabasePrefix("database/");
-  for (auto it = storage_.begin(kDatabasePrefix); it != storage_.end(kDatabasePrefix); ++it) {
-    const std::string &key = it->first;
-    // key is "database/<uuid>/<param_name>"
-    auto second_slash = key.find('/', kDatabasePrefix.size());
-    if (second_slash == std::string::npos) continue;
-    std::string scope_context = key.substr(kDatabasePrefix.size(), second_slash - kDatabasePrefix.size());
-    std::string param_name = key.substr(second_slash + 1);
+  auto out = GetGlobalParameters();
+  static const std::string prefix("database/");
+  for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
+    const auto &key = it->first;
+    auto slash = key.find('/', prefix.size());
+    DMG_ASSERT(slash != std::string::npos, "Corrupted parameter key: {}", key);
+    auto name = key.substr(slash + 1);
+    auto scope_context = key.substr(prefix.size(), slash - prefix.size());
     out.emplace_back(
-        ParameterInfo{.name = std::move(param_name), .value = it->second, .scope_context = std::move(scope_context)});
+        ParameterInfo{.name = std::move(name), .value = it->second, .scope_context = std::move(scope_context)});
   }
   return out;
 }
