@@ -214,7 +214,8 @@ class ReplicationStorageClient {
    * @param main_storage pointer to the storage associated with the client
    * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector);
+  auto UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector)
+      -> std::expected<void, utils::RpcError>;
 
   /**
    * @brief Forcefully reset storage to as it is when started from scratch.

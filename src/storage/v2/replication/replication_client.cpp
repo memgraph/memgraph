@@ -75,58 +75,51 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
                                                    utils::UUID const main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
-void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector) {
+auto ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector)
+    -> std::expected<void, utils::RpcError> {
   auto &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
-      std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
-        utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
+  auto const maybe_heartbeat_res = std::invoke([&]() -> std::expected<replication::HeartbeatRes, utils::RpcError> {
+    utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
 
-        // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
-        // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
-        // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
-        // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
-        // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
-              std::optional{kHeartbeatRpcTimeout},
-              main_uuid_,
-              main_storage->uuid(),
-              main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              std::string{main_repl_state.epoch_.id()});
+    // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
+    // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
+    // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
+    // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
+    // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
+    if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+      auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
+          std::optional{kHeartbeatRpcTimeout},
+          main_uuid_,
+          main_storage->uuid(),
+          main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+          std::string{main_repl_state.epoch_.id()});
 
-          if (!hb_stream.has_value()) {
-            return std::nullopt;
-          }
+      if (!hb_stream.has_value()) {
+        return std::unexpected{hb_stream.error()};
+      }
+      return hb_stream->SendAndWait();
+    }
 
-          if (auto const local_res = hb_stream->SendAndWait(); local_res.has_value()) {
-            return local_res.value();
-          }
-          return std::nullopt;
-        }
+    // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
+    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+        main_uuid_,
+        main_storage->uuid(),
+        main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+        std::string{main_repl_state.epoch_.id()});
 
-        // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
-        auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-            main_uuid_,
-            main_storage->uuid(),
-            main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-            std::string{main_repl_state.epoch_.id()});
+    if (!hb_stream.has_value()) {
+      return std::unexpected{hb_stream.error()};
+    }
 
-        if (!hb_stream.has_value()) {
-          return std::nullopt;
-        }
+    return hb_stream->SendAndWait();
+  });
 
-        if (auto const local_res = hb_stream.value().SendAndWait(); local_res.has_value()) {
-          return local_res.value();
-        }
-        return std::nullopt;
-      });
-
-  if (!maybe_heartbeat_res) {
+  if (!maybe_heartbeat_res.has_value()) {
     spdlog::trace("Couldn't get RPC lock while trying to UpdateReplicaState");
-    return;
+    return std::unexpected{maybe_heartbeat_res.error()};
   }
 
   auto const &heartbeat_res = *maybe_heartbeat_res;
@@ -147,7 +140,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                     std::string{main_storage->uuid()});
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
-    return;
+    return {};
 #endif
   }
 
@@ -220,7 +213,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
           state = ReplicaState::DIVERGED_FROM_MAIN;
         }
       });
-      return;
+      return {};
     }
     // When using HA, set the state to recovery and recover replica
     spdlog::debug("Found branching point on replica {} for db {}. Recovery will be executed with force reset option.",
@@ -244,7 +237,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       }
     });
 #endif
-    return;
+    return {};
   }
 
   // No branching point
@@ -274,6 +267,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                     this] { this->RecoverReplica(current_commit_timestamp, main_storage); });
     }
   });
+
+  return {};
 }
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
@@ -308,22 +303,19 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
   });
 }
 
-// TODO: (andi) Handle. Use old error message but don't catch UnsupportedRpcVersionException
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector) {
-  try {
-    UpdateReplicaState(main_storage, protector);
-  }
-  // catch (const rpc::UnsupportedRpcVersionException &) {
-  //   replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-  //   spdlog::error(
-  //       utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
-  //                              "deployed is not a compatible version.",
-  //                              client_.name_,
-  //                              client_.rpc_client_.Endpoint().SocketAddress(),
-  //                              "https://memgr.ph/replication"));
-  // }
-  catch (const rpc::RpcFailedException &) {
-    replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+  auto const res = UpdateReplicaState(main_storage, protector);
+  if (res.has_value()) return;
+
+  replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+  if (res.error() == utils::RpcError::UNSUPPORTED_RPC_VERSION_ERROR) {
+    spdlog::error(
+        utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
+                               "deployed is not a compatible version.",
+                               client_.name_,
+                               client_.rpc_client_.Endpoint().SocketAddress(),
+                               "https://memgr.ph/replication"));
+  } else {
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.",
                                          client_.name_,
                                          client_.rpc_client_.Endpoint().SocketAddress(),
@@ -372,41 +364,35 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
       return std::nullopt;
     }
     case READY: {
-      try {
-        utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
+      utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
 
-        auto maybe_stream_handler = std::invoke([&]() {
-          if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-            return client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
-                std::optional{kCommitRpcTimeout},
-                main_uuid_,
-                storage->uuid(),
-                storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-                TwoPhaseCommit(),
-                durability_commit_timestamp);
-          } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
-            return client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
-                main_uuid_,
-                storage->uuid(),
-                storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-                TwoPhaseCommit(),
-                durability_commit_timestamp);
-          }
-        });
-
-        if (!maybe_stream_handler.has_value()) {
-          spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
-          *locked_state = MAYBE_BEHIND;
-          return std::nullopt;
+      auto maybe_stream_handler = std::invoke([&]() {
+        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+          return client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
+              std::optional{kCommitRpcTimeout},
+              main_uuid_,
+              storage->uuid(),
+              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+              TwoPhaseCommit(),
+              durability_commit_timestamp);
+        } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
+          return client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
+              main_uuid_,
+              storage->uuid(),
+              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
+              TwoPhaseCommit(),
+              durability_commit_timestamp);
         }
+      });
 
-        *locked_state = REPLICATING;
-        return ReplicaStream(storage, std::move(maybe_stream_handler.value()));
-      } catch (const rpc::RpcFailedException &) {
+      if (!maybe_stream_handler.has_value()) {
+        spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
         *locked_state = MAYBE_BEHIND;
-        LogRpcFailure();
         return std::nullopt;
       }
+
+      *locked_state = REPLICATING;
+      return ReplicaStream(storage, std::move(maybe_stream_handler.value()));
     }
     default:
       LOG_FATAL("Unknown replica state when starting transaction replication.");
@@ -424,33 +410,27 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     return true;
   }
 
-  try {
-    auto const res = std::invoke([&]() -> std::expected<replication::FinalizeCommitRes, utils::RpcError> {
-      auto stream{client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(
-          std::move(replica_stream->GetStreamHandler()),
-          decision,
-          main_uuid_,
-          storage_uuid,
-          durability_commit_timestamp)};
-      if (!stream.has_value()) {
-        return std::unexpected{stream.error()};
-      }
-      return stream.value().SendAndWait();
-    });
-    if (res.has_value() && res->success) {
-      auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-      return res->success;
+  auto const res = std::invoke([&]() -> std::expected<replication::FinalizeCommitRes, utils::RpcError> {
+    auto stream{
+        client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(std::move(replica_stream->GetStreamHandler()),
+                                                                          decision,
+                                                                          main_uuid_,
+                                                                          storage_uuid,
+                                                                          durability_commit_timestamp)};
+    if (!stream.has_value()) {
+      return std::unexpected{stream.error()};
     }
-    spdlog::error("FinalizeCommitRpc failed");
-    return false;
-
-  } catch (const rpc::RpcFailedException &) {
-    // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
-    return false;
+    return stream.value().SendAndWait();
+  });
+  if (res.has_value() && res->success) {
+    auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+      return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
+    };
+    atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+    return res->success;
   }
+  spdlog::error("FinalizeCommitRpc failed");
+  return false;
 }
 
 // Only STRICT_SYNC replicas can call this function
