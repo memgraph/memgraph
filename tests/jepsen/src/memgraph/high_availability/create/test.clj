@@ -59,15 +59,6 @@
         sim (- 1 (/ (+ elemwise-diff size-diff) max-size))]
     sim))
 
-(defn jaccard-sim
-  "Calculates Jaccard similarity between two input sequences."
-  [seq1 seq2]
-  (let [seq1-set (set seq1)
-        seq2-set (set seq2)
-        jaccard-int (set/intersection seq1-set seq2-set)
-        jaccard-un (set/union seq1-set seq2-set)
-        sim (/ (count jaccard-int) (count jaccard-un))]
-    sim))
 
 (defn duplicates
   "Function returns all duplicated values from the sequence seq. The input seq doesn't need to be sorted."
@@ -319,7 +310,7 @@
                                      (assoc op :type :ok :value {:str "Unique constraint was violated."})
 
                                      (utils/cannot-get-shared-access? e)
-                                     (assoc op :type :ok :value {:str "Cannot get shared access storage."})
+                                     (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
 
                                      (or (utils/query-forbidden-on-replica? e)
                                          (utils/query-forbidden-on-main? e))
@@ -441,7 +432,6 @@
 
             n1-hamming-consistency (hamming-sim expected-ids n1-ids)
 
-            n1-jaccard-consistency (jaccard-sim expected-ids n1-ids)
 
             n2-ids (->> ok-get-nodes
                         (filter #(= "n2" (:node %)))
@@ -460,8 +450,6 @@
 
             n2-hamming-consistency (hamming-sim expected-ids n2-ids)
 
-            n2-jaccard-consistency (jaccard-sim expected-ids n2-ids)
-
             n3-ids (->> ok-get-nodes
                         (filter #(= "n3" (:node %)))
                         first
@@ -478,8 +466,6 @@
             n3-duplicates-intervals (sequence->intervals n3-duplicates)
 
             n3-hamming-consistency (hamming-sim expected-ids n3-ids)
-
-            n3-jaccard-consistency (jaccard-sim expected-ids n3-ids)
 
             failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
@@ -540,7 +526,6 @@
                                      (empty? n1-missing-intervals)
                                      (empty? n2-missing-intervals)
                                      (empty? n3-missing-intervals)
-                                     (= n1-jaccard-consistency n2-jaccard-consistency n3-jaccard-consistency 1)
                                      (= n1-hamming-consistency n2-hamming-consistency n3-hamming-consistency 1)
                                      (= n1-max-idx n2-max-idx n3-max-idx))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
@@ -548,17 +533,14 @@
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
                             :empty-n1-duplicates? (empty? n1-duplicates)
                             :n1-hamming-consistency (float n1-hamming-consistency)
-                            :n1-jaccard-consistency (float n1-jaccard-consistency)
                             :n1-max-idx n1-max-idx
                             :empty-n1-missing-intervals? (empty? n1-missing-intervals)
                             :empty-n2-duplicates? (empty? n2-duplicates)
                             :n2-hamming-consistency (float n2-hamming-consistency)
-                            :n2-jaccard-consistency (float n2-jaccard-consistency)
                             :n2-max-idx n2-max-idx
                             :empty-n2-missing-intervals? (empty? n2-missing-intervals)
                             :empty-n3-duplicates? (empty? n3-duplicates)
                             :n3-hamming-consistency (float n3-hamming-consistency)
-                            :n3-jaccard-consistency (float n3-jaccard-consistency)
                             :n3-max-idx n3-max-idx
                             :empty-n3-missing-intervals? (empty? n3-missing-intervals)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
