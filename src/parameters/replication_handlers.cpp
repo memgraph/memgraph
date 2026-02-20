@@ -14,7 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include "parameters/parameters.hpp"
-#include "parameters/parameters_rpc.hpp"
+#include "parameters/rpc.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "rpc/utils.hpp"
 

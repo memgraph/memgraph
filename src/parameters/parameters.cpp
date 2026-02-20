@@ -12,7 +12,7 @@
 #include <fmt/format.h>
 
 #include "parameters/parameters.hpp"
-#include "parameters/parameters_rpc.hpp"
+#include "parameters/rpc.hpp"
 #include "replication/include/replication/replication_client.hpp"
 #include "replication/include/replication/state.hpp"
 #include "system/include/system/action.hpp"
@@ -23,8 +23,8 @@ namespace memgraph::parameters {
 namespace {
 
 std::string KeyPrefix(std::string_view scope_context) {
-  if (scope_context.empty()) return "global/";
-  return fmt::format("database/{}/", scope_context);
+  if (scope_context.empty()) return std::string(kGlobalPrefix);
+  return fmt::format("{}{}/", kDatabasePrefix, scope_context);
 }
 
 std::string MakeKey(std::string_view name, std::string_view scope_context) {
@@ -142,8 +142,8 @@ std::vector<ParameterInfo> Parameters::GetParameters(std::string_view database_u
 size_t Parameters::CountParameters() const { return storage_.Size(); }
 
 bool Parameters::DeleteAllParameters(system::Transaction *txn) {
-  if (!storage_.DeletePrefix("global/")) return false;
-  if (!storage_.DeletePrefix("database/")) return false;
+  if (!storage_.DeletePrefix(std::string(kGlobalPrefix))) return false;
+  if (!storage_.DeletePrefix(std::string(kDatabasePrefix))) return false;
   if (txn) txn->AddAction<DeleteAllParametersAction>();
   return true;
 }
@@ -158,7 +158,7 @@ bool Parameters::ApplyRecovery(const std::vector<ParameterInfo> &params) {
 
 std::vector<ParameterInfo> Parameters::GetSnapshotForRecovery() const {
   auto out = GetGlobalParameters();
-  static const std::string prefix("database/");
+  const std::string prefix(kDatabasePrefix);
   for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
     const auto &key = it->first;
     auto slash = key.find('/', prefix.size());

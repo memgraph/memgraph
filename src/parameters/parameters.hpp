@@ -11,16 +11,14 @@
 
 #pragma once
 
-#include <cstdint>
-#include <optional>
-#include <string>
-#include <vector>
-
 #include "kvstore/kvstore.hpp"
 #include "system/state.hpp"
 #include "system/transaction.hpp"
 
 namespace memgraph::parameters {
+
+inline constexpr std::string_view kGlobalPrefix = "global/";
+inline constexpr std::string_view kDatabasePrefix = "database/";
 
 enum class SetParameterResult : std::uint8_t {
   Success,
@@ -49,21 +47,21 @@ struct Parameters {
    * @param scope_context Empty = global; non-empty = database UUID as string.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  SetParameterResult SetParameter(std::string_view name, std::string_view value, std::string_view scope_context = {},
+  SetParameterResult SetParameter(std::string_view name, std::string_view value, std::string_view scope_context,
                                   system::Transaction *txn = nullptr);
 
   /**
    * @brief Get a parameter with a given name and scope context.
    * @param scope_context Empty = global; non-empty = database UUID as string.
    */
-  std::optional<std::string> GetParameter(std::string_view name, std::string_view scope_context = {}) const;
+  std::optional<std::string> GetParameter(std::string_view name, std::string_view scope_context) const;
 
   /**
    * @brief Delete a parameter with a given name and scope context.
    * @param scope_context Empty = global; non-empty = database UUID as string.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  bool UnsetParameter(std::string_view name, std::string_view scope_context = {}, system::Transaction *txn = nullptr);
+  bool UnsetParameter(std::string_view name, std::string_view scope_context, system::Transaction *txn = nullptr);
 
   /**
    * @brief Get all global parameters.
@@ -71,7 +69,7 @@ struct Parameters {
   std::vector<ParameterInfo> GetGlobalParameters() const;
 
   /**
-   * @brief Get all parameters visible in a session: global plus database-scoped.
+   * @brief Get all parameters for a given database.
    */
   std::vector<ParameterInfo> GetParameters(std::string_view database_uuid) const;
 

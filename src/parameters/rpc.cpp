@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "parameters/parameters_rpc.hpp"
+#include "parameters/rpc.hpp"
 
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"

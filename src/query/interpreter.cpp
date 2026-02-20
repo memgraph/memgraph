@@ -2854,10 +2854,10 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
         for (const auto &param : all_params) {
-          results.emplace_back(
-              std::vector<TypedValue>{TypedValue(param.name),
-                                      TypedValue(param.value),
-                                      TypedValue(param.scope_context.empty() ? "global" : "database")});
+          results.emplace_back(std::vector<TypedValue>{
+              TypedValue(param.name),
+              TypedValue(param.value),
+              TypedValue(param.scope_context.empty() ? parameters::kGlobalPrefix : parameters::kDatabasePrefix)});
         }
         return results;
       };
