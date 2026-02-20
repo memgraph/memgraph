@@ -228,7 +228,10 @@ TEST(RpcVersioning, StateCheckRpc) {
 TEST(RpcVersioning, RequestTwoVersionsSingleVersionResponse_ThrowsWhenSendingV1) {
   std::vector<uint8_t> sink;
   memgraph::slk::Builder builder(
-      [&sink](const uint8_t *data, size_t size, bool) { sink.insert(sink.end(), data, data + size); });
+      [&sink](const uint8_t *data, size_t size, bool) -> std::expected<void, memgraph::utils::RpcError> {
+        sink.insert(sink.end(), data, data + size);
+        return {};
+      });
   TestResSingleVersion res;
   EXPECT_THROW(memgraph::rpc::SaveWithDowngrade(res, 1, &builder), std::runtime_error);
 }
@@ -269,8 +272,8 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
                                                                 std::vector<memgraph::auth::User>{},
                                                                 std::vector<memgraph::auth::Role>{},
                                                                 std::vector<memgraph::auth::UserProfiles::Profile>{});
-    auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+    auto reply = stream.value().SendAndWait();
+    EXPECT_EQ(reply.value().result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }
   {
     auto stream =
@@ -282,7 +285,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
                                                                 std::vector<memgraph::auth::Role>{},
                                                                 std::vector<memgraph::auth::UserProfiles::Profile>{},
                                                                 std::vector<memgraph::parameters::ParameterInfo>{});
-    auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+    auto reply = stream.value().SendAndWait();
+    EXPECT_EQ(reply.value().result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }
 }
