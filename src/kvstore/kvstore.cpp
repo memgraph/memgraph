@@ -11,7 +11,6 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
-#include <iostream>
 
 #include "kvstore/kvstore.hpp"
 #include "kvstore/rocksdb_utils.hpp"
@@ -55,7 +54,6 @@ KVStore &KVStore::operator=(KVStore &&other) {
 
 bool KVStore::Put(std::string_view key, std::string_view value) {
   auto s = pimpl_->db->Put(rocksdb::WriteOptions(), key, value);
-  std::cout << "Put " << key << " " << value << " " << s.ok() << std::endl;
   return s.ok();
 }
 
@@ -71,7 +69,6 @@ bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
 std::optional<std::string> KVStore::Get(std::string_view key) const noexcept {
   std::string value;
   auto s = pimpl_->db->Get(rocksdb::ReadOptions(), key, &value);
-  std::cout << "Get " << key << " " << value << " " << s.ok() << std::endl;
   if (!s.ok()) return std::nullopt;
   return value;
 }
