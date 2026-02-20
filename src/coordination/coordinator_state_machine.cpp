@@ -17,6 +17,7 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
@@ -172,6 +173,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   add_if_set(kSyncFailoverOnly, delta_state.sync_failover_only_);
   add_if_set(kMaxFailoverLagOnReplica, delta_state.max_failover_replica_lag_);
   add_if_set(kMaxReplicaReadLag, delta_state.max_replica_read_lag_);
+  add_if_set(kDeltasBatchProgressSize, delta_state.deltas_batch_progress_size_);
 
   return CreateLog(delta_state_json);
 }
@@ -218,6 +220,12 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
     if (json.contains(kMaxReplicaReadLag.data())) {
       auto const max_replica_read_lag = json.value(kMaxReplicaReadLag.data(), std::numeric_limits<uint64_t>::max());
       delta_state.max_replica_read_lag_ = max_replica_read_lag;
+    }
+
+    if (json.contains(kDeltasBatchProgressSize.data())) {
+      auto const deltas_batch_progress_size =
+          json.value(kDeltasBatchProgressSize.data(), replication_coordination_glue::kDefaultDeltasBatchProgressSize);
+      delta_state.deltas_batch_progress_size_ = deltas_batch_progress_size;
     }
 
     return delta_state;
@@ -410,6 +418,10 @@ auto CoordinatorStateMachine::GetMaxFailoverReplicaLag() const -> uint64_t {
 }
 
 auto CoordinatorStateMachine::GetMaxReplicaReadLag() const -> uint64_t { return cluster_state_.GetMaxReplicaReadLag(); }
+
+auto CoordinatorStateMachine::GetDeltasBatchProgressSize() const -> uint64_t {
+  return cluster_state_.GetDeltasBatchProgressSize();
+}
 
 }  // namespace memgraph::coordination
 #endif
