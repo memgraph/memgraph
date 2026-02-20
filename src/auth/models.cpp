@@ -226,9 +226,6 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
   if (permission & FineGrainedPermission::READ) {
     permissions.emplace_back("READ");
   }
-  if (permission & FineGrainedPermission::DELETE) {
-    permissions.emplace_back("DELETE");
-  }
   if (permission & FineGrainedPermission::SET_LABEL) {
     permissions.emplace_back("SET_LABEL");
   }
@@ -237,6 +234,9 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
   }
   if (permission & FineGrainedPermission::SET_PROPERTY) {
     permissions.emplace_back("SET_PROPERTY");
+  }
+  if (permission & FineGrainedPermission::DELETE) {
+    permissions.emplace_back("DELETE");
   }
 
   return utils::Join(permissions, ", ");
