@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,15 @@
 
 #pragma once
 
+#include <expected>
 #include <optional>
 #include <utility>
 
 #include "io/network/endpoint.hpp"
 
 namespace memgraph::io::network {
+
+enum class ClientCommunicationError : uint8_t { TIMEOUT_ERROR, GENERIC_ERROR };
 
 /**
  * This class creates a network socket.
@@ -150,8 +153,10 @@ class Socket {
    *             false if write failed
    */
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
-  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
+  auto Write(const uint8_t *data, size_t len, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
+  auto Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
 
   /**
    * Read data from the socket.

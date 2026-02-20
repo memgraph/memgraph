@@ -29,19 +29,16 @@ namespace memgraph::utils {
 enum class RpcError : uint8_t {
   UNSUPPORTED_RPC_VERSION_ERROR,
   GENERIC_RPC_ERROR,
-  SLK_RPC_ERROR,
   FAILED_TO_GET_RPC_STREAM,
   TIMEOUT_ERROR
 };
 
-inline auto GetRpcErrorMsg(RpcError error) -> std::string {
+inline auto GetRpcErrorMsg(RpcError error) -> std::string_view {
   switch (error) {
     case RpcError::UNSUPPORTED_RPC_VERSION_ERROR:
       return "UnsupportedRpcVersionError";
     case RpcError::GENERIC_RPC_ERROR:
       return "GenericRpcError";
-    case RpcError::SLK_RPC_ERROR:
-      return "SlkRpcError";
     case RpcError::FAILED_TO_GET_RPC_STREAM:
       return "FailedToGetRpcStream";
     case RpcError::TIMEOUT_ERROR:
