@@ -37,7 +37,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                    replica_stream);
     // NOLINTNEXTLINE
-    auto const finalized = std::invoke([&]() -> std::expected<void, ReplicationError> {
+    auto finalized = std::invoke([&]() -> std::expected<void, ReplicationError> {
       // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
       // NOLINTNEXTLINE
       if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
@@ -63,7 +63,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 
     // Remember the error
     if (!finalized.has_value()) {
-      status = finalized;
+      status.swap(finalized);
     }
   }
   return status;
@@ -84,10 +84,8 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
-        // We don't need to check specifically status for async replication because task runs in background and here we
-        // always return status code OK.
-        DMG_ASSERT(
-            client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp));
+        // NOLINTNEXTLINE
+        client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp);
       } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
         // We should only do this if we own the RPC lock.
