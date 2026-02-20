@@ -15,6 +15,7 @@
 #include <string>
 
 #include <nlohmann/json_fwd.hpp>
+#include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
 #include "parameters/parameters.hpp"

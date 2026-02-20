@@ -638,13 +638,7 @@ int main(int argc, char **argv) {
 
 #endif
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           *auth_,
-                                           FLAGS_data_recovery_on_startup
-#endif
-  );
+  memgraph::dbms::DbmsHandler dbms_handler(db_config);
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
