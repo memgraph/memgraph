@@ -59,7 +59,7 @@ inline bool EdgeWasCreatedThisTransaction(Edge *edge, uint64_t current_commit_ti
   for (Delta *delta = edge->delta; delta != nullptr; delta = delta->next.load(std::memory_order_acquire)) {
     const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     if (ts != current_commit_timestamp) break;
-    if (delta->action == Delta::Action::RECREATE_OBJECT) {
+    if (delta->action == Delta::Action::DELETE_OBJECT) {
       return true;
     }
   }

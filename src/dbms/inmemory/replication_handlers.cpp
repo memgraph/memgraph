@@ -32,6 +32,8 @@
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 
+import memgraph.utils.fnv;
+
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
@@ -1157,7 +1159,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   struct EdgeSetPropertyCacheKeyHash {
     size_t operator()(const EdgeSetPropertyCacheKey &k) const {
-      return std::hash<uint64_t>{}(k.edge_gid) ^ (std::hash<uint64_t>{}(k.delta_timestamp) << 1);
+      return utils::HashCombine<uint64_t, uint64_t>{}(k.edge_gid, k.delta_timestamp);
     }
   };
 
@@ -1382,7 +1384,15 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
             if (data.from_gid.has_value()) {
+              // Newer versions store to_gid and edge_type when needed, so we can use the faster path via FindEdge.
               if (data.to_gid.has_value() && data.edge_type.has_value()) {
+                if (*data.to_gid == storage::kInvalidGid || data.edge_type->empty()) {
+                  // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
+                  // edge type in case the edge was created in this transaction. We should either be using the cached
+                  // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
+                  // type.
+                  throw utils::BasicException("Invalid to vertex or edge type when setting edge property.");
+                }
                 auto to_vertex = transaction->FindVertex(*data.to_gid, View::NEW);
                 if (!to_vertex)
                   throw utils::BasicException("Failed to find to vertex {} when setting edge property.",
@@ -1417,8 +1427,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                 throw utils::BasicException(
                     "Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid, from_vertex->gid.AsUint());
               }
-              const auto &[et, vt, er] = *found_edge;
-              return std::tuple{er, et, &*from_vertex, vt};
+              const auto &[edge_type, vertex_to, edge_ref] = *found_edge;
+              return std::tuple{edge_ref, edge_type, &*from_vertex, vertex_to};
             }
             auto found_edge = storage->FindEdge(edge->gid);
             if (!found_edge) {
@@ -1433,7 +1443,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto const &[er, et, fv, tv] = *edge_info;
           EdgeAccessor ea{er, et, fv, tv, storage, &transaction->GetTransaction()};
-          edge_set_property_cache.emplace(cache_key, ea);
+          edge_set_property_cache.emplace(cache_key, ea);  // Fast edge accessor lookup cache
           auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (!ret) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
@@ -1454,7 +1464,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
-          edge_set_property_cache.clear();
           if (!commit_accessor || commit_timestamp != delta_timestamp) {
             throw utils::BasicException("Invalid commit data!");
           }

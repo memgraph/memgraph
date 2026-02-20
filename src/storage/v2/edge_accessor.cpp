@@ -14,6 +14,7 @@
 #include <ranges>
 #include <tuple>
 
+#include "flags/general.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
@@ -38,9 +39,12 @@ void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, Edge *edge, 
                                           EdgeTypeId edge_type_id, PropertyId property,
                                           const PropertyValue &old_value) {
   CreateAndLinkDelta(transaction, edge, Delta::SetPropertyTag(), from_vertex, property, old_value);
-  // Always record in-vertex and edge type so replication delta includes to_gid and edge_type.
-  transaction->RecordEdgeSetPropertyInVertex(edge->gid, to_vertex->gid);
-  transaction->RecordEdgeSetPropertyEdgeType(edge->gid, edge_type_id);
+  // No need to record the edge set property info if the edge was created in this transaction
+  // The edge set property info is only used to speed up the edge search, during recovery/replication.
+  if (FLAGS_storage_wal_enabled &&
+      !EdgeWasCreatedThisTransaction(edge, transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
+    transaction->RecordEdgeSetPropertyInfo(edge->gid, to_vertex->gid, edge_type_id);
+  }
 }
 }  // namespace
 
