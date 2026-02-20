@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,6 +56,7 @@ constexpr auto kEnabledReadsOnMain = "enabled_reads_on_main"sv;
 constexpr auto kSyncFailoverOnly = "sync_failover_only"sv;
 constexpr auto kMaxFailoverLagOnReplica = "max_failover_replica_lag"sv;
 constexpr auto kMaxReplicaReadLag = "max_replica_read_lag"sv;
+constexpr auto kDeltasBatchProgressSize = "deltas_batch_progress_size"sv;
 
 // cluster state
 constexpr int MAX_SNAPSHOTS = 3;

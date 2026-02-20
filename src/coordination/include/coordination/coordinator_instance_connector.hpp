@@ -14,9 +14,6 @@
 #pragma once
 
 #include "coordination/coordinator_instance_client.hpp"
-#include "coordination/instance_status.hpp"
-#include "coordination/replication_lag_info.hpp"
-#include "coordination/utils.hpp"
 
 namespace memgraph::coordination {
 
@@ -24,20 +21,15 @@ class CoordinatorInstanceConnector {
  public:
   explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
 
-  auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
-
-  auto SendGetRoutingTable(std::string_view db_name) const -> std::optional<RoutingTable>;
-
-  auto SendShowReplicationLag() const -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
-
   template <rpc::IsRpc Rpc, typename... Args>
-  auto SendBoolRpc(Args &&...args) -> bool {
+  auto SendRpc(Args &&...args) {
+    using ReturnType = decltype(std::declval<typename Rpc::Response>().arg_);
     try {
       auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
-      return stream.SendAndWait().success_;
+      return stream.SendAndWait().arg_;
     } catch (std::exception const &e) {
       spdlog::error("Failed to receive response to {}: {}", Rpc::Request::kType.name, e.what());
-      return false;
+      return ReturnType{};
     }
   }
 

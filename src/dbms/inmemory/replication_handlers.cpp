@@ -166,8 +166,6 @@ void ProcessOldDurableFiles(bool const reset_needed, std::filesystem::path const
   }
 }
 
-constexpr uint32_t kDeltasBatchProgressSize = 100'000;
-
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
@@ -235,13 +233,13 @@ void InMemoryReplicationHandlers::Register(
             dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
-      [&current_main_uuid, dbms_handler](
+      [&current_main_uuid, dbms_handler, &repl_state](
           std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
           auto *req_reader,
           auto *res_builder) {
         InMemoryReplicationHandlers::PrepareCommitHandler(
-            dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
+            repl_state, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
       [&current_main_uuid, dbms_handler](
@@ -262,22 +260,34 @@ void InMemoryReplicationHandlers::Register(
             *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
-      [&current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                                         uint64_t const request_version,
-                                         auto *req_reader,
-                                         auto *res_builder) {
+      [&current_main_uuid, dbms_handler, &repl_state](
+          std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for WalFilesHandler");
-        InMemoryReplicationHandlers::WalFilesHandler(
-            *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
+        InMemoryReplicationHandlers::WalFilesHandler(repl_state,
+                                                     *file_replication_handler,
+                                                     dbms_handler,
+                                                     current_main_uuid,
+                                                     request_version,
+                                                     req_reader,
+                                                     res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
-      [&current_main_uuid, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
-                                         uint64_t const request_version,
-                                         auto *req_reader,
-                                         auto *res_builder) {
+      [&current_main_uuid, dbms_handler, &repl_state](
+          std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
         MG_ASSERT(file_replication_handler.has_value(), "File replication handle not prepared for CurrentWalHandler");
-        InMemoryReplicationHandlers::CurrentWalHandler(
-            *file_replication_handler, dbms_handler, current_main_uuid, request_version, req_reader, res_builder);
+        InMemoryReplicationHandlers::CurrentWalHandler(repl_state,
+                                                       *file_replication_handler,
+                                                       dbms_handler,
+                                                       current_main_uuid,
+                                                       request_version,
+                                                       req_reader,
+                                                       res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&repl_state](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
@@ -367,10 +377,10 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 }
 
-void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_handler,
-                                                       utils::UUID const &current_main_uuid,
-                                                       uint64_t const request_version, slk::Reader *req_reader,
-                                                       slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::PrepareCommitHandler(
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t const request_version,
+    slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::PrepareCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -431,12 +441,18 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
+  auto const deltas_batch_progress_size = std::invoke([&repl_state]() -> uint64_t {
+    auto const locked_repl_state = repl_state.ReadLock();
+    return locked_repl_state->GetDeltasBatchProgressSize();
+  });
+
   auto deltas_res = ReadAndApplyDeltasSingleTxn(storage,
                                                 &decoder,
                                                 storage::durability::kVersion,
                                                 res_builder,
                                                 /*two_phase_commit*/ req.two_phase_commit,
-                                                /*loading_wal*/ false);
+                                                /*loading_wal*/ false,
+                                                /*deltas_batch_progress_size*/ deltas_batch_progress_size);
 
   storage::replication::PrepareCommitRes res{false};
   if (deltas_res) {
@@ -711,10 +727,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 // If loading all WAL files succeeded then main can continue recovery if it should send more recovery steps.
 // If loading one of WAL files partially succeeded, then recovery cannot be continue but commit timestamp can be
 // obtained.
-void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler const &file_replication_handler,
-                                                  dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                                                  uint64_t const request_version, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::WalFilesHandler(
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
+    utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
+    slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -781,7 +798,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   uint64_t num_committed_txns{0};
   for (auto i = 0UL; i < wal_file_number; ++i) {
     const auto [success, current_batch_counter, num_txns_committed] =
-        LoadWal(active_files[i], storage, res_builder, local_batch_counter);
+        LoadWal(repl_state, active_files[i], storage, res_builder, local_batch_counter);
 
     if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
@@ -811,11 +828,11 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
 // 2.) UUID sent with the request is not the current MAIN's UUID which replica is listening to
 // If loading WAL file partially succeeded then we shouldn't continue recovery but commit timestamp can be updated on
 // main
-void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler const &file_replication_handler,
-                                                    dbms::DbmsHandler *dbms_handler,
-                                                    utils::UUID const &current_main_uuid,
-                                                    uint64_t const request_version, slk::Reader *req_reader,
-                                                    slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::CurrentWalHandler(
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
+    utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
+    slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -874,7 +891,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
   // When loading a single WAL file, we don't care about saving number of deltas
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
-  auto const load_wal_res = LoadWal(active_files[0], storage, res_builder);
+  auto const load_wal_res = LoadWal(repl_state, active_files[0], storage, res_builder);
   if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
@@ -902,10 +919,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
 // 4.) If reading WAL info fails
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
-InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(std::filesystem::path const &wal_path,
-                                                                                storage::InMemoryStorage *storage,
-                                                                                slk::Builder *res_builder,
-                                                                                uint32_t const start_batch_counter) {
+InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    std::filesystem::path const &wal_path, storage::InMemoryStorage *storage, slk::Builder *res_builder,
+    uint32_t const start_batch_counter) {
   spdlog::trace("Received WAL saved to {}", wal_path);
 
   std::optional<storage::durability::WalInfo> maybe_wal_info;
@@ -961,6 +978,11 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 
   wal_decoder.SetPosition(wal_info.offset_deltas);
 
+  auto const deltas_batch_progress_size = std::invoke([&repl_state]() -> uint64_t {
+    auto const locked_repl_state = repl_state.ReadLock();
+    return locked_repl_state->GetDeltasBatchProgressSize();
+  });
+
   uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
   for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
@@ -971,6 +993,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
                                                         res_builder,
                                                         /*two_phase_commit*/ false,
                                                         /*loading_wal*/ true,
+                                                        deltas_batch_progress_size,
                                                         local_batch_counter);
     if (deltas_res) {
       local_delta_idx += deltas_res->current_delta_idx;
@@ -989,7 +1012,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 // The number of applied deltas also includes skipped deltas.
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    slk::Builder *res_builder, bool const two_phase_commit, bool const loading_wal,
+    slk::Builder *res_builder, bool const two_phase_commit, bool const loading_wal, uint64_t deltas_batch_progress_size,
     uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
@@ -1063,7 +1086,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   uint64_t prev_printed_timestamp = 0;
 
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
-    if (current_batch_counter == kDeltasBatchProgressSize) {
+    if (current_batch_counter == deltas_batch_progress_size) {
       rpc::SendInProgressMsg(res_builder);
       current_batch_counter = 0;
     }
