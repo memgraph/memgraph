@@ -123,9 +123,11 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   }
 
   if (ts < transaction->start_timestamp) {
-    if (object->has_uncommitted_non_sequential_deltas()) {
-      transaction->has_serialization_error = true;
-      return false;
+    if constexpr (requires { object->has_uncommitted_non_sequential_deltas(); }) {
+      if (object->has_uncommitted_non_sequential_deltas()) {
+        transaction->has_serialization_error = true;
+        return false;
+      }
     }
     return true;
   }
@@ -156,9 +158,11 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     if (ts < transaction->start_timestamp) {
       // Its possible that the commited delta we are looking at is part of a NonSequential block
       // Use the has_uncommitted_non_sequential_deltas flag as our indicator
-      if (object->has_uncommitted_non_sequential_deltas()) {
-        transaction->has_non_sequential_deltas = true;
-        return WriteResult::NON_SEQUENTIAL;
+      if constexpr (requires { object->has_uncommitted_non_sequential_deltas(); }) {
+        if (object->has_uncommitted_non_sequential_deltas()) {
+          transaction->has_non_sequential_deltas = true;
+          return WriteResult::NON_SEQUENTIAL;
+        }
       }
       // Standard MVCC visibility rules: if the head delta was committed before
       // this transaction started, any delta action can be prepended.
@@ -173,7 +177,9 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     // non-sequential delta.
     if (IsDeltaNonSequential(*object->delta())) {
       transaction->has_non_sequential_deltas = true;
-      object->set_has_uncommitted_non_sequential_deltas(true);
+      if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
+        object->set_has_uncommitted_non_sequential_deltas(true);
+      }
       return WriteResult::NON_SEQUENTIAL;
     }
 
@@ -207,7 +213,9 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     }
 
     transaction->has_non_sequential_deltas = true;
-    object->set_has_uncommitted_non_sequential_deltas(true);
+    if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
+      object->set_has_uncommitted_non_sequential_deltas(true);
+    }
     return WriteResult::NON_SEQUENTIAL;
   }
 
@@ -216,7 +224,9 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
   // then only another edge creation delta can be prepended.
   if (IsDeltaNonSequential(*object->delta())) {
     transaction->has_non_sequential_deltas = true;
-    object->set_has_uncommitted_non_sequential_deltas(true);
+    if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
+      object->set_has_uncommitted_non_sequential_deltas(true);
+    }
     return WriteResult::NON_SEQUENTIAL;
   }
   // Head delta from same transaction is not non-sequential - allow any new delta
