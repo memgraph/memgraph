@@ -12,6 +12,9 @@
 #include "replication/replication_client.hpp"
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "storage/v2/durability/marker.hpp"
+#include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/recovery.hpp"
@@ -896,10 +899,10 @@ void ReplicaStream::AppendDelta(const Delta &delta, Vertex *vertex, uint64_t con
   EncodeDelta(&encoder, storage, storage_->config_.salient.items, delta, vertex, final_commit_timestamp);
 }
 
-auto ReplicaStream::AppendDelta(const Delta &delta, Edge *edge, uint64_t const final_commit_timestamp, Storage *storage)
-    -> void {
+auto ReplicaStream::AppendDelta(const Delta &delta, Edge *edge, uint64_t const final_commit_timestamp, Storage *storage,
+                                Gid in_vertex_gid, EdgeTypeId edge_type_id) -> void {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, storage, delta, edge, final_commit_timestamp);
+  EncodeDelta(&encoder, storage, delta, edge, final_commit_timestamp, in_vertex_gid, edge_type_id);
 }
 
 void ReplicaStream::AppendTransactionStart(uint64_t const final_commit_timestamp, bool const commit,
