@@ -84,12 +84,18 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
 auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
     const query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   switch (fine_grained_privilege) {
-    case query::AuthQuery::FineGrainedPrivilege::NOTHING:
-      return auth::FineGrainedPermission::NOTHING;
     case query::AuthQuery::FineGrainedPrivilege::READ:
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
-      return auth::FineGrainedPermission::UPDATE;
+      // UPDATE is a grammar shorthand for SET_LABEL | REMOVE_LABEL | SET_PROPERTY
+      return auth::FineGrainedPermission::SET_LABEL | auth::FineGrainedPermission::REMOVE_LABEL |
+             auth::FineGrainedPermission::SET_PROPERTY;
+    case query::AuthQuery::FineGrainedPrivilege::SET_LABEL:
+      return auth::FineGrainedPermission::SET_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL:
+      return auth::FineGrainedPermission::REMOVE_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY:
+      return auth::FineGrainedPermission::SET_PROPERTY;
     case query::AuthQuery::FineGrainedPrivilege::CREATE:
       return auth::FineGrainedPermission::CREATE;
     case query::AuthQuery::FineGrainedPrivilege::DELETE:

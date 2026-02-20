@@ -3363,17 +3363,83 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, CREATE ON NODES CONTAINING LABELS :Label1 TO user"),
                SemanticException);
 
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT NOTHING, READ ON NODES CONTAINING LABELS :Label1 TO user"),
-               SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, NOTHING ON NODES CONTAINING LABELS :Label1 TO user"),
-               SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, NOTHING ON NODES CONTAINING LABELS :Label1 TO user"),
-               SemanticException);
-
   ASSERT_THROW(ast_generator.ParseQuery("GRANT *, READ ON NODES CONTAINING LABELS :Label1 TO user"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT READ, * ON NODES CONTAINING LABELS :Label1 TO user"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, * ON NODES CONTAINING LABELS :Label1 TO user"),
                SemanticException);
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"*"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET LABEL ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::REMOVE_LABEL}, {{"Label1"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT REMOVE LABEL ON NODES CONTAINING LABELS :Label1 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"*"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET PROPERTY ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   label_privileges,
+                   {},
+                   {AuthQuery::LabelMatchingMode::ANY});
+
+  edge_type_privileges.clear();
+  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"KNOWS"}}}});
+  check_auth_query(&ast_generator,
+                   "GRANT SET PROPERTY ON EDGES OF TYPE :KNOWS TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "user",
+                   {},
+                   {},
+                   {},
+                   edge_type_privileges,
+                   {});
+
+  label_privileges.clear();
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Person"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"Person"}}}});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_PROPERTY}, {{"Person"}}}});
+  check_auth_query(
+      &ast_generator,
+      "GRANT READ, SET LABEL, SET PROPERTY ON NODES CONTAINING LABELS :Person TO user",
+      AuthQuery::Action::GRANT_PRIVILEGE,
+      "",
+      {},
+      "user",
+      {},
+      {},
+      label_privileges,
+      {},
+      {AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY, AuthQuery::LabelMatchingMode::ANY});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -4022,9 +4088,6 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   edge_type_privileges.clear();
 
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE READ, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
-               SemanticException);
-
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE NOTHING, READ ON NODES CONTAINING LABELS :Label1 FROM user"),
                SemanticException);
 
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE *, READ ON NODES CONTAINING LABELS :Label1 FROM user"),

@@ -2174,6 +2174,22 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->systemPrivileges) {
     auth->privileges_ = std::any_cast<std::vector<AuthQuery::Privilege>>(ctx->systemPrivileges->accept(this));
+  } else if (ctx->entityPrivileges) {
+    const auto [label_privileges, label_matching_modes, edge_type_privileges] =
+        std::any_cast<std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                                 std::vector<AuthQuery::LabelMatchingMode>,
+                                 std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>>(
+            ctx->entityPrivileges->accept(this));
+    for (size_t i = 0; i < label_privileges.size(); ++i) {
+      const auto &[privilege, labels] = label_privileges[i];
+      auth->label_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, labels}});
+      auth->label_matching_modes_.emplace_back(label_matching_modes[i]);
+    }
+    for (const auto &[privilege, edge_types] : edge_type_privileges) {
+      auth->edge_type_privileges_.emplace_back(
+          std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{{privilege, edge_types}});
+    }
   } else {
     /* deny all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -2412,9 +2428,11 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
  * @return AuthQuery::FineGrainedPrivilege
  */
 antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) {
-  if (ctx->NOTHING()) return AuthQuery::FineGrainedPrivilege::NOTHING;
   if (ctx->READ()) return AuthQuery::FineGrainedPrivilege::READ;
   if (ctx->UPDATE()) return AuthQuery::FineGrainedPrivilege::UPDATE;
+  if (ctx->SET() && ctx->LABEL()) return AuthQuery::FineGrainedPrivilege::SET_LABEL;
+  if (ctx->REMOVE() && ctx->LABEL()) return AuthQuery::FineGrainedPrivilege::REMOVE_LABEL;
+  if (ctx->SET() && ctx->PROPERTY()) return AuthQuery::FineGrainedPrivilege::SET_PROPERTY;
   if (ctx->CREATE()) return AuthQuery::FineGrainedPrivilege::CREATE;
   if (ctx->DELETE()) return AuthQuery::FineGrainedPrivilege::DELETE;
   if (ctx->ASTERISK()) return AuthQuery::FineGrainedPrivilege::ALL;
@@ -2433,11 +2451,6 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
 
     if (seen.contains(priv)) {
       throw SemanticException("Duplicate permission in permissions list");
-    }
-
-    if ((priv == AuthQuery::FineGrainedPrivilege::NOTHING && !seen.empty()) ||
-        (priv != AuthQuery::FineGrainedPrivilege::NOTHING && seen.contains(AuthQuery::FineGrainedPrivilege::NOTHING))) {
-      throw SemanticException("Cannot combine NOTHING with other permissions");
     }
 
     if ((priv == AuthQuery::FineGrainedPrivilege::ALL && !seen.empty()) ||
