@@ -129,7 +129,7 @@ class CoordinatorInstance {
 
  private:
   auto ShowReplicationLagAsFollower(int32 leader_id) const
-      -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+      -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
   auto ShowReplicationLagAsLeader() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
 
   auto AddNewCoordinator(CoordinatorInstanceConfig const &config,
@@ -168,7 +168,7 @@ class CoordinatorInstance {
       return std::nullopt;
     }
     if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
+      return leader->SendRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
   }

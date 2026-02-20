@@ -387,7 +387,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   }
 
   spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
-  auto maybe_res = leader->SendShowInstances();
+  auto maybe_res = leader->SendRpc<ShowInstancesRpc>();
 
   if (!maybe_res) {
     spdlog::trace("Couldn't get instances from leader {}. Returning result as a follower.", leader_id);
@@ -545,8 +545,8 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
   if (!status.compare_exchange_strong(
           expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
     if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-      return leader->SendBoolRpc<ForceResetRpc>() ? ReconcileClusterStateStatus::SUCCESS
-                                                  : ReconcileClusterStateStatus::LEADER_FAILED;
+      return leader->SendRpc<ForceResetRpc>() ? ReconcileClusterStateStatus::SUCCESS
+                                              : ReconcileClusterStateStatus::LEADER_FAILED;
     }
 
     return ReconcileClusterStateStatus::LEADER_NOT_FOUND;
@@ -1073,8 +1073,11 @@ auto CoordinatorInstance::AddSelfCoordinator(
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  if (constexpr std::array settings{
-          kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica, kMaxReplicaReadLag};
+  if (constexpr std::array settings{kEnabledReadsOnMain,
+                                    kSyncFailoverOnly,
+                                    kMaxFailoverLagOnReplica,
+                                    kMaxReplicaReadLag,
+                                    kDeltasBatchProgressSize};
       !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
@@ -1089,6 +1092,8 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kMaxReplicaReadLag) {
       delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
+    } else if (setting_name == kDeltasBatchProgressSize) {
+      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint64(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
@@ -1127,53 +1132,50 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
   if (raft_state_->IsCurrentMain(instance_name)) {
     // Update cache if there is a value received
-    if (instance_state.main_num_txns.has_value()) {
-      main_num_txns_cache_ = *instance_state.main_num_txns;
+    if (instance_state.inner_state.main_num_txns.has_value()) {
+      main_num_txns_cache_ = *instance_state.inner_state.main_num_txns;
     }
 
-    if (instance_state.replicas_num_txns.has_value()) {
-      replicas_num_txns_cache_ = *instance_state.replicas_num_txns;
+    if (instance_state.inner_state.replicas_num_txns.has_value()) {
+      replicas_num_txns_cache_ = *instance_state.inner_state.replicas_num_txns;
     }
 
     // According to raft, this is the current MAIN
     // Check if a promotion is needed:
     //  - instance is actually a replica
     //  - instance is main, but has stale state (missed a failover)
-    if (!instance_state.is_replica && instance_state.is_writing_enabled && instance_state.uuid &&
-        *instance_state.uuid == curr_main_uuid) {
-      // Promotion not needed
-      return;
-    }
+    if (instance_state.inner_state.is_replica || !instance_state.inner_state.is_writing_enabled ||
+        !instance_state.inner_state.uuid || *instance_state.inner_state.uuid != curr_main_uuid) {
+      auto const data_instances_cache = raft_state_->GetDataInstancesContext();
+      auto repl_clients_info =
+          data_instances_cache |
+          ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != instance_name; }) |
+          ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
+          ranges::to<ReplicationClientsInfo>();
 
-    auto const data_instances_cache = raft_state_->GetDataInstancesContext();
-    auto repl_clients_info =
-        data_instances_cache |
-        ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != instance_name; }) |
-        ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
-        ranges::to<ReplicationClientsInfo>();
-
-    if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
-      spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
-                    std::string{curr_main_uuid});
-      switch (TryFailover()) {
-        case FailoverStatus::SUCCESS: {
-          spdlog::trace("Failover successful after failing to promote main instance.");
-          break;
+      if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
+        spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
+                      std::string{curr_main_uuid});
+        switch (TryFailover()) {
+          case FailoverStatus::SUCCESS: {
+            spdlog::trace("Failover successful after failing to promote main instance.");
+            break;
+          };
+          case FailoverStatus::NO_INSTANCE_ALIVE: {
+            spdlog::trace("Failover failed because no instance is alive.");
+            break;
+          };
+          case FailoverStatus::RAFT_FAILURE: {
+            spdlog::trace("Writing to Raft failed during failover.");
+            break;
+          };
         };
-        case FailoverStatus::NO_INSTANCE_ALIVE: {
-          spdlog::trace("Failover failed because no instance is alive.");
-          break;
-        };
-        case FailoverStatus::RAFT_FAILURE: {
-          spdlog::trace("Writing to Raft failed during failover.");
-          break;
-        };
-      };
-      return;
+        return;
+      }
     }
   } else {
     // According to raft, the instance should be replica
-    if (!instance_state.is_replica) {
+    if (!instance_state.inner_state.is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
 
@@ -1191,13 +1193,21 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       }
     }
 
-    if (!instance_state.uuid || *instance_state.uuid != curr_main_uuid) {
+    if (!instance_state.inner_state.uuid || *instance_state.inner_state.uuid != curr_main_uuid) {
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
         spdlog::error(
             "Failed to set new uuid for replica instance {} to {}.", instance_name, std::string{curr_main_uuid});
       } else {
         spdlog::trace("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
       }
+    }
+  }
+
+  if (auto const deltas_batch_progress_size = raft_state_->GetDeltasBatchProgressSize();
+      deltas_batch_progress_size != instance_state.deltas_batch_progress_size) {
+    if (!instance.SendRpc<UpdateDataInstanceConfigRpc>(deltas_batch_progress_size)) {
+      spdlog::error("Couldn't update deltas_batch_progress_size on data instance {}", instance_name);
+      return;
     }
   }
 }
@@ -1392,14 +1402,11 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
     return RoutingTable{};
   }
 
-  auto maybe_res = leader->SendGetRoutingTable(db_name);
-
-  if (!maybe_res) {
+  auto res = leader->SendRpc<GetRoutingTableRpc>(std::string{db_name});
+  if (res.empty()) {
     spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
-    return RoutingTable{};
   }
-
-  return std::move(maybe_res.value());
+  return res;
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
@@ -1497,16 +1504,17 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
       std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
-      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())}};
+      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())},
+      std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())}};
   return settings;
 }
 
 auto CoordinatorInstance::ShowReplicationLagAsFollower(int32_t const leader_id) const
-    -> std::optional<std::map<std::string, std::map<std::string, ReplicaDBLagData>>> {
+    -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
   if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
-    return leader->SendShowReplicationLag();
+    return leader->SendRpc<CoordReplicationLagRpc>();
   }
-  return std::nullopt;
+  return {};
 }
 
 auto CoordinatorInstance::ShowReplicationLagAsLeader() const
@@ -1545,7 +1553,7 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
       status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
     return ShowReplicationLagAsLeader();
   }
-  return ShowReplicationLagAsFollower(leader_id).value_or({});
+  return ShowReplicationLagAsFollower(leader_id);
 }
 
 auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {

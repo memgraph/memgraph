@@ -65,8 +65,10 @@ class InMemoryReplicationHandlers {
   static void HeartbeatHandler(dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
                                uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void PrepareCommitHandler(dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                                   uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
+  static void PrepareCommitHandler(
+      memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+      dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t request_version,
+      slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
                                     uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
@@ -75,26 +77,32 @@ class InMemoryReplicationHandlers {
                               dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
                               uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void WalFilesHandler(rpc::FileReplicationHandler const &file_replication_handler,
-                              dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                              uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
+  static void WalFilesHandler(
+      memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+      rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
+      utils::UUID const &current_main_uuid, uint64_t request_version, slk::Reader *req_reader,
+      slk::Builder *res_builder);
 
-  static void CurrentWalHandler(rpc::FileReplicationHandler const &file_replication_handler,
-                                dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid,
-                                uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
+  static void CurrentWalHandler(
+      memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+      rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
+      utils::UUID const &current_main_uuid, uint64_t request_version, slk::Reader *req_reader,
+      slk::Builder *res_builder);
 
   static void SwapMainUUIDHandler(
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
       uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static LoadWalStatus LoadWal(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
-                               slk::Builder *res_builder, uint32_t start_batch_counter = 0);
+  static LoadWalStatus LoadWal(
+      memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+      std::filesystem::path const &wal_path, storage::InMemoryStorage *storage, slk::Builder *res_builder,
+      uint32_t start_batch_counter = 0);
 
   static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
 
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
-      bool two_phase_commit, bool loading_wal, uint32_t start_batch_counter = 0);
+      bool two_phase_commit, bool loading_wal, uint64_t deltas_batch_progress_size, uint32_t start_batch_counter = 0);
 
   static TwoPCCache two_pc_cache_;
 };

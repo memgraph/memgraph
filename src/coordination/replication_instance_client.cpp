@@ -36,6 +36,7 @@ RpcInfoMetrics(DemoteMainToReplicaRpc)
 RpcInfoMetrics(RegisterReplicaOnMainRpc)
 RpcInfoMetrics(UnregisterReplicaRpc)
 RpcInfoMetrics(EnableWritingOnMainRpc)
+RpcInfoMetrics(UpdateDataInstanceConfigRpc)
     // clang-format on
 
     ReplicationInstanceClient::ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
@@ -79,7 +80,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
     auto res = stream.SendAndWait();
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
-    return res.state;
+    return res.arg_;
   } catch (rpc::RpcFailedException const &e) {
     spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
     metrics::IncrementCounter(metrics::StateCheckRpcFail);
@@ -94,7 +95,7 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.SendAndWait();
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
-    return res.instance_info;
+    return res.arg_;
 
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
@@ -107,7 +108,7 @@ auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optiona
   try {
     auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
     auto res = stream.SendAndWait();
-    return res.lag_info_;
+    return res.arg_;
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
     return {};
