@@ -1102,8 +1102,11 @@ std::optional<RecoveryInfo> LoadWal(
 
         if (schema_info) {
           schema_info->CreateEdge(&*from_vertex, &*to_vertex, edge_type_id);
-          edge_recovery_cache.insert_or_assign(
-              data.gid, EdgeRecoveryCacheEntry{edge_ref, edge_type_id, &*from_vertex, &*to_vertex});
+          edge_recovery_cache.insert_or_assign(data.gid,
+                                               EdgeRecoveryCacheEntry{.edge_ref = edge_ref,
+                                                                      .edge_type = edge_type_id,
+                                                                      .from_vertex = &*from_vertex,
+                                                                      .to_vertex = &*to_vertex});
         }
       },
       [&](WalEdgeDelete const &data) {
@@ -1228,8 +1231,10 @@ std::optional<RecoveryInfo> LoadWal(
               return *maybe_edge;
             });
 
-            edge_recovery_cache.insert_or_assign(data.gid,
-                                                 EdgeRecoveryCacheEntry{edge_ref, edge_type, from_vertex, to_vertex});
+            edge_recovery_cache.insert_or_assign(
+                data.gid,
+                EdgeRecoveryCacheEntry{
+                    .edge_ref = edge_ref, .edge_type = edge_type, .from_vertex = from_vertex, .to_vertex = to_vertex});
             const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
             schema_info->SetProperty(edge_type,
                                      from_vertex,
