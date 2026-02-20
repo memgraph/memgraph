@@ -24,7 +24,6 @@
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/trigger_context.hpp"
-#include "storage/v2/property_value.hpp"
 #include "trigger_privilege_context.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -99,13 +98,13 @@ struct TriggerStore {
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                       std::string_view db_name, parameters::Parameters const *server_parameters = nullptr);
+                       std::string_view db_name, parameters::Parameters const *server_parameters);
 
   void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
                   std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
-                  TriggerPrivilegeContext privilege_context, parameters::Parameters const *server_parameters = nullptr);
+                  TriggerPrivilegeContext privilege_context, parameters::Parameters const *server_parameters);
 
   void DropTrigger(const std::string &name);
   void DropAll();
@@ -133,7 +132,7 @@ struct TriggerStore {
   void RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
                       std::string_view trigger_name, std::string_view trigger_data, std::string_view db_name,
-                      parameters::Parameters const *server_parameters = nullptr);
+                      parameters::Parameters const *server_parameters);
 
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;

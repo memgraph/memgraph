@@ -2793,7 +2793,7 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
           case parameters::SetParameterResult::StorageError:
             throw QueryRuntimeException("Failed to set parameter '{}' (storage error).", parameter_name);
           default:
-            throw QueryRuntimeException("Failed to set parameter '{}'.", parameter_name);
+            std::unreachable();
         }
         spdlog::info("Set parameter '{}' with value '{}' (scope: {})", parameter_name, value_str, scope);
         return std::vector<std::vector<TypedValue>>{};
@@ -8084,14 +8084,11 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
-    std::string database_uuid_str;
-    if (current_db_.db_acc_) database_uuid_str = std::string{current_db_.db_acc_->get()->uuid()};
-    std::string_view database_uuid{database_uuid_str};
     ParsedQuery parsed_query = ParseQuery(query_string,
                                           params_getter(nullptr),
                                           &interpreter_context_->ast_cache,
                                           interpreter_context_->config.query,
-                                          database_uuid,
+                                          std::string{current_db_.db_acc_->get()->uuid()},
                                           interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
