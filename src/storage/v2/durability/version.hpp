@@ -42,8 +42,7 @@ constexpr uint64_t kNumCommittedTxns{30};
 constexpr uint64_t kTtlSupport{30};
 constexpr uint64_t kTextEdgeIndex{31};
 constexpr uint64_t kVectorIndexId{32};
-constexpr uint64_t kEdgeSetDeltaWithInVertexInfo{33};
-constexpr uint64_t kEdgeSetDeltaWithEdgeType{34};
+constexpr uint64_t kEdgeSetDeltaWithEdgeType{33};
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
