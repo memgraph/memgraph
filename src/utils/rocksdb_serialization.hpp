@@ -64,6 +64,13 @@ inline std::vector<std::string> TransformIDsToString(const TCollection &col) {
   return transformed_col;
 }
 
+inline std::vector<std::string> TransformIDsToString(const PackedVarintVector &col) {
+  std::vector<std::string> transformed_col;
+  col.for_each(
+      [&transformed_col](uint32_t id) { transformed_col.push_back(storage::LabelId::FromUint(id).ToString()); });
+  return transformed_col;
+}
+
 inline std::vector<storage::LabelId> TransformFromStringLabels(std::vector<std::string> &&labels) {
   std::vector<storage::LabelId> transformed_labels;
   transformed_labels.reserve(labels.size());

@@ -69,7 +69,7 @@ using EdgeIndexEntry = VectorEdgeIndex::EdgeIndexEntry;
 void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec, Vertex &from_vertex,
                         std::optional<SnapshotObserverInfo> const &snapshot_info,
                         std::optional<std::size_t> thread_id = std::nullopt) {
-  if (from_vertex.deleted) {
+  if (from_vertex.deleted()) {
     return;
   }
   for (auto &edge_tuple : from_vertex.out_edges) {
@@ -77,11 +77,15 @@ void TryAddEdgesToIndex(SyncVectorEdgeIndex &mg_index, VectorEdgeIndexSpec &spec
       continue;
     }
     auto *to_vertex = std::get<kVertexPos>(edge_tuple);
-    if (to_vertex->deleted) {
+    if (to_vertex->deleted()) {
       continue;
     }
-    auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
-    if (edge->deleted) {
+    auto const &edge_ref = std::get<kEdgeRefPos>(edge_tuple);
+    if (!edge_ref.HasPointer()) {
+      continue;
+    }
+    auto *edge = edge_ref.GetEdgePtr();
+    if (edge->deleted()) {
       continue;
     }
     auto property = edge->properties.GetProperty(spec.property);
@@ -264,7 +268,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const EdgeIndexEntry &entry) {
         auto guard = std::shared_lock{entry.edge->lock};
-        return !entry.from_vertex->deleted && !entry.to_vertex->deleted && !entry.edge->deleted;
+        return !entry.from_vertex->deleted() && !entry.to_vertex->deleted() && !entry.edge->deleted();
       });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &entry = static_cast<EdgeIndexEntry>(result_keys[i].member.key);
@@ -302,7 +306,7 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
 
     auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
                      auto guard = std::shared_lock{entry.edge->lock};
-                     return entry.edge->deleted;
+                     return entry.edge->deleted();
                    });
     for (const auto &entry : deleted) {
       locked_index->remove(entry);

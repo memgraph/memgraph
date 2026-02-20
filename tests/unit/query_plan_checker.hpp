@@ -899,12 +899,14 @@ class FakeDbAccessor {
   }
 
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type) const {
+    if (storage_light_edges_) return 0;
     auto found = edge_type_index_.find(edge_type);
     if (found != edge_type_index_.end()) return found->second;
     return 0;
   }
 
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property) const {
+    if (storage_light_edges_) return 0;
     for (const auto &index : edge_type_property_index_) {
       if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
         return std::get<2>(index);
@@ -913,7 +915,10 @@ class FakeDbAccessor {
     return 0;
   }
 
-  int64_t EdgesCount(memgraph::storage::PropertyId property) const { return 0; }
+  int64_t EdgesCount(memgraph::storage::PropertyId property) const {
+    if (storage_light_edges_) return 0;
+    return 0;
+  }
 
   bool LabelIndexReady(memgraph::storage::LabelId label) const {
     return label_index_.find(label) != label_index_.end();
@@ -962,11 +967,13 @@ class FakeDbAccessor {
   }
 
   bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type) const {
+    if (storage_light_edges_) return false;
     return edge_type_index_.find(edge_type) != edge_type_index_.end();
   }
 
   bool EdgeTypePropertyIndexReady(memgraph::storage::EdgeTypeId edge_type,
                                   memgraph::storage::PropertyId property) const {
+    if (storage_light_edges_) return false;
     for (const auto &index : edge_type_property_index_) {
       if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
         return true;
@@ -976,6 +983,7 @@ class FakeDbAccessor {
   }
 
   bool EdgePropertyIndexReady(memgraph::storage::PropertyId property) const {
+    if (storage_light_edges_) return false;
     return edge_property_index_.find(property) != edge_property_index_.end();
   }
 
@@ -1027,6 +1035,10 @@ class FakeDbAccessor {
   }
 
   void SetIndexCount(memgraph::storage::PropertyId property, int64_t count) { edge_property_index_[property] = count; }
+
+  /// When true, simulates storage_light_edge: edge indices are disabled (not used by planner).
+  /// Plan should match the case where edge indices do not exist.
+  void SetStorageLightEdges(bool value) { storage_light_edges_ = value; }
 
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
@@ -1100,6 +1112,7 @@ class FakeDbAccessor {
   std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
       edge_type_property_index_;
   std::unordered_map<memgraph::storage::PropertyId, int64_t> edge_property_index_;
+  bool storage_light_edges_ = false;
 };
 
 }  // namespace memgraph::query::plan

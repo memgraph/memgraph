@@ -41,6 +41,8 @@ struct SalientConfig {
 
   struct Items {
     bool properties_on_edges{true};
+    bool storage_light_edge{
+        false};  // When true (and properties_on_edges): edge object in vertex lists only, no skiplist
     bool enable_edges_metadata{false};
     bool enable_schema_metadata{false};
     bool enable_schema_info{false};

@@ -92,9 +92,9 @@ class EdgeAccessor final {
   Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
                                                                       View view) const;
 
-  auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+  auto GidPropertiesOnEdges() const -> Gid { return edge_.GetGid(); }
 
-  auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
+  auto GidNoPropertiesOnEdges() const -> Gid { return edge_.GetGid(); }
 
   Gid Gid() const noexcept;
 

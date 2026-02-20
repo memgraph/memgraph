@@ -45,6 +45,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
@@ -118,7 +119,7 @@ constexpr const char *kErrorMessage =
 /// TODO: (andi) Maybe a better way of checking would be if the first delta is DELETE_DESERIALIZED
 /// then we now that the vertex has only been deserialized and nothing more has been done on it.
 bool VertexNeedsToBeSerialized(const Vertex &vertex) {
-  Delta *head = vertex.delta;
+  Delta *head = vertex.delta();
   while (head != nullptr) {
     if (head->action == Delta::Action::ADD_LABEL || head->action == Delta::Action::REMOVE_LABEL ||
         head->action == Delta::Action::DELETE_OBJECT || head->action == Delta::Action::RECREATE_OBJECT ||
@@ -131,9 +132,9 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
 }
 
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
-  bool deleted = vertex.deleted;
-  bool has_label = std::ranges::contains(vertex.labels, label);
-  Delta *delta = vertex.delta;
+  bool deleted = vertex.deleted();
+  bool has_label = ContainsLabel(vertex.labels, label);
+  Delta *delta = vertex.delta();
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
@@ -170,9 +171,9 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
 }
 
 PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
-  bool deleted = vertex.deleted;
+  bool deleted = vertex.deleted();
   PropertyValue value = vertex.properties.GetProperty(property);
-  Delta *delta = vertex.delta;
+  Delta *delta = vertex.delta();
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -670,13 +671,14 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, transaction, view)) {
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index", vertex.gid.ToString());
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
+      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
       /// TODO: here are doing serialization and then later deserialization again -> expensive
-      LoadVertexToLabelIndexCache(transaction,
-                                  utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
-                                  utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
-                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
-                                  indexed_vertices->access());
+      LoadVertexToLabelIndexCache(
+          transaction,
+          utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
+          utils::SerializeVertexAsValueForLabelIndex(label, ToVertexKey(vertex.labels), vertex.properties),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
+          indexed_vertices->access());
     }
   }
   return gids;
@@ -724,11 +726,11 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
     if (label_property_filter(vertex, label, property, view)) {
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
+      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, ToVertexKey(vertex.labels), vertex.properties),
           CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
           indexed_vertices->access());
     }
@@ -815,11 +817,11 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     auto prop_value = GetVertexProperty(vertex, property, transaction, view);
     if (VertexHasLabel(vertex, label, transaction, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
+      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, ToVertexKey(vertex.labels), vertex.properties),
           CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
           indexed_vertices->access());
     }
@@ -1082,7 +1084,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  if (from_vertex->deleted || to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (from_vertex->deleted() || to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
@@ -1128,7 +1130,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
   if (!res) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::ranges::find_if(
-      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
+      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.GetGid() == gid; });
 
   if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
 
@@ -1309,12 +1311,12 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
       return std::unexpected{check_result.error()};
     }
 
-    if (vertex.deleted) {
+    if (vertex.deleted()) {
       continue;
     }
 
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
       if (!DeleteVertexFromDisk(transaction, vertex.gid.ToString(), maybe_old_disk_key.value())) {
         return std::unexpected{StorageManipulationError{SerializationError{}}};
       }
@@ -1481,7 +1483,7 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
-  it->labels = std::move(label_ids);
+  AssignLabels(it->labels, label_ids);
   it->properties = std::move(properties);
   delta->prev.Set(&*it);
   return {&*it, this, transaction};
@@ -1543,7 +1545,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
-    edge.ptr->properties.SetBuffer(properties);
+    edge.GetEdgePtr()->properties.SetBuffer(properties);
   }
 
   const ModifiedEdgeInfo modified_edge(
@@ -1565,7 +1567,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
                                                 const VertexAccessor *destination, Transaction *transaction, View view,
                                                 query::HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
-  if (view == View::NEW && src_vertex->vertex_->deleted) return {};
+  if (view == View::NEW && src_vertex->vertex_->deleted()) return {};
 
   const std::string src_vertex_gid = src_vertex->Gid().ToString();
   rocksdb::ReadOptions ro;
@@ -1616,7 +1618,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
         auto dst_vertex = FindVertex(dst_vertex_gid, transaction, view);
         /// TODO: (andi) I think dst_vertex->deleted should be unnecessary
         /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
-        if (!dst_vertex || (view == View::NEW && dst_vertex->vertex_->deleted)) return std::optional<EdgeAccessor>{};
+        if (!dst_vertex || (view == View::NEW && dst_vertex->vertex_->deleted())) return std::optional<EdgeAccessor>{};
 
         return CreateEdgeFromDisk(src_vertex,
                                   &*dst_vertex,
@@ -1629,7 +1631,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       }
       /// This is needed for filtering
       /// Second check not needed I think
-      if (dst_vertex_gid != destination->Gid() || destination->vertex_->deleted) {
+      if (dst_vertex_gid != destination->Gid() || destination->vertex_->deleted()) {
         return std::optional<EdgeAccessor>{};
       }
 
@@ -1652,7 +1654,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
                                                Transaction *transaction, View view, query::HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
-  if (view == View::NEW && dst_vertex->vertex_->deleted) return {};
+  if (view == View::NEW && dst_vertex->vertex_->deleted()) return {};
 
   const std::string dst_vertex_gid = dst_vertex->Gid().ToString();
   rocksdb::ReadOptions ro;
@@ -1702,7 +1704,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
         auto src_vertex = FindVertex(src_vertex_gid, transaction, view);
         /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
         /// TODO: (andi) Second check I think isn't necessary
-        if (!src_vertex || (view == View::NEW && src_vertex->vertex_->deleted)) return std::optional<EdgeAccessor>{};
+        if (!src_vertex || (view == View::NEW && src_vertex->vertex_->deleted())) return std::optional<EdgeAccessor>{};
 
         return CreateEdgeFromDisk(&*src_vertex,
                                   dst_vertex,
@@ -1714,7 +1716,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                   kDeserializeTimestamp);
       }
       /// TODO: (andi) 2nd check not needed I think
-      if (src_vertex_gid != source->Gid() || source->vertex_->deleted) {
+      if (src_vertex_gid != source->Gid() || source->vertex_->deleted()) {
         return std::optional<EdgeAccessor>{};
       }
       return CreateEdgeFromDisk(
@@ -2067,7 +2069,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
-        Delta *current = vertex->delta;
+        Delta *current = vertex->delta();
         while (current != nullptr &&
                current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_id) {
           switch (current->action) {
@@ -2098,7 +2100,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
           }
           current = current->next.load(std::memory_order_acquire);
         }
-        vertex->delta = current;
+        vertex->set_delta(current);
         if (current != nullptr) {
           current->prev.Set(vertex);
         }

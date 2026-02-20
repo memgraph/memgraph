@@ -33,6 +33,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
@@ -846,9 +847,9 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
     case Delta::Action::REMOVE_OUT_EDGE: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
       if (items.properties_on_edges) {
-        encoder->WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
+        encoder->WriteUint(delta.vertex_edge.edge.GetGid().AsUint());
       } else {
-        encoder->WriteUint(delta.vertex_edge.edge.gid.AsUint());
+        encoder->WriteUint(delta.vertex_edge.edge.GetGid().AsUint());
       }
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.vertex_edge.edge_type.AsUint()));
       encoder->WriteUint(vertex->gid.AsUint());
@@ -873,7 +874,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
-      encoder->WriteUint(edge->gid.AsUint());
+      encoder->WriteUint(edge->Gid().AsUint());
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // edge.
@@ -954,7 +955,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl) {
+    memgraph::storage::ttl::TTL *ttl, std::function<void(Edge *)> light_edge_deleter) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1008,12 +1009,13 @@ std::optional<RecoveryInfo> LoadWal(
         if (vertex == vertex_acc.end())
           throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        if (r::contains(vertex->labels, label_id))
+        if (ContainsLabel(vertex->labels, label_id))
           throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
-        if (schema_info) old_labels.emplace(vertex->labels);
-        vertex->labels.push_back(label_id);
-        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
+        std::optional<VertexKey> old_labels{};
+        if (schema_info) old_labels.emplace(ToVertexKey(vertex->labels));
+        vertex->labels.push_back(label_id.AsUint());
+        if (schema_info)
+          schema_info->UpdateLabels(&*vertex, *old_labels, ToVertexKey(vertex->labels), items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelAddition(
             label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
@@ -1022,14 +1024,13 @@ std::optional<RecoveryInfo> LoadWal(
         if (vertex == vertex_acc.end())
           throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto it = r::find(vertex->labels, label_id);
-        if (it == vertex->labels.end())
+        if (!ContainsLabel(vertex->labels, label_id))
           throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", ret->last_durable_timestamp);
-        std::optional<utils::small_vector<LabelId>> old_labels{};
-        if (schema_info) old_labels.emplace(vertex->labels);
-        std::swap(*it, vertex->labels.back());
-        vertex->labels.pop_back();
-        if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
+        std::optional<VertexKey> old_labels{};
+        if (schema_info) old_labels.emplace(ToVertexKey(vertex->labels));
+        RemoveLabel(vertex->labels, label_id);
+        if (schema_info)
+          schema_info->UpdateLabels(&*vertex, *old_labels, ToVertexKey(vertex->labels), items.properties_on_edges);
         VectorIndexRecovery::UpdateOnLabelRemoval(
             label_id, &*vertex, name_id_mapper, indices_constraints->indices.vector_indices);
       },
@@ -1101,12 +1102,16 @@ std::optional<RecoveryInfo> LoadWal(
           return EdgeRef{data.gid};
         });
 
+        Edge *light_edge_ptr = nullptr;
         {
           auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
           auto it = r::find(from_vertex->out_edges, out_link);
           if (it == from_vertex->out_edges.end())
             throw RecoveryFailure("The from vertex doesn't have this edge! Current ldt is: {}",
                                   ret->last_durable_timestamp);
+          if (items.storage_light_edge && std::get<EdgeRef>(*it).HasPointer()) {
+            light_edge_ptr = std::get<EdgeRef>(*it).GetEdgePtr();
+          }
           std::swap(*it, from_vertex->out_edges.back());
           from_vertex->out_edges.pop_back();
         }
@@ -1118,6 +1123,13 @@ std::optional<RecoveryInfo> LoadWal(
                                   ret->last_durable_timestamp);
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
+        }
+        if (items.storage_light_edge && light_edge_ptr != nullptr) {
+          if (light_edge_deleter) {
+            light_edge_deleter(light_edge_ptr);
+          } else {
+            delete light_edge_ptr;
+          }
         }
         if (items.properties_on_edges) {
           if (!edge_acc.remove(data.gid))
@@ -1151,7 +1163,7 @@ std::optional<RecoveryInfo> LoadWal(
                 throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
               const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
                 const auto &[edge_type, to_vertex, edge_ref] = edge_info;
-                return edge_ref.ptr == &*edge;
+                return edge_ref.GetEdgePtr() == &*edge;
               });
               if (found_edge == from_vertex->out_edges.end())
                 throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
@@ -1160,7 +1172,7 @@ std::optional<RecoveryInfo> LoadWal(
               return std::tuple{edge_ref, edge_type, &*from_vertex, to_vertex};
             }
             // Fallback on user defined find edge function
-            const auto maybe_edge = find_edge(edge->gid);
+            const auto maybe_edge = find_edge(edge->Gid());
             if (!maybe_edge)
               throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}", ret->last_durable_timestamp);
             return *maybe_edge;

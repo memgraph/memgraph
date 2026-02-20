@@ -518,6 +518,11 @@ add_unit_test(utils_static_vector
     LINK_TARGETS mg::utils
 )
 
+add_unit_test(utils_packed_vector
+    SOURCES utils_packed_vector.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_stack
     SOURCES utils_stack.cpp
     LINK_TARGETS mg-utils
@@ -651,6 +656,11 @@ add_unit_test(storage_v2_non_sequential_isolation
 
 add_unit_test(storage_v2_delta_correctness
     SOURCES storage_v2_delta_correctness.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(storage_v2_light_edges
+    SOURCES storage_v2_light_edges_test.cpp
     LINK_TARGETS mg::storage
 )
 

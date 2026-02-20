@@ -25,16 +25,17 @@ namespace memgraph::storage {
 namespace {
 inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, auto &&index_accessor,
                                    std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  if (from_vertex.deleted) {
+  if (from_vertex.deleted()) {
     return;
   }
 
   for (auto const &[type, to_vertex, edge_ref] : from_vertex.out_edges) {
     if (type != edge_type) continue;
-    if (to_vertex->deleted) {
+    if (to_vertex->deleted()) {
       continue;
     }
-    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, 0});
+    if (!edge_ref.HasPointer()) continue;
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.GetEdgePtr(), 0});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -50,12 +51,12 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   auto matches_edge_type = [edge_type](auto const &each) { return std::get<EdgeTypeId>(each) == edge_type; };
   {
     auto guard = std::shared_lock{from_vertex.lock};
-    deleted = from_vertex.deleted;
-    delta = from_vertex.delta;
+    deleted = from_vertex.deleted();
+    delta = from_vertex.delta();
     edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
 
     // If vertex has non-sequential deltas, hold lock while applying them
-    if (!from_vertex.has_uncommitted_non_sequential_deltas) {
+    if (!from_vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 
@@ -77,7 +78,8 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   }
 
   for (auto const &[type, to_vertex, edge_ref] : edges) {
-    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    if (!edge_ref.HasPointer()) continue;
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.GetEdgePtr(), tx.start_timestamp});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -88,7 +90,7 @@ inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, E
                                EdgeAccessor &current_accessor_, Transaction *transaction, View view,
                                EdgeTypeId edge_type, Storage *storage) {
   for (; index_iterator != end_iterator; ++index_iterator) {
-    if (index_iterator->edge == current_edge_.ptr) {
+    if (index_iterator->edge == current_edge_.GetEdgePtr()) {
       continue;
     }
 
@@ -311,7 +313,7 @@ void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Ve
     return;
   }
   auto acc = it->second->skip_list_.access();
-  acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
+  acc.insert(Entry{from, to, edge_ref.GetEdgePtr(), tx.start_timestamp});
 }
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() {

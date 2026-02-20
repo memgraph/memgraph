@@ -4185,7 +4185,8 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     throw IndexInMulticommandTxException();
   }
 
-  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges ||
+      current_db.db_acc_->get()->config().salient.items.storage_light_edge) {
     throw EdgeIndexDisabledPropertiesOnEdgesException();
   }
 
@@ -4510,7 +4511,8 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     throw IndexInMulticommandTxException();
   }
 
-  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges ||
+      current_db.db_acc_->get()->config().salient.items.storage_light_edge) {
     throw EdgeIndexDisabledPropertiesOnEdgesException();
   }
 
@@ -4671,7 +4673,8 @@ PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_
     throw utils::BasicException("Text index is not supported in analytical storage mode.");
   }
 
-  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges ||
+      current_db.db_acc_->get()->config().salient.items.storage_light_edge) {
     throw EdgeIndexDisabledPropertiesOnEdgesException();
   }
 

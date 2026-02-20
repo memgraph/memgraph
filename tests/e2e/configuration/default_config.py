@@ -198,6 +198,11 @@ startup_config_dict = {
         "The number of edges and vertices stored in a batch in a snapshot file.",
     ),
     "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
+    "storage_light_edge": (
+        "false",
+        "false",
+        "When true (and properties on edges enabled), edges live only in vertex lists without the edge skiplist.",
+    ),
     "storage_snapshot_thread_count": ("12", "12", "The number of threads used to create snapshots."),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (

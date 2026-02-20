@@ -1227,8 +1227,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             Delta *local_delta = nullptr;
             {
               auto guard = std::shared_lock{edge->lock};
-              is_visible = !edge->deleted;
-              local_delta = edge->delta;
+              is_visible = !edge->deleted();
+              local_delta = edge->delta();
             }
             ApplyDeltasForRead(
                 &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
@@ -1269,7 +1269,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               auto from_vertex = vertex_acc.find(data.from_gid);
               if (from_vertex == vertex_acc.end())
                 throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
-                                            from_vertex->gid.AsUint());
+                                            data.from_gid->AsUint());
 
               auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
                 return std::get<2>(in) == raw_edge_ref;
@@ -1282,7 +1282,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               return std::tuple{edge_ref, edge_type, &*from_vertex, vertex_to};
             }
             // fallback if from_gid not available
-            auto found_edge = storage->FindEdge(edge->gid);
+            auto found_edge = storage->FindEdge(edge->Gid());
             if (!found_edge) {
               constexpr auto src_loc{std::source_location()};
               throw utils::BasicException(

@@ -13,6 +13,7 @@
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
@@ -103,10 +104,8 @@ void TextIndex::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transac
 }
 
 void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) {
-  if (index_.empty() || vertex->labels.empty()) return;
-  auto has_label = [&](const auto &text_index_data) {
-    return r::any_of(vertex->labels, [&](auto label) { return label == text_index_data.scope; });
-  };
+  if (index_.empty() || vertex->labels.count() == 0) return;
+  auto has_label = [&](const auto &text_index_data) { return ContainsLabel(vertex->labels, text_index_data.scope); };
   std::vector<TextIndexData *> applicable_text_indices;
   for (auto &[_, index_data] : index_) {
     if (IndexPropertiesMatch(index_data.properties, std::array{property}) && has_label(index_data)) {
@@ -118,7 +117,8 @@ void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, Prope
 
 void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
   if (index_.empty()) return;
-  auto label_applicable_text_indices = LabelApplicableTextIndices(vertex->labels);
+  auto labels_key = ToVertexKey(vertex->labels);
+  auto label_applicable_text_indices = LabelApplicableTextIndices(labels_key);
   if (label_applicable_text_indices.empty()) return;
   const auto vertex_properties = vertex->properties.ExtractPropertyIds();
   auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
@@ -164,7 +164,7 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info, utils::SkipList<Ve
     std::vector<PropertyId> properties_to_index;
     properties_to_index.reserve(index_info.properties.size());
     for (const auto &vertex : vertices) {
-      if (!std::ranges::contains(vertex.labels, index_info.label)) continue;
+      if (!ContainsLabel(vertex.labels, index_info.label)) continue;
 
       auto vertex_properties = vertex.properties.ExtractPropertyIds();
       properties_to_index.clear();
@@ -303,6 +303,7 @@ void TextIndex::Clear() {
 }
 
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
+  if (tx.text_index_change_collector_.empty()) return;
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
     const std::lock_guard lock(index_data_ptr->write_mutex);

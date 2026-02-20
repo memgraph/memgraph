@@ -16,6 +16,7 @@
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
 #include "utils/small_vector.hpp"
@@ -156,7 +157,7 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   }
   auto &index_item = it->second;
   auto &spec = index_item.spec;
-  if (!std::ranges::contains(vertex.labels, spec.label_id)) {
+  if (!ContainsLabel(vertex.labels, spec.label_id)) {
     return;
   }
   auto property = vertex.properties.GetProperty(spec.property, decoder);
@@ -289,7 +290,9 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   } else if (value.IsNull()) {
     // If value is null, we have to remove the vertex from all indices that contain it (by label).
     auto indices = GetIndicesByProperty(property);
-    auto vertex_has_label = [&](const auto &label_id_pair) { return r::contains(vertex->labels, label_id_pair.first); };
+    auto vertex_has_label = [&](const auto &label_id_pair) {
+      return ContainsLabel(vertex->labels, label_id_pair.first);
+    };
     r::for_each(indices | rv::filter(vertex_has_label),
                 [&](const auto &label_id_pair) { RemoveVertexFromIndex(vertex, label_id_pair.second); });
   }
@@ -380,7 +383,7 @@ void VectorIndex::SerializeAllVectorIndices(durability::BaseEncoder *encoder,
     std::vector<Vertex *> vertices(index_size);
     locked_index->export_keys(vertices.data(), 0, index_size);
 
-    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted; });
+    auto valid_count = std::ranges::count_if(vertices, [](const auto *vertex) { return !vertex->deleted(); });
     encoder->WriteUint(valid_count);
 
     std::vector<float> buffer(dimension);
@@ -424,7 +427,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
         auto guard = std::shared_lock{vertex->lock};
-        return !vertex->deleted;
+        return !vertex->deleted();
       });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
@@ -449,7 +452,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index_size);
     locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
 
-    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
+    auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted(); });
     for (const auto &vertex : deleted) {
       locked_index->remove(vertex);
     }
@@ -468,7 +471,7 @@ utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *ve
   result.reserve(static_cast<uint32_t>(pimpl->index_by_id_.size()));
   for (const auto &[index_id, index_item] : pimpl->index_by_id_) {
     if (index_item.spec.property != property) continue;
-    if (!std::ranges::contains(vertex->labels, index_item.spec.label_id)) continue;
+    if (!ContainsLabel(vertex->labels, index_item.spec.label_id)) continue;
     result.push_back(index_id);
   }
   return result;
@@ -558,7 +561,7 @@ void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *
 void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
                                                           Vertex *vertex) {
   if (p2l.empty()) return;
-  auto has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
+  auto has_any_label = [&](auto label) { return ContainsLabel(vertex->labels, label); };
   auto labels = p2l.find(propId);
   if (labels == p2l.end() || !r::any_of(labels->second, has_any_label)) return;
   auto &[_, label_to_remove, property_to_abort] = cleanup_collection[vertex];
@@ -698,7 +701,7 @@ void VectorIndexRecovery::UpdateOnLabelRemoval(LabelId label, Vertex *vertex, Na
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec) {
   auto is_relevant = [&](const VectorIndexRecoveryInfo &ri) {
-    return ri.spec.property == property && r::contains(vertex->labels, ri.spec.label_id);
+    return ri.spec.property == property && ContainsLabel(vertex->labels, ri.spec.label_id);
   };
 
   std::vector<VectorIndexRecoveryInfo *> matching;

@@ -337,14 +337,11 @@ ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() {
 // OPTIMIZED: Just allocate the chunk. Do NOT touch the memory.
 // This prevents the "thundering herd" of page faults and clear_page calls.
 void *ThreadSafePool::carve_block() {
-  // Allocate a new chunk (Virtual Memory only)
   void *raw = chunk_memory_->allocate(chunk_size(), chunk_alignment());
   {
-    // Push back to the global list for cleanup later
     const std::unique_lock lock(mtx_);
     chunks_.emplace_front(raw);
   }
-  // Return the raw pointer immediately
   return raw;
 }
 
@@ -558,4 +555,25 @@ template <typename P>
 bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
   return this == &other;
 }
+
+SingleSizeThreadSafePoolResource::SingleSizeThreadSafePoolResource(std::size_t block_size, std::size_t blocks_per_chunk,
+                                                                   std::pmr::memory_resource *chunk_memory)
+    : block_size_(block_size), pool_(block_size, blocks_per_chunk, chunk_memory) {}
+
+SingleSizeThreadSafePoolResource::~SingleSizeThreadSafePoolResource() = default;
+
+void *SingleSizeThreadSafePoolResource::do_allocate(size_t bytes, size_t alignment) {
+  auto const effective = std::max({bytes, alignment, std::size_t{1}});
+  if (effective != block_size_) throw BadAlloc("SingleSizeThreadSafePoolResource: request doesn't match block size");
+  return pool_.Allocate();
+}
+
+void SingleSizeThreadSafePoolResource::do_deallocate(void *p, size_t /*bytes*/, size_t /*alignment*/) {
+  pool_.Deallocate(p);
+}
+
+bool SingleSizeThreadSafePoolResource::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
+  return this == &other;
+}
+
 }  // namespace memgraph::utils

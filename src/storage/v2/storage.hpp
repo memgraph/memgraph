@@ -19,6 +19,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/edges_chunked_iterable.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
@@ -714,6 +715,15 @@ class Storage {
                                                           std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     void MarkEdgeAsDeleted(Edge *edge);
 
+    /// Light edges are deferred (move + delete) until commit so that
+    /// UnlinkAndRemoveDeltas and abort undo can still touch them. On commit,
+    /// call FlushPendingDeletedLightEdges() after delta cleanup. On abort, call
+    /// ClearPendingDeletedLightEdges() (edges are restored by undo, do not delete).
+    virtual void FlushPendingDeletedLightEdges();
+    void ClearPendingDeletedLightEdges();
+
+    std::vector<std::pair<Edge *, uint64_t>> pending_deleted_light_edges_;
+
    private:
     StorageMode creation_storage_mode_;
   };
@@ -749,6 +759,13 @@ class Storage {
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
   void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }
+
+  /// Called when a light edge is removed from a vertex (delete/detach). If pending_delete is
+  /// non-null, (edge_ptr, safe_to_free_ts) is enqueued for later move+delete on commit (edge
+  /// stays valid for delta cleanup and abort undo). Otherwise the implementation moves the
+  /// edge into deleted_light_edges and deletes it now.
+  virtual void MoveLightEdgeToDeleted(Edge *edge_ptr, uint64_t safe_to_free_ts,
+                                      std::vector<std::pair<Edge *, uint64_t>> *pending_delete = nullptr) {}
 
   virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,

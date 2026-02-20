@@ -431,6 +431,7 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                        .storage_light_edge = FLAGS_storage_light_edge,
                         .enable_edges_metadata =
                             FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,

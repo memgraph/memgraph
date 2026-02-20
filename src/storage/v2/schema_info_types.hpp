@@ -25,11 +25,60 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/conccurent_unordered_map.hpp"
+#include "utils/packed_vector.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
 using VertexKey = utils::small_vector<LabelId>;
+
+/**
+ * @brief Convert vertex labels (PackedVarintVector) to VertexKey for use as map key.
+ */
+inline VertexKey ToVertexKey(const utils::PackedVarintVector &labels) {
+  VertexKey key;
+  labels.for_each([&key](uint32_t id) { key.push_back(LabelId::FromUint(id)); });
+  return key;
+}
+
+/**
+ * @brief Assign vertex labels from VertexKey (e.g. after recovery or from cache).
+ */
+inline void AssignLabels(utils::PackedVarintVector &dest, const VertexKey &src) {
+  dest = utils::PackedVarintVector{};
+  for (LabelId label : src) {
+    dest.push_back(label.AsUint());
+  }
+}
+
+/**
+ * @brief Return true if labels contains the given label.
+ */
+inline bool ContainsLabel(const utils::PackedVarintVector &labels, LabelId label) {
+  uint32_t target = label.AsUint();
+  bool found = false;
+  labels.for_each([&](uint32_t id) {
+    if (id == target) found = true;
+  });
+  return found;
+}
+
+/**
+ * @brief Remove one occurrence of label from packed labels (rebuilds storage).
+ */
+inline void RemoveLabel(utils::PackedVarintVector &labels, LabelId label) {
+  utils::PackedVarintVector next;
+  uint32_t target = label.AsUint();
+  bool removed_one = false;
+  labels.for_each([&](uint32_t id) {
+    if (id == target && !removed_one) {
+      removed_one = true;
+      return;
+    }
+    next.push_back(id);
+  });
+  labels = std::move(next);
+}
 
 /**
  * @brief Hash the VertexKey (vector of labels) in an order independent way.
@@ -272,7 +321,7 @@ template <>
 class hash<memgraph::storage::SchemaInfoEdge> {
  public:
   size_t operator()(const memgraph::storage::SchemaInfoEdge &pp) const {
-    return pp.edge_ref.gid.AsUint();  // Both ptr and gid are the same size and unique
+    return pp.edge_ref.GetGid().AsUint();  // Unique by gid
   }
 };
 
