@@ -343,6 +343,11 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
 
+  if (config_.salient.items.storage_light_edge) {
+    light_edge_memory_resource_ =
+        std::make_unique<utils::SingleSizeThreadSafePoolResource>(sizeof(Edge), 8192 /* blocks_per_chunk */);
+  }
+
   if (config_.durability.recover_on_startup) {
     // Disable ttl until after recovery and role switch / write enabled
     ttl_.SetUserCheck([]() -> bool { return false; });
@@ -363,7 +368,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
         [this](Gid edge_gid) { return FindEdge(edge_gid); },
         name(),
-        &ttl_);
+        &ttl_,
+        light_edge_memory_resource_.get(),
+        [this](Edge *p) { DeleteLightEdge(p); });
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -500,7 +507,7 @@ InMemoryStorage::~InMemoryStorage() {
         if (edge_ref.HasPointer()) light_ptrs.insert(edge_ref.GetEdgePtr());
       }
     }
-    for (Edge *p : light_ptrs) delete p;
+    for (Edge *p : light_ptrs) DeleteLightEdge(p);
   }
 
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
@@ -722,9 +729,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     if (mem_storage->config_.salient.items.storage_light_edge) {
-      // Light edge: allocate on heap, store in vertex vectors only. No ref count.
+      // Light edge: allocate from pool (or heap), store in vertex vectors only (no global SkipList).
       auto *delta = CreateDeleteObjectDelta(&transaction_);
-      auto *edge_ptr = new Edge(gid, delta);
+      auto *edge_ptr = [&]() -> Edge * {
+        if (auto *mr = mem_storage->light_edge_memory_resource()) {
+          return new (mr->allocate(sizeof(Edge), alignof(Edge))) Edge(gid, delta);
+        }
+        return new Edge(gid, delta);
+      }();
       if (delta) {
         delta->prev.Set(edge_ptr);
       }
@@ -877,7 +889,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (config_.properties_on_edges) {
     if (mem_storage->config_.salient.items.storage_light_edge) {
       auto *delta = CreateDeleteObjectDelta(&transaction_);
-      auto *edge_ptr = new Edge(gid, delta);
+      auto *edge_ptr = [&]() -> Edge * {
+        if (auto *mr = mem_storage->light_edge_memory_resource()) {
+          return new (mr->allocate(sizeof(Edge), alignof(Edge))) Edge(gid, delta);
+        }
+        return new Edge(gid, delta);
+      }();
       if (delta) {
         delta->prev.Set(edge_ptr);
       }
@@ -1717,7 +1734,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (EdgeRef const &ref : light_refs_to_release) {
         if (!ref.HasPointer()) continue;
         Edge *p = ref.GetEdgePtr();
-        if (seen_ptr.insert(p).second) delete p;
+        if (seen_ptr.insert(p).second) mem_storage->DeleteLightEdge(p);
       }
     }
 
@@ -1780,7 +1797,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // On abort, any light edges still in pending were not re-attached (undo delete); free them to avoid leaking.
   if (mem_storage->config_.salient.items.storage_light_edge) {
     for (auto &[p, ts] : pending_deleted_light_edges_) {
-      delete p;
+      mem_storage->DeleteLightEdge(p);
     }
   }
   ClearPendingDeletedLightEdges();
@@ -1815,7 +1832,7 @@ void InMemoryStorage::InMemoryAccessor::FlushPendingDeletedLightEdges() {
   auto acc = mem_storage->deleted_light_edges_.access();
   for (auto &[p, ts] : pending_deleted_light_edges_) {
     acc.insert(DeletedLightEdge{std::move(*p), ts});
-    delete p;
+    mem_storage->DeleteLightEdge(p);
   }
   pending_deleted_light_edges_.clear();
 }
@@ -4014,6 +4031,16 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
   std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
 
+void InMemoryStorage::DeleteLightEdge(Edge *p) {
+  if (p == nullptr) return;
+  if (light_edge_memory_resource_) {
+    p->~Edge();
+    light_edge_memory_resource_->deallocate(p, sizeof(Edge), alignof(Edge));
+  } else {
+    delete p;
+  }
+}
+
 void InMemoryStorage::MoveLightEdgeToDeleted(Edge *edge_ptr, uint64_t safe_to_free_ts,
                                              std::vector<std::pair<Edge *, uint64_t>> *pending_delete) {
   if (!config_.salient.items.storage_light_edge || edge_ptr == nullptr) return;
@@ -4023,7 +4050,7 @@ void InMemoryStorage::MoveLightEdgeToDeleted(Edge *edge_ptr, uint64_t safe_to_fr
   }
   auto acc = deleted_light_edges_.access();
   acc.insert(DeletedLightEdge{std::move(*edge_ptr), safe_to_free_ts});
-  delete edge_ptr;
+  DeleteLightEdge(edge_ptr);
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
@@ -4249,7 +4276,7 @@ void InMemoryStorage::Clear() {
         if (edge_ref.HasPointer()) light_ptrs.insert(edge_ref.GetEdgePtr());
       }
     }
-    for (Edge *p : light_ptrs) delete p;
+    for (Edge *p : light_ptrs) DeleteLightEdge(p);
   }
   vertices_.clear();
   vertices_.run_gc();

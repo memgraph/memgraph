@@ -531,7 +531,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    std::string const &db_name, memgraph::storage::ttl::TTL *ttl) {
+    std::string const &db_name, memgraph::storage::ttl::TTL *ttl, std::pmr::memory_resource *light_edge_memory,
+    std::function<void(Edge *)> light_edge_deleter) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info(
       "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
@@ -580,7 +581,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                           config,
                                           enum_store,
                                           schema_info,
-                                          ttl);
+                                          ttl,
+                                          std::nullopt,
+                                          light_edge_memory);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -700,7 +703,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             enum_store,
                             schema_info,
                             find_edge,
-                            ttl);
+                            ttl,
+                            light_edge_deleter);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};

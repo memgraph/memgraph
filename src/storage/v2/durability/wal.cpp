@@ -955,7 +955,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl) {
+    memgraph::storage::ttl::TTL *ttl, std::function<void(Edge *)> light_edge_deleter) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1125,7 +1125,11 @@ std::optional<RecoveryInfo> LoadWal(
           to_vertex->in_edges.pop_back();
         }
         if (items.storage_light_edge && light_edge_ptr != nullptr) {
-          delete light_edge_ptr;
+          if (light_edge_deleter) {
+            light_edge_deleter(light_edge_ptr);
+          } else {
+            delete light_edge_ptr;
+          }
         }
         if (items.properties_on_edges) {
           if (!edge_acc.remove(data.gid))

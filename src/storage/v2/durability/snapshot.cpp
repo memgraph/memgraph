@@ -694,13 +694,14 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
                       const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
                       NameIdMapper *name_id_mapper,
                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                      std::pair<std::mutex, std::unordered_map<uint64_t, Edge *>> *light_edge_map = nullptr) {
+                      std::pair<std::mutex, std::vector<std::pair<uint64_t, Edge *>>> *light_edge_vec = nullptr,
+                      std::pmr::memory_resource *light_edge_memory = nullptr) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
 
-  const bool use_light_map = (light_edge_map != nullptr) && items.storage_light_edge;
+  const bool use_light_vec = (light_edge_vec != nullptr) && items.storage_light_edge;
   std::optional<utils::SkipList<Edge>::Accessor> edge_acc;
-  if (!use_light_map) edge_acc = edges.access();
+  if (!use_light_vec) edge_acc = edges.access();
 
   uint64_t last_edge_gid = 0;
   spdlog::info("Recovering {} edges.", edges_count);
@@ -738,8 +739,8 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
     last_edge_gid = *gid;
 
     if (items.properties_on_edges) {
-      if (use_light_map) {
-        // Light edges: create on heap, add to map; do not insert into skip list (same as CreateEdge at runtime).
+      if (use_light_vec) {
+        // Light edges: create on heap, add to sorted vector; do not insert into skip list.
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Couldn't read the size of edge properties!");
         read_properties.clear();
@@ -751,12 +752,16 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
-        Edge *edge_ptr = new Edge(Gid::FromUint(*gid), nullptr);
+        auto *edge_ptr = [&]() -> Edge * {
+          if (light_edge_memory) {
+            return new (light_edge_memory->allocate(sizeof(Edge), alignof(Edge))) Edge(Gid::FromUint(*gid), nullptr);
+          }
+          return new Edge(Gid::FromUint(*gid), nullptr);
+        }();
         edge_ptr->properties.InitProperties(std::move(read_properties));
         {
-          std::lock_guard lock(light_edge_map->first);
-          if (!light_edge_map->second.emplace(*gid, edge_ptr).second)
-            throw RecoveryFailure("Light edge map already had an entry for this gid!");
+          std::lock_guard lock(light_edge_vec->first);
+          light_edge_vec->second.emplace_back(*gid, edge_ptr);
         }
       } else {
         auto [it, inserted] = edge_acc->insert(Edge{Gid::FromUint(*gid), nullptr});
@@ -9078,7 +9083,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                              NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                              Config const &config, EnumStore *enum_store,
                                              SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
-                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                             std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                             std::pmr::memory_resource *light_edge_memory) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -9239,14 +9245,19 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
     spdlog::info("Vertices are recovered.");
 
-    // With light edges, create the map before loading edges so we can fill it in LoadPartialEdges (heap-only, no
-    // skiplist) and then use it in LoadPartialConnectivity when linking vertices. Same pattern as CreateEdge at
-    // runtime.
-    using LightEdgeMap = std::pair<std::mutex, std::unordered_map<uint64_t, Edge *>>;
-    auto light_edge_map = config.salient.items.storage_light_edge ? std::make_shared<LightEdgeMap>() : nullptr;
+    // With light edges, collect GID→Edge* pairs into a flat sorted vector instead of an unordered_map.
+    // An unordered_map's per-node allocations (24→32 bytes) land in the same jemalloc size class as
+    // Edge objects (32 bytes), causing slab-level interleaving.  When the map is destroyed the freed
+    // node slots leave holes in pages still pinned by live Edge objects, preventing page reclamation.
+    // A single contiguous vector avoids this entirely.
+    using LightEdgeVec = std::pair<std::mutex, std::vector<std::pair<uint64_t, Edge *>>>;
+    auto light_edge_vec = config.salient.items.storage_light_edge ? std::make_shared<LightEdgeVec>() : nullptr;
+    if (light_edge_vec) {
+      light_edge_vec->second.reserve(info.edges_count);
+    }
 
     spdlog::info("Recovering edges.");
-    // Recover edges: with light edges we create Edge* on heap and add to light_edge_map (no skiplist insert).
+    // Recover edges: with light edges we create Edge* on heap and add to light_edge_vec (no skiplist insert).
     if (snapshot_has_edges) {
       if (!snapshot.SetPosition(info.offset_edge_batches)) {
         throw RecoveryFailure("Couldn't read data from snapshot!");
@@ -9262,7 +9273,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
              &get_property_from_id,
              &snapshot_info,
              name_id_mapper,
-             light_edge_map](const size_t /*batch_index*/, const BatchInfo &batch) {
+             light_edge_vec,
+             light_edge_memory](const size_t /*batch_index*/, const BatchInfo &batch) {
               LoadPartialEdges(path,
                                *edges,
                                batch.offset,
@@ -9271,12 +9283,20 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                get_property_from_id,
                                name_id_mapper,
                                snapshot_info,
-                               light_edge_map ? light_edge_map.get() : nullptr);
+                               light_edge_vec ? light_edge_vec.get() : nullptr,
+                               light_edge_memory);
             },
             edge_batches);
       }
     }
     spdlog::info("Edges are recovered.");
+
+    // Sort the light-edge vector by GID so connectivity recovery can use binary search.
+    if (light_edge_vec) {
+      std::sort(light_edge_vec->second.begin(), light_edge_vec->second.end(), [](const auto &a, const auto &b) {
+        return a.first < b.first;
+      });
+    }
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -9286,16 +9306,16 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    // With light edges, get_or_create_light_edge uses the map (filled in LoadPartialEdges or created here if no edge
-    // section) so we have one Edge* per GID when linking vertices.
-    auto get_or_create_light_edge = light_edge_map
-                                        ? std::make_optional(std::function<Edge *(Gid)>([light_edge_map](Gid gid) {
-                                            std::lock_guard lock(light_edge_map->first);
-                                            auto it = light_edge_map->second.find(gid.AsUint());
-                                            if (it != light_edge_map->second.end()) return it->second;
-                                            throw RecoveryFailure("Couldn't find edge in light edge map!");
-                                          }))
-                                        : std::nullopt;
+    // With light edges, look up Edge* from the sorted vector via binary search.
+    auto get_or_create_light_edge =
+        light_edge_vec ? std::make_optional(std::function<Edge *(Gid)>([light_edge_vec](Gid gid) {
+          auto const &vec = light_edge_vec->second;
+          auto it = std::lower_bound(
+              vec.begin(), vec.end(), gid.AsUint(), [](const auto &p, uint64_t g) { return p.first < g; });
+          if (it != vec.end() && it->first == gid.AsUint()) return it->second;
+          throw RecoveryFailure("Couldn't find edge in light edge vector!");
+        }))
+                       : std::nullopt;
 
     {
       RecoverOnMultipleThreads(
@@ -9334,8 +9354,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     spdlog::info("Connectivity is recovered.");
 
     // Sanity check: we must have created exactly one Edge* per logical edge (no double-creation).
-    if (light_edge_map) {
-      const auto created = light_edge_map->second.size();
+    if (light_edge_vec) {
+      const auto created = light_edge_vec->second.size();
       const auto count = edge_count->load(std::memory_order_acquire);
       if (created != count) {
         throw RecoveryFailure(
@@ -9345,10 +9365,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       }
     }
 
-    // Release temporary light-edge map; Edge* are now only in vertex in_edges/out_edges.
-    // Clearing the map frees the hash table and nodes (~50–100MB for large graphs).
-    if (light_edge_map) {
-      light_edge_map->second.clear();
+    // Release temporary light-edge vector; Edge* are now only in vertex in_edges/out_edges.
+    if (light_edge_vec) {
+      light_edge_vec->second.clear();
+      light_edge_vec->second.shrink_to_fit();
     }
 
     // Set initial values for edge/vertex ID generators.
@@ -9918,7 +9938,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
                                memgraph::storage::ttl::TTL *ttl,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                               std::optional<SnapshotObserverInfo> const &snapshot_info,
+                               std::pmr::memory_resource *light_edge_memory) {
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
@@ -10131,7 +10152,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                         enum_store,
                                         schema_info,
                                         ttl,
-                                        snapshot_info);
+                                        snapshot_info,
+                                        light_edge_memory);
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported

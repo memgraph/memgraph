@@ -441,6 +441,9 @@ def realistic_workload(
 
     rss_db = dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
     vendor.start_db(rss_db)
+    if benchmark_context.vendor_name == GraphVendors.MEMGRAPH:
+        client.execute(queries=[("FREE MEMORY;", {})])
+        client.execute(queries=[("FREE MEMORY;", {})])
     warmup(benchmark_context.warm_up, client=client)
 
     ret = client.execute(
@@ -686,6 +689,9 @@ def run_isolated_workload_with_authorization(
         )
 
         vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
+        if benchmark_context.vendor_name == GraphVendors.MEMGRAPH:
+            client.execute(queries=[("FREE MEMORY;", {})])
+            client.execute(queries=[("FREE MEMORY;", {})])
         start_time = time.time()
         warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
 
@@ -697,6 +703,12 @@ def run_isolated_workload_with_authorization(
         usage[MEMORY] -= memory_usage_with_imported_data
         time_elapsed = time.time() - start_time
         log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
+        if benchmark_context.vendor_name == GraphVendors.MEMGRAPH:
+            storage_info = client.execute(queries=[("SHOW STORAGE INFO;", {})], validation=True)[0]
+            for _, val in storage_info["results"].items():
+                row = json.loads(val)
+                if row[0] == "memory_res":
+                    log.info(f"Memory RES from SHOW STORAGE INFO: {row[1]}")
 
         ret[DATABASE] = usage
         log_metrics_summary(ret, usage)
@@ -743,6 +755,9 @@ def run_isolated_workload_without_authorization(
         start_time = time.time()
         rss_db = workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
         vendor_runner.start_db(rss_db)
+        if benchmark_context.vendor_name == GraphVendors.MEMGRAPH:
+            client.execute(queries=[("FREE MEMORY;", {})])
+            client.execute(queries=[("FREE MEMORY;", {})])
         warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
         log.init("Executing benchmark queries...")
         ret = client.execute(
@@ -754,6 +769,12 @@ def run_isolated_workload_without_authorization(
         time_elapsed = time.time() - start_time
 
         log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
+        if benchmark_context.vendor_name == GraphVendors.MEMGRAPH:
+            storage_info = client.execute(queries=[("SHOW STORAGE INFO;", {})], validation=True)[0]
+            for _, val in storage_info["results"].items():
+                row = json.loads(val)
+                if row[0] == "memory_res":
+                    log.info(f"Memory RES from SHOW STORAGE INFO: {row[1]}")
         usage = vendor_runner.stop_db(rss_db)
         if usage is not None:
             usage[MEMORY] -= memory_usage_with_imported_data
@@ -813,9 +834,17 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     return usage[MEMORY]
 
 
-def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_empty_db):
+def save_memory_usage_of_imported_data(vendor_runner, client, workload, results, memory_usage_of_empty_db):
     rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DATA
     vendor_runner.start_db(rss_db)
+    if client.benchmark_context.vendor_name == GraphVendors.MEMGRAPH:
+        client.execute(queries=[("FREE MEMORY;", {})])
+        client.execute(queries=[("FREE MEMORY;", {})])
+        storage_info = client.execute(queries=[("SHOW STORAGE INFO;", {})], validation=True)[0]
+        for _, val in storage_info["results"].items():
+            row = json.loads(val)
+            if row[0] == "memory_res":
+                log.info(f"Memory RES from SHOW STORAGE INFO: {row[1]}")
     usage = vendor_runner.stop_db(rss_db)
     if usage is None:
         usage = {"memory": 0, "cpu": 0}
@@ -837,7 +866,7 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
     )
     save_import_results(workload, results, import_results, rss_usage)
     memory_usage_with_imported_data = save_memory_usage_of_imported_data(
-        vendor_runner, workload, results, memory_usage_of_empty_db
+        vendor_runner, client, workload, results, memory_usage_of_empty_db
     )
 
     for group in sorted(bench_queries.keys()):

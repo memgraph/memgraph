@@ -36,6 +36,7 @@
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/memory.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -814,6 +815,10 @@ class InMemoryStorage final : public Storage {
 
   EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
+  std::pmr::memory_resource *light_edge_memory_resource() const { return light_edge_memory_resource_.get(); }
+
+  void DeleteLightEdge(Edge *p);
+
   void Clear();
 
   // Main object storage
@@ -892,6 +897,11 @@ class InMemoryStorage final : public Storage {
   // Light edges moved here on delete; drained in CollectGarbage when safe_to_free_ts < oldest_active_start_timestamp.
   // Each accessor pins this skiplist so deleted edges stay safe until no transaction can see them.
   utils::SkipList<DeletedLightEdge> deleted_light_edges_;
+
+  // Pool for light-edge allocations (block_size = sizeof(Edge), 256 KiB chunks).
+  // Chunks are large enough for jemalloc to give them dedicated pages, preventing
+  // slab-level interleaving with unrelated 32-byte allocations.
+  std::unique_ptr<utils::SingleSizeThreadSafePoolResource> light_edge_memory_resource_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;

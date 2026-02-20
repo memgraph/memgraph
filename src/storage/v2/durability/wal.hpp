@@ -555,7 +555,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl);
+    memgraph::storage::ttl::TTL *ttl, std::function<void(Edge *)> light_edge_deleter = nullptr);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

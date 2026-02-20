@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 #include <boost/functional/hash.hpp>
 
@@ -125,6 +126,16 @@ struct hash<memgraph::storage::EdgeTypePropKey> {
     std::size_t seed = 0;
     boost::hash_combine(seed, etpk.edge_type().AsUint());
     boost::hash_combine(seed, etpk.property().AsUint());
+    return seed;
+  }
+};
+
+template <>
+struct hash<std::pair<memgraph::storage::LabelId, memgraph::storage::PropertyId>> {
+  size_t operator()(std::pair<memgraph::storage::LabelId, memgraph::storage::PropertyId> const &p) const noexcept {
+    std::size_t seed = 0;
+    boost::hash_combine(seed, p.first.AsUint());
+    boost::hash_combine(seed, p.second.AsUint());
     return seed;
   }
 };
