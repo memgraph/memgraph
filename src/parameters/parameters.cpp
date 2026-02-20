@@ -132,7 +132,7 @@ bool Parameters::UnsetParameter(std::string_view name, ParameterScope scope, sys
 
 std::vector<ParameterInfo> Parameters::GetAllParameters(ParameterScope scope) const {
   std::vector<ParameterInfo> parameters;
-  std::string prefix(ScopePrefix(scope));
+  const std::string prefix(ScopePrefix(scope));
   parameters.reserve(storage_.Size(prefix));
   for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
     std::string name = it->first.substr(prefix.size());
@@ -146,7 +146,7 @@ size_t Parameters::CountParameters() const { return storage_.Size(); }
 bool Parameters::DeleteAllParameters(system::Transaction *txn) {
   std::vector<std::string> keys_to_delete;
   for (auto scope : {ParameterScope::GLOBAL}) {
-    std::string prefix(ScopePrefix(scope));
+    const std::string prefix(ScopePrefix(scope));
     for (auto it = storage_.begin(prefix); it != storage_.end(prefix); ++it) {
       keys_to_delete.push_back(it->first);
     }

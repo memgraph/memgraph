@@ -335,7 +335,7 @@ def _verify_storage_fields(storage_data: dict) -> bool:
         ("property_store_compression_enabled", int),  # Number of databases with compression enabled
         ("property_store_compression_level", dict),  # Number of databases with each compression level
         ("label_node_count_histogram", dict),  # Histogram of number of labels having 1-9, 10-99, ..., 10M+ nodes
-        ("parameters", int),  # Number of server-side parameters
+        ("num_parameters", int),  # Number of server-side parameters
     ]
 
     durability_fields = [
