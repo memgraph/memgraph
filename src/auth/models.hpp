@@ -69,13 +69,12 @@ enum class Permission : uint64_t {
 enum class FineGrainedPermission : uint64_t {
   NONE          = 0,
   READ          = 1U << 0U,  // 1
-  // Bit 1 reserved: was UPDATE in Memgraph 3.8 and earlier, replaced by SET_LABEL, REMOVE_LABEL, SET_PROPERTY
+  SET_PROPERTY  = 1U << 1U,  // 2: Was UPDATE in Memgraph 3.8 and earlier
   // Bit 2 reserved: was CREATE_DELETE in Memgraph 3.6 and earlier
   CREATE        = 1U << 3U,  // 8
   DELETE        = 1U << 4U,  // 16
   SET_LABEL     = 1U << 5U,  // 32
   REMOVE_LABEL  = 1U << 6U,  // 64
-  SET_PROPERTY  = 1U << 7U   // 128
 };
 // clang-format on
 
