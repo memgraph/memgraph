@@ -123,7 +123,7 @@ def multi_tenant_setup(request):
             session.run("GRANT READ ON NODES CONTAINING LABELS :Person, :Company TO limited;").consume()
             session.run("DENY * ON NODES CONTAINING LABELS :Audit, :Admin TO limited;").consume()
             session.run("GRANT READ ON EDGES OF TYPE :WORKS_FOR, READ ON EDGES OF TYPE :OWNS TO limited;").consume()
-            session.run("DENY * ON EDGES OF TYPE :AUDITS, NOTHING ON EDGES OF TYPE :ADMIN_ACCESS TO limited;").consume()
+            session.run("DENY * ON EDGES OF TYPE :AUDITS, * ON EDGES OF TYPE :ADMIN_ACCESS TO limited;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;").consume()
             session.run("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;").consume()
 
