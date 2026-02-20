@@ -17,8 +17,9 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/packed_vector.hpp"
 #include "utils/rw_spin_lock.hpp"
-#include "utils/small_vector.hpp"
+#include "utils/small_vector.hpp"  // for in_edges, out_edges
 
 namespace memgraph::storage {
 
@@ -31,7 +32,7 @@ struct Vertex {
 
   const Gid gid;
 
-  utils::small_vector<LabelId> labels;
+  utils::PackedVarintVector labels;
 
   using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
 

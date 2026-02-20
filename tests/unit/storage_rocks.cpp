@@ -130,7 +130,7 @@ TEST(RocksDbSerDeSuite, ExtractVertexGidFromVertexKeyNoLabels) {
 TEST(RocksDbSerDeSuite, ExtractVertexGidFromVertexKeyWithOneLabel) {
   auto gid = Gid::FromInt(1);
   Vertex vertex(gid, nullptr);
-  vertex.labels.push_back(LabelId::FromInt(2));
+  vertex.labels.push_back(LabelId::FromInt(2).AsUint());
   std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
 
   ASSERT_EQ(memgraph::utils::ExtractGidFromKey(serializedVertex), "1");
@@ -141,7 +141,7 @@ TEST(RocksDbSerDeSuite, ExtractVertexGidFromVertexKeyWithMultipleLabels) {
   Vertex vertex(gid, nullptr);
   std::vector<unsigned> labels = {2, 3, 4};
   for (unsigned label : labels) {
-    vertex.labels.push_back(LabelId::FromInt(label));
+    vertex.labels.push_back(LabelId::FromInt(label).AsUint());
   }
   std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
 
@@ -154,7 +154,7 @@ TEST(RocksDbSerDeSuite, ExtractLabelsFromMainDiskStorageWhenOnlyOneLabel) {
   std::vector<unsigned> labels = {2};
   std::vector<std::string> expectedLabelsStr = {"2"};
   for (unsigned label : labels) {
-    vertex.labels.push_back(LabelId::FromInt(label));
+    vertex.labels.push_back(LabelId::FromInt(label).AsUint());
   }
   std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
 
@@ -167,7 +167,7 @@ TEST(RocksDbSerDeSuite, ExtractLabelsFromMainDiskStorageWhenMultipleLabels) {
   std::vector<unsigned> labels = {2, 3, 4};
   std::vector<std::string> expectedLabelsStr = {"2", "3", "4"};
   for (unsigned label : labels) {
-    vertex.labels.push_back(LabelId::FromInt(label));
+    vertex.labels.push_back(LabelId::FromInt(label).AsUint());
   }
   std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
 
@@ -185,7 +185,7 @@ TEST(RocksDbSerDeSuite, ExtractVertexGidFromMainDiskStorageNoLabels) {
 TEST(RocksDbSerDeSuite, ExtractVertexGidFromMainDiskStorageWithOneLabel) {
   auto gid = Gid::FromInt(1);
   Vertex vertex(gid, nullptr);
-  vertex.labels.push_back(LabelId::FromInt(2));
+  vertex.labels.push_back(LabelId::FromInt(2).AsUint());
   std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
 
   ASSERT_EQ(memgraph::utils::ExtractGidFromMainDiskStorage(serializedVertex), "1");
@@ -194,9 +194,9 @@ TEST(RocksDbSerDeSuite, ExtractVertexGidFromMainDiskStorageWithOneLabel) {
 TEST(RocksDbSerDeSuite, ExtractVertexGidFromMainDiskStorageWithMultipleLabels) {
   auto gid = Gid::FromInt(1);
   Vertex vertex(gid, nullptr);
-  vertex.labels.push_back(LabelId::FromInt(2));
-  vertex.labels.push_back(LabelId::FromInt(3));
-  vertex.labels.push_back(LabelId::FromInt(4));
+  vertex.labels.push_back(LabelId::FromInt(2).AsUint());
+  vertex.labels.push_back(LabelId::FromInt(3).AsUint());
+  vertex.labels.push_back(LabelId::FromInt(4).AsUint());
   std::string serializedVertex = memgraph::utils::SerializeVertex(vertex);
 
   ASSERT_EQ(memgraph::utils::ExtractGidFromLabelIndexStorage(serializedVertex), "1");

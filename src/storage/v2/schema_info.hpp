@@ -95,7 +95,7 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
 
-  void AddVertex(Vertex *vertex) override { ++vertex_state_[vertex->labels].n; }
+  void AddVertex(Vertex *vertex) override { ++vertex_state_[ToVertexKey(vertex->labels)].n; }
 
   void DeleteVertex(Vertex *vertex) override;
 

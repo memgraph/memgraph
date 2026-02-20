@@ -13,6 +13,7 @@
 #include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/file.hpp"
@@ -97,12 +98,13 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
   }
 
   for (const LabelId index_label : index_) {
-    if (!std::ranges::contains(vertex.labels, index_label)) {
+    if (!ContainsLabel(vertex.labels, index_label)) {
       continue;
     }
     if (!disk_transaction
-             ->Put(utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
-                   utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, vertex.properties))
+             ->Put(
+                 utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
+                 utils::SerializeVertexAsValueForLabelIndex(index_label, ToVertexKey(vertex.labels), vertex.properties))
              .ok()) {
       return false;
     }

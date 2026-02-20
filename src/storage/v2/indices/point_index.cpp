@@ -11,6 +11,8 @@
 
 #include "storage/v2/indices/point_index.hpp"
 
+#include "storage/v2/schema_info_types.hpp"
+
 #include <boost/geometry.hpp>
 #include <boost/geometry/index/predicates.hpp>
 
@@ -112,7 +114,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, uti
 
   for (auto const &v : vertices) {
     if (v.deleted) continue;
-    if (!std::ranges::contains(v.labels, label)) continue;
+    if (!ContainsLabel(v.labels, label)) continue;
 
     static constexpr auto point_types = std::array{PropertyStoreType::POINT};
     auto maybe_value = v.properties.GetPropertyOfTypes(property, point_types);
@@ -218,9 +220,7 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
   for (auto const *v : changed_vertices) {
     auto guard = std::shared_lock{v->lock};
     auto isDeleted = [](Vertex const *v) { return v->deleted; };
-    auto isWithoutLabel = [label = labelPropKey.label()](Vertex const *v) {
-      return !std::ranges::contains(v->labels, label);
-    };
+    auto isWithoutLabel = [label = labelPropKey.label()](Vertex const *v) { return !ContainsLabel(v->labels, label); };
     if (isDeleted(v) || isWithoutLabel(v)) {
       continue;
     }
