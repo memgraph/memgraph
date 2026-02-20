@@ -722,9 +722,9 @@ parameterName : symbolicName ;
 
 parameterValue : parameter | literal | configMap ;
 
-setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
+setParameter : SET GLOBAL? PARAMETER parameterName '=' parameterValue ;
 
-unsetParameter : UNSET GLOBAL PARAMETER parameterName ;
+unsetParameter : UNSET GLOBAL? PARAMETER parameterName ;
 
 showParameters : SHOW PARAMETERS ;
 

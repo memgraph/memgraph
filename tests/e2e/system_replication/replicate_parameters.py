@@ -196,6 +196,29 @@ def test_set_parameter_replication(connection, test_name, clean_dirs):
         assert rows[0][0] == "x"
 
 
+def test_set_database_parameter_replication(connection, test_name, clean_dirs):
+    """Set a global and a database-scoped parameter on main; verify both replicate to replicas."""
+    interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER x="global_val";')
+    # SET PARAMETER sets on current database (default memgraph)
+    execute_and_fetch_all(cursor, 'SET PARAMETER y="db_val";')
+    # 2 REGISTER + 1 SET GLOBAL + 1 SET PARAMETER (database) → ts 4
+    mg_sleep_and_assert_collection(_expected_replicas_ts(4), show_replicas_func(cursor))
+
+    for port in (BOLT_PORTS["replica_1"], BOLT_PORTS["replica_2"]):
+        repl_cursor = connection(port, "replica").cursor()
+        rows = _show_parameters(repl_cursor)
+        assert len(rows) == 2, f"Expected 2 parameters, got {rows}"
+        names = {r[0] for r in rows}
+        assert names == {"x", "y"}, f"Expected names {{x, y}}, got {names}"
+        # scope: row[2]; x is global, y is database
+        scopes = {r[0]: r[2] for r in rows}
+        assert scopes["x"] == "global"
+        assert scopes["y"] == "database"
+
+
 def test_unset_parameter_replication(connection, test_name, clean_dirs):
     interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()

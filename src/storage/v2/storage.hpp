@@ -511,6 +511,8 @@ class Storage {
 
     auto id_view() const { return storage_->name_view(); }
 
+    auto const &uuid() const { return storage_->uuid(); }
+
     std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
