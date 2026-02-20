@@ -70,39 +70,56 @@ bool WriteFiles(const T &paths, std::filesystem::path const &root_data_dir, repl
   }
   return true;
 }
+enum class WriteFilesError : uint8_t { WRITE_FILE_ERROR };
 
-template <rpc::IsRpc T, typename R, typename... Args>
-std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
-                                                            std::filesystem::path const &root_data_dir,
-                                                            replication_coordination_glue::ReplicationMode const mode,
-                                                            Args &&...args) {
-  utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
-  std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
-
-  // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds
-  // rpc stream and which needs to be executed
-  if (mode == replication_coordination_glue::ReplicationMode::ASYNC) {
-    maybe_stream_result = client.TryStream<T>(kRecoveryRpcTimeout, std::forward<Args>(args)...);
-  } else {
-    // in SYNC and STRICT_SYNC mode, we block until we obtain RPC lock
-    maybe_stream_result.emplace(client.Stream<T>(std::forward<Args>(args)...));
+inline auto WriteFilesErrorMsg(WriteFilesError err) -> std::string_view {
+  switch (err) {
+    case WriteFilesError::WRITE_FILE_ERROR: {
+      return "Failed to load files";
+    }
+    default:
+      std::unreachable();
   }
+}
+
+using TransferDurabilityFilesError = std::variant<utils::RpcError, WriteFilesError>;
+
+inline auto TransferDurabilityFilesErrorMsg(TransferDurabilityFilesError const &global_err) -> std::string_view {
+  return std::visit(utils::Overloaded{[](utils::RpcError err) { return utils::GetRpcErrorMsg(err); },
+                                      [](WriteFilesError err) { return WriteFilesErrorMsg(err); }},
+                    global_err);
+}
+
+template <rpc::IsRpc Rpc, typename R, typename... Args>
+std::expected<typename Rpc::Response, TransferDurabilityFilesError> TransferDurabilityFiles(
+    const R &files, rpc::Client &client, std::filesystem::path const &root_data_dir,
+    replication_coordination_glue::ReplicationMode const mode, Args &&...args) {
+  utils::MetricsTimer const timer{RpcInfo<Rpc>::timerLabel};
+
+  // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which
+  // holds rpc stream and which needs to be executed
+  auto maybe_stream_result = (mode == replication_coordination_glue::ReplicationMode::ASYNC)
+                                 ? client.TryStream<Rpc>(kRecoveryRpcTimeout, std::forward<Args>(args)...)
+                                 : client.Stream<Rpc>(std::forward<Args>(args)...);
 
   // If dealing with ASYNC replica and couldn't obtain the lock
   if (!maybe_stream_result) {
-    return std::nullopt;
+    return std::unexpected{utils::RpcError::FAILED_TO_GET_RPC_STREAM};
   }
 
   slk::Builder *builder = maybe_stream_result->GetBuilder();
 
-  builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true);
+  if (auto const res = builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true); !res.has_value()) {
+    return std::unexpected{res.error()};
+  }
 
   // If writing files failed, fail the task by returning empty optional
   if (replication::Encoder encoder(builder); !WriteFiles(files, root_data_dir, encoder)) {
-    return std::nullopt;
+    return std::unexpected{WriteFilesError::WRITE_FILE_ERROR};
   }
 
-  return maybe_stream_result->SendAndWaitProgress();
+  return maybe_stream_result->SendAndWaitProgress().transform_error(
+      [](utils::RpcError e) -> TransferDurabilityFilesError { return e; });
 }
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,

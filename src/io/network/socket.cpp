@@ -349,7 +349,8 @@ std::optional<Socket> Socket::Accept() {
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) {
+auto Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms)
+    -> std::expected<void, ClientCommunicationError> {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
@@ -360,24 +361,27 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optiona
     if (written == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
         // Terminal error, return failure.
-        return false;
+        return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
       }
       // Non-fatal error, retry after the socket is ready. This is here to
       // implement a non-busy wait. If we just continue with the loop we have a
       // busy wait.
-      if (!WaitForReadyWrite(timeout_ms)) return false;
+      if (!WaitForReadyWrite(timeout_ms)) {
+        return std::unexpected{ClientCommunicationError::TIMEOUT_ERROR};
+      }
     } else if (written == 0) {
       // The client closed the connection.
-      return false;
+      return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
     } else {
       len -= written;
       data += written;
     }
   }
-  return true;
+  return {};
 }
 
-bool Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms) {
+auto Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms)
+    -> std::expected<void, ClientCommunicationError> {
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more, timeout_ms);
 }
 

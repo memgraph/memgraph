@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <iostream>
 #include "communication/bolt/client.hpp"
+#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
 
@@ -64,7 +65,8 @@ int main(int argc, char **argv) {
           LOG_FATAL(
               "The query should have failed with an error message of '{}'' but "
               "instead it failed with '{}'",
-              FLAGS_failure_message, e.what());
+              FLAGS_failure_message,
+              e.what());
         }
         return 0;
       } else {

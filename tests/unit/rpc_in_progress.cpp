@@ -25,7 +25,6 @@ using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
-using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::slk::Save;
@@ -75,8 +74,8 @@ TEST(RpcInProgress, SingleProgress) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  auto reply = stream.SendAndWaitProgress();
-  EXPECT_EQ(reply.sum, 5);
+  auto reply = stream.value().SendAndWaitProgress();
+  EXPECT_EQ(reply.value().sum, 5);
 }
 
 // Each batch for itself shouldn't timeout
@@ -130,8 +129,8 @@ TEST(RpcInProgress, MultipleProgresses) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  auto reply = stream.SendAndWaitProgress();
-  EXPECT_EQ(reply.sum, 5);
+  auto reply = stream.value().SendAndWaitProgress();
+  EXPECT_EQ(reply.value().sum, 5);
 }
 
 TEST(RpcInProgress, Timeout) {
@@ -174,7 +173,7 @@ TEST(RpcInProgress, Timeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
+  ASSERT_EQ(stream.value().SendAndWaitProgress().error(), memgraph::utils::RpcError::TIMEOUT_ERROR);
 }
 
 TEST(RpcInProgress, NoTimeout) {
@@ -209,5 +208,5 @@ TEST(RpcInProgress, NoTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
-  EXPECT_NO_THROW(stream.SendAndWaitProgress());
+  ASSERT_TRUE(stream.value().SendAndWaitProgress().has_value());
 }

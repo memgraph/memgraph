@@ -72,14 +72,14 @@ TEST(RpcVersioning, SumUpgrade) {
   {
     // Send new version request
     auto stream = client.Stream<Sum>(std::initializer_list<int>{35, 30});
-    auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.sum, std::vector<int>{65});
+    auto reply = stream.value().SendAndWait();
+    EXPECT_EQ(reply.value().sum, std::vector<int>{65});
   }
   {
     // Send old versioned request
     auto stream = client.Stream<SumV1>(10, 12);
-    auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.sum, 22);
+    auto reply = stream.value().SendAndWait();
+    EXPECT_EQ(reply.value().sum, 22);
   }
 }
 
@@ -135,27 +135,27 @@ TEST(RpcVersioning, GetDBHistories) {
     // Send new version request
     auto stream = client.Stream<memgraph::coordination::GetDatabaseHistoriesRpc>();
 
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
 
-    EXPECT_EQ(reply.arg_.last_committed_system_timestamp, 81);
+    EXPECT_EQ(reply.value().arg_.last_committed_system_timestamp, 81);
     auto const dbs_info_res = std::vector{
         {memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "123", .num_committed_txns = 2},
          memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "1234", .num_committed_txns = 22}}};
-    EXPECT_EQ(reply.arg_.dbs_info, dbs_info_res);
+    EXPECT_EQ(reply.value().arg_.dbs_info, dbs_info_res);
   }
 
   {
     // Send old version request
     auto stream = client.Stream<memgraph::coordination::GetDatabaseHistoriesRpcV1>();
-    auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.arg_.last_committed_system_timestamp, 81);
+    auto reply = stream.value().SendAndWait();
+    EXPECT_EQ(reply.value().arg_.last_committed_system_timestamp, 81);
     auto const dbs_info_res = std::vector{
         {memgraph::replication_coordination_glue::InstanceDBInfoV1{.db_uuid = "123", .latest_durable_timestamp = 4},
          memgraph::replication_coordination_glue::InstanceDBInfoV1{
              .db_uuid = "1234",
              .latest_durable_timestamp = 13,
          }}};
-    EXPECT_EQ(reply.arg_.dbs_info, dbs_info_res);
+    EXPECT_EQ(reply.value().arg_.dbs_info, dbs_info_res);
   }
 }
 
@@ -205,20 +205,20 @@ TEST(RpcVersioning, StateCheckRpc) {
   {
     // Send new version request
     auto stream = client.Stream<memgraph::coordination::StateCheckRpc>();
-    auto reply = stream.SendAndWait();
+    auto reply = stream.value().SendAndWait();
 
-    EXPECT_FALSE(reply.arg_.inner_state.is_replica);
-    EXPECT_TRUE(reply.arg_.inner_state.is_writing_enabled);
-    EXPECT_EQ(*reply.arg_.inner_state.main_num_txns, main_num_txns);
-    EXPECT_EQ(*reply.arg_.inner_state.replicas_num_txns, replicas_num_txns);
+    EXPECT_FALSE(reply.value().arg_.inner_state.is_replica);
+    EXPECT_TRUE(reply.value().arg_.inner_state.is_writing_enabled);
+    EXPECT_EQ(*reply.value().arg_.inner_state.main_num_txns, main_num_txns);
+    EXPECT_EQ(*reply.value().arg_.inner_state.replicas_num_txns, replicas_num_txns);
   }
 
   {
     // Send old version request
     auto stream = client.Stream<memgraph::coordination::StateCheckRpcV1>();
-    auto reply = stream.SendAndWait();
-    EXPECT_FALSE(reply.arg_.is_replica);
-    EXPECT_TRUE(reply.arg_.is_writing_enabled);
+    auto reply = stream.value().SendAndWait();
+    EXPECT_FALSE(reply.value().arg_.is_replica);
+    EXPECT_TRUE(reply.value().arg_.is_writing_enabled);
   }
 }
 #endif
@@ -228,7 +228,10 @@ TEST(RpcVersioning, StateCheckRpc) {
 TEST(RpcVersioning, RequestTwoVersionsSingleVersionResponse_ThrowsWhenSendingV1) {
   std::vector<uint8_t> sink;
   memgraph::slk::Builder builder(
-      [&sink](const uint8_t *data, size_t size, bool) { sink.insert(sink.end(), data, data + size); });
+      [&sink](const uint8_t *data, size_t size, bool) -> std::expected<void, memgraph::utils::RpcError> {
+        sink.insert(sink.end(), data, data + size);
+        return {};
+      });
   TestResSingleVersion res;
   EXPECT_THROW(memgraph::rpc::SaveWithDowngrade(res, 1, &builder), std::runtime_error);
 }
@@ -269,8 +272,8 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
                                                                 std::vector<memgraph::auth::User>{},
                                                                 std::vector<memgraph::auth::Role>{},
                                                                 std::vector<memgraph::auth::UserProfiles::Profile>{});
-    auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+    auto reply = stream.value().SendAndWait();
+    EXPECT_EQ(reply.value().result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }
   {
     auto stream =
@@ -282,7 +285,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
                                                                 std::vector<memgraph::auth::Role>{},
                                                                 std::vector<memgraph::auth::UserProfiles::Profile>{},
                                                                 std::vector<memgraph::parameters::ParameterInfo>{});
-    auto reply = stream.SendAndWait();
-    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+    auto reply = stream.value().SendAndWait();
+    EXPECT_EQ(reply.value().result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }
 }

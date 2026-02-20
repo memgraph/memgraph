@@ -22,8 +22,31 @@
 
 #include <exception>
 #include <string_view>
+#include <utility>
 
 namespace memgraph::utils {
+
+enum class RpcError : uint8_t {
+  UNSUPPORTED_RPC_VERSION_ERROR,
+  GENERIC_RPC_ERROR,
+  FAILED_TO_GET_RPC_STREAM,
+  TIMEOUT_ERROR
+};
+
+inline auto GetRpcErrorMsg(RpcError error) -> std::string_view {
+  switch (error) {
+    case RpcError::UNSUPPORTED_RPC_VERSION_ERROR:
+      return "UnsupportedRpcVersionError";
+    case RpcError::GENERIC_RPC_ERROR:
+      return "GenericRpcError";
+    case RpcError::FAILED_TO_GET_RPC_STREAM:
+      return "FailedToGetRpcStream";
+    case RpcError::TIMEOUT_ERROR:
+      return "TimeoutError";
+    default:
+      std::unreachable();
+  }
+}
 
 #define SPECIALIZE_GET_EXCEPTION_NAME(exep) \
   std::string name() const override { return #exep; }
