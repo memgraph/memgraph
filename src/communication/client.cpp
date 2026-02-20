@@ -12,7 +12,6 @@
 #include "communication/client.hpp"
 
 #include "communication/helpers.hpp"
-#include "io/network/network_error.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication {
@@ -98,7 +97,8 @@ void Client::Close() {
 }
 
 auto Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout_ms)
-    -> std::expected<void, ClientCommunicationError> {
+    -> std::expected<void, io::network::ClientCommunicationError> {
+  using io::network::ClientCommunicationError;
   if (len == 0) return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
   size_t received = 0;
   buffer_.write_end()->Resize(buffer_.read_end()->size() + len);
@@ -171,7 +171,9 @@ void Client::ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
 
 void Client::ClearData() { buffer_.read_end()->Clear(); }
 
-bool Client::Write(const uint8_t *data, size_t len, bool have_more, const std::optional<int> timeout_ms) {
+auto Client::Write(const uint8_t *data, size_t len, bool have_more, const std::optional<int> timeout_ms)
+    -> std::expected<void, io::network::ClientCommunicationError> {
+  using io::network::ClientCommunicationError;
   if (ssl_) {
     // `SSL_write` has the interface of a normal `write` call. Because of that
     // we need to ensure that all data is written to the socket manually.
@@ -196,23 +198,24 @@ bool Client::Write(const uint8_t *data, size_t len, bool have_more, const std::o
           socket_.WaitForReadyWrite();
         } else {
           // This is a fatal error.
-          return false;
+          return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
         }
       } else if (written == 0) {
         // The client closed the connection.
-        return false;
+        return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
       } else {
         len -= written;
         data += written;
       }
     }
-    return true;
+    return {};
   }
   // Non-ssl
   return socket_.Write(data, len, have_more, timeout_ms);
 }
 
-bool Client::Write(std::string_view str, bool have_more, const std::optional<int> timeout_ms) {
+auto Client::Write(std::string_view str, bool have_more, const std::optional<int> timeout_ms)
+    -> std::expected<void, io::network::ClientCommunicationError> {
   return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more, timeout_ms);
 }
 
@@ -242,9 +245,11 @@ void ClientInputStream::Clear() { client_.ClearData(); }
 ClientOutputStream::ClientOutputStream(Client &client) : client_(client) {}
 
 bool ClientOutputStream::Write(const uint8_t *data, size_t len, bool have_more) {
-  return client_.Write(data, len, have_more);
+  return client_.Write(data, len, have_more).has_value();
 }
 
-bool ClientOutputStream::Write(std::string_view str, bool have_more) { return client_.Write(str, have_more); }
+bool ClientOutputStream::Write(std::string_view str, bool have_more) {
+  return client_.Write(str, have_more).has_value();
+}
 
 }  // namespace memgraph::communication

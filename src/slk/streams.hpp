@@ -71,7 +71,7 @@ class Builder {
         error_{std::exchange(other.error_, std::nullopt)} {
     other.write_func_ = [](const uint8_t *, size_t, bool) -> BuilderWriteFunction::result_type {
       /* Moved builder is defunct, no write possible */
-      return {};
+      return std::unexpected{utils::RpcError::GENERIC_RPC_ERROR};
     };
   }
 
