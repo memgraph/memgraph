@@ -227,13 +227,13 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
     permissions.emplace_back("READ");
   }
   if (permission & FineGrainedPermission::SET_LABEL) {
-    permissions.emplace_back("SET_LABEL");
+    permissions.emplace_back("SET LABEL");
   }
   if (permission & FineGrainedPermission::REMOVE_LABEL) {
-    permissions.emplace_back("REMOVE_LABEL");
+    permissions.emplace_back("REMOVE LABEL");
   }
   if (permission & FineGrainedPermission::SET_PROPERTY) {
-    permissions.emplace_back("SET_PROPERTY");
+    permissions.emplace_back("SET PROPERTY");
   }
   if (permission & FineGrainedPermission::DELETE) {
     permissions.emplace_back("DELETE");
