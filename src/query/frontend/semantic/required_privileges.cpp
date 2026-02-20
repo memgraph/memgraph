@@ -168,6 +168,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }
 
+  void Visit(ParameterQuery & /*parameter_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::SERVER_SIDE_PARAMETERS);
+  }
+
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
   }

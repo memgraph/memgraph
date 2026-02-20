@@ -128,6 +128,23 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
+  TypedValue Visit(ListLiteral &list_literal) override {
+    TypedValue::TVector result(ctx_->memory);
+    result.reserve(list_literal.elements_.size());
+    for (Expression *expr : list_literal.elements_) {
+      result.emplace_back(expr ? expr->Accept(*this) : TypedValue(ctx_->memory));
+    }
+    return {std::move(result), ctx_->memory};
+  }
+
+  TypedValue Visit(MapLiteral &map_literal) override {
+    TypedValue::TMap result(ctx_->memory);
+    for (const auto &pair : map_literal.elements_) {
+      result.emplace(TypedValue::TString(pair.first.name, ctx_->memory), pair.second->Accept(*this));
+    }
+    return {std::move(result), ctx_->memory};
+  }
+
   TypedValue Visit(Function &function) override {
     if (!dba_) {
       throw QueryRuntimeException("Function evaluation requires a database accessor.");
@@ -193,8 +210,6 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(UnaryPlusOperator)
   INVALID_VISIT(UnaryMinusOperator)
   INVALID_VISIT(IsNullOperator)
-  INVALID_VISIT(ListLiteral)
-  INVALID_VISIT(MapLiteral)
   INVALID_VISIT(MapProjectionLiteral)
   INVALID_VISIT(PropertyLookup)
   INVALID_VISIT(AllPropertiesLookup)

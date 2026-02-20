@@ -3,6 +3,7 @@
 # add memgraph sub libraries, ordered by dependency
 add_subdirectory(csv)
 add_subdirectory(utils)
+add_subdirectory(parameters)
 add_subdirectory(requests)
 add_subdirectory(io)
 add_subdirectory(kvstore)
@@ -52,7 +53,7 @@ add_dependencies(memgraph mgconsole)
 # Link memgraph with custom libstdc++
 message(STATUS "Linking memgraph with custom libstdc++")
 target_link_libraries(memgraph "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
-        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler
+        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-parameters mg-glue mg-flags mg::system mg::replication_handler
         libstdc++_custom)
 target_link_options(memgraph PRIVATE -nostdlib++)
 

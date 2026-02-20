@@ -209,6 +209,8 @@ struct DropDatabase : memgraph::system::ISystemAction {
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
+  bool ShouldReplicateInCommunity() const override { return false; }
+
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::DropDatabaseRes &response) {
@@ -230,6 +232,8 @@ struct RenameDatabase : memgraph::system::ISystemAction {
       : old_name_{std::move(old_name)}, new_name_{std::move(new_name)} {}
 
   void DoDurability() override { /* Done during DBMS execution */ }
+
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -385,6 +389,8 @@ struct CreateDatabase : memgraph::system::ISystemAction {
   void DoDurability() override {
     // Done during dbms execution
   }
+
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {

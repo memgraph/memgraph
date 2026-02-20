@@ -29,24 +29,24 @@ using namespace std::chrono_literals;
 namespace {
 #ifdef MG_ENTERPRISE
 void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
-                        dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
+                        dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth, parameters::Parameters &parameters) {
   /*
    * REPLICATION RECOVERY AND STARTUP
    */
 
   // Startup replication state (if recovered at startup)
-  auto replica = [&dbms_handler, &auth, &system, &repl_state](RoleReplicaData &data) {
-    return StartRpcServer(dbms_handler, repl_state, data, auth, system);
+  auto replica = [&dbms_handler, &repl_state, &auth, &system, &parameters](RoleReplicaData &data) {
+    return StartRpcServer(dbms_handler, repl_state, data, auth, system, parameters);
   };
 
   // Replication recovery and frequent check start
-  auto main = [&system, &dbms_handler, &auth](RoleMainData &mainData) {
+  auto main = [&system, &dbms_handler, &auth, &parameters](RoleMainData &mainData) {
     for (auto &client : mainData.registered_replicas_) {
       if (client.try_set_uuid &&
           replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, mainData.uuid_)) {
         client.try_set_uuid = false;
       }
-      SystemRestore(client, system, dbms_handler, mainData.uuid_, auth);
+      SystemRestore(client, system, dbms_handler, mainData.uuid_, auth, parameters);
     }
     // DBMS here
     dbms_handler.ForEach([&mainData](dbms::DatabaseAccess db_acc) {
@@ -54,7 +54,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
     });
 
     for (auto &client : mainData.registered_replicas_) {
-      StartReplicaClient(client, system, dbms_handler, mainData.uuid_, auth);
+      StartReplicaClient(client, system, dbms_handler, mainData.uuid_, auth, parameters);
     }
 
     // Warning
@@ -74,15 +74,15 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
   MG_ASSERT(result, "Replica recovery failure!");
 }
 #else
-void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
-                        dbms::DbmsHandler &dbms_handler) {
+void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state, system::System &system,
+                        dbms::DbmsHandler &dbms_handler, parameters::Parameters &parameters) {
   // Startup replication state (if recovered at startup)
-  auto replica = [&dbms_handler, &repl_state](replication::RoleReplicaData &data) {
-    return replication::StartRpcServer(dbms_handler, repl_state, data);
+  auto replica = [&dbms_handler, &repl_state, &system, &parameters](replication::RoleReplicaData &data) {
+    return replication::StartRpcServer(dbms_handler, repl_state, data, system, parameters);
   };
 
   // Replication recovery and frequent check start
-  auto main = [&dbms_handler](replication::RoleMainData &mainData) {
+  auto main = [&dbms_handler, &system, &parameters](replication::RoleMainData &mainData) {
     dbms::DbmsHandler::RecoverStorageReplication(dbms_handler.Get(), mainData);
 
     for (auto &client : mainData.registered_replicas_) {
@@ -90,7 +90,7 @@ void RecoverReplication(utils::Synchronized<ReplicationState, utils::RWSpinLock>
           replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, mainData.uuid_)) {
         client.try_set_uuid = false;
       }
-      replication::StartReplicaClient(client, dbms_handler, mainData.uuid_);
+      replication::StartReplicaClient(client, system, dbms_handler, mainData.uuid_, parameters);
     }
 
     // Warning
@@ -133,10 +133,10 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
 
 #ifdef MG_ENTERPRISE
 void StartReplicaClient(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
-                        utils::UUID main_uuid, auth::SynchedAuth &auth) {
+                        utils::UUID main_uuid, auth::SynchedAuth &auth, parameters::Parameters &parameters) {
 #else
-void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler,
-                        utils::UUID main_uuid) {
+void StartReplicaClient(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
+                        utils::UUID main_uuid, parameters::Parameters &parameters) {
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
@@ -155,7 +155,9 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
           local_client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
         }
 #ifdef MG_ENTERPRISE
-        SystemRestore<true>(local_client, system, dbms_handler, main_uuid, auth);
+        SystemRestore<true>(local_client, system, dbms_handler, main_uuid, auth, parameters);
+#else
+        SystemRestore<true>(local_client, system, dbms_handler, main_uuid, parameters);
 #endif
         // Check if any database has been left behind
         dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
@@ -182,17 +184,21 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 
 #ifdef MG_ENTERPRISE
 ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
-                                       dbms::DbmsHandler &dbms_handler, system::System &system, auth::SynchedAuth &auth)
-    : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, auth_{auth} {
-  RecoverReplication(repl_state_, system_, dbms_handler_, auth_);
-}
+                                       dbms::DbmsHandler &dbms_handler, system::System &system, auth::SynchedAuth &auth,
+                                       parameters::Parameters &parameters)
+    : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, auth_{auth}, parameters_{parameters} {
 #else
 ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
-                                       dbms::DbmsHandler &dbms_handler)
-    : repl_state_{repl_state}, dbms_handler_{dbms_handler} {
-  RecoverReplication(repl_state_, dbms_handler_);
-}
+                                       dbms::DbmsHandler &dbms_handler, system::System &system,
+                                       parameters::Parameters &parameters)
+    : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, parameters_{parameters} {
 #endif
+#ifdef MG_ENTERPRISE
+  RecoverReplication(repl_state_, system_, dbms_handler_, auth_, parameters_);
+#else
+  RecoverReplication(repl_state_, system_, dbms_handler_, parameters_);
+#endif
+}
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 

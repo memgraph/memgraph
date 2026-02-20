@@ -128,6 +128,8 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
 
   void DoDurability() override { /* Done during Auth execution */ }
 
+  bool ShouldReplicateInCommunity() const override { return false; }
+
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
@@ -162,6 +164,8 @@ struct DropAuthData : memgraph::system::ISystemAction {
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
   void DoDurability() override { /* Done during Auth execution */ }
+
+  bool ShouldReplicateInCommunity() const override { return false; }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {

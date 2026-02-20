@@ -26,6 +26,7 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
@@ -130,16 +131,18 @@ class ReplicationTest : public ::testing::Test {
 struct MinMemgraph {
   explicit MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+        parameters_{conf.durability.storage_directory},
         repl_state{ReplicationStateRootPath(conf)},
         dbms{conf},
         db_acc{dbms.Get()},
         db{*db_acc.get()},
-        repl_handler(repl_state, dbms
+        repl_handler(repl_state, dbms, system_
 #ifdef MG_ENTERPRISE
                      ,
-                     system_, auth
+                     auth
 #endif
-        ) {
+                     ,
+                     parameters_) {
   }
 
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> { return db.ReadOnlyAccess(); }
@@ -167,6 +170,7 @@ struct MinMemgraph {
 
   memgraph::auth::SynchedAuth auth;
   memgraph::system::System system_;
+  memgraph::parameters::Parameters parameters_;
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::dbms::DatabaseAccess db_acc;

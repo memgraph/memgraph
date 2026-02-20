@@ -18,6 +18,7 @@
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "parameters/parameters.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 
@@ -45,7 +46,8 @@ class Telemetry final {
   void AddCollector(std::string name, FuncSig func);
 
   // Specialized collectors
-  void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth);
+  void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                           memgraph::parameters::Parameters const &parameters);
 
 #ifdef MG_ENTERPRISE
   void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler);
