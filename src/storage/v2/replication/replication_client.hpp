@@ -13,7 +13,6 @@
 
 #include "replication/replication_client.hpp"
 #include "rpc/client.hpp"
-#include "rpc/exceptions.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/commit_ts_info.hpp"
 #include "storage/v2/database_protector.hpp"
@@ -49,17 +48,13 @@ class ReplicaStream {
   ReplicaStream &operator=(ReplicaStream &&) = default;
   ~ReplicaStream() = default;
 
-  /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t final_commit_timestamp, Storage *storage);
 
-  /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage, Gid in_vertex_gid,
                    EdgeTypeId edge_type_id);
 
-  /// @throw rpc::RpcFailedException
   void AppendTransactionStart(uint64_t final_commit_timestamp, bool commit, StorageAccessType access_type);
 
-  /// @throw rpc::RpcFailedException
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   auto Finalize() -> std::expected<replication::PrepareCommitRes, utils::RpcError>;
@@ -141,7 +136,7 @@ class ReplicationStorageClient {
    * @param durability_commit_timestamp LDT with which this txn should be committed
    */
   auto StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
-                                   uint64_t const durability_commit_timestamp) -> std::optional<ReplicaStream>;
+                                   uint64_t durability_commit_timestamp) -> std::optional<ReplicaStream>;
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -165,17 +160,7 @@ class ReplicationStorageClient {
       LogRpcFailure();
       return;
     }
-    try {
-      callback(*replica_stream);  // failure state what if not streaming (std::nullopt)
-    } catch (const rpc::RpcFailedException &) {
-      // We don't need to reset replica stream here, as it is destroyed when object goes out of scope
-      // in FinalizeTransactionReplication function
-      replica_state_.WithLock([&replica_stream](auto &state) {
-        replica_stream.reset();
-        state = replication::ReplicaState::MAYBE_BEHIND;
-      });
-      LogRpcFailure();
-    }
+    callback(*replica_stream);  // failure state what if not streaming (std::nullopt)
   }
 
   /**
@@ -192,8 +177,8 @@ class ReplicationStorageClient {
                                       uint64_t durability_commit_timestamp) const
       -> std::expected<void, ReplicationError>;
 
-  [[nodiscard]] bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid,
-                                           uint64_t const durability_commit_timestamp,
+  [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
+                                           uint64_t durability_commit_timestamp,
                                            std::optional<ReplicaStream> replica_stream) noexcept;
 
   /**

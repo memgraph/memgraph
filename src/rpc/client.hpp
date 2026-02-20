@@ -60,7 +60,7 @@ class Client {
       {"FrequentHeartbeatReq"sv, 5000},        // coord to data instances
       {"HeartbeatReq"sv, 10'000},              // main to replica
       {"SystemRecoveryReq"sv, 30'000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
-      {"PrepareCommitReq"sv, 500},      // Waiting 30'' on a progress/final response
+      {"PrepareCommitReq"sv, 30'000},   // Waiting 30'' on a progress/final response
       {"FinalizeCommitReq"sv, 10'000},  // Waiting 10'' on a final response
       {"CurrentWalReq"sv, 30'000},      // Waiting 30'' on a progress/final response
       {"WalFilesReq"sv, 30'000},        // Waiting 30'' on a progress/final response
