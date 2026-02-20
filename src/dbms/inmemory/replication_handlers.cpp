@@ -1278,7 +1278,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           // Pre-fill cache for subsequent SET_PROPERTY on this edge in the same transaction.
           auto &edge = *edge_result;
-          EdgeSetPropertyCacheKey key{edge_gid, delta_timestamp};
+          EdgeSetPropertyCacheKey key{.edge_gid = edge_gid, .delta_timestamp = delta_timestamp};
           edge_set_property_cache.emplace(key, edge);
         },
         [&](WalEdgeDelete const &data) {
@@ -1323,7 +1323,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                 "are disabled!");
 
           auto *transaction = get_replication_accessor(delta_timestamp);
-          EdgeSetPropertyCacheKey const cache_key{edge_gid, delta_timestamp};
+          EdgeSetPropertyCacheKey const cache_key{.edge_gid = edge_gid, .delta_timestamp = delta_timestamp};
 
           // Fast path: use cached edge accessor.
           auto it = edge_set_property_cache.find(cache_key);
