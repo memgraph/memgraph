@@ -52,6 +52,7 @@ int main(int argc, char **argv) {
       ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
+  memgraph::parameters::Parameters parameters(data_directory / "parameters");
   memgraph::dbms::DbmsHandler dbms_handler(db_config);
   memgraph::query::InterpreterContext interpreter_context_({},
                                                            nullptr,
