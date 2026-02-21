@@ -616,7 +616,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       return {{Type::INT, *size}};
     }
     case PropertyValue::Type::Double: {
-      double val = value.ValueDouble();
+      double const val = value.ValueDouble();
       auto const res = FloatingPointResolution();
       std::optional<Size> size;
       if (res <= 16) {
@@ -665,7 +665,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
           if (!ret) return std::nullopt;
           metadata->Set({.type = Type::INT, .id_size = Size::INT8, .payload_size = *ret});
         } else {
-          double val = std::get<double>(item);
+          double const val = std::get<double>(item);
           auto const res = FloatingPointResolution();
           std::optional<Size> ret;
           if (res <= 16) {
@@ -1015,9 +1015,12 @@ bool SkipList(Reader *reader, ListType list_type, uint32_t size) {
     }
     case ListType::DOUBLE: {
       auto const res = FloatingPointResolution();
-      uint32_t elem_size = (res <= 16) ? sizeof(uint16_t) : (res <= 32) ? sizeof(float) : SizeToByteSize(Size::INT64);
-      if (!reader->SkipBytes(size * elem_size)) return false;
-      return true;
+      auto const elem_size = [&res]() -> uint32_t {
+        if (res <= 16) return sizeof(uint16_t);
+        if (res <= 32) return sizeof(float);
+        return SizeToByteSize(Size::INT64);
+      }();
+      return reader->SkipBytes(size * elem_size);
     }
     case ListType::NUMERIC: {
       for (uint32_t i = 0; i < size; ++i) {
@@ -1078,9 +1081,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         }
         if (metadata->type == Type::DOUBLE) {
           auto const r1 = FloatingPointResolution();
-          auto double_v = (r1 <= 16)   ? reader->ReadHalf(metadata->payload_size)
-                          : (r1 <= 32) ? reader->ReadFloat(metadata->payload_size)
-                                       : reader->ReadDouble(metadata->payload_size);
+          auto const double_v = [&]() -> std::optional<double> {
+            if (r1 <= 16) return reader->ReadHalf(metadata->payload_size);
+            if (r1 <= 32) return reader->ReadFloat(metadata->payload_size);
+            return reader->ReadDouble(metadata->payload_size);
+          }();
           if (!double_v) return std::nullopt;
           return *double_v;
         }
@@ -1093,9 +1098,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       }
       case ListType::DOUBLE: {
         auto const r2 = FloatingPointResolution();
-        auto double_v = (r2 <= 16)   ? reader->ReadHalf(Size::INT16)
-                        : (r2 <= 32) ? reader->ReadFloat(Size::INT32)
-                                     : reader->ReadDouble(Size::INT64);
+        auto const double_v = [&]() -> std::optional<double> {
+          if (r2 <= 16) return reader->ReadHalf(Size::INT16);
+          if (r2 <= 32) return reader->ReadFloat(Size::INT32);
+          return reader->ReadDouble(Size::INT64);
+        }();
         if (!double_v) return std::nullopt;
         return *double_v;
       }
@@ -1109,9 +1116,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         }
         if (metadata->type == Type::DOUBLE) {
           auto const r3 = FloatingPointResolution();
-          auto double_v = (r3 <= 16)   ? reader->ReadHalf(metadata->payload_size)
-                          : (r3 <= 32) ? reader->ReadFloat(metadata->payload_size)
-                                       : reader->ReadDouble(metadata->payload_size);
+          auto const double_v = [&]() -> std::optional<double> {
+            if (r3 <= 16) return reader->ReadHalf(metadata->payload_size);
+            if (r3 <= 32) return reader->ReadFloat(metadata->payload_size);
+            return reader->ReadDouble(metadata->payload_size);
+          }();
           if (!double_v) return std::nullopt;
           return *double_v;
         }
@@ -1439,7 +1448,11 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
         }
         case ListType::DOUBLE: {
           auto const res = FloatingPointResolution();
-          auto elem_sz = (res <= 16) ? sizeof(uint16_t) : (res <= 32) ? sizeof(float) : SizeToByteSize(Size::INT64);
+          auto const elem_sz = [&res]() -> uint32_t {
+            if (res <= 16) return sizeof(uint16_t);
+            if (res <= 32) return sizeof(float);
+            return SizeToByteSize(Size::INT64);
+          }();
           auto total_bytes = *size * elem_sz;
           if (!reader->SkipBytes(total_bytes)) return false;
           list_property_size += total_bytes;
