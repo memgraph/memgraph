@@ -39,11 +39,12 @@ TEST_F(VMCompilerTest, WildcardPattern) {
   PatternCompiler<Op> compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Wildcard at root should just yield
+  // Wildcard at root: yield, jump back (to halt), halt
   auto code = compiled->code();
-  ASSERT_EQ(code.size(), 2);
+  ASSERT_EQ(code.size(), 3);
   EXPECT_EQ(code[0], Instruction::yield());
-  EXPECT_EQ(code[1], Instruction::halt());
+  EXPECT_EQ(code[1].op, VMOp::Jump);
+  EXPECT_EQ(code[2], Instruction::halt());
 }
 
 TEST_F(VMCompilerTest, VariablePattern) {
@@ -53,12 +54,13 @@ TEST_F(VMCompilerTest, VariablePattern) {
   PatternCompiler<Op> compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Variable at root: first occurrence uses BindSlot (unconditional bind), then yield
+  // Variable at root: bind, yield, jump back (to halt), halt
   auto code = compiled->code();
-  ASSERT_EQ(code.size(), 3);
+  ASSERT_EQ(code.size(), 4);
   EXPECT_EQ(code[0], Instruction::bind_slot(0, 0));  // slot 0, src reg 0
   EXPECT_EQ(code[1], Instruction::yield());
-  EXPECT_EQ(code[2], Instruction::halt());
+  EXPECT_EQ(code[2].op, VMOp::Jump);
+  EXPECT_EQ(code[3], Instruction::halt());
 }
 
 TEST_F(VMCompilerTest, SimpleSymbolPattern) {
@@ -519,9 +521,10 @@ TEST_F(FusedCompilerTest, SimpleJoinWithParentTraversal) {
   constexpr PatternVar kVarId{3};
   auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
-  // Compile with PatternsCompiler
-  PatternsCompiler<Op> compiler;
-  auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
+  // Compile with PatternCompiler
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
 
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
 
@@ -610,8 +613,9 @@ TEST_F(FusedCompilerTest, NoMatchingJoin) {
   auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
   // Compile and execute
-  PatternsCompiler<Op> compiler;
-  auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
   VMExecutorVerify<Op, NoAnalysis> executor(egraph);
@@ -828,8 +832,9 @@ TEST_F(FusedCompilerTest, MultipleJoinMatches) {
   auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
   // Compile and execute
-  PatternsCompiler<Op> compiler;
-  auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
   std::cout << "Fused bytecode (multiple Idents):\n"
@@ -897,8 +902,9 @@ TEST_F(FusedPatternNestedTest, NestedJoinedPatternViaParentTraversal) {
   // Joined pattern: F(?sym, Neg(?x)) - nested Neg symbol with shared ?sym
   auto joined = Pattern<Op>::build(Op::F, {Var{kVarSym}, Sym(Op::Neg, Var{kVarX})});
 
-  PatternsCompiler<Op> compiler;
-  auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
 
   std::cout << "Fused bytecode (nested joined pattern with parent traversal):\n"
@@ -952,9 +958,10 @@ TEST_F(FusedPatternNestedTest, DeeplyNestedCartesianPattern) {
   // This forces Cartesian product with recursive compilation
   auto joined = Pattern<Op>::build(Op::Neg, {Sym(Op::Neg, Var{kVarZ})});
 
-  // Use ?x as shared variable (the e-class that Neg(Neg(z)) should match)
-  PatternsCompiler<Op> compiler;
-  auto compiled = compiler.compile(anchor, {joined}, {kVarX});
+  // Compiler will detect shared variables automatically
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
 
   std::cout << "Fused bytecode (deeply nested Cartesian):\n"
@@ -998,9 +1005,10 @@ TEST_F(FusedPatternNestedTest, CartesianProductBytecodeStructure) {
   // This forces Cartesian product join
   auto joined = Pattern<Op>::build(Op::Neg, {Var{kVarZ}});
 
-  PatternsCompiler<Op> compiler;
-  // Empty shared_vars forces Cartesian product
-  auto compiled = compiler.compile(anchor, {joined}, {});
+  PatternCompiler<Op> compiler;
+  // No shared vars between patterns forces Cartesian product
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
 
   std::cout << "Fused bytecode (Cartesian product):\n"
@@ -1043,7 +1051,7 @@ TEST_F(FusedPatternNestedTest, SimplifiedCompileAPI) {
   // Use simplified API - just pass all patterns
   std::array<Pattern<Op>, 2> patterns = {bind_pattern, ident_pattern};
 
-  PatternsCompiler<Op> compiler;
+  PatternCompiler<Op> compiler;
   auto compiled = compiler.compile(patterns);
 
   ASSERT_TRUE(compiled.has_value()) << "Simplified compile API should succeed";
@@ -1080,9 +1088,10 @@ TEST_F(FusedPatternNestedTest, VariableOnlyJoinedPatternBytecode) {
   joined_builder.var(kVarZ);
   auto joined = std::move(joined_builder).build();
 
-  PatternsCompiler<Op> compiler;
-  // Empty shared_vars
-  auto compiled = compiler.compile(anchor, {joined}, {});
+  PatternCompiler<Op> compiler;
+  // No shared vars between patterns
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed for variable-only joined pattern";
 
   std::cout << "Fused bytecode (variable-only joined pattern):\n"
