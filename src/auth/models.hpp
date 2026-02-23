@@ -75,6 +75,7 @@ enum class FineGrainedPermission : uint64_t {
   DELETE        = 1U << 4U,  // 16
   SET_LABEL     = 1U << 5U,  // 32
   REMOVE_LABEL  = 1U << 6U,  // 64
+  DELETE_EDGE   = 1U << 7U,  // 128
 };
 // clang-format on
 
@@ -103,10 +104,15 @@ constexpr FineGrainedPermission operator~(FineGrainedPermission permission) {
   return static_cast<FineGrainedPermission>(~static_cast<std::underlying_type_t<FineGrainedPermission>>(permission));
 }
 
-constexpr FineGrainedPermission kAllPermissions =
+constexpr FineGrainedPermission kAllLabelPermissions =
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
     memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_LABEL |
-    memgraph::auth::FineGrainedPermission::REMOVE_LABEL | memgraph::auth::FineGrainedPermission::SET_PROPERTY;
+    memgraph::auth::FineGrainedPermission::REMOVE_LABEL | memgraph::auth::FineGrainedPermission::SET_PROPERTY |
+    memgraph::auth::FineGrainedPermission::DELETE_EDGE;
+
+constexpr FineGrainedPermission kAllEdgeTypePermissions =
+    memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
+    memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_PROPERTY;
 #endif
 
 // Function that converts a permission to its string representation.
