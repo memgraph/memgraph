@@ -20,6 +20,7 @@
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
@@ -75,7 +76,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   delta = vertex.delta;
   deleted = vertex.deleted;
   if (!delta && deleted) return false;
-  has_label = std::ranges::contains(vertex.labels, label);
+  has_label = ContainsLabel(vertex.labels, label);
   if (!delta && !has_label) return false;
   current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
 
@@ -172,7 +173,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     delta = vertex.delta;
     deleted = vertex.deleted;
     if (delta == nullptr && deleted) return false;
-    has_label = std::ranges::contains(vertex.labels, label);
+    has_label = ContainsLabel(vertex.labels, label);
     if (delta == nullptr && !has_label) return false;
     current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
   }
@@ -356,7 +357,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     snapshot_info->Update(UpdateType::VERTICES);
   }
 
-  if (vertex.deleted || !std::ranges::contains(vertex.labels, label)) {
+  if (vertex.deleted || !ContainsLabel(vertex.labels, label)) {
     return;
   }
 
@@ -388,7 +389,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     delta = vertex.delta;
-    has_label = std::ranges::contains(vertex.labels, label);
+    has_label = ContainsLabel(vertex.labels, label);
     properties = props.Extract(vertex.properties);
 
     // If vertex has non-sequential deltas, hold lock while applying them
@@ -568,7 +569,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
     return;
   }
 
-  auto const has_label = [&](auto &&each) { return r::contains(vertex->labels, each.first); };
+  auto const has_label = [&](auto &&each) { return ContainsLabel(vertex->labels, each.first); };
   auto const has_property = [&](auto &&each) {
     auto &ids = *std::get<PropertiesPaths const *>(each.second);
     return r::find_if(ids, [&](auto &&path) { return path[0] == property; }) != ids.cend();

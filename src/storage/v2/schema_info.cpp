@@ -135,12 +135,12 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
 }
 
 // Keep v locked as we could return a reference to labels
-inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uint64_t start_timestamp, auto &cache) {
+inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t start_timestamp, auto &cache) {
   // Check if already cached
   auto v_cached = cache.find(v);
   if (v_cached != cache.end()) return &v_cached->second;
   // Apply deltas and cache values
-  auto labels_copy = v->labels;
+  auto labels_copy = ToVertexKey(v->labels);
   ApplyDeltasForRead(v->delta, start_timestamp, [&labels_copy](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
@@ -153,50 +153,55 @@ inline const utils::small_vector<LabelId> *GetLabelsViewOld(const Vertex *v, uin
 }
 
 // Keep v locked as we could return a reference to labels
-inline std::pair<const utils::small_vector<LabelId> *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
-                                                                       uint64_t commit_timestamp, auto &cache) {
+inline std::pair<const VertexKey *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
+                                                    uint64_t commit_timestamp, auto &cache, auto &post_cache) {
   const auto state = GetState(v->delta, start_timestamp, commit_timestamp);
-  const auto *labels = &v->labels;
   if (state == ANOTHER_TX) {
-    labels = GetLabelsViewOld(v, start_timestamp, cache);
+    return {GetLabelsViewOld(v, start_timestamp, cache), true};
   }
-  return std::pair{labels, state != THIS_TX};
+  // THIS_TX or NO_CHANGE: cache current labels in post_cache (never mix with pre-tx cache)
+  auto [it, _] = post_cache.emplace(v, ToVertexKey(v->labels));
+  return {&it->second, state != THIS_TX};
 }
 
 struct Labels {
-  const utils::small_vector<LabelId> *from;
-  const utils::small_vector<LabelId> *to;
+  const VertexKey *from;
+  const VertexKey *to;
   bool needs_pp{false};
 };
 
 // Cache needs to be reference stable because we are using it as a key
 inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t start_timestamp, uint64_t commit_timestamp,
-                        auto &cache) {
-  const auto from_res = GetLabels(from, start_timestamp, commit_timestamp, cache);
-  const auto to_res = GetLabels(to, start_timestamp, commit_timestamp, cache);
+                        auto &cache, auto &post_cache) {
+  const auto from_res = GetLabels(from, start_timestamp, commit_timestamp, cache, post_cache);
+  const auto to_res = GetLabels(to, start_timestamp, commit_timestamp, cache, post_cache);
   return {from_res.first, to_res.first, from_res.second || to_res.second};
 }
 
 struct LabelsDiff {
-  const utils::small_vector<LabelId> *pre;
-  const utils::small_vector<LabelId> *post;
+  const VertexKey *pre;
+  const VertexKey *post;
 };
 
 // Cache needs to be reference stable because we are using it as a key
 inline LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t timestamp, auto &cache, auto &post_cache) {
-  // NO CHANGES
-  if (state == NO_CHANGE) return {&v->labels, &v->labels};
+  // NO CHANGES: both pre and post are current labels
+  if (state == NO_CHANGE) {
+    auto [it, _] = post_cache.emplace(v, ToVertexKey(v->labels));
+    return {&it->second, &it->second};
+  }
 
-  // Labels as seen at transaction start (cached)
+  // Labels as seen at transaction start (cached into pre-cache, separate from current)
   auto pre_labels = GetLabelsViewOld(v, timestamp, cache);
 
-  // THIS TX
+  // THIS TX: pre is old labels, post is current labels
   if (state == THIS_TX) {
-    return {pre_labels, &v->labels};
+    auto [it, _] = post_cache.emplace(v, ToVertexKey(v->labels));
+    return {pre_labels, &it->second};
   }
 
   // ANOTHER TX
-  // Reusing get labels with kTransactionInitialId to get committed labels (cached via temporary cache)
+  // Reusing get labels with kTransactionInitialId to get committed labels (cached via post_cache)
   auto post_labels = GetLabelsViewOld(v, kTransactionInitialId, post_cache);
   return {pre_labels, post_labels};
 }
@@ -469,7 +474,7 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
 
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::DeleteVertex(Vertex *vertex) {
-  auto &info = vertex_state_[vertex->labels];
+  auto &info = vertex_state_[ToVertexKey(vertex->labels)];
   --info.n;
   for (const auto &[key, val] : vertex->properties.ExtendedPropertyTypes()) {
     auto &prop_info = info.properties[key];
@@ -507,11 +512,13 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small
                          EdgeRef edge_ref,
                          Vertex *from,
                          Vertex *to,
-                         const utils::small_vector<LabelId> *old_from_labels,
-                         const utils::small_vector<LabelId> *old_to_labels) {
-    auto &old_tracking = edge_lookup(EdgeKeyRef(
-        edge_type, old_from_labels ? *old_from_labels : from->labels, old_to_labels ? *old_to_labels : to->labels));
-    auto &new_tracking = edge_lookup(EdgeKeyRef(edge_type, from->labels, to->labels));
+                         const VertexKey *old_from_labels,
+                         const VertexKey *old_to_labels) {
+    auto from_key = ToVertexKey(from->labels);
+    auto to_key = ToVertexKey(to->labels);
+    auto &old_tracking = edge_lookup(
+        EdgeKeyRef(edge_type, old_from_labels ? *old_from_labels : from_key, old_to_labels ? *old_to_labels : to_key));
+    auto &new_tracking = edge_lookup(EdgeKeyRef(edge_type, from_key, to_key));
     --old_tracking.n;
     ++new_tracking.n;
     if (prop_on_edges) {
@@ -537,14 +544,18 @@ void SchemaTracking<TContainer>::UpdateLabels(Vertex *vertex, const utils::small
 
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
-  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
+  auto from_key = ToVertexKey(from->labels);
+  auto to_key = ToVertexKey(to->labels);
+  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from_key, to_key});
   ++tracking_info.n;
 }
 
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to,
                                             bool prop_on_edges) {
-  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
+  auto from_key = ToVertexKey(from->labels);
+  auto to_key = ToVertexKey(to->labels);
+  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from_key, to_key});
   --tracking_info.n;
   if (prop_on_edges) {
     for (const auto &[key, type] : edge.ptr->properties.ExtendedPropertyTypes()) {
@@ -579,7 +590,7 @@ void SchemaTracking<TContainer>::Clear() {
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
                                              const ExtendedPropertyType &before) {
-  auto &tracking_info = vertex_state_[vertex->labels];
+  auto &tracking_info = vertex_state_[ToVertexKey(vertex->labels)];
   SetProperty(tracking_info, property, now, before);
 }
 
@@ -588,7 +599,9 @@ void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, Vertex *from, Vert
                                              const ExtendedPropertyType &now, const ExtendedPropertyType &before,
                                              bool prop_on_edges) {
   if (prop_on_edges) {
-    auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
+    auto from_key = ToVertexKey(from->labels);
+    auto to_key = ToVertexKey(to->labels);
+    auto &tracking_info = edge_lookup(EdgeKeyRef{type, from_key, to_key});
     SetProperty(tracking_info, property, now, before);
   }
 }
@@ -598,7 +611,9 @@ void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, Vertex *from, Vert
                                              const ExtendedPropertyType &now, const ExtendedPropertyType &before,
                                              bool prop_on_edges, auto &&guard, auto &&other_guard) {
   if (prop_on_edges) {
-    auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
+    auto from_key = ToVertexKey(from->labels);
+    auto to_key = ToVertexKey(to->labels);
+    auto &tracking_info = edge_lookup(EdgeKeyRef{type, from_key, to_key});
     if (guard.owns_lock()) guard.unlock();
     if (other_guard.owns_lock()) other_guard.unlock();
     SetProperty(tracking_info, property, now, before);
@@ -681,7 +696,7 @@ void SchemaTracking<TContainer>::UpdateEdgeStats(auto &new_tracking, auto &old_t
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::RecoverVertex(Vertex *vertex) {
   // No locking, since this should only be used to recover data
-  auto &info = vertex_state_[vertex->labels];
+  auto &info = vertex_state_[ToVertexKey(vertex->labels)];
   ++info.n;
   for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes()) {
     auto &prop_info = info.properties[property];
@@ -693,7 +708,9 @@ void SchemaTracking<TContainer>::RecoverVertex(Vertex *vertex) {
 template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to,
                                              bool prop_on_edges) {
-  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from->labels, to->labels});
+  auto from_key = ToVertexKey(from->labels);
+  auto to_key = ToVertexKey(to->labels);
+  auto &tracking_info = edge_lookup(EdgeKeyRef{edge_type, from_key, to_key});
   ++tracking_info.n;
   if (prop_on_edges) {
     for (const auto &[key, val] : edge.ptr->properties.ExtendedPropertyTypes()) {
@@ -710,13 +727,13 @@ void SchemaTracking<TContainer>::RecoverEdge(EdgeTypeId edge_type, EdgeRef edge,
 void SchemaInfo::TransactionalEdgeModifyingAccessor::AddLabel(Vertex *vertex, LabelId label,
                                                               std::unique_lock<utils::RWSpinLock> v_lock) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-  auto old_labels = vertex->labels;
+  VertexKey old_labels = ToVertexKey(vertex->labels);
   auto itr = std::find(old_labels.begin(), old_labels.end(), label);
   DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
   *itr = old_labels.back();
   old_labels.pop_back();
   // Update vertex stats
-  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+  tracking_->UpdateLabels(vertex, old_labels, ToVertexKey(vertex->labels));
   // Update edge stats
   UpdateTransactionalEdges(vertex, old_labels, std::move(v_lock));
 }
@@ -727,10 +744,10 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex,
                                                                  std::unique_lock<utils::RWSpinLock> v_lock) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   // Move all stats and edges to new label
-  auto old_labels = vertex->labels;
+  VertexKey old_labels = ToVertexKey(vertex->labels);
   old_labels.push_back(label);
   // Update vertex stats
-  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+  tracking_->UpdateLabels(vertex, old_labels, ToVertexKey(vertex->labels));
   // Update edge stats
   UpdateTransactionalEdges(vertex, old_labels, std::move(v_lock));
 }
@@ -757,14 +774,16 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     auto edge_lock =
         properties_on_edges_ ? std::shared_lock{edge_ref.ptr->lock} : std::shared_lock<decltype(edge_ref.ptr->lock)>{};
 
-    auto other_labels = GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto other_labels =
+        GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache, post_process_->post_vertex_cache);
     Properties edge_props{};
     if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, start_ts_, commit_ts_);
 
+    auto vertex_labels_key = ToVertexKey(vertex->labels);
     tracking_->UpdateEdgeStats(edge_ref,
                                edge_type,
-                               (edge_dir == InEdge) ? *other_labels.first : vertex->labels,
-                               (edge_dir == InEdge) ? vertex->labels : *other_labels.first,
+                               (edge_dir == InEdge) ? *other_labels.first : vertex_labels_key,
+                               (edge_dir == InEdge) ? vertex_labels_key : *other_labels.first,
                                (edge_dir == InEdge) ? *other_labels.first : old_labels,
                                (edge_dir == InEdge) ? old_labels : *other_labels.first,
                                edge_props.types);
@@ -786,19 +805,20 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
   }
 }
 
-void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
-    Vertex *vertex, const utils::small_vector<LabelId> &old_labels) {
+void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(Vertex *vertex, const VertexKey &old_labels) {
   // No need to lock anything, we are here, meaning this is the only modifying function currently active
   constexpr bool InEdge = true;
   constexpr bool OutEdge = !InEdge;
+  auto vertex_labels_key = ToVertexKey(vertex->labels);
   auto process = [&](auto &edge, const auto edge_dir) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
+    auto other_labels_key = ToVertexKey(other_vertex->labels);
     tracking_->UpdateEdgeStats(edge_ref,
                                edge_type,
-                               (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
-                               (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
-                               (edge_dir == InEdge) ? other_vertex->labels : old_labels,
-                               (edge_dir == InEdge) ? old_labels : other_vertex->labels,
+                               (edge_dir == InEdge) ? other_labels_key : vertex_labels_key,
+                               (edge_dir == InEdge) ? vertex_labels_key : other_labels_key,
+                               (edge_dir == InEdge) ? other_labels_key : old_labels,
+                               (edge_dir == InEdge) ? old_labels : other_labels_key,
                                properties_on_edges_);
   };
 
@@ -815,13 +835,13 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
 // Special case for when the vertex has edges
 void SchemaInfo::AnalyticalEdgeModifyingAccessor::AddLabel(Vertex *vertex, LabelId label) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-  auto old_labels = vertex->labels;
+  VertexKey old_labels = ToVertexKey(vertex->labels);
   auto itr = std::find(old_labels.begin(), old_labels.end(), label);
   DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
   *itr = old_labels.back();
   old_labels.pop_back();
   // Update vertex stats
-  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+  tracking_->UpdateLabels(vertex, old_labels, ToVertexKey(vertex->labels));
   // Update edge stats
   UpdateAnalyticalEdges(vertex, old_labels);
 }
@@ -831,10 +851,10 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::AddLabel(Vertex *vertex, Label
 void SchemaInfo::AnalyticalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex, LabelId label) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   // Move all stats and edges to new label
-  auto old_labels = vertex->labels;
+  VertexKey old_labels = ToVertexKey(vertex->labels);
   old_labels.push_back(label);
   // Update vertex stats
-  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+  tracking_->UpdateLabels(vertex, old_labels, ToVertexKey(vertex->labels));
   // Update edge stats
   UpdateAnalyticalEdges(vertex, old_labels);
 }
@@ -855,12 +875,12 @@ void SchemaInfo::VertexModifyingAccessor::AddLabel(Vertex *vertex, LabelId label
              "Trying to remove label from vertex with edges; LINE {}",
              __LINE__);
   // Move all stats and edges to new label
-  auto old_labels = vertex->labels;
+  VertexKey old_labels = ToVertexKey(vertex->labels);
   auto itr = std::find(old_labels.begin(), old_labels.end(), label);
   DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
   *itr = old_labels.back();
   old_labels.pop_back();
-  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+  tracking_->UpdateLabels(vertex, old_labels, ToVertexKey(vertex->labels));
 }
 
 // Special case for vertex without any edges
@@ -871,9 +891,9 @@ void SchemaInfo::VertexModifyingAccessor::RemoveLabel(Vertex *vertex, LabelId la
              "Trying to remove label from vertex with edges; LINE {}",
              __LINE__);
   // Move all stats and edges to new label
-  auto old_labels = vertex->labels;
+  VertexKey old_labels = ToVertexKey(vertex->labels);
   old_labels.push_back(label);
-  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+  tracking_->UpdateLabels(vertex, old_labels, ToVertexKey(vertex->labels));
 }
 
 void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
@@ -922,7 +942,8 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
     // In case the from/to vertices are touched by this tx, we are safe, no need to post process (remove edge)
     // If one of the vertices has not been changes, we need to append this edge to the post-process list
     // We also need to get labels as they are seen by this tx
-    auto labels = GetLabels(from, to, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto labels =
+        GetLabels(from, to, start_ts_, commit_ts_, post_process_->vertex_cache, post_process_->post_vertex_cache);
     tracking_->SetProperty(type, *labels.from, *labels.to, property, now, before, properties_on_edges_);
     if (labels.needs_pp) {
       post_process_->edges.emplace(edge, type, from, to);

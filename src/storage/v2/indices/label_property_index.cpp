@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "label_property_index.hpp"
+#include "storage/v2/schema_info_types.hpp"
 
 #include <span>
 
@@ -134,7 +135,7 @@ void LabelPropertyIndex::AbortProcessor::CollectOnPropertyChange(PropertyId prop
   if (it == p2l.end()) return;
 
   for (auto const &[label, index_info] : it->second) {
-    if (!std::ranges::contains(vertex->labels, label)) continue;
+    if (!ContainsLabel(vertex->labels, label)) continue;
     for (auto const &[properties, helper] : index_info) {
       auto current_values = helper->Extract(vertex->properties);
       // Only if current_values has at least one non-null value do we need to cleanup its index entry

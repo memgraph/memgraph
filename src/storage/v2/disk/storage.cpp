@@ -45,6 +45,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
@@ -132,7 +133,7 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
 
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
   bool deleted = vertex.deleted;
-  bool has_label = std::ranges::contains(vertex.labels, label);
+  bool has_label = ContainsLabel(vertex.labels, label);
   Delta *delta = vertex.delta;
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
@@ -672,11 +673,12 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index", vertex.gid.ToString());
       uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
       /// TODO: here are doing serialization and then later deserialization again -> expensive
-      LoadVertexToLabelIndexCache(transaction,
-                                  utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
-                                  utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
-                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
-                                  indexed_vertices->access());
+      LoadVertexToLabelIndexCache(
+          transaction,
+          utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
+          utils::SerializeVertexAsValueForLabelIndex(label, ToVertexKey(vertex.labels), vertex.properties),
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
+          indexed_vertices->access());
     }
   }
   return gids;
@@ -728,7 +730,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, ToVertexKey(vertex.labels), vertex.properties),
           CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
           indexed_vertices->access());
     }
@@ -819,7 +821,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+          utils::SerializeVertexAsValueForLabelPropertyIndex(label, ToVertexKey(vertex.labels), vertex.properties),
           CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
           indexed_vertices->access());
     }
@@ -1481,7 +1483,7 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
-  it->labels = std::move(label_ids);
+  AssignLabels(it->labels, label_ids);
   it->properties = std::move(properties);
   delta->prev.Set(&*it);
   return {&*it, this, transaction};

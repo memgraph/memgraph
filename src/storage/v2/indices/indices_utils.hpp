@@ -16,6 +16,7 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
@@ -65,7 +66,7 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = std::ranges::contains(vertex.labels, label);
+    has_label = ContainsLabel(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
   }
