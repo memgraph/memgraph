@@ -866,4 +866,243 @@ TEST_F(FusedCompilerTest, MultipleJoinMatches) {
       << "Should find " << expected_matches << " matches (idents same e-class: " << idents_same_eclass << ")";
 }
 
+// Test FusedPatternCompiler with nested patterns in joined patterns
+// This tests the emit_joined_child recursive handling for patterns with
+// nested symbol structures that share a variable
+class FusedPatternNestedTest : public EGraphTestBase {};
+
+TEST_F(FusedPatternNestedTest, NestedJoinedPatternViaParentTraversal) {
+  // Build e-graph:
+  // We want to test nested symbol patterns in joined patterns.
+  // Anchor: Bind(_, ?sym, _) matches bind_node
+  // Joined: F(?sym, Neg(?x)) - has nested Neg with shared ?sym as direct child
+  //
+  // This tests that when the joined pattern has nested symbols, they are
+  // compiled correctly via emit_joined_child recursion.
+
+  constexpr PatternVar kVarSym{0};
+  constexpr PatternVar kVarX{1};
+  constexpr PatternVar kTestRoot{2};
+
+  // Build: sym_val, x_val, Neg(x_val), F(sym_val, Neg(x_val)), Bind(_, sym_val, _)
+  auto sym_val = leaf(Op::Const, 1);
+  auto x_val = leaf(Op::Const, 2);
+  auto neg_x = node(Op::Neg, x_val);
+  auto f_node = node(Op::F, sym_val, neg_x);
+  auto bind_node = node(Op::Bind, leaf(Op::A), sym_val, leaf(Op::B));
+
+  // Anchor pattern: Bind(_, ?sym, _)
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
+
+  // Joined pattern: F(?sym, Neg(?x)) - nested Neg symbol with shared ?sym
+  auto joined = Pattern<Op>::build(Op::F, {Var{kVarSym}, Sym(Op::Neg, Var{kVarX})});
+
+  FusedPatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
+  ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
+
+  std::cout << "Fused bytecode (nested joined pattern with parent traversal):\n"
+            << disassemble<Op>(compiled->code(), compiled->symbols()) << std::endl;
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  EMatchContext ctx;
+  std::vector<PatternMatch> results;
+  executor.execute(*compiled, candidates, ctx, results);
+
+  EXPECT_EQ(results.size(), 1) << "Should find 1 match for nested pattern";
+
+  // Check that we found all the right bindings - collect bound values
+  if (!results.empty()) {
+    std::set<EClassId> bound_values;
+    auto num_slots = compiled->num_slots();
+    for (std::size_t i = 0; i < num_slots; ++i) {
+      bound_values.insert(ctx.arena().get(results[0], i));
+    }
+    // Should have bound: bind_node (root), sym_val, x_val
+    EXPECT_TRUE(bound_values.count(egraph.find(bind_node)) > 0 || bound_values.count(egraph.find(sym_val)) > 0)
+        << "Should have bound sym_val or bind_node";
+    EXPECT_TRUE(bound_values.count(egraph.find(x_val)) > 0) << "Should have bound x_val";
+  }
+}
+
+// Test FusedPatternCompiler with deeply nested symbols in Cartesian product join
+TEST_F(FusedPatternNestedTest, DeeplyNestedCartesianPattern) {
+  // Build e-graph with deeply nested structure
+  // The joined pattern has no shared variable at direct child level,
+  // so it uses Cartesian product. This tests emit_joined_child recursion
+  // in the Cartesian product path.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  // Create: x, Neg(x), Neg(Neg(x)), y, Add(y, Neg(Neg(x)))
+  auto x = leaf(Op::Const, 1);
+  auto y = leaf(Op::Const, 2);
+  auto neg_x = node(Op::Neg, x);
+  auto neg_neg_x = node(Op::Neg, neg_x);
+  auto add_node = node(Op::Add, y, neg_neg_x);
+
+  // Anchor pattern: Add(?y, ?x) - ?x will bind to Neg(Neg(x))
+  auto anchor = Pattern<Op>::build(Op::Add, {Var{kVarY}, Var{kVarX}});
+
+  // Joined pattern: Neg(Neg(?z)) - deeply nested, no direct shared var with anchor
+  // This forces Cartesian product with recursive compilation
+  auto joined = Pattern<Op>::build(Op::Neg, {Sym(Op::Neg, Var{kVarZ})});
+
+  // Use ?x as shared variable (the e-class that Neg(Neg(z)) should match)
+  FusedPatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(anchor, {joined}, {kVarX});
+  ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
+
+  std::cout << "Fused bytecode (deeply nested Cartesian):\n"
+            << disassemble<Op>(compiled->code(), compiled->symbols()) << std::endl;
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(add_node)};
+
+  EMatchContext ctx;
+  std::vector<PatternMatch> results;
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should find at least one match
+  EXPECT_GE(results.size(), 1) << "Should find matches for nested pattern";
+
+  std::cout << "Found " << results.size() << " matches\n";
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    std::cout << "  Match " << i << ": ";
+    for (std::size_t j = 0; j < compiled->num_slots(); ++j) {
+      std::cout << "slot[" << j << "]=" << ctx.arena().get(results[i], j).value_of() << " ";
+    }
+    std::cout << "\n";
+  }
+}
+
+// Test that verifies bytecode structure for Cartesian product joins
+// This tests that IterAllEClasses and NextEClass instructions are generated
+TEST_F(FusedPatternNestedTest, CartesianProductBytecodeStructure) {
+  // Build minimal e-graph
+  auto x = leaf(Op::Const, 1);
+  auto y = leaf(Op::Const, 2);
+  auto add_node = node(Op::Add, x, y);
+
+  // Anchor pattern: Add(?x, ?y)
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+  auto anchor = Pattern<Op>::build(Op::Add, {Var{kVarX}, Var{kVarY}});
+
+  // Joined pattern: Neg(?z) - no shared variable with anchor
+  // This forces Cartesian product join
+  auto joined = Pattern<Op>::build(Op::Neg, {Var{kVarZ}});
+
+  FusedPatternCompiler<Op> compiler;
+  // Empty shared_vars forces Cartesian product
+  auto compiled = compiler.compile(anchor, {joined}, {});
+  ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
+
+  std::cout << "Fused bytecode (Cartesian product):\n"
+            << disassemble<Op>(compiled->code(), compiled->symbols()) << std::endl;
+
+  // Verify bytecode has IterAllEClasses and NextEClass instructions
+  bool has_iter_all_eclasses = false;
+  bool has_next_eclass = false;
+
+  for (auto const &instr : compiled->code()) {
+    if (instr.op == VMOp::IterAllEClasses) {
+      has_iter_all_eclasses = true;
+    }
+    if (instr.op == VMOp::NextEClass) {
+      has_next_eclass = true;
+    }
+  }
+
+  EXPECT_TRUE(has_iter_all_eclasses) << "Cartesian product bytecode should have IterAllEClasses instruction";
+  EXPECT_TRUE(has_next_eclass) << "Cartesian product bytecode should have NextEClass instruction";
+}
+
+// Test the simplified compile(patterns) API that computes join order internally
+TEST_F(FusedPatternNestedTest, SimplifiedCompileAPI) {
+  // Build e-graph with shared variables between patterns
+  auto sym_val = leaf(Op::Const, 1);
+  auto expr_val = leaf(Op::Const, 2);
+  auto bind_node = node(Op::Bind, leaf(Op::A), sym_val, expr_val);
+  auto ident_node = node(Op::Ident, sym_val);
+
+  // Create patterns - order doesn't matter, compiler figures out optimal join order
+  constexpr PatternVar kVarSym{1};
+  constexpr PatternVar kVarExpr{2};
+  constexpr PatternVar kVarId{3};
+  constexpr PatternVar kTestRoot{0};
+
+  auto bind_pattern = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto ident_pattern = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+
+  // Use simplified API - just pass all patterns
+  std::array<Pattern<Op>, 2> patterns = {bind_pattern, ident_pattern};
+
+  FusedPatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(patterns);
+
+  ASSERT_TRUE(compiled.has_value()) << "Simplified compile API should succeed";
+
+  std::cout << "Fused bytecode (simplified API):\n"
+            << disassemble<Op>(compiled->code(), compiled->symbols()) << std::endl;
+
+  // Execute and verify matches work
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  EMatchContext ctx;
+  std::vector<PatternMatch> results;
+  executor.execute(*compiled, candidates, ctx, results);
+
+  EXPECT_EQ(results.size(), 1) << "Should find 1 match using simplified API";
+}
+
+// Test that verifies bytecode structure for variable-only joined patterns
+TEST_F(FusedPatternNestedTest, VariableOnlyJoinedPatternBytecode) {
+  // Build minimal e-graph
+  auto x = leaf(Op::Const, 1);
+  auto add_node = node(Op::Add, x, x);
+
+  // Anchor pattern: Add(?x, ?y)
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+  auto anchor = Pattern<Op>::build(Op::Add, {Var{kVarX}, Var{kVarY}});
+
+  // Joined pattern: ?z - just a variable, no symbol
+  // This tests variable-only pattern handling
+  auto joined_builder = TestPattern::Builder{};
+  joined_builder.var(kVarZ);
+  auto joined = std::move(joined_builder).build();
+
+  FusedPatternCompiler<Op> compiler;
+  // Empty shared_vars
+  auto compiled = compiler.compile(anchor, {joined}, {});
+  ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed for variable-only joined pattern";
+
+  std::cout << "Fused bytecode (variable-only joined pattern):\n"
+            << disassemble<Op>(compiled->code(), compiled->symbols()) << std::endl;
+
+  // Verify bytecode has IterAllEClasses for the variable-only pattern
+  bool has_iter_all_eclasses = false;
+  bool has_next_eclass = false;
+
+  for (auto const &instr : compiled->code()) {
+    if (instr.op == VMOp::IterAllEClasses) {
+      has_iter_all_eclasses = true;
+    }
+    if (instr.op == VMOp::NextEClass) {
+      has_next_eclass = true;
+    }
+  }
+
+  EXPECT_TRUE(has_iter_all_eclasses) << "Variable-only joined pattern should use IterAllEClasses";
+  EXPECT_TRUE(has_next_eclass) << "Variable-only joined pattern should use NextEClass";
+}
+
 }  // namespace memgraph::planner::core

@@ -295,7 +295,42 @@ class FusedPatternCompiler {
 
   explicit FusedPatternCompiler(Mode mode = Mode::Verify) : mode_(mode) {}
 
-  /// Compile anchor with joined patterns
+  /// Compile multiple patterns into fused bytecode with automatic join order computation.
+  ///
+  /// Analyzes shared variables between patterns to determine:
+  /// - Anchor pattern (highest connectivity in variable-sharing graph)
+  /// - Join order (greedy by shared variables with already-matched patterns)
+  /// - Shared variables for each join step
+  ///
+  /// @param patterns All patterns to compile (order doesn't matter, optimal order computed internally)
+  /// @return Compiled bytecode or nullopt if patterns exceed register limit
+  auto compile(std::span<Pattern<Symbol> const> patterns) -> std::optional<CompiledPattern<Symbol>> {
+    if (patterns.empty()) {
+      return std::nullopt;
+    }
+
+    // Single pattern: delegate to PatternCompiler
+    if (patterns.size() == 1) {
+      PatternCompiler<Symbol> single_compiler(mode_ == Mode::Verify ? PatternCompiler<Symbol>::Mode::Verify
+                                                                    : PatternCompiler<Symbol>::Mode::Clean);
+      return single_compiler.compile(patterns[0]);
+    }
+
+    // Compute join order internally
+    auto join_order = compute_join_order(patterns);
+
+    // Extract anchor and joined patterns based on computed order
+    auto const &anchor = patterns[join_order.anchor_idx];
+    std::vector<Pattern<Symbol>> joined;
+    joined.reserve(join_order.join_indices.size());
+    for (auto idx : join_order.join_indices) {
+      joined.push_back(patterns[idx]);
+    }
+
+    return compile_internal(anchor, joined, join_order.all_shared_vars);
+  }
+
+  /// Compile anchor with joined patterns (explicit join order - for backward compatibility)
   ///
   /// @param anchor The anchor pattern to match first
   /// @param joined Patterns to join via shared variables (using parent traversal)
@@ -303,10 +338,128 @@ class FusedPatternCompiler {
   /// @return Compiled bytecode or nullopt if patterns exceed register limit
   auto compile(Pattern<Symbol> const &anchor, std::vector<Pattern<Symbol>> const &joined,
                std::vector<PatternVar> const &shared_vars) -> std::optional<CompiledPattern<Symbol>> {
+    return compile_internal(anchor, joined, shared_vars);
+  }
+
+  /// Get the slot map from the last successful compilation.
+  /// Maps each PatternVar to its slot index in the compiled pattern.
+  /// Only valid after a successful compile() call.
+  [[nodiscard]] auto slot_map() const -> boost::unordered_flat_map<PatternVar, std::size_t> const & {
+    return slot_map_;
+  }
+
+ private:
+  /// Internal join order representation
+  struct JoinOrder {
+    std::size_t anchor_idx{0};
+    std::vector<std::size_t> join_indices;
+    std::vector<PatternVar> all_shared_vars;
+  };
+
+  /// Compute optimal join order from patterns by analyzing shared variables.
+  /// Uses greedy algorithm: start with highest-degree pattern, then pick patterns
+  /// sharing most variables with already-selected patterns.
+  static auto compute_join_order(std::span<Pattern<Symbol> const> patterns) -> JoinOrder {
+    auto const n = patterns.size();
+    JoinOrder order;
+
+    // Collect variables per pattern
+    std::vector<boost::unordered_flat_set<PatternVar>> pattern_vars(n);
+    for (std::size_t i = 0; i < n; ++i) {
+      for (auto const &[var, _] : patterns[i].var_slots()) {
+        pattern_vars[i].insert(var);
+      }
+    }
+
+    // Compute pairwise shared variable counts
+    std::vector<std::vector<std::size_t>> shared_counts(n, std::vector<std::size_t>(n, 0));
+    for (std::size_t i = 0; i < n; ++i) {
+      for (std::size_t j = i + 1; j < n; ++j) {
+        std::size_t count = 0;
+        for (auto const &var : pattern_vars[i]) {
+          if (pattern_vars[j].contains(var)) ++count;
+        }
+        shared_counts[i][j] = shared_counts[j][i] = count;
+      }
+    }
+
+    // Compute degree for each pattern (total shared variable connections)
+    std::vector<std::size_t> degree(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+      for (std::size_t j = 0; j < n; ++j) {
+        degree[i] += shared_counts[i][j];
+      }
+    }
+
+    // Track which patterns are remaining and which vars we've seen
+    boost::unordered_flat_set<std::size_t> remaining;
+    for (std::size_t i = 0; i < n; ++i) remaining.insert(i);
+    boost::unordered_flat_set<PatternVar> seen_vars;
+
+    // Start with highest-degree pattern as anchor
+    std::size_t best_idx = 0;
+    std::size_t best_degree = degree[0];
+    for (std::size_t i = 1; i < n; ++i) {
+      if (degree[i] > best_degree) {
+        best_degree = degree[i];
+        best_idx = i;
+      }
+    }
+    order.anchor_idx = best_idx;
+    remaining.erase(best_idx);
+    for (auto const &var : pattern_vars[best_idx]) {
+      seen_vars.insert(var);
+    }
+
+    // Greedily add remaining patterns by most shared vars with seen set
+    while (!remaining.empty()) {
+      std::size_t best = *remaining.begin();
+      std::size_t best_shared = 0;
+
+      for (auto idx : remaining) {
+        std::size_t shared = 0;
+        for (auto const &var : pattern_vars[idx]) {
+          if (seen_vars.contains(var)) ++shared;
+        }
+        if (shared > best_shared) {
+          best_shared = shared;
+          best = idx;
+        }
+      }
+
+      order.join_indices.push_back(best);
+      remaining.erase(best);
+
+      // Collect shared vars and add new vars to seen
+      for (auto const &var : pattern_vars[best]) {
+        if (seen_vars.contains(var)) {
+          // Check if already in all_shared_vars
+          bool found = false;
+          for (auto const &sv : order.all_shared_vars) {
+            if (sv == var) {
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            order.all_shared_vars.push_back(var);
+          }
+        }
+        seen_vars.insert(var);
+      }
+    }
+
+    return order;
+  }
+
+  /// Internal compilation with explicit anchor/joined/shared_vars
+  auto compile_internal(Pattern<Symbol> const &anchor, std::vector<Pattern<Symbol>> const &joined,
+                        std::vector<PatternVar> const &shared_vars) -> std::optional<CompiledPattern<Symbol>> {
     code_.clear();
     symbols_.clear();
     seen_vars_.clear();  // Track which variables we've seen
-    next_reg_ = 1;       // r0 is reserved for entry candidate
+    var_to_reg_.clear();
+    next_reg_ = 1;  // r0 is reserved for entry candidate
     register_overflow_ = false;
     slot_map_.clear();
 
@@ -368,7 +521,6 @@ class FusedPatternCompiler {
     return CompiledPattern<Symbol>(std::move(code_), slot_map_.size(), std::move(symbols_), entry_symbol);
   }
 
- private:
   /// Build unified slot map for all patterns
   void build_slot_map(Pattern<Symbol> const &anchor, std::vector<Pattern<Symbol>> const &joined) {
     // Add anchor variables first
@@ -488,31 +640,29 @@ class FusedPatternCompiler {
     return innermost_loop;
   }
 
-  /// Emit joined pattern using parent traversal
-  ///
-  /// For pattern `?id = Ident(?sym)` where ?sym is shared:
-  /// - Find Ident parents of ?sym's e-class
-  /// - Bind ?id to the parent's e-class
+  /// Emit joined pattern - handles three cases:
+  /// 1. Variable-only root: iterate all e-classes (Cartesian product)
+  /// 2. Symbol root with shared variable: use parent traversal (efficient join)
+  /// 3. Symbol root without shared variable: iterate all e-classes (Cartesian product)
   auto emit_joined_pattern(Pattern<Symbol> const &pattern, std::vector<PatternVar> const &shared_vars,
                            Pattern<Symbol> const &anchor, uint16_t anchor_backtrack) -> uint16_t {
     auto const &root_node = pattern[pattern.root()];
 
-    // Must be a symbol node for parent traversal
+    // Check if root is a symbol node
     auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node);
+
     if (!sym) {
-      // Can't do parent traversal on variable/wildcard root
-      // TODO: Handle this case differently
-      return anchor_backtrack;
+      // Case 1: Variable-only or wildcard root - iterate all e-classes
+      return emit_joined_variable_pattern(pattern, anchor_backtrack);
     }
 
-    // Find which child is the shared variable
+    // Find shared variable as direct child for parent traversal
     std::optional<std::size_t> shared_child_idx;
     PatternVar shared_var{};
 
     for (std::size_t i = 0; i < sym->children.size(); ++i) {
       auto const &child_node = pattern[sym->children[i]];
       if (auto const *var = std::get_if<PatternVar>(&child_node)) {
-        // Check if this variable is shared
         for (auto const &sv : shared_vars) {
           if (*var == sv) {
             shared_child_idx = i;
@@ -524,89 +674,215 @@ class FusedPatternCompiler {
       }
     }
 
-    if (!shared_child_idx) {
-      // No shared variable found as direct child - can't use simple parent traversal
-      // TODO: Handle more complex cases (shared var deeper in tree)
-      return anchor_backtrack;
+    // Check if we have a shared variable we can use for parent traversal
+    if (shared_child_idx) {
+      auto shared_var_it = var_to_reg_.find(shared_var);
+      if (shared_var_it != var_to_reg_.end()) {
+        // Case 2: Shared variable found - use efficient parent traversal
+        return emit_joined_pattern_with_parent_traversal(
+            pattern, *sym, shared_var, *shared_child_idx, shared_var_it->second, anchor_backtrack);
+      }
     }
 
-    // Get the register holding the shared variable's e-class
-    auto shared_var_it = var_to_reg_.find(shared_var);
-    if (shared_var_it == var_to_reg_.end()) {
-      // Shared variable wasn't captured in anchor's var_to_reg_ map
-      // This happens if the variable binding didn't go through emit_anchor_child
-      // TODO: Support loading from slot - would need a LoadSlot instruction
-      return anchor_backtrack;
+    // Case 3: No usable shared variable - use Cartesian product
+    return emit_joined_cartesian_pattern(pattern, *sym, anchor_backtrack);
+  }
+
+  /// Emit code for variable-only joined pattern (Cartesian product)
+  auto emit_joined_variable_pattern(Pattern<Symbol> const &pattern, uint16_t anchor_backtrack) -> uint16_t {
+    auto const &root_node = pattern[pattern.root()];
+
+    // Allocate register for e-class iteration
+    auto eclass_reg = alloc_reg();
+
+    // IterAllEClasses: iterate all e-classes
+    code_.push_back(Instruction::iter_all_eclasses(eclass_reg, anchor_backtrack));
+
+    auto jump_to_check_pos = static_cast<uint16_t>(code_.size());
+    code_.push_back(Instruction::jmp(0));
+
+    auto loop_pos = static_cast<uint16_t>(code_.size());
+    code_.push_back(Instruction::next_eclass(eclass_reg, anchor_backtrack));
+
+    code_[jump_to_check_pos].target = static_cast<uint16_t>(code_.size());
+
+    // Handle root node binding
+    std::visit(
+        [&](auto const &n) {
+          using T = std::decay_t<decltype(n)>;
+          if constexpr (std::is_same_v<T, Wildcard>) {
+            // Wildcard matches anything, no binding
+          } else if constexpr (std::is_same_v<T, PatternVar>) {
+            auto slot = get_slot(n);
+            emit_var_binding(n, slot, eclass_reg, loop_pos);
+            var_to_reg_[n] = eclass_reg;
+          }
+        },
+        root_node);
+
+    // Handle root binding if present
+    if (auto binding = pattern.binding_for(pattern.root())) {
+      auto slot = get_slot(*binding);
+      emit_var_binding(*binding, slot, eclass_reg, loop_pos);
     }
 
-    auto shared_eclass_reg = shared_var_it->second;
+    return loop_pos;
+  }
 
-    // Get symbol index for parent filter
-    auto parent_sym_idx = get_symbol_index(sym->sym);
+  /// Emit code for Cartesian product join with symbol pattern
+  auto emit_joined_cartesian_pattern(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
+                                     uint16_t anchor_backtrack) -> uint16_t {
+    // Allocate registers
+    auto eclass_reg = alloc_reg();
+    auto enode_reg = alloc_reg();
 
-    // Allocate register for parent e-node
+    // Outer loop: iterate all e-classes
+    code_.push_back(Instruction::iter_all_eclasses(eclass_reg, anchor_backtrack));
+
+    auto jump_to_eclass_check = static_cast<uint16_t>(code_.size());
+    code_.push_back(Instruction::jmp(0));
+
+    auto eclass_loop_pos = static_cast<uint16_t>(code_.size());
+    code_.push_back(Instruction::next_eclass(eclass_reg, anchor_backtrack));
+
+    code_[jump_to_eclass_check].target = static_cast<uint16_t>(code_.size());
+
+    // Inner loop: iterate e-nodes in each e-class
+    code_.push_back(Instruction::iter_enodes(enode_reg, eclass_reg, eclass_loop_pos));
+
+    auto jump_to_enode_check = static_cast<uint16_t>(code_.size());
+    code_.push_back(Instruction::jmp(0));
+
+    auto enode_loop_pos = static_cast<uint16_t>(code_.size());
+    code_.push_back(Instruction::next_enode(enode_reg, eclass_loop_pos));
+
+    code_[jump_to_enode_check].target = static_cast<uint16_t>(code_.size());
+
+    // Check symbol matches
+    auto sym_idx = get_symbol_index(sym.sym);
+    code_.push_back(Instruction::check_symbol(enode_reg, sym_idx, enode_loop_pos));
+
+    // Check arity
+    code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), enode_loop_pos));
+
+    // Process children recursively
+    uint16_t innermost = enode_loop_pos;
+    for (std::size_t i = 0; i < sym.children.size(); ++i) {
+      auto child_reg = alloc_reg();
+      code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+      innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
+    }
+
+    // Bind root e-class if needed
+    if (auto binding = pattern.binding_for(pattern.root())) {
+      auto slot = get_slot(*binding);
+      code_.push_back(Instruction::bind_slot(slot, eclass_reg));
+    }
+
+    return innermost;
+  }
+
+  /// Emit code for joined pattern using parent traversal (efficient join)
+  auto emit_joined_pattern_with_parent_traversal(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
+                                                 PatternVar shared_var, std::size_t shared_child_idx,
+                                                 uint8_t shared_eclass_reg, uint16_t anchor_backtrack) -> uint16_t {
+    auto parent_sym_idx = get_symbol_index(sym.sym);
     auto parent_reg = alloc_reg();
 
     // IterParentsSym: iterate parents with this symbol
     code_.push_back(Instruction::iter_parents_sym(parent_reg, shared_eclass_reg, parent_sym_idx, anchor_backtrack));
 
-    // Jump past NextParent on first iteration
     auto jump_to_check_pos = static_cast<uint16_t>(code_.size());
     code_.push_back(Instruction::jmp(0));
 
-    // NextParent: advance to next parent
     auto loop_pos = static_cast<uint16_t>(code_.size());
     code_.push_back(Instruction::next_parent(parent_reg, anchor_backtrack));
 
-    // Patch the jump
     code_[jump_to_check_pos].target = static_cast<uint16_t>(code_.size());
 
     // CheckArity
-    code_.push_back(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym->children.size()), loop_pos));
+    code_.push_back(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
-    // Verify non-shared children match (if any)
-    for (std::size_t i = 0; i < sym->children.size(); ++i) {
-      if (i == *shared_child_idx) {
-        // This is the shared variable - already matched by parent traversal
-        // But we should verify the child actually points to the shared e-class
-        auto child_reg = alloc_reg();
-        code_.push_back(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
-        auto shared_slot = get_slot(shared_var);
-        code_.push_back(Instruction::check_slot(shared_slot, child_reg, loop_pos));
-        continue;
-      }
-
-      auto const &child_node = pattern[sym->children[i]];
+    // Process children recursively
+    uint16_t innermost = loop_pos;
+    for (std::size_t i = 0; i < sym.children.size(); ++i) {
       auto child_reg = alloc_reg();
       code_.push_back(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
 
-      // Match the child
-      std::visit(
-          [&](auto const &n) {
-            using T = std::decay_t<decltype(n)>;
-            if constexpr (std::is_same_v<T, Wildcard>) {
-              // Wildcard matches anything
-            } else if constexpr (std::is_same_v<T, PatternVar>) {
-              auto slot = get_slot(n);
-              emit_var_binding(n, slot, child_reg, loop_pos);
-            } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
-              // TODO: Handle nested symbols in joined pattern
-              // For now, just try to match it
-            }
-          },
-          child_node);
+      if (i == shared_child_idx) {
+        // Verify the child points to the shared e-class
+        auto shared_slot = get_slot(shared_var);
+        code_.push_back(Instruction::check_slot(shared_slot, child_reg, innermost));
+        continue;
+      }
+
+      innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
     }
 
-    // Bind the root's e-class if it has a binding (e.g., ?id in ?id = Ident(?sym))
+    // Bind the root's e-class if it has a binding
     if (auto binding = pattern.binding_for(pattern.root())) {
       auto slot = get_slot(*binding);
-      // Get e-class containing this parent e-node
       auto eclass_reg = alloc_reg();
       code_.push_back(Instruction::get_enode_eclass(eclass_reg, parent_reg));
       code_.push_back(Instruction::bind_slot(slot, eclass_reg));
     }
 
-    return loop_pos;
+    return innermost;
+  }
+
+  /// Emit code for a child node in a joined pattern (recursive for nested symbols)
+  auto emit_joined_child(Pattern<Symbol> const &pattern, PatternNodeId node_id, uint8_t eclass_reg,
+                         uint16_t backtrack_target) -> uint16_t {
+    auto const &node = pattern[node_id];
+    uint16_t innermost = backtrack_target;
+
+    std::visit(
+        [&](auto const &n) {
+          using T = std::decay_t<decltype(n)>;
+          if constexpr (std::is_same_v<T, Wildcard>) {
+            // Wildcard matches anything, no code needed
+          } else if constexpr (std::is_same_v<T, PatternVar>) {
+            auto slot = get_slot(n);
+            emit_var_binding(n, slot, eclass_reg, backtrack_target);
+            var_to_reg_[n] = eclass_reg;
+          } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
+            // Nested symbol node - emit iteration and recursive processing
+            auto sym_idx = get_symbol_index(n.sym);
+            auto enode_reg = alloc_reg();
+
+            // IterENodes: iterate e-nodes in the child e-class
+            code_.push_back(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack_target));
+
+            auto jump_to_check_pos = static_cast<uint16_t>(code_.size());
+            code_.push_back(Instruction::jmp(0));
+
+            auto loop_pos = static_cast<uint16_t>(code_.size());
+            code_.push_back(Instruction::next_enode(enode_reg, backtrack_target));
+
+            code_[jump_to_check_pos].target = static_cast<uint16_t>(code_.size());
+
+            // Check symbol and arity
+            code_.push_back(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
+            code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(n.children.size()), loop_pos));
+
+            // Bind this node's e-class if it has a binding
+            if (auto binding = pattern.binding_for(node_id)) {
+              auto slot = get_slot(*binding);
+              code_.push_back(Instruction::bind_slot(slot, eclass_reg));
+            }
+
+            // Process children recursively
+            innermost = loop_pos;
+            for (std::size_t i = 0; i < n.children.size(); ++i) {
+              auto child_reg = alloc_reg();
+              code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+              innermost = emit_joined_child(pattern, n.children[i], child_reg, innermost);
+            }
+          }
+        },
+        node);
+
+    return innermost;
   }
 
   /// Emit variable binding - uses BindSlot for first occurrence, CheckSlot for subsequent
@@ -692,8 +968,8 @@ class BottomUpPatternCompiler {
     code_.clear();
     symbols_.clear();
     next_reg_ = 1;  // r0 is reserved for entry candidate (leaf e-class)
-    next_slot_ = 0;
-    slot_map_.clear();
+    // Internal slots for verification start after pattern's variable slots
+    next_internal_slot_ = pattern.num_vars();
     register_overflow_ = false;
 
     // Find the leaf variable - must have exactly one for simple bottom-up
@@ -709,7 +985,8 @@ class BottomUpPatternCompiler {
     }
 
     // Bind the leaf variable to r0 (the candidate e-class)
-    auto leaf_slot = alloc_slot(*leaf_var);
+    // Use the pattern's actual slot assignment
+    auto leaf_slot = static_cast<uint8_t>(pattern.var_slot(*leaf_var));
     code_.push_back(Instruction::bind_slot(leaf_slot, 0));
 
     // Placeholder for halt
@@ -750,7 +1027,8 @@ class BottomUpPatternCompiler {
     code_.push_back(Instruction::halt());
 
     // No entry symbol for bottom-up - we iterate all e-classes
-    return CompiledPattern<Symbol>(std::move(code_), next_slot_, std::move(symbols_), std::nullopt);
+    // Use next_internal_slot_ as total slots (includes pattern vars + internal verification slots)
+    return CompiledPattern<Symbol>(std::move(code_), next_internal_slot_, std::move(symbols_), std::nullopt);
   }
 
  private:
@@ -863,9 +1141,9 @@ class BottomUpPatternCompiler {
     // Store in slot for next level's verification
     code_.push_back(Instruction::bind_slot(step.result_slot, step.result_eclass_reg));
 
-    // Bind variable if this node has one
+    // Bind variable if this node has one (use pattern's original slot assignment)
     if (step.binding) {
-      auto var_slot = alloc_slot(*step.binding);
+      auto var_slot = static_cast<uint8_t>(pattern.var_slot(*step.binding));
       code_.push_back(Instruction::bind_slot(var_slot, step.result_eclass_reg));
     }
 
@@ -890,23 +1168,13 @@ class BottomUpPatternCompiler {
     return next_reg_++;
   }
 
-  auto alloc_slot(PatternVar var) -> uint8_t {
-    auto it = slot_map_.find(var);
-    if (it != slot_map_.end()) {
-      return static_cast<uint8_t>(it->second);
-    }
-    auto slot = next_slot_++;
-    slot_map_[var] = slot;
-    return static_cast<uint8_t>(slot);
-  }
-
-  auto alloc_slot_anonymous() -> uint8_t { return static_cast<uint8_t>(next_slot_++); }
+  /// Allocate an anonymous slot for internal verification (not a pattern variable)
+  auto alloc_slot_anonymous() -> uint8_t { return static_cast<uint8_t>(next_internal_slot_++); }
 
   std::vector<Instruction> code_;
   std::vector<Symbol> symbols_;
-  boost::unordered_flat_map<PatternVar, std::size_t> slot_map_;
   uint8_t next_reg_{1};
-  std::size_t next_slot_{0};
+  std::size_t next_internal_slot_{0};  // Slots for internal verification, starts after pattern vars
   bool register_overflow_{false};
 };
 

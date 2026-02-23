@@ -32,6 +32,14 @@ enum class VMOp : uint8_t {
   /// If exhausted, pops state and jumps to target.
   NextENode,
 
+  // ===== E-Class Iteration (for Cartesian product joins) =====
+  /// Begin iterating ALL canonical e-classes in the e-graph
+  /// Stores first e-class ID in dst. If empty, jumps to target.
+  IterAllEClasses,
+  /// Advance to next e-class, store in dst
+  /// If exhausted, pops state and jumps to target.
+  NextEClass,
+
   // ===== Parent Traversal =====
   /// Begin iterating ALL parents of e-class[src]
   /// Pushes iteration state. If empty, jumps to target.
@@ -89,6 +97,14 @@ struct Instruction {
 
   static constexpr auto next_enode(uint8_t dst, uint16_t on_exhausted) -> Instruction {
     return {VMOp::NextENode, dst, 0, 0, on_exhausted};
+  }
+
+  static constexpr auto iter_all_eclasses(uint8_t dst, uint16_t on_empty) -> Instruction {
+    return {VMOp::IterAllEClasses, dst, 0, 0, on_empty};
+  }
+
+  static constexpr auto next_eclass(uint8_t dst, uint16_t on_exhausted) -> Instruction {
+    return {VMOp::NextEClass, dst, 0, 0, on_exhausted};
   }
 
   static constexpr auto iter_parents(uint8_t dst, uint8_t src, uint16_t on_empty) -> Instruction {
@@ -150,6 +166,10 @@ constexpr auto operator!=(Instruction const &a, Instruction const &b) -> bool { 
       return "IterENodes";
     case VMOp::NextENode:
       return "NextENode";
+    case VMOp::IterAllEClasses:
+      return "IterAllEClasses";
+    case VMOp::NextEClass:
+      return "NextEClass";
     case VMOp::IterParents:
       return "IterParents";
     case VMOp::IterParentsSym:

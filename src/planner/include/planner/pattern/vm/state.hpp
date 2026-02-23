@@ -35,10 +35,11 @@ static constexpr std::size_t kMaxSlots = 32;
 /// For parents: stores e-class ID for lookup (parents are in a set)
 struct IterState {
   enum class Kind : uint8_t {
-    Inactive,        // No active iteration for this register
-    ENodes,          // Iterating e-nodes in an e-class (uses span)
-    Parents,         // Iterating parent e-nodes (index-based)
-    ParentsFiltered  // Iterating filtered parents (uses span from index)
+    Inactive,         // No active iteration for this register
+    ENodes,           // Iterating e-nodes in an e-class (uses span)
+    Parents,          // Iterating parent e-nodes (index-based)
+    ParentsFiltered,  // Iterating filtered parents (uses span from index)
+    AllEClasses       // Iterating all canonical e-classes (uses e-class span)
   };
 
   Kind kind{Kind::Inactive};
@@ -49,6 +50,9 @@ struct IterState {
 
   // For ENodes and ParentsFiltered: span into e-class or parent index
   std::span<ENodeId const> nodes_span;
+
+  // For AllEClasses: span of e-class IDs to iterate
+  std::span<EClassId const> eclasses_span;
 
   // For Parents: the e-class whose parents we're iterating
   EClassId parent_eclass{};
@@ -84,6 +88,16 @@ struct IterState {
     end_idx = parent_span.size();
     nodes_span = parent_span;
   }
+
+  void start_all_eclasses(std::span<EClassId const> eclass_span) {
+    kind = Kind::AllEClasses;
+    current_idx = 0;
+    end_idx = eclass_span.size();
+    eclasses_span = eclass_span;
+  }
+
+  /// Get current e-class from span (for AllEClasses)
+  [[nodiscard]] auto current_eclass() const -> EClassId { return eclasses_span[current_idx]; }
 };
 
 /// VM execution state
@@ -140,6 +154,12 @@ struct VMState {
   /// Start a filtered parent iteration on a register (uses span from index)
   void start_filtered_parent_iter(uint8_t reg, std::span<ENodeId const> parents) {
     iter_by_reg[reg].start_parents_filtered(parents);
+    iter_order.push_back(reg);
+  }
+
+  /// Start an all-eclasses iteration on a register (uses span of e-class IDs)
+  void start_all_eclasses_iter(uint8_t reg, std::span<EClassId const> eclasses) {
+    iter_by_reg[reg].start_all_eclasses(eclasses);
     iter_order.push_back(reg);
   }
 

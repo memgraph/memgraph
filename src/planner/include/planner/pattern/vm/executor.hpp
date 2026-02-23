@@ -125,6 +125,12 @@ class VMExecutorVerify {
         case VMOp::NextENode:
           exec_next_enode(instr);
           break;
+        case VMOp::IterAllEClasses:
+          exec_iter_all_eclasses(instr);
+          break;
+        case VMOp::NextEClass:
+          exec_next_eclass(instr);
+          break;
         case VMOp::IterParents:
           exec_iter_parents(instr);
           break;
@@ -232,6 +238,44 @@ class VMExecutorVerify {
     }
     // Direct access to cached span - no e-graph lookup needed
     state_.enode_regs[instr.dst] = iter.current();
+  }
+
+  void exec_iter_all_eclasses(Instruction const &instr) {
+    // Build list of all canonical e-classes
+    all_eclasses_buffer_.clear();
+    for (auto const &[id, _] : egraph_->canonical_classes()) {
+      all_eclasses_buffer_.push_back(id);
+    }
+
+    if (all_eclasses_buffer_.empty()) {
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    // Store span in register-indexed state
+    state_.start_all_eclasses_iter(instr.dst, all_eclasses_buffer_);
+    state_.eclass_regs[instr.dst] = all_eclasses_buffer_[0];
+  }
+
+  void exec_next_eclass(Instruction const &instr) {
+    auto &iter = state_.get_iter(instr.dst);
+
+    if (iter.kind != IterState::Kind::AllEClasses) {
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    iter.advance();
+    if (iter.exhausted()) {
+      state_.deactivate_iter_and_nested(instr.dst);
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    state_.eclass_regs[instr.dst] = iter.current_eclass();
   }
 
   void exec_iter_parents(Instruction const &instr) {
@@ -374,6 +418,7 @@ class VMExecutorVerify {
   Tracer null_tracer_;
   Tracer *tracer_;
   bool jumped_{false};
+  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -433,6 +478,12 @@ class VMExecutorClean {
           break;
         case VMOp::NextENode:
           exec_next_enode(instr);
+          break;
+        case VMOp::IterAllEClasses:
+          exec_iter_all_eclasses(instr);
+          break;
+        case VMOp::NextEClass:
+          exec_next_eclass(instr);
           break;
         case VMOp::IterParents:
           exec_iter_parents(instr);
@@ -520,6 +571,43 @@ class VMExecutorClean {
     }
 
     state_.enode_regs[instr.dst] = iter.current();
+  }
+
+  void exec_iter_all_eclasses(Instruction const &instr) {
+    // Build list of all canonical e-classes
+    all_eclasses_buffer_.clear();
+    for (auto const &[id, _] : egraph_->canonical_classes()) {
+      all_eclasses_buffer_.push_back(id);
+    }
+
+    if (all_eclasses_buffer_.empty()) {
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    state_.start_all_eclasses_iter(instr.dst, all_eclasses_buffer_);
+    state_.eclass_regs[instr.dst] = all_eclasses_buffer_[0];
+  }
+
+  void exec_next_eclass(Instruction const &instr) {
+    auto &iter = state_.get_iter(instr.dst);
+
+    if (iter.kind != IterState::Kind::AllEClasses) {
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    iter.advance();
+    if (iter.exhausted()) {
+      state_.deactivate_iter_and_nested(instr.dst);
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    state_.eclass_regs[instr.dst] = iter.current_eclass();
   }
 
   void exec_iter_parents(Instruction const &instr) {
@@ -650,6 +738,7 @@ class VMExecutorClean {
   VMState state_;
   VMStats stats_;
   bool jumped_{false};
+  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
 };
 
 }  // namespace memgraph::planner::core::vm
