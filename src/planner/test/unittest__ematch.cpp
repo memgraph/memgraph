@@ -294,6 +294,60 @@ TEST_F(EMatcherTest, MergeEnablesRepeatedVariableMatch) {
   expect_matches({{{kTestRoot, add}, {kVarX, egraph.find(a)}}});
 }
 
+TEST_F(EMatcherTest, SelfReferentialEClassMatchesMultipleTimes) {
+  // BUG: EMatcher misses matches when non-root frames should try multiple
+  // e-nodes in a self-referential e-class.
+  //
+  // Setup (from egglog):
+  //   (let n0 (B 64))
+  //   (let n1 (F n0))
+  //   (let n2 (F n1))
+  //   (union n1 n2)
+  //
+  // After merge and rebuild:
+  //   EC0 = { B(64) }
+  //   EC1 = { F(EC0), F(EC1) }   <- self-referential
+  //
+  // Pattern: F(F(F(?v0)))
+  //
+  // Expected matches (egglog finds both):
+  //   Match 1: ?v0 = EC0
+  //     - outermost F: F(EC1) from EC1
+  //     - middle F: F(EC1) from EC1 (self-loop)
+  //     - inner F: F(EC0) from EC1
+  //     - ?v0 binds to EC0
+  //
+  //   Match 2: ?v0 = EC1
+  //     - outermost F: F(EC1) from EC1
+  //     - middle F: F(EC1) from EC1
+  //     - inner F: F(EC1) from EC1 (self-loop)
+  //     - ?v0 binds to EC1 itself
+  //
+  // BUG: EMatcher only finds match 1. The innermost F(?v0) frame at EC1
+  // tries F(EC0), yields, gets popped via ChildYielded, and never tries F(EC1).
+
+  auto n0 = leaf(Op::B, 64);
+  auto n1 = node(Op::F, n0);
+  auto n2 = node(Op::F, n1);
+
+  merge(n1, n2);
+  rebuild_egraph();
+  rebuild_index();
+
+  // EC1 should now be self-referential: { F(EC0), F(EC1) }
+  auto ec1 = egraph.find(n1);
+  ASSERT_EQ(egraph.find(n2), ec1) << "n1 and n2 should be in same e-class";
+
+  // Pattern: F(F(F(?v0)))
+  use_pattern(TestPattern::build(Op::F, {Sym(Op::F, Sym(Op::F, Var{kVarX}))}, kTestRoot));
+
+  // Should find 2 matches: ?v0 = EC0 and ?v0 = EC1
+  expect_matches({
+      {{kTestRoot, ec1}, {kVarX, n0}},   // ?v0 = EC0 (B(64))
+      {{kTestRoot, ec1}, {kVarX, ec1}},  // ?v0 = EC1 (self-reference)
+  });
+}
+
 // ============================================================================
 // Matcher Index Maintenance
 // ============================================================================
