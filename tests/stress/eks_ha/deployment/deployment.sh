@@ -135,6 +135,10 @@ create_cluster() {
         exit 1
     fi
 
+    # Ensure kubectl context points to the new cluster
+    log_info "Updating kubeconfig..."
+    aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$CLUSTER_REGION"
+
     log_info "EKS cluster created successfully"
 }
 
