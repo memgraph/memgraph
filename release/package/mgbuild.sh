@@ -1132,7 +1132,29 @@ test_memgraph() {
       cd $PROJECT_ROOT/tests/stress && ./continuous_integration --deployment=docker_ha
     ;;
     stress-eks-ha)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=eks_ha"
+      export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
+      export MEMGRAPH_ORGANIZATION_NAME=$organization_name
+
+      local eks_deployment_script="$PROJECT_ROOT/tests/stress/eks_ha/deployment/deployment.sh"
+
+      cleanup_eks() {
+        echo "Destroying EKS cluster..."
+        "$eks_deployment_script" destroy || true
+      }
+      trap cleanup_eks EXIT
+
+      "$eks_deployment_script" start
+
+      if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
+        python3 -m venv "$PROJECT_ROOT/tests/ve3"
+        source "$PROJECT_ROOT/tests/ve3/bin/activate"
+        pip install --upgrade pip
+        pip install -r "$PROJECT_ROOT/tests/requirements.txt"
+      else
+        source "$PROJECT_ROOT/tests/ve3/bin/activate"
+      fi
+
+      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=eks_ha
     ;;
     durability)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
