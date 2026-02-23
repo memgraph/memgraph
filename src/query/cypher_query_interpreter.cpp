@@ -43,26 +43,27 @@ PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(pl
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
                             parameters::Parameters const *server_parameters, std::string_view database_uuid)
     -> Parameters {
-  // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
+
+  auto try_server_param = [&](int param_index, std::string_view param_key, std::string_view scope) -> bool {
+    if (!server_parameters) return false;
+    auto opt = server_parameters->GetParameter(param_key, scope);
+    if (!opt) return false;
+    TypedValue value;
+    query::from_json(nlohmann::json::parse(*opt), value);
+    parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+    return true;
+  };
+
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
-    // Prefer user-provided parameter.
     auto it = user_parameters.find(param_key);
     if (it != user_parameters.end()) {
       parameters.Add(param_index, it->second);
+      continue;
     }
-    // Fallback to server-side parameters
-    else if (auto opt = server_parameters->GetParameter(param_key, database_uuid); opt) {
-      TypedValue value;
-      query::from_json(nlohmann::json::parse(*opt), value);
-      parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
-    } else if (auto opt = server_parameters->GetParameter(param_key, parameters::kGlobalScope); opt) {
-      TypedValue value;
-      query::from_json(nlohmann::json::parse(*opt), value);
-      parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
-    } else {
-      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
-    }
+    if (try_server_param(param_index, param_key, database_uuid)) continue;
+    if (try_server_param(param_index, param_key, parameters::kGlobalScope)) continue;
+    throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
   }
   return parameters;
 }
