@@ -24,7 +24,7 @@ namespace memgraph::planner::bench {
 // Common Types
 // ============================================================================
 
-enum class Op : uint8_t { Add, Mul, Neg, Var, Const, F };
+enum class Op : uint8_t { Add, Mul, Neg, Var, Const, F, Bind, Ident };
 
 struct NoAnalysis {};
 

@@ -53,6 +53,9 @@ enum class Op : uint8_t {
   F,
   F2,
   F3,
+  // For multi-pattern join tests
+  Bind,   // Bind(_, ?sym, ?expr) - 3 children
+  Ident,  // Ident(?sym) - 1 child
   // Misc
   Test,
 };
