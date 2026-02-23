@@ -7,6 +7,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Use an isolated kubeconfig so we don't touch ~/.kube/config
+export KUBECONFIG="${KUBECONFIG_EKS:-/tmp/eks-ha-kubeconfig}"
+
 # Cluster configuration
 CLUSTER_NAME="${CLUSTER_NAME:-test-cluster-ha}"
 CLUSTER_REGION="${CLUSTER_REGION:-eu-west-1}"
@@ -597,6 +600,9 @@ destroy_cluster() {
         log_error "Failed to delete cluster"
         exit 1
     fi
+
+    # Clean up the isolated kubeconfig file
+    rm -f "$KUBECONFIG"
 
     log_info "EKS cluster deleted successfully"
 }
