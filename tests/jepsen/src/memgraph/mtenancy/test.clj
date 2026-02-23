@@ -184,6 +184,9 @@
                               (utils/sync-replica-down? e)
                               (assoc op :type :ok :value {:str "Nodes updated. SYNC replica is down."})
 
+                              (utils/replica-timeout? e)
+                              (assoc op :type :info :value {:str "Nodes updated. Replica timeout"})
+
                               (utils/main-became-replica? e)
                               (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
 

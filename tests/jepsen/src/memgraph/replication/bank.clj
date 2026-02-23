@@ -135,6 +135,7 @@
                       (if (or
                            (utils/sync-replica-down? e)
                            (utils/cannot-get-shared-access? e)
+                           (utils/replica-timeout? e)
                            (utils/conflicting-txns? e))
                         (assoc op :type :info :value (str e)); Exception due to down sync replica is accepted/expected
                         (assoc op :type :fail :value (str e)))))
