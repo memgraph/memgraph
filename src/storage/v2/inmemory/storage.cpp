@@ -480,6 +480,14 @@ InMemoryStorage::~InMemoryStorage() {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
+
+  // On destruction, we want to stop snapshot creation unless snapshot_on_exit is set to true.
+  // If snapshot on exit is set to true then create_snapshot_handler() will just skip snapshot creation because it
+  // will figure out that there are no changes.
+  if (!config_.durability.snapshot_on_exit) {
+    abort_snapshot_.store(true, std::memory_order_release);
+  }
+
   snapshot_runner_.Stop();
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
     create_snapshot_handler();
@@ -3531,16 +3539,16 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   auto const &epochHistory = repl_storage_state_.history;
   auto const &storage_uuid = uuid();
 
+  SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto current_digest = SnapshotDigest{.epoch_ = epoch,
-                                         .history_ = epochHistory,
-                                         .storage_uuid_ = storage_uuid,
-                                         .last_durable_ts_ = *transaction->last_durable_ts_};
+    current_digest = SnapshotDigest{.epoch_ = epoch,
+                                    .history_ = epochHistory,
+                                    .storage_uuid_ = storage_uuid,
+                                    .last_durable_ts_ = *transaction->last_durable_ts_};
 
     if (!force && last_snapshot_digest_ == current_digest)
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
-    last_snapshot_digest_ = std::move(current_digest);
   }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
@@ -3557,6 +3565,12 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &abort_snapshot_);
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
+  }
+
+  // Update digest only after the file has been created. Only in transaction because digests are used only in
+  // transactional mode
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    last_snapshot_digest_ = std::move(current_digest);
   }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
