@@ -403,6 +403,11 @@ add_unit_test(utils_on_scope_exit
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_pointer_pack
+    SOURCES utils_pointer_pack.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_rwlock
     SOURCES utils_rwlock.cpp
     LINK_TARGETS mg-utils

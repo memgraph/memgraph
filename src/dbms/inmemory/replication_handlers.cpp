@@ -1250,8 +1250,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             Delta *local_delta = nullptr;
             {
               auto guard = std::shared_lock{edge->lock};
-              is_visible = !edge->deleted;
-              local_delta = edge->delta;
+              is_visible = !edge->deleted();
+              local_delta = edge->delta();
             }
             ApplyDeltasForRead(
                 &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {

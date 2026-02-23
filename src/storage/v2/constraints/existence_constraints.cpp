@@ -23,7 +23,7 @@ namespace {
 [[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                   const LabelId &label,
                                                                                   const PropertyId &property) {
-  if (!vertex.deleted && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+  if (!vertex.deleted() && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
     return std::unexpected{ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
   }
   return {};
