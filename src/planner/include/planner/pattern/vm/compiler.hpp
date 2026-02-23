@@ -16,6 +16,7 @@
 #include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/executor.hpp"
@@ -58,7 +59,8 @@ class PatternCompiler {
   auto compile(Pattern<Symbol> const &pattern) -> std::optional<CompiledPattern<Symbol>> {
     code_.clear();
     symbols_.clear();
-    next_reg_ = 1;  // r0 is reserved for entry candidate
+    seen_vars_.clear();  // Track which variables we've seen
+    next_reg_ = 1;       // r0 is reserved for entry candidate
     register_overflow_ = false;
 
     // Get entry symbol for index lookup
@@ -124,9 +126,9 @@ class PatternCompiler {
             }
             // For wildcards, innermost loop is the backtrack target
           } else if constexpr (std::is_same_v<T, PatternVar>) {
-            // Variable: bind or check
+            // Variable: bind if first occurrence, check if subsequent
             auto slot = pattern.var_slot(n);
-            code_.push_back(Instruction::bind_or_check(static_cast<uint8_t>(slot), eclass_reg, backtrack_target));
+            emit_var_binding(n, static_cast<uint8_t>(slot), eclass_reg, backtrack_target);
             if (is_root) {
               code_.push_back(Instruction::yield());
             }
@@ -214,6 +216,22 @@ class PatternCompiler {
     return loop_pos;
   }
 
+  /// Emit variable binding - uses BindSlot for first occurrence, CheckSlot for subsequent
+  ///
+  /// This is critical for correctness: after Yield clears the bound flags,
+  /// we need CheckSlot (not BindOrCheck) to ensure subsequent occurrences
+  /// check against the existing slot value rather than rebinding.
+  void emit_var_binding(PatternVar var, uint8_t slot, uint8_t eclass_reg, uint16_t backtrack_target) {
+    if (seen_vars_.contains(var)) {
+      // Subsequent occurrence: check against existing binding
+      code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack_target));
+    } else {
+      // First occurrence: bind unconditionally
+      seen_vars_.insert(var);
+      code_.push_back(Instruction::bind_slot(slot, eclass_reg));
+    }
+  }
+
   auto get_symbol_index(Symbol const &sym) -> uint8_t {
     for (std::size_t i = 0; i < symbols_.size(); ++i) {
       if (symbols_[i] == sym) {
@@ -235,6 +253,7 @@ class PatternCompiler {
   Mode mode_;
   std::vector<Instruction> code_;
   std::vector<Symbol> symbols_;
+  boost::unordered_flat_set<PatternVar> seen_vars_;  // Track first vs subsequent occurrences
   uint8_t next_reg_{1};
   bool register_overflow_{false};
 };
@@ -286,7 +305,8 @@ class FusedPatternCompiler {
                std::vector<PatternVar> const &shared_vars) -> std::optional<CompiledPattern<Symbol>> {
     code_.clear();
     symbols_.clear();
-    next_reg_ = 1;  // r0 is reserved for entry candidate
+    seen_vars_.clear();  // Track which variables we've seen
+    next_reg_ = 1;       // r0 is reserved for entry candidate
     register_overflow_ = false;
     slot_map_.clear();
 
@@ -388,9 +408,9 @@ class FusedPatternCompiler {
           if constexpr (std::is_same_v<T, Wildcard>) {
             // Wildcard matches anything, no code needed
           } else if constexpr (std::is_same_v<T, PatternVar>) {
-            // Variable: bind or check
+            // Variable: bind if first, check if subsequent
             auto slot = get_slot(n);
-            code_.push_back(Instruction::bind_or_check(slot, eclass_reg, backtrack_target));
+            emit_var_binding(n, slot, eclass_reg, backtrack_target);
           } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
             innermost_loop = emit_anchor_symbol_node(pattern, pattern.root(), n, eclass_reg, backtrack_target);
           }
@@ -456,7 +476,7 @@ class FusedPatternCompiler {
             // Wildcard matches anything
           } else if constexpr (std::is_same_v<T, PatternVar>) {
             auto slot = get_slot(n);
-            code_.push_back(Instruction::bind_or_check(slot, eclass_reg, backtrack_target));
+            emit_var_binding(n, slot, eclass_reg, backtrack_target);
             // Track this register for parent traversal from this variable
             var_to_reg_[n] = eclass_reg;
           } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
@@ -568,7 +588,7 @@ class FusedPatternCompiler {
               // Wildcard matches anything
             } else if constexpr (std::is_same_v<T, PatternVar>) {
               auto slot = get_slot(n);
-              code_.push_back(Instruction::bind_or_check(slot, child_reg, loop_pos));
+              emit_var_binding(n, slot, child_reg, loop_pos);
             } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
               // TODO: Handle nested symbols in joined pattern
               // For now, just try to match it
@@ -587,6 +607,18 @@ class FusedPatternCompiler {
     }
 
     return loop_pos;
+  }
+
+  /// Emit variable binding - uses BindSlot for first occurrence, CheckSlot for subsequent
+  void emit_var_binding(PatternVar var, uint8_t slot, uint8_t eclass_reg, uint16_t backtrack_target) {
+    if (seen_vars_.contains(var)) {
+      // Subsequent occurrence: check against existing binding
+      code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack_target));
+    } else {
+      // First occurrence: bind unconditionally
+      seen_vars_.insert(var);
+      code_.push_back(Instruction::bind_slot(slot, eclass_reg));
+    }
   }
 
   auto get_symbol_index(Symbol const &sym) -> uint8_t {
@@ -610,6 +642,7 @@ class FusedPatternCompiler {
   Mode mode_;
   std::vector<Instruction> code_;
   std::vector<Symbol> symbols_;
+  boost::unordered_flat_set<PatternVar> seen_vars_;  // Track first vs subsequent occurrences
   uint8_t next_reg_{1};
   bool register_overflow_{false};
   boost::unordered_flat_map<PatternVar, std::size_t> slot_map_;
