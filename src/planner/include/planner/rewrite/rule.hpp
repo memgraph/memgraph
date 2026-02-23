@@ -263,9 +263,14 @@ class RewriteRule {
   /// Test accessor: returns the computed join steps for verifying join ordering.
   [[nodiscard]] auto join_steps() const -> std::span<JoinStep const> { return join_steps_; }
 
-  /// Access compiled patterns for VM execution
+  /// Access compiled patterns for VM execution (top-down)
   [[nodiscard]] auto compiled_patterns() const -> std::span<std::optional<vm::CompiledPattern<Symbol>> const> {
     return compiled_patterns_;
+  }
+
+  /// Access bottom-up compiled patterns for VM execution
+  [[nodiscard]] auto compiled_bottomup_patterns() const -> std::span<std::optional<vm::CompiledPattern<Symbol>> const> {
+    return bottomup_compiled_patterns_;
   }
 
   /// Get the root symbol of the first pattern (for index-based candidate lookup)
@@ -363,6 +368,49 @@ class RewriteRule {
     return rule_ctx.rewrites();
   }
 
+  /// Match patterns using VM executor with bottom-up traversal.
+  /// This starts from all e-classes and traverses UP via parents.
+  /// Better when leaf variable has fewer candidates than root symbol.
+  template <typename VMExecutor>
+  auto apply_vm_bottomup(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
+                         RewriteContext &ctx, std::vector<EClassId> &candidates_buffer) const -> std::size_t {
+    if (patterns_.empty() || !apply_fn_) [[unlikely]] {
+      return 0;
+    }
+
+    // For multi-pattern rules, fall back to EMatcher-based join
+    if (patterns_.size() > 1) {
+      return apply(egraph, matcher, ctx);
+    }
+
+    // For single-pattern rules, use bottom-up VM if compiled successfully
+    auto const &compiled = bottomup_compiled_patterns_[0];
+    if (!compiled) {
+      // Pattern not suitable for bottom-up (no leaf variable), fall back to top-down
+      return apply_vm(egraph, matcher, vm_executor, ctx, candidates_buffer);
+    }
+
+    ctx.match_ctx.clear();
+    auto &join_ctx = ctx.join_ctx;
+    auto &arena = ctx.match_ctx.arena();
+
+    // Bottom-up: iterate ALL e-classes as candidates (leaf variable bindings)
+    matcher.all_candidates(candidates_buffer);
+
+    if (candidates_buffer.empty()) return 0;
+
+    // Execute VM to find matches via parent traversal
+    join_ctx.right.clear();
+    vm_executor.execute(*compiled, candidates_buffer, ctx.match_ctx, join_ctx.right);
+
+    if (join_ctx.right.empty()) return 0;
+
+    // For single-pattern rules, matches go directly to apply function
+    RuleContext rule_ctx(egraph, ctx.new_eclasses);
+    apply_fn_(rule_ctx, join_ctx.right, 1, var_locations_, arena);
+    return rule_ctx.rewrites();
+  }
+
  private:
   RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names,
               std::vector<JoinStep> join_steps, VarLocMap var_locations, ApplyFn apply_fn, std::string name)
@@ -379,9 +427,15 @@ class RewriteRule {
   void compile_patterns() {
     compiled_patterns_.clear();
     compiled_patterns_.reserve(patterns_.size());
+    bottomup_compiled_patterns_.clear();
+    bottomup_compiled_patterns_.reserve(patterns_.size());
+
     vm::PatternCompiler<Symbol> compiler;
+    vm::BottomUpPatternCompiler<Symbol> bottomup_compiler;
+
     for (auto const &pattern : patterns_) {
       compiled_patterns_.push_back(compiler.compile(pattern));
+      bottomup_compiled_patterns_.push_back(bottomup_compiler.compile(pattern));
     }
   }
 
@@ -391,7 +445,8 @@ class RewriteRule {
   VarLocMap var_locations_;
   ApplyFn apply_fn_;
   std::string name_;
-  std::vector<std::optional<vm::CompiledPattern<Symbol>>> compiled_patterns_;
+  std::vector<std::optional<vm::CompiledPattern<Symbol>>> compiled_patterns_;           // Top-down
+  std::vector<std::optional<vm::CompiledPattern<Symbol>>> bottomup_compiled_patterns_;  // Bottom-up
 };
 
 /// Immutable, shareable collection of rewrite rules. Cheap to copy (shared_ptr).
