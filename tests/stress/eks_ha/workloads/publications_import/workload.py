@@ -41,13 +41,13 @@ def get_s3_secret() -> str:
     Raises:
         ValueError: If environment variables are not set.
     """
-    access_key = os.environ.get("S3_AWS_ACCESS_KEY_ID")
-    secret_key = os.environ.get("S3_AWS_SECRET_ACCESS_KEY")
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
 
     if not access_key or not secret_key:
         raise ValueError(
-            "S3 credentials not found. Please set S3_AWS_ACCESS_KEY_ID and "
-            "S3_AWS_SECRET_ACCESS_KEY environment variables."
+            "AWS credentials not found. Please set AWS_ACCESS_KEY_ID and "
+            "AWS_SECRET_ACCESS_KEY environment variables."
         )
 
     return f"CREATE SECRET (TYPE s3, KEY_ID '{access_key}', SECRET '{secret_key}', REGION '{S3_REGION}');"

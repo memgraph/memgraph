@@ -37,5 +37,5 @@ customWorkloads:
       script: "docker_ha/workloads/publications_import/workload.py"
       timeout_min: 120  # Extended timeout for large dataset import
       env:
-        - S3_AWS_ACCESS_KEY_ID
-        - S3_AWS_SECRET_ACCESS_KEY
+        - AWS_ACCESS_KEY_ID
+        - AWS_SECRET_ACCESS_KEY
