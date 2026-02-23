@@ -29,7 +29,7 @@ env:
 jobs:
   test:
     name: ISSU Test
-    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "X64", "Kubernetes"]') }}
+    runs-on: [self-hosted, X64, Kubernetes, the-thing]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
