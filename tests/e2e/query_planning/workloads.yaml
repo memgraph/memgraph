@@ -6,15 +6,6 @@ queries_cluster: &queries_cluster
       setup_queries: []
       validation_queries: []
 
-queries_cluster_2: &queries_cluster_2
-  cluster:
-    main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--query-plan-cache-max-size=0"]
-      log_file: "query_planning2.log"
-      setup_queries: []
-      validation_queries: []
-
-
 workloads:
   - name: "Query planning cartesian"
     binary: "tests/e2e/pytest_runner.sh"
@@ -44,4 +35,4 @@ workloads:
   - name: "Query planning BFS cost based"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_bfs_cost_based.py"]
-    <<: *queries_cluster_2
+    <<: *queries_cluster
