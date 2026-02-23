@@ -345,7 +345,7 @@ BENCHMARK_REGISTER_F(BindIdentEMatcherFixture, HashJoin)
     ->ArgNames({"binds", "idents_per"})
     ->Unit(benchmark::kMicrosecond);
 
-// VM Fused approach: Use PatternsCompiler with parent traversal
+// VM Fused approach: Use PatternCompiler with parent traversal
 class BindIdentVMFusedFixture : public VMFixtureBase {
  protected:
   int64_t num_binds_ = 0;
@@ -358,13 +358,14 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
     idents_per_sym_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildBindIdentGraph(g, num_binds_, idents_per_sym_); });
 
-    // Create anchor and joined patterns
-    auto anchor = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kBindRoot);
-    auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot);
+    // Create patterns - compiler will figure out anchor and join order
+    auto bind_pattern = TestPattern::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kBindRoot);
+    auto ident_pattern = TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot);
 
-    // Compile with fused compiler
-    PatternsCompiler<Op> fused_compiler;
-    compiled_ = fused_compiler.compile(anchor, {joined}, {kVarSym});
+    // Compile with pattern compiler
+    PatternCompiler<Op> fused_compiler;
+    std::array patterns = {bind_pattern, ident_pattern};
+    compiled_ = fused_compiler.compile(patterns);
 
     // Get all Bind e-classes as candidates
     bind_candidates_.clear();

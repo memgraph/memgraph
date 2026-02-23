@@ -362,8 +362,8 @@ class EMatcherVsVMComparison : public EGraphTestBase {
     EMatcher<Op, NoAnalysis> ematcher(egraph);
 
     // Compile pattern for VM
-    PatternsCompiler<Op> compiler;
-    auto compiled = compiler.compile(std::span<TestPattern const>(&pattern, 1));
+    PatternCompiler<Op> compiler;
+    auto compiled = compiler.compile(pattern);
     EXPECT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
 
     // Get candidates for VM (based on entry symbol)
@@ -416,7 +416,7 @@ class EMatcherVsVMComparison : public EGraphTestBase {
     }
 
     // Extract binding sets from both - we need to compare by actual bound values
-    // since slot ordering may differ between EMatcher and PatternsCompiler
+    // since slot ordering may differ between EMatcher and PatternCompiler
     auto const &arena = ctx.arena();
 
     // For simplicity, just check counts match (full comparison would need to normalize bindings)
