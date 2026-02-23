@@ -22,6 +22,7 @@ import memgraph.planner.core.eids;
 
 #include "planner/egraph/egraph.hpp"
 #include "planner/pattern/match.hpp"
+#include "planner/pattern/matcher.hpp"
 #include "planner/pattern/vm/instruction.hpp"
 #include "planner/pattern/vm/parent_index.hpp"
 #include "planner/pattern/vm/state.hpp"
@@ -92,6 +93,21 @@ class VMExecutorVerify {
 
       run_until_halt(ctx, results);
     }
+  }
+
+  /// Execute compiled pattern with automatic candidate lookup via EMatcher
+  void execute(CompiledPattern<Symbol> const &pattern, EMatcher<Symbol, Analysis> &matcher, EMatchContext &ctx,
+               std::vector<PatternMatch> &results) {
+    // Get candidates based on pattern's entry symbol
+    candidates_buffer_.clear();
+    if (auto entry_sym = pattern.entry_symbol()) {
+      matcher.candidates_for_symbol(*entry_sym, candidates_buffer_);
+    } else {
+      // Root is variable/wildcard - get all e-classes
+      matcher.all_candidates(candidates_buffer_);
+    }
+
+    execute(pattern, candidates_buffer_, ctx, results);
   }
 
   [[nodiscard]] auto stats() const -> VMStats const & { return stats_; }
@@ -419,6 +435,7 @@ class VMExecutorVerify {
   Tracer *tracer_;
   bool jumped_{false};
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
+  std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -455,6 +472,21 @@ class VMExecutorClean {
 
       run_until_halt(ctx, results);
     }
+  }
+
+  /// Execute compiled pattern with automatic candidate lookup via EMatcher
+  void execute(CompiledPattern<Symbol> const &pattern, EMatcher<Symbol, Analysis> &matcher, EMatchContext &ctx,
+               std::vector<PatternMatch> &results) {
+    // Get candidates based on pattern's entry symbol
+    candidates_buffer_.clear();
+    if (auto entry_sym = pattern.entry_symbol()) {
+      matcher.candidates_for_symbol(*entry_sym, candidates_buffer_);
+    } else {
+      // Root is variable/wildcard - get all e-classes
+      matcher.all_candidates(candidates_buffer_);
+    }
+
+    execute(pattern, candidates_buffer_, ctx, results);
   }
 
   [[nodiscard]] auto stats() const -> VMStats const & { return stats_; }
@@ -739,6 +771,7 @@ class VMExecutorClean {
   VMStats stats_;
   bool jumped_{false};
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
+  std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
 };
 
 }  // namespace memgraph::planner::core::vm

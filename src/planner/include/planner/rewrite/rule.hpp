@@ -318,7 +318,7 @@ class RewriteRule {
   /// Falls back to EMatcher only for register overflow (patterns exceeding 64 registers).
   template <typename VMExecutor>
   auto apply_vm(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
-                RewriteContext &ctx, std::vector<EClassId> &candidates_buffer) const -> std::size_t {
+                RewriteContext &ctx) const -> std::size_t {
     if (patterns_.empty() || !apply_fn_) [[unlikely]] {
       return 0;
     }
@@ -333,19 +333,9 @@ class RewriteRule {
     auto &join_ctx = ctx.join_ctx;
     auto &arena = ctx.match_ctx.arena();
 
-    // Get candidates based on pattern's entry symbol
-    if (auto entry_sym = compiled_pattern_->entry_symbol()) {
-      matcher.candidates_for_symbol(*entry_sym, candidates_buffer);
-    } else {
-      // Root is variable/wildcard - get all e-classes
-      matcher.all_candidates(candidates_buffer);
-    }
-
-    if (candidates_buffer.empty()) return 0;
-
-    // Execute VM to find matches
+    // Execute VM - candidate lookup is handled internally by the executor
     join_ctx.right.clear();
-    vm_executor.execute(*compiled_pattern_, candidates_buffer, ctx.match_ctx, join_ctx.right);
+    vm_executor.execute(*compiled_pattern_, matcher, ctx.match_ctx, join_ctx.right);
 
     if (join_ctx.right.empty()) return 0;
 

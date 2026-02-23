@@ -240,7 +240,7 @@ class Rewriter {
     for (auto const &rule_ptr : rules_.rules()) {
       // Use unified VM-based matching (handles single and multi-pattern rules via fused compilation)
       // Falls back to EMatcher only for register overflow (patterns exceeding 64 registers)
-      auto rewrites = rule_ptr->apply_vm(*egraph_, matcher_, vm_executor_, ctx_, candidates_buffer_);
+      auto rewrites = rule_ptr->apply_vm(*egraph_, matcher_, vm_executor_, ctx_);
       per_rule_stats[stat_idx++] += rewrites;
       total_rewrites += rewrites;
     }
@@ -292,7 +292,6 @@ class Rewriter {
   vm::VMExecutorVerify<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext ctx_;
-  std::vector<EClassId> candidates_buffer_;  ///< Reusable buffer for VM candidate lookup
 };
 
 }  // namespace memgraph::planner::core
