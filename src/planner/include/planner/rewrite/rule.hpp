@@ -359,7 +359,7 @@ class RewriteRule {
   }
 
   /// Compile all patterns into a single unified VM pattern.
-  /// Uses FusedPatternCompiler which handles both single and multi-pattern cases.
+  /// Uses PatternsCompiler which handles both single and multi-pattern cases.
   void compile_patterns() {
     compiled_pattern_.reset();
     compiled_var_locations_.clear();
@@ -368,8 +368,8 @@ class RewriteRule {
       return;
     }
 
-    // FusedPatternCompiler handles both single and multi-pattern rules uniformly
-    vm::FusedPatternCompiler<Symbol> compiler;
+    // PatternsCompiler handles both single and multi-pattern rules uniformly
+    vm::PatternsCompiler<Symbol> compiler;
     compiled_pattern_ = compiler.compile(patterns_);
 
     if (!compiled_pattern_) {

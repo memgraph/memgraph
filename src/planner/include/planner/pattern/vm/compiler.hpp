@@ -286,14 +286,14 @@ class PatternCompiler {
 /// N+9: Halt
 /// ```
 template <typename Symbol>
-class FusedPatternCompiler {
+class PatternsCompiler {
  public:
   enum class Mode {
     Verify,
     Clean,
   };
 
-  explicit FusedPatternCompiler(Mode mode = Mode::Verify) : mode_(mode) {}
+  explicit PatternsCompiler(Mode mode = Mode::Verify) : mode_(mode) {}
 
   /// Compile multiple patterns into fused bytecode with automatic join order computation.
   ///
