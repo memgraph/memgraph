@@ -348,6 +348,55 @@ TEST_F(EMatcherTest, SelfReferentialEClassMatchesMultipleTimes) {
   });
 }
 
+TEST_F(EMatcherTest, UnionNodeWithChildCreatesSimpleSelfReferentialEClass) {
+  // Simulates the egglog scenario:
+  //
+  //   (let n0 (A 10))
+  //   (let n1 (G n0))
+  //   (let n2 (A 0))
+  //   (union n0 n1)
+  //   (let n3 (G n1))
+  //   (let n4 (G n3))
+  //
+  //   (rule ((= ?root (G ?v0))) ((MatchResult ?v0)))
+  //
+  //   Egglog output: (MatchResult (A 10))
+  //
+  // After union(n0, n1) and rebuild:
+  //   EC_merged = { A(10), F(EC_merged) }   <- self-referential
+  //
+  // n3 = F(n1) and n4 = F(n3) collapse into EC_merged by congruence since
+  // F(EC_merged) is already in EC_merged.
+  //
+  // Pattern F(?v0) should produce exactly one match:
+  //   ?root = EC_merged,  ?v0 = EC_merged
+  //
+  // (egglog reports ?v0 as "(A 10)" which is the canonical form of EC_merged)
+
+  auto n0 = leaf(Op::A, 10);
+  auto n1 = node(Op::F, n0);
+  leaf(Op::A, 0);  // n2 — separate e-class, does not participate in the match
+
+  merge(n0, n1);
+  rebuild_egraph();
+
+  // n3 = F(n1=EC_merged) and n4 = F(n3=EC_merged): both are congruent to the
+  // existing F(EC_merged) already inside EC_merged, so they collapse into it.
+  auto n3 = node(Op::F, n1);
+  node(Op::F, n3);  // n4
+  rebuild_egraph();
+  rebuild_index();
+
+  // Pattern: F(?v0)
+  use_pattern(make_unary_pattern(Op::F, kVarX, kTestRoot));
+
+  auto ec = egraph.find(n0);  // canonical ID for EC_merged
+  ASSERT_EQ(egraph.find(n1), ec) << "n0 and n1 should be in the same e-class after union";
+
+  // One match: the single G/F node in EC_merged has child EC_merged itself
+  expect_matches({{{kTestRoot, ec}, {kVarX, ec}}});
+}
+
 // ============================================================================
 // Matcher Index Maintenance
 // ============================================================================
