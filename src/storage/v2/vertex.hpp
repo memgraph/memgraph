@@ -42,17 +42,17 @@ struct Vertex {
   PropertyStore properties;
   mutable utils::RWSpinLock lock;
 
-  Delta *delta() const { return delta_.get_ptr(); }
+  Delta *delta() const { return delta_.GetPtr(); }
 
-  void set_delta(Delta *d) { delta_.set_ptr(d); }
+  void SetDelta(Delta *d) { delta_.SetPtr(d); }
 
-  bool deleted() const { return delta_.get<kDeletedBit>() != 0; }
+  bool deleted() const { return delta_.Get<kDeletedBit>() != 0; }
 
-  void set_deleted(bool b) { delta_.set<kDeletedBit>(b ? 1 : 0); }
+  void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
 
-  bool has_uncommitted_non_sequential_deltas() const { return delta_.get<kNonSeqDeltasBit>() != 0; }
+  bool has_uncommitted_non_sequential_deltas() const { return delta_.Get<kNonSeqDeltasBit>() != 0; }
 
-  void set_has_uncommitted_non_sequential_deltas(bool b) { delta_.set<kNonSeqDeltasBit>(b ? 1 : 0); }
+  void set_has_uncommitted_non_sequential_deltas(bool b) { delta_.Set<kNonSeqDeltasBit>(b ? 1 : 0); }
 
  private:
   static constexpr int kDeletedBit = 0;

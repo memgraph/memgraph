@@ -355,7 +355,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // delta from the object. Because the lock is held during the whole time this
   // modification is being done, everybody else will wait until we are fully
   // done with our modification before they read the object's delta value.
-  object->set_delta(delta);
+  object->SetDelta(delta);
 }
 
 }  // namespace memgraph::storage

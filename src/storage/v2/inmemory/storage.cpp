@@ -215,7 +215,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
         break;
       case PreviousPtr::Type::VERTEX: {
         auto &vertex = *prev.vertex;
-        vertex.set_delta(nullptr);
+        vertex.SetDelta(nullptr);
         vertex.set_has_uncommitted_non_sequential_deltas(false);
         if (vertex.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
@@ -225,7 +225,7 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
       }
       case PreviousPtr::Type::EDGE: {
         auto &edge = *prev.edge;
-        edge.set_delta(nullptr);
+        edge.SetDelta(nullptr);
         if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
           current_deleted_edges.push_back(edge.gid);
@@ -1396,12 +1396,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
-                edge->set_deleted(true);
+                edge->SetDeleted(true);
                 my_deleted_edges.push_back(edge->gid);
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
-                edge->set_deleted(false);
+                edge->SetDeleted(false);
                 break;
               }
               case Delta::Action::REMOVE_LABEL:
@@ -1416,7 +1416,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             }
             current = current->next.load(std::memory_order_acquire);
           }
-          edge->set_delta(current);
+          edge->SetDelta(current);
           if (current != nullptr) {
             current->prev.Set(edge);
           }
@@ -1523,7 +1523,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           }
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
-            vertex->set_deleted(true);
+            vertex->SetDeleted(true);
             my_deleted_vertices.push_back(vertex->gid);
 
             for (auto const label : vertex->labels) {
@@ -1532,7 +1532,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
-            vertex->set_deleted(false);
+            vertex->SetDeleted(false);
             for (auto const label : vertex->labels) {
               storage_->UpdateLabelCount(label, 1);
             }
@@ -1561,7 +1561,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
 
       if (delta_chunk_attached_to_vertex) {
-        vertex->set_delta(current);
+        vertex->SetDelta(current);
         if (current) {
           current->prev.Set(vertex);
         }
@@ -2746,7 +2746,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               // anymore.
               continue;
             }
-            vertex->set_delta(nullptr);
+            vertex->SetDelta(nullptr);
             vertex->set_has_uncommitted_non_sequential_deltas(false);
 
             if (vertex->deleted()) {
@@ -2763,7 +2763,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               // anymore.
               continue;
             }
-            edge->set_delta(nullptr);
+            edge->SetDelta(nullptr);
             if (edge->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);

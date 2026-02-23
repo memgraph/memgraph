@@ -705,7 +705,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
                  *schema_acc);
     }
 
-    vertex_ptr->set_deleted(true);
+    vertex_ptr->SetDeleted(true);
     transaction_.UpdateOnVertexDelete(vertex_ptr);
 
     deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
@@ -718,7 +718,7 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
   if (!edge->deleted()) {
     // NOTE Schema handles this via vertex deltas; add schema info collector here if that evert changes
     CreateAndLinkDelta(&transaction_, edge, Delta::RecreateObjectTag());
-    edge->set_deleted(true);
+    edge->SetDeleted(true);
     storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
 }

@@ -33,96 +33,96 @@ class PointerPackTest : public ::testing::Test {
 
 TEST_F(PointerPackTest, DefaultConstructedIsNull) {
   PointerPack<Dummy, 2> pp;
-  EXPECT_EQ(pp.get_ptr(), nullptr);
-  EXPECT_EQ(pp.get<0>(), 0u);
-  EXPECT_EQ(pp.get<1>(), 0u);
+  EXPECT_EQ(pp.GetPtr(), nullptr);
+  EXPECT_EQ(pp.Get<0>(), 0u);
+  EXPECT_EQ(pp.Get<1>(), 0u);
 }
 
 TEST_F(PointerPackTest, ConstructWithPointerOnly) {
   PointerPack<Dummy, 2> pp(&a);
-  EXPECT_EQ(pp.get_ptr(), &a);
-  EXPECT_EQ(pp.get<0>(), 0u);
-  EXPECT_EQ(pp.get<1>(), 0u);
+  EXPECT_EQ(pp.GetPtr(), &a);
+  EXPECT_EQ(pp.Get<0>(), 0u);
+  EXPECT_EQ(pp.Get<1>(), 0u);
 }
 
 TEST_F(PointerPackTest, ConstructWithPointerAndFlags) {
   PointerPack<Dummy, 3> pp(&a, 0b101);
-  EXPECT_EQ(pp.get_ptr(), &a);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 0u);
-  EXPECT_EQ(pp.get<2>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 0u);
+  EXPECT_EQ(pp.Get<2>(), 1u);
 }
 
 TEST_F(PointerPackTest, SetAndGetIndividualBits) {
   PointerPack<Dummy, 3> pp(&a);
 
-  pp.set<0>(1);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 0u);
-  EXPECT_EQ(pp.get<2>(), 0u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0>(1);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 0u);
+  EXPECT_EQ(pp.Get<2>(), 0u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 
-  pp.set<1>(1);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 1u);
-  EXPECT_EQ(pp.get<2>(), 0u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<1>(1);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
+  EXPECT_EQ(pp.Get<2>(), 0u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 
-  pp.set<2>(1);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 1u);
-  EXPECT_EQ(pp.get<2>(), 1u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<2>(1);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
+  EXPECT_EQ(pp.Get<2>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 
-  pp.set<0>(0);
-  EXPECT_EQ(pp.get<0>(), 0u);
-  EXPECT_EQ(pp.get<1>(), 1u);
-  EXPECT_EQ(pp.get<2>(), 1u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0>(0);
+  EXPECT_EQ(pp.Get<0>(), 0u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
+  EXPECT_EQ(pp.Get<2>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 }
 
 TEST_F(PointerPackTest, MultiBitField) {
   PointerPack<Dummy, 3> pp(&a);
 
-  pp.set<0, 2>(0b11);
-  EXPECT_EQ((pp.get<0, 2>()), 0b11u);
-  EXPECT_EQ(pp.get<2>(), 0u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0, 2>(0b11);
+  EXPECT_EQ((pp.Get<0, 2>()), 0b11u);
+  EXPECT_EQ(pp.Get<2>(), 0u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 
-  pp.set<0, 2>(0b10);
-  EXPECT_EQ((pp.get<0, 2>()), 0b10u);
+  pp.Set<0, 2>(0b10);
+  EXPECT_EQ((pp.Get<0, 2>()), 0b10u);
 
-  pp.set<0, 3>(0b101);
-  EXPECT_EQ((pp.get<0, 3>()), 0b101u);
+  pp.Set<0, 3>(0b101);
+  EXPECT_EQ((pp.Get<0, 3>()), 0b101u);
 }
 
 TEST_F(PointerPackTest, SetPtrPreservesFlags) {
   PointerPack<Dummy, 2> pp(&a);
-  pp.set<0>(1);
-  pp.set<1>(1);
+  pp.Set<0>(1);
+  pp.Set<1>(1);
 
-  pp.set_ptr(&b);
-  EXPECT_EQ(pp.get_ptr(), &b);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 1u);
+  pp.SetPtr(&b);
+  EXPECT_EQ(pp.GetPtr(), &b);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
 }
 
 TEST_F(PointerPackTest, SetFlagsPreservesPointer) {
   PointerPack<Dummy, 2> pp(&a);
 
-  pp.set<0>(1);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0>(1);
+  EXPECT_EQ(pp.GetPtr(), &a);
 
-  pp.set<1>(1);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<1>(1);
+  EXPECT_EQ(pp.GetPtr(), &a);
 
-  pp.set<0>(0);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0>(0);
+  EXPECT_EQ(pp.GetPtr(), &a);
 }
 
 TEST_F(PointerPackTest, ImplicitConversionToPointer) {
   PointerPack<Dummy, 2> pp(&a);
-  pp.set<0>(1);
+  pp.Set<0>(1);
 
   Dummy *raw = pp;
   EXPECT_EQ(raw, &a);
@@ -130,55 +130,55 @@ TEST_F(PointerPackTest, ImplicitConversionToPointer) {
 
 TEST_F(PointerPackTest, AssignmentFromPointer) {
   PointerPack<Dummy, 2> pp(&a);
-  pp.set<0>(1);
-  pp.set<1>(1);
+  pp.Set<0>(1);
+  pp.Set<1>(1);
 
   pp = &b;
-  EXPECT_EQ(pp.get_ptr(), &b);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &b);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
 }
 
 TEST_F(PointerPackTest, NullPointerWithFlags) {
   PointerPack<Dummy, 2> pp(nullptr, 0b11);
-  EXPECT_EQ(pp.get_ptr(), nullptr);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), nullptr);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
 }
 
 TEST_F(PointerPackTest, ClearFlagsIndependently) {
   PointerPack<Dummy, 3> pp(&a, 0b111);
 
-  pp.set<1>(0);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 0u);
-  EXPECT_EQ(pp.get<2>(), 1u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<1>(0);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 0u);
+  EXPECT_EQ(pp.Get<2>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 }
 
 TEST_F(PointerPackTest, FlagsExcessBitsMasked) {
   PointerPack<Dummy, 2> pp(&a);
-  pp.set<0>(0xFF);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0>(0xFF);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 }
 
 TEST_F(PointerPackTest, ConstructorFlagsExcessBitsMasked) {
   PointerPack<Dummy, 2> pp(&a, 0xFF);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get<1>(), 1u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 }
 
 TEST_F(PointerPackTest, SingleBitPack) {
   PointerPack<Dummy, 1> pp(&a);
-  EXPECT_EQ(pp.get<0>(), 0u);
+  EXPECT_EQ(pp.Get<0>(), 0u);
 
-  pp.set<0>(1);
-  EXPECT_EQ(pp.get<0>(), 1u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0>(1);
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 
-  pp.set<0>(0);
-  EXPECT_EQ(pp.get<0>(), 0u);
-  EXPECT_EQ(pp.get_ptr(), &a);
+  pp.Set<0>(0);
+  EXPECT_EQ(pp.Get<0>(), 0u);
+  EXPECT_EQ(pp.GetPtr(), &a);
 }

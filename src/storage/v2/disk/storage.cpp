@@ -2098,7 +2098,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
           }
           current = current->next.load(std::memory_order_acquire);
         }
-        vertex->set_delta(current);
+        vertex->SetDelta(current);
         if (current != nullptr) {
           current->prev.Set(vertex);
         }
