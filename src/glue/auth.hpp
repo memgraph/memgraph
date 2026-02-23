@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,11 +23,13 @@ namespace memgraph::glue {
 auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege);
 
 #ifdef MG_ENTERPRISE
+enum class FineGrainedPermissionType : uint8_t { LABEL, EDGE_TYPE };
+
 /**
  * Converts query::AuthQuery::FineGrainedPrivilege to its corresponding
  * auth::EntityPermission.
  */
 auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
-    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege);
+    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege, FineGrainedPermissionType type);
 #endif
 }  // namespace memgraph::glue
