@@ -147,54 +147,9 @@ class MatchArena {
   std::deque<EClassId> pool_;
 };
 
-/// Stack frame for iterative backtracking matcher (symbol-agnostic)
-struct MatchFrame {
-  PatternNodeId pnode_id;
-  EClassId eclass_id;
-
-  /// Result from child frame (set by parent when child pops)
-  enum class ChildResult : uint8_t {
-    None,        ///< No child result pending
-    Yielded,     ///< Child completed successfully
-    Backtracked  ///< Child failed, should try alternative
-  };
-  ChildResult child_result = ChildResult::None;
-
-  // For symbol nodes: iteration state over e-nodes
-  std::optional<std::span<ENodeId const>> enode_ids;  ///< Remaining e-nodes to try
-
-  // For symbol nodes: parallel iteration over pattern children and e-node children
-  std::optional<std::span<PatternNodeId const>> pattern_children;
-  std::optional<std::span<EClassId const>> enode_children;
-
-  // Binding state - index into shared binding stack where this frame's bindings start
-  std::size_t binding_start{0};
-
-  void advance_enode() { enode_ids = enode_ids->subspan(1); }
-
-  [[nodiscard]] auto current_enode_id() const -> ENodeId { return enode_ids->front(); }
-
-  void advance_child() {
-    pattern_children = pattern_children->subspan(1);
-    enode_children = enode_children->subspan(1);
-  }
-
-  [[nodiscard]] auto children_exhausted() const -> bool { return pattern_children->empty(); }
-
-  void init_enodes(std::span<ENodeId const> nodes) { enode_ids = nodes; }
-
-  void init_children(std::span<PatternNodeId const> pattern_kids, std::span<EClassId const> enode_kids) {
-    pattern_children = pattern_kids;
-    enode_children = enode_kids;
-  }
-};
-
-/// Context for e-matching: arena for storing matches, processed set for deduplication,
-/// and reusable buffers for the matching algorithm.
+/// Context for e-matching: arena for storing matches, processed set for deduplication.
 struct EMatchContext {
   auto arena() -> MatchArena & { return arena_; }
-
-  auto commit(PartialMatch const &partial) -> PatternMatch { return arena_.intern(partial.slots_); }
 
   void clear() {
     arena_.clear();
@@ -206,24 +161,12 @@ struct EMatchContext {
 
   auto processed() -> boost::unordered_flat_set<EClassId> & { return processed_; }
 
-  /// Partial match state with integrated undo log (reused across calls).
-  auto partial() -> PartialMatch & { return partial_; }
-
   /// Prepare context for matching a pattern with given number of variable slots.
-  void prepare_for_pattern(std::size_t num_slots) {
-    partial_.reset(num_slots);
-    processed_.clear();
-    match_stack_.clear();
-  }
-
-  /// Match stack for iterative backtracking (reused across calls).
-  auto match_stack() -> boost::container::small_vector<MatchFrame, 32> & { return match_stack_; }
+  void prepare_for_pattern(std::size_t /*num_slots*/) { processed_.clear(); }
 
  private:
   MatchArena arena_;
   boost::unordered_flat_set<EClassId> processed_;
-  PartialMatch partial_;
-  boost::container::small_vector<MatchFrame, 32> match_stack_;
 };
 
 /// A complete match from a rewrite rule - O(1) variable binding lookup via operator[].
