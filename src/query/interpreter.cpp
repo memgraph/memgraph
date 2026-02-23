@@ -2757,8 +2757,13 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = query_parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  const auto scope = parameter_query->is_global_scope_ ? std::string{parameters::kGlobalScope}
-                                                       : std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+  const auto scope = std::invoke([&]() -> std::string {
+    if (parameter_query->is_global_scope_) return std::string{parameters::kGlobalScope};
+    if (!interpreter->current_db_.db_acc_) {
+      throw QueryRuntimeException("No current database for parameter scope.");
+    }
+    return std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+  });
   Callback callback;
   switch (parameter_query->action_) {
     case ParameterQuery::Action::SET_PARAMETER: {
@@ -2817,7 +2822,9 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
     case ParameterQuery::Action::SHOW_PARAMETERS: {
       callback.header = {"name", "value", "scope"};
       callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
-        auto all_params = parameters->GetParameters(std::string{interpreter->current_db_.db_acc_->get()->uuid()});
+        std::string db_uuid;
+        if (interpreter->current_db_.db_acc_) db_uuid = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+        auto all_params = parameters->GetParameters(db_uuid);
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
         for (const auto &param : all_params) {
@@ -8082,11 +8089,13 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
+    std::string database_uuid;
+    if (current_db_.db_acc_) database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
     ParsedQuery parsed_query = ParseQuery(query_string,
                                           params_getter(nullptr),
                                           &interpreter_context_->ast_cache,
                                           interpreter_context_->config.query,
-                                          std::string{current_db_.db_acc_->get()->uuid()},
+                                          database_uuid,
                                           interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
