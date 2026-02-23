@@ -99,13 +99,11 @@ class PatternCompiler {
 
     // Emit anchor pattern
     auto anchor_innermost = emit_pattern(anchor, 0, kHaltPlaceholder);
-    if (register_overflow_) return std::nullopt;
 
     // Emit joined patterns
     uint16_t innermost = anchor_innermost;
     for (auto idx : join_order) {
       innermost = emit_joined_pattern(*patterns[idx], innermost);
-      if (register_overflow_) return std::nullopt;
     }
 
     // Emit yield and continue loop
@@ -119,7 +117,7 @@ class PatternCompiler {
     }
     code_.push_back(Instruction::halt());
 
-    return CompiledPattern<Symbol>(std::move(code_), slot_map_.size(), std::move(symbols_), entry_symbol);
+    return CompiledPattern<Symbol>(std::move(code_), slot_map_.size(), next_reg_, std::move(symbols_), entry_symbol);
   }
 
   void reset() {
@@ -129,7 +127,6 @@ class PatternCompiler {
     var_to_reg_.clear();
     slot_map_.clear();
     next_reg_ = 1;
-    register_overflow_ = false;
   }
 
   // ============================================================================
@@ -467,10 +464,8 @@ class PatternCompiler {
   }
 
   auto alloc_reg() -> uint8_t {
-    if (next_reg_ >= kMaxRegisters) {
-      register_overflow_ = true;
-      return 0;
-    }
+    // Register indices are uint8_t in instructions, so max 256 registers
+    // This is effectively unlimited for practical patterns (supports ~125 nesting levels)
     return next_reg_++;
   }
 
@@ -482,7 +477,6 @@ class PatternCompiler {
   boost::unordered_flat_map<PatternVar, std::size_t> slot_map_;
   boost::unordered_flat_map<PatternVar, uint8_t> var_to_reg_;
   uint8_t next_reg_{1};
-  bool register_overflow_{false};
 };
 
 // Keep old name as alias for backward compatibility in tests

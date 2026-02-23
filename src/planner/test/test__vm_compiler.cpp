@@ -470,10 +470,10 @@ TEST_F(VMExecutionTest, VeryDeepNestedPattern) {
       << kDepth << " chain";
 }
 
-// Test that compiler returns nullopt for patterns that exceed register limit
-TEST_F(VMExecutionTest, PatternExceedingRegisterLimit) {
-  // VM has 64 registers, deep patterns need ~2*depth+1 registers
-  // So depth 35+ should exceed the limit
+// Test that deep patterns compile successfully (dynamic register allocation)
+TEST_F(VMExecutionTest, DeepPatternCompiles) {
+  // VM now supports dynamic register allocation (up to 256 due to uint8_t)
+  // Deep patterns need ~2*depth+1 registers, so depth 35 uses ~71 registers
   constexpr int kPatternDepth = 35;
 
   auto b = Pattern<Op>::Builder{};
@@ -486,8 +486,9 @@ TEST_F(VMExecutionTest, PatternExceedingRegisterLimit) {
   PatternCompiler<Op> compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Should return nullopt because pattern is too deep
-  EXPECT_FALSE(compiled.has_value()) << "Expected compilation to fail for depth-" << kPatternDepth << " pattern";
+  // Should compile successfully with dynamic registers
+  ASSERT_TRUE(compiled.has_value()) << "Deep patterns should compile with dynamic registers";
+  EXPECT_GE(compiled->num_registers(), kPatternDepth) << "Should allocate enough registers";
 }
 
 // ============================================================================

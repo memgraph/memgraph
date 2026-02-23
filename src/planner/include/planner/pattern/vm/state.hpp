@@ -23,12 +23,8 @@ import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core::vm {
 
-/// Maximum number of registers in the VM
-/// Deep patterns need ~2 registers per nesting level, so 64 supports ~30 levels
-static constexpr std::size_t kMaxRegisters = 64;
-
-/// Maximum number of variable slots
-static constexpr std::size_t kMaxSlots = 32;
+/// Default register count for small patterns (avoids reallocation)
+static constexpr std::size_t kDefaultRegisters = 16;
 
 /// Iteration state for nested loops (e-node or parent iteration)
 /// For e-nodes: uses span (e-class nodes are stored contiguously)
@@ -103,10 +99,10 @@ struct IterState {
 /// VM execution state
 struct VMState {
   // E-class registers (result of navigation)
-  std::array<EClassId, kMaxRegisters> eclass_regs{};
+  std::vector<EClassId> eclass_regs;
 
   // E-node registers (current e-node in iteration)
-  std::array<ENodeId, kMaxRegisters> enode_regs{};
+  std::vector<ENodeId> enode_regs;
 
   // Variable binding slots
   boost::container::small_vector<EClassId, 8> slots;
@@ -120,21 +116,27 @@ struct VMState {
 
   // Iteration state indexed by register for O(1) lookup
   // Each register can have at most one active iteration
-  std::array<IterState, kMaxRegisters> iter_by_reg{};
+  std::vector<IterState> iter_by_reg;
 
   // Stack of active register indices for cleanup ordering
   // When an iteration exhausts, we need to deactivate all iterations
   // that were started after it (nested iterations)
   boost::container::small_vector<uint8_t, 16> iter_order;
 
-  /// Initialize state for execution with given number of slots
-  void reset(std::size_t num_slots) {
+  /// Initialize state for execution with given number of slots and registers
+  void reset(std::size_t num_slots, std::size_t num_registers) {
     slots.assign(num_slots, EClassId{});
-    bound.reset();  // std::bitset has fixed size, just reset all bits
+    bound.reset();
     pc = 0;
+    // Resize register arrays if needed
+    if (eclass_regs.size() < num_registers) {
+      eclass_regs.resize(num_registers);
+      enode_regs.resize(num_registers);
+      iter_by_reg.resize(num_registers);
+    }
     // Reset all iteration states
-    for (auto &iter : iter_by_reg) {
-      iter.reset();
+    for (std::size_t i = 0; i < num_registers; ++i) {
+      iter_by_reg[i].reset();
     }
     iter_order.clear();
   }
