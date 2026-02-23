@@ -7233,16 +7233,15 @@ class DistinctParallelCursor : public Cursor {
 
     AbortCheck(context);
 
+    // Initialize local cache if not already done
+    // Reuse same memory resource for all pulls
     if (local_cache_.empty()) {
       local_cache_.resize(kLocalCacheBatchSize,
                           Frame(static_cast<int64_t>(frame.elems().size()), shared_state_->GetMemoryResource()));
-      local_seen_.reserve(kLocalCacheBatchSize);
     }
 
     // Return from local cache if available
-    if (unique_count_ > 0) {
-      std::swap(frame, local_cache_[unique_count_ - 1]);
-      unique_count_--;
+    if (PullFromLocalCache(frame)) {
       return true;
     }
     // Refill local cache by pulling a batch from input
@@ -7250,8 +7249,8 @@ class DistinctParallelCursor : public Cursor {
       const auto res = RefillCacheAndPull(frame, context);
       if (res) return true;
       if (pulled_all_) {
-        // NOTE Not safe, because execution memory will be destroyed independent of the worker thread
         // TODO Postpone state destruction to another worker thread
+        // NOTE Not safe, because execution memory will be destroyed independent of the worker thread
         // if (context.worker_pool) {
         //   context.worker_pool->ScheduledAddTask([shared_state = std::move(shared_state_)](auto /* unused */) {},
         //                                         utils::Priority::LOW);
@@ -7279,9 +7278,11 @@ class DistinctParallelCursor : public Cursor {
     utils::MemoryResource *row_mem = shared_state_->GetMemoryResource();
 
     // Clear local state for next batch
-    local_seen_.clear();
     local_batch_.clear();
     unique_count_ = 0;
+    current_index_ = 0;
+    local_batch_.reserve(kLocalCacheBatchSize);
+    local_seen_.reserve(local_seen_.size() + kLocalCacheBatchSize);
 
     // Pull batch of rows from input, deduplicating locally first
     while (local_batch_.size() < kLocalCacheBatchSize) {
@@ -7296,6 +7297,7 @@ class DistinctParallelCursor : public Cursor {
         row.emplace_back(frame.at(symbol));
       }
 
+      // NOTE: Not clearing local seen to speed up deduplication (revisit this later if memory usage is too high)
       // local_seen_ for O(1) dedup, local_batch_ preserves insertion order
       if (local_seen_.insert(row).second) {
         local_batch_.emplace_back(std::move(row));
@@ -7318,12 +7320,16 @@ class DistinctParallelCursor : public Cursor {
       }
     }
 
-    if (unique_count_ > 0) {
-      std::swap(frame, local_cache_[unique_count_ - 1]);
-      unique_count_--;
+    return PullFromLocalCache(frame);
+  }
+
+  bool PullFromLocalCache(Frame &frame) {
+    if (current_index_ < unique_count_) {
+      std::swap(frame, local_cache_[current_index_]);
+      current_index_++;
       return true;
     }
-    // All pulled items were duplicates globally, try again
+    // All pulled items were duplicates locally, try again
     return false;
   }
 
@@ -7342,6 +7348,7 @@ class DistinctParallelCursor : public Cursor {
   std::vector<utils::pmr::vector<TypedValue>> local_batch_;
   std::vector<Frame> local_cache_;
   size_t unique_count_{0};
+  size_t current_index_{0};
   bool pulled_all_{false};
 };
 #endif
