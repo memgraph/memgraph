@@ -1151,10 +1151,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   struct EdgeSetPropertyCacheKey {
     uint64_t edge_gid{};
     uint64_t delta_timestamp{};
-
-    bool operator==(const EdgeSetPropertyCacheKey &o) const {
-      return edge_gid == o.edge_gid && delta_timestamp == o.delta_timestamp;
-    }
+    bool operator==(const EdgeSetPropertyCacheKey &o) const = default;
   };
 
   struct EdgeSetPropertyCacheKeyHash {

@@ -35,13 +35,13 @@ namespace rv = r::views;
 namespace memgraph::storage {
 
 namespace {
-void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, Edge *edge, Vertex *from_vertex, Vertex *to_vertex,
-                                          EdgeTypeId edge_type_id, PropertyId property,
-                                          const PropertyValue &old_value) {
+void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config &config, Edge *edge,
+                                          Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type_id,
+                                          PropertyId property, const PropertyValue &old_value) {
   CreateAndLinkDelta(transaction, edge, Delta::SetPropertyTag(), from_vertex, property, old_value);
   // No need to record the edge set property info if the edge was created in this transaction
   // The edge set property info is only used to speed up the edge search, during recovery/replication.
-  if (FLAGS_storage_wal_enabled &&
+  if (config.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL &&
       !EdgeWasCreatedThisTransaction(edge, transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
     transaction->RecordEdgeSetPropertyInfo(edge->gid, to_vertex->gid, edge_type_id);
   }
@@ -196,7 +196,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     // transactions get a SERIALIZATION_ERROR.
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
     CreateAndLinkDeltaForEdgeSetProperty(
-        transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
+        transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
     edge_.ptr->properties.SetProperty(property, value);
     storage_->indices_.UpdateOnSetProperty(
         edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
@@ -240,7 +240,7 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
     for (const auto &[property, value] : properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDeltaForEdgeSetProperty(
-          transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, PropertyValue());
+          transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -286,7 +286,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDeltaForEdgeSetProperty(
-          transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, old_value);
+          transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -328,8 +328,14 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDeltaForEdgeSetProperty(
-          transaction_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property.first, property.second);
+      CreateAndLinkDeltaForEdgeSetProperty(transaction_,
+                                           storage_->config_,
+                                           edge_.ptr,
+                                           from_vertex_,
+                                           to_vertex_,
+                                           edge_type_,
+                                           property.first,
+                                           property.second);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
