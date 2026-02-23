@@ -18,6 +18,7 @@
 #include "utils/function_traits.hpp"
 
 #include "spdlog/spdlog.h"
+#include "utils/logging.hpp"
 
 namespace memgraph::rpc {
 
@@ -60,9 +61,9 @@ void SendFinalResponse(TResponse const &res, uint64_t const response_version, sl
 }
 
 inline void SendInProgressMsg(slk::Builder *builder) {
-  if (!builder->IsEmpty()) {
-    throw slk::SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
-  }
+  // Fatal failure, error in the algorithm
+  MG_ASSERT(builder->IsEmpty(), "InProgress RPC message can only be sent when the builder's buffer is empty.");
+
   constexpr ProtocolMessageHeader message_header{.protocol_version = current_protocol_version,
                                                  .message_id = InProgressRes::kType.id,
                                                  .message_version = InProgressRes::kVersion};

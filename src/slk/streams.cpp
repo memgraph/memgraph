@@ -70,12 +70,14 @@ void Builder::PrepareForFileSending() {
 auto Builder::Finalize() -> BuilderWriteFunction::result_type { return FlushSegment(true); }
 
 auto Builder::FlushInternal(size_t const size, bool const has_more) -> BuilderWriteFunction::result_type {
+  // Setting position to 0 is fine here because for the success, it means builder is fone
+  // If error, then we rely on short-circuit if (error_) return ...
+  utils::OnScopeExit const on_exit{[this]() { pos_ = 0; }};
   if (error_) return std::unexpected(*error_);
   if (auto const res = write_func_(segment_.data(), size, has_more); !res.has_value()) {
     error_ = res.error();
     return res;
   }
-  pos_ = 0;
   return {};
 }
 
