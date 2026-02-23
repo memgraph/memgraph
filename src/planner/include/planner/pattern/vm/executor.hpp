@@ -84,7 +84,10 @@ class VMExecutorVerify {
       auto canonical = egraph_->find(candidate);
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
-      state_.iter_stack.clear();
+      state_.iter_order.clear();
+      for (auto &iter : state_.iter_by_reg) {
+        iter.reset();
+      }
       state_.bound.reset();
 
       run_until_halt(ctx, results);
@@ -193,48 +196,42 @@ class VMExecutorVerify {
       return;
     }
 
-    state_.iter_stack.push_back(IterState{
-        .kind = IterState::Kind::ENodes,
-        .reg = instr.dst,
-        .current_idx = 0,
-        .end_idx = nodes.size(),
-        .parent_of = eclass_id,
-    });
+    // Store span directly in register-indexed state
+    state_.start_enode_iter(instr.dst, nodes);
     state_.enode_regs[instr.dst] = nodes[0];
   }
 
   void exec_next_enode(Instruction const &instr) {
-    // Find the iteration state for this register
-    // Search from top of stack (most recent) to bottom
-    for (auto it = state_.iter_stack.rbegin(); it != state_.iter_stack.rend(); ++it) {
-      if (it->kind == IterState::Kind::ENodes && it->reg == instr.dst) {
-        it->advance();
-        if (it->exhausted()) {
-          if constexpr (kTracingEnabled) {
-            tracer_->on_iter_advance(state_.pc, 0);
-          }
-          // Remove this and all iterations above it
-          state_.iter_stack.erase(std::next(it).base(), state_.iter_stack.end());
-          state_.pc = instr.target;
-          jumped_ = true;
-          return;
-        }
+    // O(1) lookup by register
+    auto &iter = state_.get_iter(instr.dst);
 
-        if constexpr (kTracingEnabled) {
-          tracer_->on_iter_advance(state_.pc, it->end_idx - it->current_idx);
-        }
-        auto const &eclass = egraph_->eclass(it->parent_of);
-        state_.enode_regs[instr.dst] = eclass.nodes()[it->current_idx];
-        return;
+    if (iter.kind != IterState::Kind::ENodes) {
+      // No active iteration for this register
+      if constexpr (kTracingEnabled) {
+        tracer_->on_iter_advance(state_.pc, 0);
       }
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
     }
 
-    // No matching iteration found
-    if constexpr (kTracingEnabled) {
-      tracer_->on_iter_advance(state_.pc, 0);
+    iter.advance();
+    if (iter.exhausted()) {
+      if constexpr (kTracingEnabled) {
+        tracer_->on_iter_advance(state_.pc, 0);
+      }
+      // Deactivate this and all nested iterations
+      state_.deactivate_iter_and_nested(instr.dst);
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
     }
-    state_.pc = instr.target;
-    jumped_ = true;
+
+    if constexpr (kTracingEnabled) {
+      tracer_->on_iter_advance(state_.pc, iter.remaining());
+    }
+    // Direct access to cached span - no e-graph lookup needed
+    state_.enode_regs[instr.dst] = iter.current();
   }
 
   void exec_iter_parents(Instruction const &instr) {
@@ -253,50 +250,52 @@ class VMExecutorVerify {
       return;
     }
 
-    state_.iter_stack.push_back(IterState{
-        .kind = IterState::Kind::Parents,
-        .reg = instr.dst,
-        .current_idx = 0,
-        .end_idx = parents.size(),
-        .parent_of = eclass_id,
-    });
+    // Store e-class ID for index-based parent lookup
+    state_.start_parent_iter(instr.dst, eclass_id, parents.size());
     state_.enode_regs[instr.dst] = *parents.begin();
   }
 
   void exec_next_parent(Instruction const &instr) {
-    // Find the iteration state for this register
-    for (auto it = state_.iter_stack.rbegin(); it != state_.iter_stack.rend(); ++it) {
-      if (it->kind == IterState::Kind::Parents && it->reg == instr.dst) {
-        it->advance();
-        if (it->exhausted()) {
-          if constexpr (kTracingEnabled) {
-            tracer_->on_iter_advance(state_.pc, 0);
-          }
-          // Remove this and all iterations above it
-          state_.iter_stack.erase(std::next(it).base(), state_.iter_stack.end());
-          state_.pc = instr.target;
-          jumped_ = true;
-          return;
-        }
+    // O(1) lookup by register
+    auto &iter = state_.get_iter(instr.dst);
 
-        if constexpr (kTracingEnabled) {
-          tracer_->on_iter_advance(state_.pc, it->end_idx - it->current_idx);
-        }
-        auto const &eclass = egraph_->eclass(it->parent_of);
-        auto const &parents = eclass.parents();
-        auto pit = parents.begin();
-        std::advance(pit, static_cast<std::ptrdiff_t>(it->current_idx));
-        state_.enode_regs[instr.dst] = *pit;
-        return;
+    if (iter.kind != IterState::Kind::Parents && iter.kind != IterState::Kind::ParentsFiltered) {
+      // No active parent iteration for this register
+      if constexpr (kTracingEnabled) {
+        tracer_->on_iter_advance(state_.pc, 0);
       }
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
     }
 
-    // No matching iteration found
-    if constexpr (kTracingEnabled) {
-      tracer_->on_iter_advance(state_.pc, 0);
+    iter.advance();
+    if (iter.exhausted()) {
+      if constexpr (kTracingEnabled) {
+        tracer_->on_iter_advance(state_.pc, 0);
+      }
+      // Deactivate this and all nested iterations
+      state_.deactivate_iter_and_nested(instr.dst);
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
     }
-    state_.pc = instr.target;
-    jumped_ = true;
+
+    if constexpr (kTracingEnabled) {
+      tracer_->on_iter_advance(state_.pc, iter.remaining());
+    }
+
+    // For filtered parents, use span; for regular parents, use index lookup
+    if (iter.kind == IterState::Kind::ParentsFiltered) {
+      state_.enode_regs[instr.dst] = iter.nodes_span[iter.current_idx];
+    } else {
+      // Index-based lookup - need to iterate through the set
+      auto const &eclass = egraph_->eclass(iter.parent_eclass);
+      auto const &parents = eclass.parents();
+      auto pit = parents.begin();
+      std::advance(pit, static_cast<std::ptrdiff_t>(iter.current_idx));
+      state_.enode_regs[instr.dst] = *pit;
+    }
   }
 
   void exec_check_symbol(Instruction const &instr) {
@@ -402,7 +401,10 @@ class VMExecutorClean {
       auto canonical = egraph_->find(candidate);
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
-      state_.iter_stack.clear();
+      state_.iter_order.clear();
+      for (auto &iter : state_.iter_by_reg) {
+        iter.reset();
+      }
       state_.bound.reset();
       filtered_parents_ = {};
 
@@ -495,38 +497,29 @@ class VMExecutorClean {
       return;
     }
 
-    state_.iter_stack.push_back(IterState{
-        .kind = IterState::Kind::ENodes,
-        .reg = instr.dst,
-        .current_idx = 0,
-        .end_idx = nodes.size(),
-        .parent_of = eclass_id,
-    });
+    state_.start_enode_iter(instr.dst, nodes);
     state_.enode_regs[instr.dst] = nodes[0];
   }
 
   void exec_next_enode(Instruction const &instr) {
-    // Find the iteration state for this register
-    for (auto it = state_.iter_stack.rbegin(); it != state_.iter_stack.rend(); ++it) {
-      if (it->kind == IterState::Kind::ENodes && it->reg == instr.dst) {
-        it->advance();
-        if (it->exhausted()) {
-          // Remove this and all iterations above it
-          state_.iter_stack.erase(std::next(it).base(), state_.iter_stack.end());
-          state_.pc = instr.target;
-          jumped_ = true;
-          return;
-        }
+    // O(1) lookup by register
+    auto &iter = state_.get_iter(instr.dst);
 
-        auto const &eclass = egraph_->eclass(it->parent_of);
-        state_.enode_regs[instr.dst] = eclass.nodes()[it->current_idx];
-        return;
-      }
+    if (iter.kind != IterState::Kind::ENodes) {
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
     }
 
-    // No matching iteration found
-    state_.pc = instr.target;
-    jumped_ = true;
+    iter.advance();
+    if (iter.exhausted()) {
+      state_.deactivate_iter_and_nested(instr.dst);
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    state_.enode_regs[instr.dst] = iter.current();
   }
 
   void exec_iter_parents(Instruction const &instr) {
@@ -541,13 +534,8 @@ class VMExecutorClean {
       return;
     }
 
-    state_.iter_stack.push_back(IterState{
-        .kind = IterState::Kind::Parents,
-        .reg = instr.dst,
-        .current_idx = 0,
-        .end_idx = parents.size(),
-        .parent_of = eclass_id,
-    });
+    // Store e-class ID for index-based parent lookup
+    state_.start_parent_iter(instr.dst, eclass_id, parents.size());
     state_.enode_regs[instr.dst] = *parents.begin();
   }
 
@@ -565,17 +553,9 @@ class VMExecutorClean {
       return;
     }
 
-    // Store the filtered parents for iteration
-    // Note: This is a span into the parent index, valid until next rebuild
+    // Store the filtered parents for iteration (span into index, valid until rebuild)
     filtered_parents_ = parents;
-
-    state_.iter_stack.push_back(IterState{
-        .kind = IterState::Kind::Parents,
-        .reg = instr.dst,
-        .current_idx = 0,
-        .end_idx = parents.size(),
-        .parent_of = eclass_id,
-    });
+    state_.start_filtered_parent_iter(instr.dst, parents);
     state_.enode_regs[instr.dst] = parents[0];
 
     // Track that all these parents match the symbol
@@ -583,37 +563,35 @@ class VMExecutorClean {
   }
 
   void exec_next_parent(Instruction const &instr) {
-    // Find the iteration state for this register
-    for (auto it = state_.iter_stack.rbegin(); it != state_.iter_stack.rend(); ++it) {
-      if (it->kind == IterState::Kind::Parents && it->reg == instr.dst) {
-        it->advance();
-        if (it->exhausted()) {
-          // Remove this and all iterations above it
-          state_.iter_stack.erase(std::next(it).base(), state_.iter_stack.end());
-          filtered_parents_ = {};
-          state_.pc = instr.target;
-          jumped_ = true;
-          return;
-        }
+    // O(1) lookup by register
+    auto &iter = state_.get_iter(instr.dst);
 
-        // Use filtered parents if available (from IterParentsSym)
-        if (!filtered_parents_.empty()) {
-          state_.enode_regs[instr.dst] = filtered_parents_[it->current_idx];
-        } else {
-          // Fall back to regular parent iteration
-          auto const &eclass = egraph_->eclass(it->parent_of);
-          auto const &parents = eclass.parents();
-          auto pit = parents.begin();
-          std::advance(pit, static_cast<std::ptrdiff_t>(it->current_idx));
-          state_.enode_regs[instr.dst] = *pit;
-        }
-        return;
-      }
+    if (iter.kind != IterState::Kind::Parents && iter.kind != IterState::Kind::ParentsFiltered) {
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
     }
 
-    // No matching iteration found
-    state_.pc = instr.target;
-    jumped_ = true;
+    iter.advance();
+    if (iter.exhausted()) {
+      state_.deactivate_iter_and_nested(instr.dst);
+      filtered_parents_ = {};
+      state_.pc = instr.target;
+      jumped_ = true;
+      return;
+    }
+
+    // For filtered parents, use span; for regular parents, use index lookup
+    if (iter.kind == IterState::Kind::ParentsFiltered) {
+      state_.enode_regs[instr.dst] = iter.current();
+    } else {
+      // Index-based lookup - need to iterate through the set
+      auto const &eclass = egraph_->eclass(iter.parent_eclass);
+      auto const &parents = eclass.parents();
+      auto pit = parents.begin();
+      std::advance(pit, static_cast<std::ptrdiff_t>(iter.current_idx));
+      state_.enode_regs[instr.dst] = *pit;
+    }
   }
 
   void exec_check_symbol(Instruction const &instr) {
