@@ -3567,7 +3567,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
 
-  // Update digest only after the file has been created
+  // Update digest only after the file has been created. Only in transaction because digests are used only in
+  // transactional mode
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     last_snapshot_digest_ = std::move(current_digest);
   }
