@@ -1,8 +1,8 @@
 image:
-  repository: memgraph/memgraph
+  repository: memgraph/memgraph-mage
   # It is a bad practice to set the image tag name to 'latest' as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag: 3.7.1
+  tag: latest
   pullPolicy: IfNotPresent
 
 env:
