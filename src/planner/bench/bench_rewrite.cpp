@@ -241,7 +241,6 @@ class VMvsEMatcherFixture : public benchmark::Fixture {
   std::unique_ptr<TestEMatcher> matcher_;
   memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   TestRewriteContext ctx_;
-  std::vector<EClassId> candidates_;
   TestRewriteRule rule_ = RuleDoubleNeg();
   int64_t num_chains_ = 0;
   int64_t chain_depth_ = 0;
@@ -270,7 +269,7 @@ BENCHMARK_DEFINE_F(VMvsEMatcherFixture, ApplyEMatcher)(benchmark::State &state) 
 BENCHMARK_DEFINE_F(VMvsEMatcherFixture, ApplyVM)(benchmark::State &state) {
   for (auto _ : state) {
     ctx_.clear();
-    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_);
     benchmark::DoNotOptimize(rewrites);
   }
   state.SetItemsProcessed(state.iterations() * num_chains_);
@@ -298,7 +297,6 @@ class VMvsEMatcherLargeFixture : public benchmark::Fixture {
   std::unique_ptr<TestEMatcher> matcher_;
   memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   TestRewriteContext ctx_;
-  std::vector<EClassId> candidates_;
   TestRewriteRule rule_ = RuleDoubleNeg();
   int64_t graph_size_ = 0;
 
@@ -328,7 +326,7 @@ BENCHMARK_DEFINE_F(VMvsEMatcherLargeFixture, EMatcher)(benchmark::State &state) 
 BENCHMARK_DEFINE_F(VMvsEMatcherLargeFixture, VM)(benchmark::State &state) {
   for (auto _ : state) {
     ctx_.clear();
-    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_);
     benchmark::DoNotOptimize(rewrites);
   }
   state.SetItemsProcessed(state.iterations() * graph_size_);
@@ -351,21 +349,18 @@ BENCHMARK_REGISTER_F(VMvsEMatcherLargeFixture, VM)
     ->Unit(benchmark::kMicrosecond);
 
 // ============================================================================
-// Top-Down vs Bottom-Up VM Comparison
+// VM Pattern Matching Scaling
 // ============================================================================
 //
-// Measures: Top-down (start from root symbol) vs Bottom-up (start from leaf variable)
-// Why it matters: Bottom-up can be O(n) in e-classes vs O(k) in root symbol candidates.
-//   For deep chains, leaf variables are fewer than root symbols.
+// Measures: VM pattern matching performance with varying chain counts and depths.
 // Variables: num_chains (independent chains), chain_depth (Neg nesting).
 
-class TopDownVsBottomUpFixture : public benchmark::Fixture {
+class VMRewriteScalingFixture : public benchmark::Fixture {
  protected:
   TestEGraph egraph_;
   std::unique_ptr<TestEMatcher> matcher_;
   memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
   TestRewriteContext ctx_;
-  std::vector<EClassId> candidates_;
   TestRewriteRule rule_ = RuleDoubleNeg();
   int64_t num_chains_ = 0;
   int64_t chain_depth_ = 0;
@@ -380,32 +375,17 @@ class TopDownVsBottomUpFixture : public benchmark::Fixture {
   }
 };
 
-// Benchmark top-down VM (start from Neg candidates, descend via children)
-BENCHMARK_DEFINE_F(TopDownVsBottomUpFixture, TopDown)(benchmark::State &state) {
+// Benchmark unified VM pattern matching
+BENCHMARK_DEFINE_F(VMRewriteScalingFixture, UnifiedVM)(benchmark::State &state) {
   for (auto _ : state) {
     ctx_.clear();
-    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_);
     benchmark::DoNotOptimize(rewrites);
   }
   state.SetItemsProcessed(state.iterations() * num_chains_);
 }
 
-// Benchmark bottom-up VM (start from all e-classes, traverse up via parents)
-BENCHMARK_DEFINE_F(TopDownVsBottomUpFixture, BottomUp)(benchmark::State &state) {
-  for (auto _ : state) {
-    ctx_.clear();
-    auto rewrites = rule_.apply_vm_bottomup(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
-    benchmark::DoNotOptimize(rewrites);
-  }
-  state.SetItemsProcessed(state.iterations() * num_chains_);
-}
-
-BENCHMARK_REGISTER_F(TopDownVsBottomUpFixture, TopDown)
-    ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
-    ->ArgNames({"chains", "depth"})
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_REGISTER_F(TopDownVsBottomUpFixture, BottomUp)
+BENCHMARK_REGISTER_F(VMRewriteScalingFixture, UnifiedVM)
     ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
     ->ArgNames({"chains", "depth"})
     ->Unit(benchmark::kMicrosecond);

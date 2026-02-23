@@ -193,28 +193,6 @@ class EMatcher {
     }
   }
 
-  /**
-   * @brief Get all indexed e-classes for bottom-up pattern matching
-   *
-   * Returns all e-classes that are present in the symbol index.
-   * Unlike all_candidates(), this only returns e-classes that were indexed
-   * via rebuild_index(), respecting the index visibility semantics.
-   *
-   * @param candidates Output vector to append candidate e-class IDs to (cleared first)
-   */
-  void all_indexed_candidates(std::vector<EClassId> &candidates) const {
-    candidates.clear();
-    // Collect all unique e-classes from all symbol entries in the index
-    boost::unordered_flat_set<EClassId> seen;
-    for (auto const &[_, eclasses] : index_) {
-      for (auto id : eclasses) {
-        if (seen.insert(id).second) {
-          candidates.push_back(id);
-        }
-      }
-    }
-  }
-
  private:
   using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
 
