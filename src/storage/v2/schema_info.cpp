@@ -154,13 +154,13 @@ inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t start_timesta
 
 // Keep v locked as we could return a reference to labels
 inline std::pair<const VertexKey *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
-                                                    uint64_t commit_timestamp, auto &cache) {
+                                                    uint64_t commit_timestamp, auto &cache, auto &post_cache) {
   const auto state = GetState(v->delta, start_timestamp, commit_timestamp);
   if (state == ANOTHER_TX) {
     return {GetLabelsViewOld(v, start_timestamp, cache), true};
   }
-  // THIS_TX or NO_CHANGE: cache current labels view and return pointer to cache
-  auto [it, _] = cache.emplace(v, ToVertexKey(v->labels));
+  // THIS_TX or NO_CHANGE: cache current labels in post_cache (never mix with pre-tx cache)
+  auto [it, _] = post_cache.emplace(v, ToVertexKey(v->labels));
   return {&it->second, state != THIS_TX};
 }
 
@@ -172,9 +172,9 @@ struct Labels {
 
 // Cache needs to be reference stable because we are using it as a key
 inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t start_timestamp, uint64_t commit_timestamp,
-                        auto &cache) {
-  const auto from_res = GetLabels(from, start_timestamp, commit_timestamp, cache);
-  const auto to_res = GetLabels(to, start_timestamp, commit_timestamp, cache);
+                        auto &cache, auto &post_cache) {
+  const auto from_res = GetLabels(from, start_timestamp, commit_timestamp, cache, post_cache);
+  const auto to_res = GetLabels(to, start_timestamp, commit_timestamp, cache, post_cache);
   return {from_res.first, to_res.first, from_res.second || to_res.second};
 }
 
@@ -185,21 +185,23 @@ struct LabelsDiff {
 
 // Cache needs to be reference stable because we are using it as a key
 inline LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t timestamp, auto &cache, auto &post_cache) {
-  // NO CHANGES or THIS TX: cache current labels and return
-  auto [it, _] = cache.emplace(v, ToVertexKey(v->labels));
-  const VertexKey *current_labels = &it->second;
-  if (state == NO_CHANGE) return {current_labels, current_labels};
+  // NO CHANGES: both pre and post are current labels
+  if (state == NO_CHANGE) {
+    auto [it, _] = post_cache.emplace(v, ToVertexKey(v->labels));
+    return {&it->second, &it->second};
+  }
 
-  // Labels as seen at transaction start (cached)
+  // Labels as seen at transaction start (cached into pre-cache, separate from current)
   auto pre_labels = GetLabelsViewOld(v, timestamp, cache);
 
-  // THIS TX
+  // THIS TX: pre is old labels, post is current labels
   if (state == THIS_TX) {
-    return {pre_labels, current_labels};
+    auto [it, _] = post_cache.emplace(v, ToVertexKey(v->labels));
+    return {pre_labels, &it->second};
   }
 
   // ANOTHER TX
-  // Reusing get labels with kTransactionInitialId to get committed labels (cached via temporary cache)
+  // Reusing get labels with kTransactionInitialId to get committed labels (cached via post_cache)
   auto post_labels = GetLabelsViewOld(v, kTransactionInitialId, post_cache);
   return {pre_labels, post_labels};
 }
@@ -772,7 +774,8 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     auto edge_lock =
         properties_on_edges_ ? std::shared_lock{edge_ref.ptr->lock} : std::shared_lock<decltype(edge_ref.ptr->lock)>{};
 
-    auto other_labels = GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto other_labels =
+        GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache, post_process_->post_vertex_cache);
     Properties edge_props{};
     if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, start_ts_, commit_ts_);
 
@@ -939,7 +942,8 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
     // In case the from/to vertices are touched by this tx, we are safe, no need to post process (remove edge)
     // If one of the vertices has not been changes, we need to append this edge to the post-process list
     // We also need to get labels as they are seen by this tx
-    auto labels = GetLabels(from, to, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto labels =
+        GetLabels(from, to, start_ts_, commit_ts_, post_process_->vertex_cache, post_process_->post_vertex_cache);
     tracking_->SetProperty(type, *labels.from, *labels.to, property, now, before, properties_on_edges_);
     if (labels.needs_pp) {
       post_process_->edges.emplace(edge, type, from, to);

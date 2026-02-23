@@ -334,6 +334,7 @@ class equal_to<memgraph::storage::SchemaInfoEdge> {
 namespace memgraph::storage {
 struct SchemaInfoPostProcess {
   std::unordered_set<SchemaInfoEdge> edges;
-  std::unordered_map<const Vertex *, VertexKey> vertex_cache;
+  std::unordered_map<const Vertex *, VertexKey> vertex_cache;       // pre-tx labels (old)
+  std::unordered_map<const Vertex *, VertexKey> post_vertex_cache;  // current/post-tx labels
 };
 }  // namespace memgraph::storage
