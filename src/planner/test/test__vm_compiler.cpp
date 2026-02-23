@@ -519,8 +519,8 @@ TEST_F(FusedCompilerTest, SimpleJoinWithParentTraversal) {
   constexpr PatternVar kVarId{3};
   auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
-  // Compile with FusedPatternCompiler
-  FusedPatternCompiler<Op> compiler;
+  // Compile with PatternsCompiler
+  PatternsCompiler<Op> compiler;
   auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
 
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
@@ -610,7 +610,7 @@ TEST_F(FusedCompilerTest, NoMatchingJoin) {
   auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
   // Compile and execute
-  FusedPatternCompiler<Op> compiler;
+  PatternsCompiler<Op> compiler;
   auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
   ASSERT_TRUE(compiled.has_value());
 
@@ -828,7 +828,7 @@ TEST_F(FusedCompilerTest, MultipleJoinMatches) {
   auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
 
   // Compile and execute
-  FusedPatternCompiler<Op> compiler;
+  PatternsCompiler<Op> compiler;
   auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
   ASSERT_TRUE(compiled.has_value());
 
@@ -866,7 +866,7 @@ TEST_F(FusedCompilerTest, MultipleJoinMatches) {
       << "Should find " << expected_matches << " matches (idents same e-class: " << idents_same_eclass << ")";
 }
 
-// Test FusedPatternCompiler with nested patterns in joined patterns
+// Test PatternsCompiler with nested patterns in joined patterns
 // This tests the emit_joined_child recursive handling for patterns with
 // nested symbol structures that share a variable
 class FusedPatternNestedTest : public EGraphTestBase {};
@@ -897,7 +897,7 @@ TEST_F(FusedPatternNestedTest, NestedJoinedPatternViaParentTraversal) {
   // Joined pattern: F(?sym, Neg(?x)) - nested Neg symbol with shared ?sym
   auto joined = Pattern<Op>::build(Op::F, {Var{kVarSym}, Sym(Op::Neg, Var{kVarX})});
 
-  FusedPatternCompiler<Op> compiler;
+  PatternsCompiler<Op> compiler;
   auto compiled = compiler.compile(anchor, {joined}, {kVarSym});
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
 
@@ -927,7 +927,7 @@ TEST_F(FusedPatternNestedTest, NestedJoinedPatternViaParentTraversal) {
   }
 }
 
-// Test FusedPatternCompiler with deeply nested symbols in Cartesian product join
+// Test PatternsCompiler with deeply nested symbols in Cartesian product join
 TEST_F(FusedPatternNestedTest, DeeplyNestedCartesianPattern) {
   // Build e-graph with deeply nested structure
   // The joined pattern has no shared variable at direct child level,
@@ -953,7 +953,7 @@ TEST_F(FusedPatternNestedTest, DeeplyNestedCartesianPattern) {
   auto joined = Pattern<Op>::build(Op::Neg, {Sym(Op::Neg, Var{kVarZ})});
 
   // Use ?x as shared variable (the e-class that Neg(Neg(z)) should match)
-  FusedPatternCompiler<Op> compiler;
+  PatternsCompiler<Op> compiler;
   auto compiled = compiler.compile(anchor, {joined}, {kVarX});
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
 
@@ -998,7 +998,7 @@ TEST_F(FusedPatternNestedTest, CartesianProductBytecodeStructure) {
   // This forces Cartesian product join
   auto joined = Pattern<Op>::build(Op::Neg, {Var{kVarZ}});
 
-  FusedPatternCompiler<Op> compiler;
+  PatternsCompiler<Op> compiler;
   // Empty shared_vars forces Cartesian product
   auto compiled = compiler.compile(anchor, {joined}, {});
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed";
@@ -1043,7 +1043,7 @@ TEST_F(FusedPatternNestedTest, SimplifiedCompileAPI) {
   // Use simplified API - just pass all patterns
   std::array<Pattern<Op>, 2> patterns = {bind_pattern, ident_pattern};
 
-  FusedPatternCompiler<Op> compiler;
+  PatternsCompiler<Op> compiler;
   auto compiled = compiler.compile(patterns);
 
   ASSERT_TRUE(compiled.has_value()) << "Simplified compile API should succeed";
@@ -1080,7 +1080,7 @@ TEST_F(FusedPatternNestedTest, VariableOnlyJoinedPatternBytecode) {
   joined_builder.var(kVarZ);
   auto joined = std::move(joined_builder).build();
 
-  FusedPatternCompiler<Op> compiler;
+  PatternsCompiler<Op> compiler;
   // Empty shared_vars
   auto compiled = compiler.compile(anchor, {joined}, {});
   ASSERT_TRUE(compiled.has_value()) << "Fused compilation should succeed for variable-only joined pattern";

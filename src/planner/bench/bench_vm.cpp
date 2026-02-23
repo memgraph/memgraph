@@ -345,7 +345,7 @@ BENCHMARK_REGISTER_F(BindIdentEMatcherFixture, HashJoin)
     ->ArgNames({"binds", "idents_per"})
     ->Unit(benchmark::kMicrosecond);
 
-// VM Fused approach: Use FusedPatternCompiler with parent traversal
+// VM Fused approach: Use PatternsCompiler with parent traversal
 class BindIdentVMFusedFixture : public VMFixtureBase {
  protected:
   int64_t num_binds_ = 0;
@@ -363,7 +363,7 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
     auto joined = TestPattern::build(Op::Ident, {Var{kVarSym}}, kIdentRoot);
 
     // Compile with fused compiler
-    FusedPatternCompiler<Op> fused_compiler;
+    PatternsCompiler<Op> fused_compiler;
     compiled_ = fused_compiler.compile(anchor, {joined}, {kVarSym});
 
     // Get all Bind e-classes as candidates
