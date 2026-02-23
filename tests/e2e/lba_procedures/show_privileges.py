@@ -51,7 +51,7 @@ BASIC_PRIVILEGES = [
 def test_lba_procedures_show_privileges_first_user():
     expected_assertions_josip = [
         (
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE ON ALL LABELS",
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON ALL LABELS",
             "GRANT",
             "GLOBAL LABEL PERMISSION GRANTED TO USER",
         ),
@@ -62,7 +62,7 @@ def test_lba_procedures_show_privileges_first_user():
         ),
         ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         (
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
             "DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),
@@ -79,7 +79,7 @@ def test_lba_procedures_show_privileges_first_user():
             "LABEL PERMISSION GRANTED TO USER",
         ),
         (
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
             "DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),
@@ -99,7 +99,7 @@ def test_lba_procedures_show_privileges_second_user():
         ("AUTH", "GRANT", "GRANTED TO USER"),
         ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         (
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
             "DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),
@@ -116,7 +116,7 @@ def test_lba_procedures_show_privileges_second_user():
             "LABEL PERMISSION GRANTED TO USER",
         ),
         (
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
             "DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),

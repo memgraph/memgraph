@@ -4787,8 +4787,12 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 
   auto edge_auth_checker = [&context](const EdgeAccessor &ea) -> bool {
 #ifdef MG_ENTERPRISE
-    return !(license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-             !context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::DELETE));
+    return !(
+        license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::DELETE) &&
+          context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE) &&
+          context.auth_checker->Has(
+              ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE)));
 #else
     return true;
 #endif
