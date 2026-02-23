@@ -562,11 +562,10 @@ TEST_F(RewriterTest, VM_SinglePatternRule_ProducesSameResults) {
 TEST_F(RewriterTest, VM_CompiledPatternsAreAvailable) {
   // Verify that patterns are compiled at rule construction time
   auto rule = make_double_neg_rule();
-  auto compiled = rule.compiled_patterns();
+  auto const &compiled = rule.compiled_pattern();
 
-  // Single pattern rule should have one compiled pattern
-  EXPECT_EQ(compiled.size(), 1);
-  EXPECT_TRUE(compiled[0].has_value()) << "Pattern should compile successfully";
+  // Single pattern rule should have compiled pattern
+  EXPECT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
 }
 
 TEST_F(RewriterTest, VM_FallbackForMultiPatternRules) {

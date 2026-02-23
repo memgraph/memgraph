@@ -238,9 +238,9 @@ class Rewriter {
     std::size_t stat_idx = 0;
 
     for (auto const &rule_ptr : rules_.rules()) {
-      // Use bottom-up VM matching by default (better for wide e-classes)
-      // Falls back to top-down VM if no leaf variable, or EMatcher for multi-pattern rules
-      auto rewrites = rule_ptr->apply_vm_bottomup(*egraph_, matcher_, vm_executor_, ctx_, candidates_buffer_);
+      // Use unified VM-based matching (handles single and multi-pattern rules via fused compilation)
+      // Falls back to EMatcher only for register overflow (patterns exceeding 64 registers)
+      auto rewrites = rule_ptr->apply_vm(*egraph_, matcher_, vm_executor_, ctx_, candidates_buffer_);
       per_rule_stats[stat_idx++] += rewrites;
       total_rewrites += rewrites;
     }

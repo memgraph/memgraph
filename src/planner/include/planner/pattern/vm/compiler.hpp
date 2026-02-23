@@ -309,14 +309,7 @@ class FusedPatternCompiler {
       return std::nullopt;
     }
 
-    // Single pattern: delegate to PatternCompiler
-    if (patterns.size() == 1) {
-      PatternCompiler<Symbol> single_compiler(mode_ == Mode::Verify ? PatternCompiler<Symbol>::Mode::Verify
-                                                                    : PatternCompiler<Symbol>::Mode::Clean);
-      return single_compiler.compile(patterns[0]);
-    }
-
-    // Compute join order internally
+    // Compute join order - works for single pattern too (trivial case)
     auto join_order = compute_join_order(patterns);
 
     // Extract anchor and joined patterns based on computed order
@@ -462,13 +455,6 @@ class FusedPatternCompiler {
     next_reg_ = 1;  // r0 is reserved for entry candidate
     register_overflow_ = false;
     slot_map_.clear();
-
-    // If no joined patterns, fall back to single pattern compilation
-    if (joined.empty()) {
-      PatternCompiler<Symbol> single_compiler(mode_ == Mode::Verify ? PatternCompiler<Symbol>::Mode::Verify
-                                                                    : PatternCompiler<Symbol>::Mode::Clean);
-      return single_compiler.compile(anchor);
-    }
 
     // Build unified slot map: anchor vars first, then unique joined vars
     build_slot_map(anchor, joined);

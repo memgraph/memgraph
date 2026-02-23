@@ -263,14 +263,9 @@ class RewriteRule {
   /// Test accessor: returns the computed join steps for verifying join ordering.
   [[nodiscard]] auto join_steps() const -> std::span<JoinStep const> { return join_steps_; }
 
-  /// Access compiled patterns for VM execution (top-down)
-  [[nodiscard]] auto compiled_patterns() const -> std::span<std::optional<vm::CompiledPattern<Symbol>> const> {
-    return compiled_patterns_;
-  }
-
-  /// Access bottom-up compiled patterns for VM execution
-  [[nodiscard]] auto compiled_bottomup_patterns() const -> std::span<std::optional<vm::CompiledPattern<Symbol>> const> {
-    return bottomup_compiled_patterns_;
+  /// Access the compiled pattern for VM execution
+  [[nodiscard]] auto compiled_pattern() const -> std::optional<vm::CompiledPattern<Symbol>> const & {
+    return compiled_pattern_;
   }
 
   /// Get the root symbol of the first pattern (for index-based candidate lookup)
@@ -319,7 +314,7 @@ class RewriteRule {
     return rule_ctx.rewrites();
   }
 
-  /// Match patterns using VM executor. Uses fused pattern for multi-pattern rules.
+  /// Match patterns using VM executor. Uses unified fused pattern for all rules.
   /// Falls back to EMatcher only for register overflow (patterns exceeding 64 registers).
   template <typename VMExecutor>
   auto apply_vm(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
@@ -328,19 +323,9 @@ class RewriteRule {
       return 0;
     }
 
-    // For multi-pattern rules, use fused pattern if available
-    if (patterns_.size() > 1) {
-      if (!fused_compiled_pattern_) {
-        // Fused compilation failed (register overflow), fall back to EMatcher
-        return apply(egraph, matcher, ctx);
-      }
-      return apply_vm_fused(egraph, matcher, vm_executor, ctx, candidates_buffer);
-    }
-
-    // For single-pattern rules, use VM if compiled successfully
-    auto const &compiled = compiled_patterns_[0];
-    if (!compiled) {
-      // Pattern too deep for VM (register overflow), fall back to EMatcher
+    // Check if compilation succeeded
+    if (!compiled_pattern_) {
+      // Compilation failed (register overflow), fall back to EMatcher
       return apply(egraph, matcher, ctx);
     }
 
@@ -349,7 +334,7 @@ class RewriteRule {
     auto &arena = ctx.match_ctx.arena();
 
     // Get candidates based on pattern's entry symbol
-    if (auto entry_sym = compiled->entry_symbol()) {
+    if (auto entry_sym = compiled_pattern_->entry_symbol()) {
       matcher.candidates_for_symbol(*entry_sym, candidates_buffer);
     } else {
       // Root is variable/wildcard - get all e-classes
@@ -360,90 +345,13 @@ class RewriteRule {
 
     // Execute VM to find matches
     join_ctx.right.clear();
-    vm_executor.execute(*compiled, candidates_buffer, ctx.match_ctx, join_ctx.right);
+    vm_executor.execute(*compiled_pattern_, candidates_buffer, ctx.match_ctx, join_ctx.right);
 
     if (join_ctx.right.empty()) return 0;
 
-    // For single-pattern rules, matches go directly to apply function
-    // (no join needed, stride is 1)
+    // All patterns (single or multi) produce single-stride matches via unified fused compilation
     RuleContext rule_ctx(egraph, ctx.new_eclasses);
-    apply_fn_(rule_ctx, join_ctx.right, 1, var_locations_, arena);
-    return rule_ctx.rewrites();
-  }
-
-  /// Match multi-pattern rules using fused VM pattern.
-  /// The fused pattern performs the join internally via parent traversal.
-  template <typename VMExecutor>
-  auto apply_vm_fused(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
-                      RewriteContext &ctx, std::vector<EClassId> &candidates_buffer) const -> std::size_t {
-    ctx.match_ctx.clear();
-    auto &join_ctx = ctx.join_ctx;
-    auto &arena = ctx.match_ctx.arena();
-
-    // Get candidates based on fused pattern's entry symbol (anchor's root symbol)
-    if (auto entry_sym = fused_compiled_pattern_->entry_symbol()) {
-      matcher.candidates_for_symbol(*entry_sym, candidates_buffer);
-    } else {
-      matcher.all_candidates(candidates_buffer);
-    }
-
-    if (candidates_buffer.empty()) return 0;
-
-    // Execute fused VM - produces all joined bindings in single match
-    join_ctx.right.clear();
-    vm_executor.execute(*fused_compiled_pattern_, candidates_buffer, ctx.match_ctx, join_ctx.right);
-
-    if (join_ctx.right.empty()) return 0;
-
-    // Fused pattern produces single-stride matches with all vars bound
-    RuleContext rule_ctx(egraph, ctx.new_eclasses);
-    apply_fn_(rule_ctx, join_ctx.right, 1, fused_var_locations_, arena);
-    return rule_ctx.rewrites();
-  }
-
-  /// Match patterns using VM executor with bottom-up traversal.
-  /// This starts from all e-classes and traverses UP via parents.
-  /// Better when leaf variable has fewer candidates than root symbol.
-  template <typename VMExecutor>
-  auto apply_vm_bottomup(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
-                         RewriteContext &ctx, std::vector<EClassId> &candidates_buffer) const -> std::size_t {
-    if (patterns_.empty() || !apply_fn_) [[unlikely]] {
-      return 0;
-    }
-
-    // For multi-pattern rules, use fused pattern (joins via parent traversal)
-    if (patterns_.size() > 1) {
-      if (!fused_compiled_pattern_) {
-        return apply(egraph, matcher, ctx);
-      }
-      return apply_vm_fused(egraph, matcher, vm_executor, ctx, candidates_buffer);
-    }
-
-    // For single-pattern rules, use bottom-up VM if compiled successfully
-    auto const &compiled = bottomup_compiled_patterns_[0];
-    if (!compiled) {
-      // Pattern not suitable for bottom-up (no leaf variable), fall back to top-down
-      return apply_vm(egraph, matcher, vm_executor, ctx, candidates_buffer);
-    }
-
-    ctx.match_ctx.clear();
-    auto &join_ctx = ctx.join_ctx;
-    auto &arena = ctx.match_ctx.arena();
-
-    // Bottom-up: iterate all indexed e-classes as candidates (leaf variable bindings)
-    matcher.all_indexed_candidates(candidates_buffer);
-
-    if (candidates_buffer.empty()) return 0;
-
-    // Execute VM to find matches via parent traversal
-    join_ctx.right.clear();
-    vm_executor.execute(*compiled, candidates_buffer, ctx.match_ctx, join_ctx.right);
-
-    if (join_ctx.right.empty()) return 0;
-
-    // For single-pattern rules, matches go directly to apply function
-    RuleContext rule_ctx(egraph, ctx.new_eclasses);
-    apply_fn_(rule_ctx, join_ctx.right, 1, var_locations_, arena);
+    apply_fn_(rule_ctx, join_ctx.right, 1, compiled_var_locations_, arena);
     return rule_ctx.rewrites();
   }
 
@@ -460,45 +368,29 @@ class RewriteRule {
     compile_patterns();
   }
 
+  /// Compile all patterns into a single unified VM pattern.
+  /// Uses FusedPatternCompiler which handles both single and multi-pattern cases.
   void compile_patterns() {
-    compiled_patterns_.clear();
-    compiled_patterns_.reserve(patterns_.size());
-    bottomup_compiled_patterns_.clear();
-    bottomup_compiled_patterns_.reserve(patterns_.size());
+    compiled_pattern_.reset();
+    compiled_var_locations_.clear();
 
-    vm::PatternCompiler<Symbol> compiler;
-    vm::BottomUpPatternCompiler<Symbol> bottomup_compiler;
-
-    for (auto const &pattern : patterns_) {
-      compiled_patterns_.push_back(compiler.compile(pattern));
-      bottomup_compiled_patterns_.push_back(bottomup_compiler.compile(pattern));
+    if (patterns_.empty()) {
+      return;
     }
 
-    // Compile fused pattern for multi-pattern rules using join order
-    compile_fused_pattern();
-  }
+    // FusedPatternCompiler handles both single and multi-pattern rules uniformly
+    vm::FusedPatternCompiler<Symbol> compiler;
+    compiled_pattern_ = compiler.compile(patterns_);
 
-  void compile_fused_pattern() {
-    fused_compiled_pattern_.reset();
-    fused_var_locations_.clear();
-
-    if (patterns_.size() <= 1) {
-      return;  // No fused pattern needed for single-pattern rules
-    }
-
-    // Use simplified API - compiler computes join order internally
-    vm::FusedPatternCompiler<Symbol> fused_compiler;
-    fused_compiled_pattern_ = fused_compiler.compile(patterns_);
-
-    if (!fused_compiled_pattern_) {
+    if (!compiled_pattern_) {
       return;  // Compilation failed (too many registers)
     }
 
-    // Build fused var_locations map using the compiler's actual slot assignments.
-    // All vars are in a single fused match (pattern_index=0), with slot indices
+    // Build var_locations map using the compiler's actual slot assignments.
+    // All vars are in a single match (pattern_index=0), with slot indices
     // from the compiler's slot_map.
-    for (auto const &[var, slot] : fused_compiler.slot_map()) {
-      fused_var_locations_[var] = VarLocation{0, static_cast<uint8_t>(slot)};
+    for (auto const &[var, slot] : compiler.slot_map()) {
+      compiled_var_locations_[var] = VarLocation{0, static_cast<uint8_t>(slot)};
     }
   }
 
@@ -508,10 +400,8 @@ class RewriteRule {
   VarLocMap var_locations_;
   ApplyFn apply_fn_;
   std::string name_;
-  std::vector<std::optional<vm::CompiledPattern<Symbol>>> compiled_patterns_;           // Top-down
-  std::vector<std::optional<vm::CompiledPattern<Symbol>>> bottomup_compiled_patterns_;  // Bottom-up
-  std::optional<vm::CompiledPattern<Symbol>> fused_compiled_pattern_;                   // Multi-pattern fused
-  VarLocMap fused_var_locations_;                                                       // Var locations for fused
+  std::optional<vm::CompiledPattern<Symbol>> compiled_pattern_;  // Unified VM pattern (single or multi-pattern)
+  VarLocMap compiled_var_locations_;                             // Var locations for compiled pattern
 };
 
 /// Immutable, shareable collection of rewrite rules. Cheap to copy (shared_ptr).
