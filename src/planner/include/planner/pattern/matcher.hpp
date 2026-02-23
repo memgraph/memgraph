@@ -16,6 +16,7 @@
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
+#include <boost/dynamic_bitset.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
@@ -32,6 +33,30 @@ namespace memgraph::planner::core {
 template <class... Ts>
 struct Overload : Ts... {
   using Ts::operator()...;
+};
+
+/// Bindings collected during recursive matching.
+/// Simpler than PartialMatch - no undo log, just slot values.
+class CollectedBindings {
+ public:
+  explicit CollectedBindings(std::size_t num_slots) : slots_(num_slots), bound_(num_slots) {}
+
+  void bind(std::size_t slot, EClassId eclass) {
+    slots_[slot] = eclass;
+    bound_.set(slot);
+  }
+
+  [[nodiscard]] auto is_bound(std::size_t slot) const -> bool { return bound_.test(slot); }
+
+  [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots_[slot]; }
+
+  [[nodiscard]] auto num_slots() const -> std::size_t { return slots_.size(); }
+
+  [[nodiscard]] auto slots() const -> boost::container::small_vector<EClassId, 8> const & { return slots_; }
+
+ private:
+  boost::container::small_vector<EClassId, 8> slots_;
+  boost::dynamic_bitset<> bound_;
 };
 
 /**
@@ -135,32 +160,14 @@ class EMatcher {
  private:
   using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
 
-  // MatchFrame is defined in match.hpp for reuse in EMatchContext
+  /// Recursively collect all matches for a pattern node at a given e-class.
+  /// Returns all valid binding combinations (Cartesian product over choices).
+  void collect_matches_impl(Pattern<Symbol> const &pattern, PatternNodeId pnode, EClassId eclass,
+                            std::vector<CollectedBindings> &results) const;
 
-  /// Result of processing a single frame - tells the outer loop exactly what to do
-  struct StepOutcome {
-    enum class Action : uint8_t {
-      YieldMatchAndContinue,  ///< Root match found, save to results, keep iterating (symbol nodes)
-      YieldMatchAndPop,       ///< Root match found, save to results, pop frame (wildcards/variables)
-      ChildYielded,           ///< Child completed, pop frame
-      PushChild,              ///< Push child_frame onto stack
-      PopAndContinue,         ///< Pop current frame, no retry needed
-      PopAndRetryParent       ///< Pop current frame, parent should retry
-    };
-    Action action;
-    std::optional<MatchFrame> child_frame;  ///< For PushChild action
-  };
-
-  /// Process a single stack frame, returning what action to take
-  auto step_frame(Pattern<Symbol> const &pattern, MatchFrame &frame, PartialMatch &partial) const -> StepOutcome;
-
-  // Type-specific step handlers (called by step_frame)
-  auto step_wildcard(bool is_root) const -> StepOutcome;
-  auto step_variable(Pattern<Symbol> const &pattern, MatchFrame &frame, PartialMatch &partial, PatternVar var,
-                     bool is_root) const -> StepOutcome;
-  auto step_symbol(Pattern<Symbol> const &pattern, MatchFrame &frame, PartialMatch &partial,
-                   SymbolWithChildren<Symbol> const &sym_node, MatchFrame::ChildResult child_result, bool is_root) const
-      -> StepOutcome;
+  /// Try to merge two binding sets. Returns nullopt if variable conflict.
+  auto try_merge_bindings(CollectedBindings const &a, CollectedBindings const &b) const
+      -> std::optional<CollectedBindings>;
 
   EGraph<Symbol, Analysis> const *egraph_;
   IndexType index_;
@@ -228,63 +235,24 @@ void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMat
   ctx.prepare_for_pattern(pattern.num_vars());
   results.clear();
 
-  auto &partial = ctx.partial();
   auto &processed = ctx.processed();
-  auto &stack = ctx.match_stack();
 
-  // Process a single root candidate through the backtracking matcher
+  // Process a single root candidate using recursive Cartesian product matching.
+  // This approach correctly handles self-referential e-classes by enumerating
+  // ALL valid combinations of e-nodes at each pattern position.
   auto process_candidate = [&](EClassId root_eclass) {
-    using Action = StepOutcome::Action;
-
     auto canonical_root = egraph_->find(root_eclass);
     if (!processed.insert(canonical_root).second) {
       return;
     }
 
-    stack.push_back(MatchFrame{.pnode_id = pattern.root(), .eclass_id = canonical_root, .binding_start = 0});
+    // Collect all matches from this root
+    std::vector<CollectedBindings> matches;
+    collect_matches_impl(pattern, pattern.root(), canonical_root, matches);
 
-    // Simple dispatch loop - step_frame tells us exactly what to do
-    while (!stack.empty()) {
-      auto outcome = step_frame(pattern, stack.back(), partial);
-
-      switch (outcome.action) {
-        case Action::YieldMatchAndContinue:
-          results.push_back(ctx.commit(partial));
-          break;
-
-        case Action::YieldMatchAndPop:
-          results.push_back(ctx.commit(partial));
-          partial.rewind_to(stack.back().binding_start);
-          stack.pop_back();
-          break;
-
-        case Action::ChildYielded:
-          // No binding transfer needed - bindings are in partial's undo log
-          stack.pop_back();
-          if (!stack.empty()) {
-            stack.back().child_result = MatchFrame::ChildResult::Yielded;
-          }
-          break;
-
-        case Action::PushChild:
-          // Record current checkpoint for the new frame
-          outcome.child_frame->binding_start = partial.checkpoint();
-          stack.push_back(*outcome.child_frame);
-          break;
-
-        case Action::PopAndContinue:
-          partial.rewind_to(stack.back().binding_start);
-          stack.pop_back();
-          break;
-
-        case Action::PopAndRetryParent:
-          partial.rewind_to(stack.back().binding_start);
-          stack.pop_back();
-          if (!stack.empty()) {
-            stack.back().child_result = MatchFrame::ChildResult::Backtracked;
-          }
-          break;
-      }
+    // Commit each match to the arena
+    for (auto const &bindings : matches) {
+      results.push_back(ctx.arena().intern(bindings.slots()));
     }
   };
 
@@ -311,125 +279,130 @@ void EMatcher<Symbol, Analysis>::match_into(Pattern<Symbol> const &pattern, EMat
 }
 
 // ========================================================================
-// step_frame: Process one stack frame (dispatches to type-specific handlers)
+// Recursive Cartesian Product Matching
 // ========================================================================
 
-/// Wildcard: always matches, yields once then pops
+/// Try to merge two binding sets. Returns nullopt if variable conflict.
 template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::step_wildcard(bool is_root) const -> StepOutcome {
-  using Action = StepOutcome::Action;
-  return {is_root ? Action::YieldMatchAndPop : Action::ChildYielded, std::nullopt};
-}
+auto EMatcher<Symbol, Analysis>::try_merge_bindings(CollectedBindings const &a, CollectedBindings const &b) const
+    -> std::optional<CollectedBindings> {
+  CollectedBindings result(a.num_slots());
 
-/// Variable: bind or check consistency, yields once then pops
-template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::step_variable(Pattern<Symbol> const &pattern, MatchFrame &frame, PartialMatch &partial,
-                                               PatternVar var, bool is_root) const -> StepOutcome {
-  using Action = StepOutcome::Action;
-  auto slot = pattern.var_slot(var);
-
-  if (!partial.is_bound(slot)) {
-    // New binding
-    partial.bind(slot, frame.eclass_id);
-    return {is_root ? Action::YieldMatchAndPop : Action::ChildYielded, std::nullopt};
+  // Copy all bindings from a
+  for (std::size_t i = 0; i < a.num_slots(); ++i) {
+    if (a.is_bound(i)) {
+      result.bind(i, a.get(i));
+    }
   }
-  // Already bound - check consistency
-  if (egraph_->find(partial.get(slot)) == egraph_->find(frame.eclass_id)) {
-    return {is_root ? Action::YieldMatchAndPop : Action::ChildYielded, std::nullopt};
-  }
-  // Consistency failure - parent should try alternative e-node
-  return {Action::PopAndRetryParent, std::nullopt};
-}
 
-/// Symbol node: iterate e-nodes in e-class, recursively match children
-template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::step_symbol(Pattern<Symbol> const &pattern, MatchFrame &frame, PartialMatch &partial,
-                                             SymbolWithChildren<Symbol> const &sym_node,
-                                             MatchFrame::ChildResult child_result, bool is_root) const -> StepOutcome {
-  using Action = StepOutcome::Action;
-  using ChildResult = MatchFrame::ChildResult;
-
-  // Helpers
-  auto yield = [&] {
-    return StepOutcome{is_root ? Action::YieldMatchAndContinue : Action::ChildYielded, std::nullopt};
-  };
-
-  auto push_child = [&] {
-    return StepOutcome{Action::PushChild,
-                       MatchFrame{.pnode_id = frame.pattern_children->front(),
-                                  .eclass_id = egraph_->find(frame.enode_children->front())}};
-  };
-
-  // Handle child result
-  switch (child_result) {
-    case ChildResult::Backtracked:
-      // Rewind bindings made during this e-node attempt
-      partial.rewind_to(frame.binding_start);
-      frame.advance_enode();
-      break;
-    case ChildResult::Yielded:
-      if (frame.pattern_children) {
-        frame.advance_child();
-        if (frame.children_exhausted()) {
-          frame.advance_enode();
-          return yield();
+  // Merge bindings from b, checking for conflicts
+  for (std::size_t i = 0; i < b.num_slots(); ++i) {
+    if (b.is_bound(i)) {
+      if (result.is_bound(i)) {
+        // Both bound - check consistency (same e-class after canonicalization)
+        if (egraph_->find(result.get(i)) != egraph_->find(b.get(i))) {
+          return std::nullopt;  // Conflict
         }
-        return push_child();
+      } else {
+        result.bind(i, b.get(i));
       }
-      break;
-    case ChildResult::None:
-      break;
+    }
   }
 
-  // Initialize e-node iteration if needed
-  if (!frame.enode_ids) {
-    frame.init_enodes(egraph_->eclass(frame.eclass_id).nodes());
-  }
-
-  // Find next matching e-node
-  auto binding = pattern.binding_for(frame.pnode_id);
-  while (!frame.enode_ids->empty()) {
-    auto const &enode = egraph_->get_enode(frame.current_enode_id());
-
-    // Skip non-matching e-nodes
-    if (sym_node.sym != enode.symbol() || sym_node.children.size() != enode.arity()) [[unlikely]] {
-      frame.advance_enode();
-      continue;
-    }
-
-    // Found match - rewind to frame start and bind if needed
-    partial.rewind_to(frame.binding_start);
-    if (binding) {
-      partial.bind(pattern.var_slot(*binding), frame.eclass_id);
-    }
-
-    if (sym_node.children.empty()) {
-      frame.advance_enode();
-      return yield();
-    }
-
-    // Non-leaf: initialize children spans and push first child
-    frame.init_children(sym_node.children, enode.children());
-    return push_child();
-  }
-
-  // No more e-nodes to try
-  return {Action::PopAndRetryParent, std::nullopt};
+  return result;
 }
 
-/// Main dispatcher - routes to type-specific handler via std::visit
+/// Recursively collect all matches for a pattern node at a given e-class.
+/// Uses Cartesian product over e-node choices and child matches.
 template <typename Symbol, typename Analysis>
-auto EMatcher<Symbol, Analysis>::step_frame(Pattern<Symbol> const &pattern, MatchFrame &frame,
-                                            PartialMatch &partial) const -> StepOutcome {
-  bool is_root = frame.pnode_id == pattern.root();
-  auto child_result = std::exchange(frame.child_result, MatchFrame::ChildResult::None);
+void EMatcher<Symbol, Analysis>::collect_matches_impl(Pattern<Symbol> const &pattern, PatternNodeId pnode,
+                                                      EClassId eclass, std::vector<CollectedBindings> &results) const {
+  auto const &pnode_data = pattern[pnode];
 
-  return std::visit(Overload{[&](Wildcard) { return step_wildcard(is_root); },
-                             [&](PatternVar const var) { return step_variable(pattern, frame, partial, var, is_root); },
-                             [&](SymbolWithChildren<Symbol> const &sym) {
-                               return step_symbol(pattern, frame, partial, sym, child_result, is_root);
-                             }},
-                    pattern[frame.pnode_id]);
+  std::visit(Overload{[&](Wildcard) {
+                        // Wildcard matches anything with no binding
+                        results.emplace_back(pattern.num_vars());
+                      },
+
+                      [&](PatternVar var) {
+                        // Variable binds to eclass
+                        CollectedBindings bindings(pattern.num_vars());
+                        bindings.bind(pattern.var_slot(var), eclass);
+                        results.push_back(std::move(bindings));
+                      },
+
+                      [&](SymbolWithChildren<Symbol> const &sym_node) {
+                        // For each e-node in the e-class with matching symbol and arity
+                        for (auto enode_id : egraph_->eclass(eclass).nodes()) {
+                          auto const &enode = egraph_->get_enode(enode_id);
+
+                          // Check symbol and arity match
+                          if (enode.symbol() != sym_node.sym || enode.arity() != sym_node.children.size()) {
+                            continue;
+                          }
+
+                          if (sym_node.children.empty()) {
+                            // Leaf symbol node - just add binding for this node if needed
+                            CollectedBindings bindings(pattern.num_vars());
+                            if (auto binding = pattern.binding_for(pnode)) {
+                              bindings.bind(pattern.var_slot(*binding), eclass);
+                            }
+                            results.push_back(std::move(bindings));
+                          } else {
+                            // Non-leaf: collect matches from each child, then Cartesian product
+                            std::vector<std::vector<CollectedBindings>> child_matches;
+                            child_matches.reserve(sym_node.children.size());
+                            bool all_children_matched = true;
+
+                            for (std::size_t i = 0; i < sym_node.children.size(); ++i) {
+                              std::vector<CollectedBindings> child_results;
+                              auto child_eclass = egraph_->find(enode.children()[i]);
+                              collect_matches_impl(pattern, sym_node.children[i], child_eclass, child_results);
+
+                              if (child_results.empty()) {
+                                all_children_matched = false;
+                                break;
+                              }
+                              child_matches.push_back(std::move(child_results));
+                            }
+
+                            if (!all_children_matched) {
+                              continue;
+                            }
+
+                            // Cartesian product of child matches
+                            // Start with first child's matches
+                            std::vector<CollectedBindings> current = std::move(child_matches[0]);
+
+                            for (std::size_t i = 1; i < child_matches.size(); ++i) {
+                              std::vector<CollectedBindings> next;
+                              for (auto const &left : current) {
+                                for (auto const &right : child_matches[i]) {
+                                  if (auto merged = try_merge_bindings(left, right)) {
+                                    next.push_back(std::move(*merged));
+                                  }
+                                }
+                              }
+                              current = std::move(next);
+
+                              // Early exit if no valid combinations
+                              if (current.empty()) {
+                                break;
+                              }
+                            }
+
+                            // Add this node's binding to each result
+                            auto binding = pattern.binding_for(pnode);
+                            for (auto &m : current) {
+                              if (binding) {
+                                m.bind(pattern.var_slot(*binding), eclass);
+                              }
+                              results.push_back(std::move(m));
+                            }
+                          }
+                        }
+                      }},
+             pnode_data);
 }
 
 }  // namespace memgraph::planner::core
