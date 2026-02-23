@@ -1135,15 +1135,15 @@ test_memgraph() {
       export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
       export MEMGRAPH_ORGANIZATION_NAME=$organization_name
 
-      local eks_deployment_script="$PROJECT_ROOT/tests/stress/eks_ha/deployment/deployment.sh"
+      EKS_DEPLOYMENT_SCRIPT="$PROJECT_ROOT/tests/stress/eks_ha/deployment/deployment.sh"
 
       cleanup_eks() {
         echo "Destroying EKS cluster..."
-        "$eks_deployment_script" destroy || true
+        "$EKS_DEPLOYMENT_SCRIPT" destroy || true
       }
       trap cleanup_eks EXIT
 
-      "$eks_deployment_script" start
+      "$EKS_DEPLOYMENT_SCRIPT" start
 
       if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
         python3 -m venv "$PROJECT_ROOT/tests/ve3"
