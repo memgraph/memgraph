@@ -1169,11 +1169,12 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
                                 FineGrainedPermission::SET_PROPERTY);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::DELETE_EDGE);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::REMOVE_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_PROPERTY);
 
-    ASSERT_EQ(fga_permissions.GetGlobalGrants(), static_cast<uint64_t>(kAllPermissions));
+    ASSERT_EQ(fga_permissions.GetGlobalGrants(), static_cast<uint64_t>(kAllLabelPermissions));
     ASSERT_TRUE(fga_permissions.GetRules().empty());
   }
 
@@ -1184,6 +1185,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
                                 FineGrainedPermission::SET_PROPERTY);
     fga_permissions.GrantGlobal(FineGrainedPermission::DELETE);
+    fga_permissions.GrantGlobal(FineGrainedPermission::DELETE_EDGE);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::REMOVE_LABEL);
     fga_permissions.GrantGlobal(FineGrainedPermission::SET_PROPERTY);
@@ -1191,7 +1193,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     // Test that revoking a label-specific permission doesn't affect global permissions
     fga_permissions.Revoke({any_label}, FineGrainedPermission::CREATE, MatchingMode::ANY);
 
-    ASSERT_EQ(fga_permissions.GetGlobalGrants(), static_cast<uint64_t>(kAllPermissions));
+    ASSERT_EQ(fga_permissions.GetGlobalGrants(), static_cast<uint64_t>(kAllLabelPermissions));
     ASSERT_TRUE(fga_permissions.GetRules().empty());
   }
 
@@ -1444,7 +1446,7 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
     fga_permissions1.Grant({check_label}, FineGrainedPermission::READ);
-    fga_permissions2.Deny({check_label}, kAllPermissions);
+    fga_permissions2.Deny({check_label}, kAllLabelPermissions);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
@@ -1460,7 +1462,7 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
     fga_permissions1.GrantGlobal(FineGrainedPermission::READ);
-    fga_permissions2.DenyGlobal(kAllPermissions);
+    fga_permissions2.DenyGlobal(kAllLabelPermissions);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
@@ -1526,7 +1528,7 @@ TEST(AuthWithFineGrainedTest, UniversalRevokeRemovesNothingRules) {
   FineGrainedAccessPermissions perms;
 
   perms.Grant({"Label1"}, FineGrainedPermission::READ);
-  perms.Deny({"Label2"}, kAllPermissions);
+  perms.Deny({"Label2"}, kAllLabelPermissions);
 
   ASSERT_EQ(perms.Has(std::array{"Label1"s}, FineGrainedPermission::READ), PermissionLevel::GRANT);
   ASSERT_EQ(perms.Has(std::array{"Label2"s}, FineGrainedPermission::READ), PermissionLevel::DENY);
@@ -1716,8 +1718,8 @@ TEST_F(AuthWithStorage, FineGrainedPermissionsGrantDenyRevoke) {
     perms.GrantGlobal(FineGrainedPermission::SET_LABEL);
     perms.DenyGlobal(FineGrainedPermission::REMOVE_LABEL);
 
-    perms.Revoke({label}, kAllPermissions);
-    perms.RevokeGlobal(kAllPermissions);
+    perms.Revoke({label}, kAllLabelPermissions);
+    perms.RevokeGlobal(kAllLabelPermissions);
 
     ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::READ), PermissionLevel::DENY);
     ASSERT_EQ(perms.Has(std::array{label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
@@ -2319,7 +2321,7 @@ TEST_F(V2Auth, MigrationTestV2ToV3) {
   auto const &user2_label_perms = user2->GetFineGrainedAccessLabelPermissions();
   // Legacy NOTHING (0) is migrated to global deny of all permissions
   ASSERT_TRUE(user2_label_perms.GetGlobalDenies().has_value());
-  ASSERT_EQ(user2_label_perms.GetGlobalDenies().value(), static_cast<uint64_t>(kAllPermissions));
+  ASSERT_EQ(user2_label_perms.GetGlobalDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
   ASSERT_TRUE(user2_label_perms.GetRules().empty());
   auto const &user2_edge_perms = user2->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_TRUE(user2_edge_perms.GetGlobalGrants().has_value());
@@ -2332,7 +2334,8 @@ TEST_F(V2Auth, MigrationTestV2ToV3) {
   ASSERT_TRUE(role1_label_perms.GetGlobalGrants().has_value());
   ASSERT_EQ(role1_label_perms.GetGlobalGrants().value(),
             static_cast<uint64_t>(FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
-                                  FineGrainedPermission::SET_PROPERTY | FineGrainedPermission::READ));
+                                  FineGrainedPermission::SET_PROPERTY | FineGrainedPermission::DELETE_EDGE |
+                                  FineGrainedPermission::READ));
   ASSERT_TRUE(role1_label_perms.GetRules().empty());
   auto const &role1_edge_perms = role1->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_TRUE(role1_edge_perms.GetGlobalGrants().has_value());

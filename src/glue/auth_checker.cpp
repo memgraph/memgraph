@@ -50,7 +50,8 @@ bool IsAuthorizedLabels(memgraph::auth::FineGrainedAccessPermissions const &perm
                            r::to_vector;
 
   return permissions.Has(std::span<const std::string>(label_names),
-                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                             fine_grained_privilege, memgraph::glue::FineGrainedPermissionType::LABEL)) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
 
@@ -79,7 +80,8 @@ bool IsAuthorizedEdgeType(memgraph::auth::FineGrainedAccessPermissions const &pe
 
   auto const &edge_type_name = dba->EdgeTypeToName(edgeType);
   return permissions.Has(std::span{&edge_type_name, 1},
-                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                             fine_grained_privilege, memgraph::glue::FineGrainedPermissionType::EDGE_TYPE)) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
 }  // namespace
@@ -265,8 +267,9 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyLabels(GetCachedLabelPermissions(),
-                                    FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyLabels(
+      GetCachedLabelPermissions(),
+      FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege, FineGrainedPermissionType::LABEL));
 }
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
@@ -274,8 +277,9 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyEdges(GetCachedEdgePermissions(),
-                                   FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyEdges(
+      GetCachedEdgePermissions(),
+      FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege, FineGrainedPermissionType::EDGE_TYPE));
 }
 
 bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
@@ -286,7 +290,8 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
   auto const &global_grants = permissions.GetGlobalGrants();
   auto const &global_denies = permissions.GetGlobalDenies();
   return global_grants.has_value() &&
-         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) == memgraph::auth::kAllPermissions &&
+         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
+             memgraph::auth::kAllLabelPermissions &&
          !global_denies.has_value();
 }
 
@@ -298,7 +303,8 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
   auto const &global_grants = permissions.GetGlobalGrants();
   auto const &global_denies = permissions.GetGlobalDenies();
   return global_grants.has_value() &&
-         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) == memgraph::auth::kAllPermissions &&
+         static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
+             memgraph::auth::kAllEdgeTypePermissions &&
          !global_denies.has_value();
 }
 
