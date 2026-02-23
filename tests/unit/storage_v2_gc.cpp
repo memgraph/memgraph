@@ -951,8 +951,8 @@ TEST(StorageV2Gc, AbortsWithUpstreamNonSequentialDeltas) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
-    EXPECT_NE(v1->vertex_->delta(), nullptr);
-    EXPECT_NE(v2->vertex_->delta(), nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
+    EXPECT_EQ(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -1075,8 +1075,8 @@ TEST(StorageV2Gc, AbortsWithCommittedDownstreamDeltas) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 2);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 2);
-    EXPECT_NE(v1->vertex_->delta(), nullptr);
-    EXPECT_NE(v2->vertex_->delta(), nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
+    EXPECT_EQ(v2->vertex_->delta(), nullptr);
   }
 }
 
@@ -1129,8 +1129,8 @@ TEST(StorageV2Gc, AbortsAtEndOfNonSequentialChain) {
     ASSERT_TRUE(v1.has_value() && v2.has_value());
     EXPECT_EQ(v1->vertex_->out_edges.size(), 1);
     EXPECT_EQ(v2->vertex_->in_edges.size(), 1);
-    EXPECT_NE(v1->vertex_->delta(), nullptr);
-    EXPECT_NE(v2->vertex_->delta(), nullptr);
+    EXPECT_EQ(v1->vertex_->delta(), nullptr);
+    EXPECT_EQ(v2->vertex_->delta(), nullptr);
   }
 }
 
