@@ -23,6 +23,7 @@
 #include "planner/egraph/egraph.hpp"
 #include "planner/egraph/processing_context.hpp"
 #include "planner/pattern/matcher.hpp"
+#include "planner/pattern/vm/executor.hpp"
 #include "planner/rewrite/rule.hpp"
 
 import memgraph.planner.core.concepts;
@@ -130,7 +131,7 @@ class Rewriter {
    *
    * @param egraph Reference to the e-graph to rewrite (must remain valid)
    */
-  explicit Rewriter(EGraph<Symbol, Analysis> &egraph) : egraph_(&egraph), matcher_(egraph) {}
+  explicit Rewriter(EGraph<Symbol, Analysis> &egraph) : egraph_(&egraph), matcher_(egraph), vm_executor_(egraph) {}
 
   /**
    * @brief Construct a rewriter with a shared rule set
@@ -142,7 +143,7 @@ class Rewriter {
    * @param rules Shared rule set to use
    */
   Rewriter(EGraph<Symbol, Analysis> &egraph, RuleSet<Symbol, Analysis> rules)
-      : egraph_(&egraph), rules_(std::move(rules)), matcher_(egraph) {}
+      : egraph_(&egraph), rules_(std::move(rules)), matcher_(egraph), vm_executor_(egraph) {}
 
   /**
    * @brief Set or replace the rule set
@@ -224,6 +225,7 @@ class Rewriter {
    * @brief Apply all rules once and accumulate per-rule statistics
    *
    * Internal helper used by saturate() to track per-rule rewrites.
+   * Uses VM-based pattern matching for improved performance on single-pattern rules.
    *
    * @param per_rule_stats Vector to accumulate per-rule counts (must be sized to rules_.size())
    * @return Total number of rewrites applied across all rules
@@ -236,7 +238,8 @@ class Rewriter {
     std::size_t stat_idx = 0;
 
     for (auto const &rule_ptr : rules_.rules()) {
-      auto rewrites = rule_ptr->apply(*egraph_, matcher_, ctx_);
+      // Use VM-based matching (falls back to EMatcher for multi-pattern rules)
+      auto rewrites = rule_ptr->apply_vm(*egraph_, matcher_, vm_executor_, ctx_, candidates_buffer_);
       per_rule_stats[stat_idx++] += rewrites;
       total_rewrites += rewrites;
     }
@@ -285,8 +288,10 @@ class Rewriter {
   EGraph<Symbol, Analysis> *egraph_;
   RuleSet<Symbol, Analysis> rules_;  ///< Shared rules (cheap to copy)
   EMatcher<Symbol, Analysis> matcher_;
+  vm::VMExecutorVerify<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext ctx_;
+  std::vector<EClassId> candidates_buffer_;  ///< Reusable buffer for VM candidate lookup
 };
 
 }  // namespace memgraph::planner::core

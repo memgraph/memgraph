@@ -157,6 +157,42 @@ class EMatcher {
    */
   void match_into(Pattern<Symbol> const &pattern, EMatchContext &ctx, std::vector<PatternMatch> &results) const;
 
+  /**
+   * @brief Get candidate e-classes for a given symbol
+   *
+   * Returns all e-classes that contain at least one e-node with the given symbol.
+   * This is useful for VM-based pattern matching to get the initial candidates
+   * for index-driven iteration.
+   *
+   * @param sym The symbol to look up
+   * @param candidates Output vector to append candidate e-class IDs to (cleared first)
+   */
+  void candidates_for_symbol(Symbol sym, std::vector<EClassId> &candidates) const {
+    candidates.clear();
+    if (auto it = index_.find(sym); it != index_.end()) {
+      candidates.reserve(it->second.size());
+      for (auto id : it->second) {
+        candidates.push_back(id);
+      }
+    }
+  }
+
+  /**
+   * @brief Get all e-classes for wildcard/variable pattern matching
+   *
+   * Returns all canonical e-classes. Used when a pattern's root is a variable
+   * or wildcard (not a symbol) and thus cannot use the symbol index.
+   *
+   * @param candidates Output vector to append candidate e-class IDs to (cleared first)
+   */
+  void all_candidates(std::vector<EClassId> &candidates) const {
+    candidates.clear();
+    candidates.reserve(egraph_->num_classes());
+    for (auto const &[eclass_id, _] : egraph_->canonical_classes()) {
+      candidates.push_back(eclass_id);
+    }
+  }
+
  private:
   using IndexType = boost::unordered_flat_map<Symbol, boost::unordered_flat_set<EClassId>>;
 

@@ -534,4 +534,109 @@ TEST_F(RewriterTest, PerRuleStatistics_Tracked) {
   expect_rewrites(1);
 }
 
+// --- VM Integration Tests ---
+
+TEST_F(RewriterTest, VM_SinglePatternRule_ProducesSameResults) {
+  // Single-pattern rules use the VM executor. This test verifies
+  // the VM produces the same results as the EMatcher-based approach.
+  //
+  // The double negation rule is a single-pattern rule that should
+  // be executed by the VM.
+  use_rules(make_double_neg_rule());
+
+  auto x = leaf(Op::Var, 1);
+  auto neg_neg_x = node(Op::Neg, node(Op::Neg, x));
+  rebuild_index();
+
+  // Before: x and Neg(Neg(x)) are in separate e-classes
+  EXPECT_NE(egraph.find(x), egraph.find(neg_neg_x));
+
+  saturate();
+
+  // After: merged by VM-executed pattern matching
+  EXPECT_EQ(egraph.find(x), egraph.find(neg_neg_x));
+  expect_saturated();
+  expect_rewrites(1);
+}
+
+TEST_F(RewriterTest, VM_CompiledPatternsAreAvailable) {
+  // Verify that patterns are compiled at rule construction time
+  auto rule = make_double_neg_rule();
+  auto compiled = rule.compiled_patterns();
+
+  // Single pattern rule should have one compiled pattern
+  EXPECT_EQ(compiled.size(), 1);
+  EXPECT_TRUE(compiled[0].has_value()) << "Pattern should compile successfully";
+}
+
+TEST_F(RewriterTest, VM_FallbackForMultiPatternRules) {
+  // Multi-pattern rules should fall back to EMatcher-based join.
+  // This test verifies the fallback works correctly.
+  auto join_rule =
+      TestRewriteRule::Builder{"join_rule"}
+          .pattern(TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kVarRootA), "f")
+          .pattern(TestPattern::build(Op::F2, {Var{kVarX}, Var{kVarY}}, kVarRootB), "f2")
+          .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarRootA], match[kVarRootB]); });
+  use_rules(join_rule);
+
+  auto x = leaf(Op::Var, 1);
+  auto y = leaf(Op::Var, 2);
+  auto f_xy = node(Op::F, x, y);
+  auto f2_xy = node(Op::F2, x, y);
+  rebuild_index();
+
+  saturate();
+
+  // Multi-pattern join should still work via fallback
+  EXPECT_EQ(egraph.find(f_xy), egraph.find(f2_xy));
+  expect_saturated();
+  expect_rewrites(1);
+}
+
+TEST_F(RewriterTest, VM_VariablePatternRoot_FallbackToAllCandidates) {
+  // When pattern root is a variable (not a symbol), we can't use
+  // symbol index and must iterate all e-classes.
+  auto var_root_rule = TestRewriteRule::Builder{"var_root"}
+                           .pattern(TestPattern::build(Op::Var, kVarRoot))
+                           .apply([](TestRuleContext &ctx, Match const &match) {
+                             // Just mark this as matched by creating a node
+                             ctx.emplace(Op::F, utils::small_vector{match[kVarRoot]});
+                           });
+  use_rules(var_root_rule);
+
+  leaf(Op::Var, 1);
+  leaf(Op::Var, 2);
+  rebuild_index();
+
+  rewriter().iterate_once();
+
+  // Should have created F nodes for each Var
+  std::size_t f_count = 0;
+  for (auto const &[id, eclass] : egraph.canonical_classes()) {
+    for (auto enode_id : eclass.nodes()) {
+      auto const &enode = egraph.get_enode(enode_id);
+      if (enode.symbol() == Op::F) ++f_count;
+    }
+  }
+  EXPECT_EQ(f_count, 2);
+}
+
+TEST_F(RewriterTest, VM_ChainedRewrites_MultipleIterations) {
+  // Verify VM-based matching works correctly across multiple iterations
+  // with intermediate e-graph modifications.
+  use_rules(make_double_neg_rule());
+
+  auto x = leaf(Op::Var, 1);
+  // Build Neg^4(x) chain
+  auto neg4_x = node(Op::Neg, node(Op::Neg, node(Op::Neg, node(Op::Neg, x))));
+  rebuild_index();
+
+  saturate();
+
+  // Should collapse to 2 e-classes (even and odd) with expected rewrites
+  EXPECT_EQ(egraph.num_classes(), 2u);
+  EXPECT_EQ(egraph.find(x), egraph.find(neg4_x));
+  expect_saturated();
+}
+
 }  // namespace memgraph::planner::core
