@@ -18,6 +18,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
+#include "utils/embeddings_memory_counter.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/synchronized.hpp"
 
@@ -190,6 +191,9 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   auto &spec = index_item.spec;
   auto locked_index = mg_index.MutableSharedLock();
 
+  const auto index_size = locked_index->size();
+  const auto bytes_per_vec = static_cast<int64_t>(locked_index->bytes_per_vector());
+
   const auto dimension = locked_index->dimensions();
   std::vector<double> vector(dimension);
   for (auto &vertex : vertices) {
@@ -205,11 +209,22 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
       }
     }
   }
+
+  utils::embeddings_memory_counter.Sub(static_cast<int64_t>(index_size) * bytes_per_vec);
+
   pimpl->index_by_id_.erase(it);
   return true;
 }
 
-void VectorIndex::Clear() { pimpl->index_by_id_.clear(); }
+void VectorIndex::Clear() {
+  for (const auto &[_, index_item] : pimpl->index_by_id_) {
+    auto locked_index = index_item.mg_index.ReadLock();
+    const auto bytes =
+        static_cast<int64_t>(locked_index->size()) * static_cast<int64_t>(locked_index->bytes_per_vector());
+    utils::embeddings_memory_counter.Sub(bytes);
+  }
+  pimpl->index_by_id_.clear();
+}
 
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
   auto matching_index_properties = GetIndicesByLabel(label);
@@ -261,8 +276,6 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       auto &index_item = pimpl->index_by_id_.at(index_id);
 
       auto locked_index = index_item.mg_index.MutableSharedLock();
-      // If the list of index ids is empty, we restore the vector from the index. Otherwise, we keep the property value
-      // as is.
       const auto property_value_to_set = std::invoke([&]() {
         if (ids.empty()) {
           std::vector<double> vector(locked_index->dimensions());
@@ -271,7 +284,10 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
         }
         return old_vertex_property_value;
       });
-      locked_index->remove(vertex);
+      if (locked_index->contains(vertex)) {
+        locked_index->remove(vertex);
+        utils::embeddings_memory_counter.Sub(static_cast<int64_t>(locked_index->bytes_per_vector()));
+      }
       vertex->properties.SetProperty(property_id, property_value_to_set);
     }
   }
@@ -449,9 +465,11 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index_size);
     locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
 
+    const auto bytes_per_vec = static_cast<int64_t>(locked_index->bytes_per_vector());
     auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
     for (const auto &vertex : deleted) {
       locked_index->remove(vertex);
+      utils::embeddings_memory_counter.Sub(bytes_per_vec);
     }
   }
 }

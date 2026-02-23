@@ -17,6 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "usearch/index_dense.hpp"
+#include "utils/embeddings_memory_counter.hpp"
 #include "utils/synchronized.hpp"
 
 namespace r = ranges;
@@ -179,12 +180,25 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name) {
     return false;
   }
   const auto &edge_type_prop = it->second;
+  auto idx_it = pimpl->edge_index_.find(edge_type_prop);
+  if (idx_it != pimpl->edge_index_.end()) {
+    auto locked_index = idx_it->second.mg_index.ReadLock();
+    const auto bytes =
+        static_cast<int64_t>(locked_index->size()) * static_cast<int64_t>(locked_index->bytes_per_vector());
+    utils::embeddings_memory_counter.Sub(bytes);
+  }
   pimpl->edge_index_.erase(edge_type_prop);
   pimpl->index_name_to_edge_type_prop_.erase(it);
   return true;
 }
 
 void VectorEdgeIndex::Clear() {
+  for (const auto &[_, index_item] : pimpl->edge_index_) {
+    auto locked_index = index_item.mg_index.ReadLock();
+    const auto bytes =
+        static_cast<int64_t>(locked_index->size()) * static_cast<int64_t>(locked_index->bytes_per_vector());
+    utils::embeddings_memory_counter.Sub(bytes);
+  }
   pimpl->index_name_to_edge_type_prop_.clear();
   pimpl->edge_index_.clear();
 }
@@ -300,12 +314,14 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<EdgeIndexEntry> edges_to_remove(index_size);
     locked_index->export_keys(edges_to_remove.data(), 0, index_size);
 
+    const auto bytes_per_vec = static_cast<int64_t>(locked_index->bytes_per_vector());
     auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
                      auto guard = std::shared_lock{entry.edge->lock};
                      return entry.edge->deleted;
                    });
     for (const auto &entry : deleted) {
       locked_index->remove(entry);
+      utils::embeddings_memory_counter.Sub(bytes_per_vec);
     }
   }
 }

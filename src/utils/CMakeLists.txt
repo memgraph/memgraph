@@ -13,6 +13,7 @@ target_sources(mg-utils
     file.cpp
     file_locker.cpp
     memory.cpp
+    embeddings_memory_counter.cpp
     memory_tracker.cpp
     readable_size.cpp
     signals.cpp

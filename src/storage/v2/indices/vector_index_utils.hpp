@@ -19,6 +19,7 @@
 #include "range/v3/algorithm/remove.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/embeddings_memory_counter.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -337,20 +338,29 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
   auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
   {
     auto locked_index = mg_index.MutableSharedLock();
-    if (locked_index->contains(key)) {
+    const auto bytes_per_vec = static_cast<int64_t>(locked_index->bytes_per_vector());
+
+    const bool had_existing = locked_index->contains(key);
+    if (had_existing) {
       locked_index->remove(key);
+      utils::embeddings_memory_counter.Sub(bytes_per_vec);
     }
     if (vector.empty()) return;
 
+    if (!utils::embeddings_memory_counter.CanAllocate(bytes_per_vec)) {
+      throw query::VectorSearchException("Embeddings memory limit exceeded.");
+    }
+
     auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
-    if (!result.error) return;
+    if (!result.error) {
+      utils::embeddings_memory_counter.Add(bytes_per_vec);
+      return;
+    }
     if (locked_index->size() >= locked_index->capacity()) {
-      // Error is due to capacity, release the error because we will resize the index.
       result.error.release();
     }
   }
   {
-    // In order to resize the index, we need to acquire an exclusive lock.
     auto exclusively_locked_index = mg_index.Lock();
     if (exclusively_locked_index->size() >= exclusively_locked_index->capacity()) {
       const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * exclusively_locked_index->capacity());
@@ -361,6 +371,10 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
       spec.capacity = exclusively_locked_index->capacity();
     }
     auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
+    if (!result.error) {
+      const auto bytes_per_vec = static_cast<int64_t>(exclusively_locked_index->bytes_per_vector());
+      utils::embeddings_memory_counter.Add(bytes_per_vec);
+    }
   }
 }
 
