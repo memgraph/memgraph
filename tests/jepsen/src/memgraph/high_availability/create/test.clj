@@ -300,6 +300,9 @@
                                      (utils/sync-replica-down? e)
                                      (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
 
+                                     (utils/replica-timeout? e)
+                                     (assoc op :type :info :value "Replica timeout")
+
                                      (utils/main-became-replica? e)
                                      (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
 
