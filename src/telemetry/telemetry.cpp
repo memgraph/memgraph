@@ -192,11 +192,13 @@ void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
 #else
 #endif
 
-void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth) {
-  AddCollector("storage", [&dbms_handler, &auth]() -> nlohmann::json {
+void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                                    memgraph::parameters::Parameters const &parameters) {
+  AddCollector("storage", [&dbms_handler, &auth, &parameters]() -> nlohmann::json {
     auto stats = dbms_handler.Stats();
     stats.users = auth->AllUsers().size();
     stats.roles = auth->AllRoles().size();
+    stats.num_parameters = parameters.CountParameters();
     return ToJson(stats);
   });
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,18 +16,41 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 
+#include "coordination/coordinator_rpc.hpp"
+
+#include "rpc/utils.hpp"
+
 namespace memgraph::coordination {
 class CoordinatorInstanceManagementServerHandlers {
  public:
-  static void Register(CoordinatorInstanceManagementServer &server, CoordinatorInstance const &coordinator_instance);
+  static void Register(CoordinatorInstanceManagementServer &server, CoordinatorInstance &coordinator_instance);
 
  private:
-  static void ShowInstancesHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
-                                   slk::Reader *req_reader, slk::Builder *res_builder);
+  template <rpc::IsRpc Rpc, typename F>
+  static void FwdRequestHandler(F const &f, uint64_t request_version, slk::Reader *req_reader,
+                                slk::Builder *res_builder) {
+    typename Rpc::Request req;
+    rpc::LoadWithUpgrade(req, request_version, req_reader);
+    if constexpr (std::is_invocable_v<F>) {
+      rpc::SendFinalResponse(typename Rpc::Response{f()}, request_version, res_builder);
+    } else {
+      rpc::SendFinalResponse(typename Rpc::Response{f(req.arg_)}, request_version, res_builder);
+    }
+  }
 
-  static void GetRoutingTableHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
-                                     slk::Reader *req_reader, slk::Builder *res_builder);
+  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename F>
+  static void FwdRequestHandler(F const &f, uint64_t request_version, slk::Reader *req_reader,
+                                slk::Builder *res_builder) {
+    typename Rpc::Request req;
+    rpc::LoadWithUpgrade(req, request_version, req_reader);
+    if constexpr (std::is_invocable_v<F>) {
+      rpc::SendFinalResponse(typename Rpc::Response{f() == StatusEnum::SUCCESS}, request_version, res_builder);
+    } else {
+      rpc::SendFinalResponse(typename Rpc::Response{f(req.arg_) == StatusEnum::SUCCESS}, request_version, res_builder);
+    }
+  }
 };
 
 }  // namespace memgraph::coordination
+
 #endif

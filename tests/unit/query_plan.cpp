@@ -2371,6 +2371,7 @@ TYPED_TEST(TestPlanner, ScanAllByEdgeId) {
 
 TYPED_TEST(TestPlanner, BfsToExisting) {
   // Test MATCH (n)-[r *bfs]-(m) WHERE id(m) = 42 RETURN r
+  // Since the graph is empty its cheaper to use ScanAll
   auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(
       IDENT("r"), memgraph::query::EdgeAtom::Type::BREADTH_FIRST, Direction::BOTH);
   bfs->filter_lambda_.inner_edge = IDENT("ie");
@@ -2378,7 +2379,7 @@ TYPED_TEST(TestPlanner, BfsToExisting) {
   bfs->filter_lambda_.expression = LITERAL(true);
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), WHERE(EQ(FN("id", IDENT("m")), LITERAL(42))), RETURN("r")));
-  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectScanAllById(), ExpectExpandBfs(), ExpectProduce());
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectExpandBfs(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {

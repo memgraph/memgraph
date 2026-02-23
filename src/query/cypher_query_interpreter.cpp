@@ -11,6 +11,8 @@
 
 #include "query/cypher_query_interpreter.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include "flags/experimental.hpp"
 #include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
@@ -26,6 +28,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
+#include "parameters/parameters.hpp"
 #include "query/plan_v2/ast_converter.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -37,36 +40,45 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            parameters::Parameters const *global_parameters) -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
-  // Check that all user-specified parameters are provided.
-  // TODO: parameters should be pre populated with user_parameters, hence positions
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
+    // Prefer user-provided parameter.
     auto it = user_parameters.find(param_key);
-
-    if (it == user_parameters.end()) {
-      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
+    if (it != user_parameters.end()) {
+      parameters.Add(param_index, it->second);
+      continue;
     }
-
-    parameters.Add(param_index, it->second);
+    // Fallback to global parameter if available.
+    if (global_parameters) {
+      auto opt = global_parameters->GetParameter(param_key, parameters::ParameterScope::GLOBAL);
+      if (opt) {
+        TypedValue value;
+        query::from_json(nlohmann::json::parse(*opt), value);
+        parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+        continue;
+      }
+    }
+    throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
   }
   return parameters;
 }
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
+                       parameters::Parameters const *global_parameters) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // get user-specified parameters
+  // get parameters (user-specified + global parameters)
   // ATM we don't need to correctly materise actual PropertyValues exepct Strings
   // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
-  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, global_parameters);
 
   // Cache the query's AST if it isn't already.
   auto hash = stripped_query.stripped_query().hash();
@@ -86,6 +98,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
     result.is_cypher_read = cached_query.is_cypher_read;
+    result.using_schema_assert = cached_query.using_schema_assert;
   };
 
   if (it == accessor.end()) {
@@ -124,7 +137,8 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       CachedQuery cached_query{.ast_storage = std::move(ast_storage),
                                .query = visitor.query(),
                                .required_privileges = query::GetRequiredPrivileges(visitor.query()),
-                               .is_cypher_read = read_check()};
+                               .is_cypher_read = read_check(),
+                               .using_schema_assert = visitor.GetQueryInfo().has_schema_assert};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);
@@ -135,6 +149,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       result.ast_storage = std::move(ast_storage);
 
       result.is_cypher_read = read_check();
+      result.using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
       is_cacheable = false;
     }
   } else {
@@ -142,28 +157,29 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   }
 
   return ParsedQuery{
-      query_string,
-      std::move(stripped_query),
-      std::move(result.ast_storage),
-      result.query,
-      std::move(result.required_privileges),
-      result.is_cypher_read,
-      is_cacheable,
-      user_parameters,
-      std::move(query_parameters),
+      .query_string = query_string,
+      .stripped_query = std::move(stripped_query),
+      .ast_storage = std::move(result.ast_storage),
+      .query = result.query,
+      .required_privileges = std::move(result.required_privileges),
+      .is_cypher_read = result.is_cypher_read,
+      .using_schema_assert = result.using_schema_assert,
+      .is_cacheable = is_cacheable,
+      .user_parameters = user_parameters,
+      .parameters = std::move(query_parameters),
   };
 }
 
-std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor,
-                                             const std::vector<Identifier *> &predefined_identifiers) {
+auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
+                     const std::vector<Identifier *> &predefined_identifiers)
+    -> std::pair<std::unique_ptr<LogicalPlan>, bool> {
   // TODO: we need to make sure we decouple symbol position from frame position
   //       symbols are needed for debugging (a semantic name)
   //       during evaluation frame slots are dumping ground for temporary evaluation results
   //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
 
-  auto [root, cost, used_ast_storage] = std::invoke([&] {
+  auto [root, cost, used_ast_storage, plan_is_cachable] = std::invoke([&] {
     // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
     auto vertex_counts = plan::VertexCountCache(db_accessor);
 
@@ -175,17 +191,20 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
       // TODO: rewrite
       // TODO: new ast_storage + symbol_table
       auto [plan, cost, new_ast_storage] = ConvertToLogicalOperator(egraph, root);  // LogicalOperator + double
-      return std::tuple{std::move(plan), cost, std::move(new_ast_storage)};
+      return std::tuple{std::move(plan), cost, std::move(new_ast_storage), false};
     }
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-    auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-    return std::tuple{std::move(plan), cost, std::move(ast_storage)};
+    auto [plan, cost, plan_is_cachable] =
+        plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+    return std::tuple{std::move(plan), cost, std::move(ast_storage), plan_is_cachable};
   });
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(*root);
-  return std::make_unique<SingleNodeLogicalPlan>(
-      std::move(root), cost, std::move(used_ast_storage), std::move(symbol_table), rw_type_checker.type);
+  return std::pair{
+      std::make_unique<SingleNodeLogicalPlan>(
+          std::move(root), cost, std::move(used_ast_storage), std::move(symbol_table), rw_type_checker.type),
+      plan_is_cachable};
 }
 
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
@@ -220,10 +239,11 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
     }
   }
 
-  auto plan = std::make_shared<PlanWrapper>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
+  auto [logical_plan, plan_is_cachable] =
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers);
+  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan));
 
-  if (use_plan_cache) {
+  if (use_plan_cache && plan_is_cachable) {
     plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 

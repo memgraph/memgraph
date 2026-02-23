@@ -459,13 +459,23 @@ def validate_configuration(configuration: mgp.Map):
     }
     configuration = {**default_configuration, **configuration}
 
-    if not configuration.get("excluded_properties"):
-        configuration["excluded_properties"] = configuration["embedding_property"]
+    # Ensure excluded_properties is a list (Cypher may pass it as a tuple)
+    excluded = configuration.get("excluded_properties")
+    if not excluded:
+        configuration["excluded_properties"] = (
+            [configuration["embedding_property"]]
+            if configuration["embedding_property"] is not None
+            else []
+        )
+    elif not isinstance(excluded, list):
+        configuration["excluded_properties"] = list(excluded)
+
+    excluded = configuration["excluded_properties"]
     if (
         configuration["embedding_property"] is not None
-        and not configuration["embedding_property"] in configuration["excluded_properties"]
+        and configuration["embedding_property"] not in excluded
     ):
-        configuration["excluded_properties"].append(configuration["embedding_property"])
+        excluded.append(configuration["embedding_property"])
 
     logger.debug(f"Using embedding configuration: {configuration}")
 

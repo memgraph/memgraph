@@ -13,9 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_context.hpp"
 #include "coordination/data_instance_context.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
@@ -43,6 +43,7 @@ struct CoordinatorClusterStateDelta {
   std::optional<bool> sync_failover_only_;
   std::optional<uint64_t> max_failover_replica_lag_;
   std::optional<uint64_t> max_replica_read_lag_;
+  std::optional<uint64_t> deltas_batch_progress_size_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -88,6 +89,8 @@ class CoordinatorClusterState {
 
   auto GetMaxReplicaReadLag() const -> uint64_t;
 
+  auto GetDeltasBatchProgressSize() const -> uint64_t;
+
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
@@ -108,6 +111,8 @@ class CoordinatorClusterState {
 
   void SetMaxReplicaReadLag(uint64_t max_replica_read_lag);
 
+  void SetDeltasBatchProgressSize(uint64_t deltas_batch_progress_size);
+
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
       return true;
@@ -120,13 +125,15 @@ class CoordinatorClusterState {
                     lhs.enabled_reads_on_main_,
                     lhs.sync_failover_only_,
                     lhs.max_failover_replica_lag_,
-                    lhs.max_replica_read_lag_) == std::tie(rhs.data_instances_,
-                                                           rhs.coordinator_instances_,
-                                                           rhs.current_main_uuid_,
-                                                           rhs.enabled_reads_on_main_,
-                                                           rhs.sync_failover_only_,
-                                                           rhs.max_failover_replica_lag_,
-                                                           rhs.max_replica_read_lag_);
+                    lhs.max_replica_read_lag_,
+                    lhs.deltas_batch_progress_size_) == std::tie(rhs.data_instances_,
+                                                                 rhs.coordinator_instances_,
+                                                                 rhs.current_main_uuid_,
+                                                                 rhs.enabled_reads_on_main_,
+                                                                 rhs.sync_failover_only_,
+                                                                 rhs.max_failover_replica_lag_,
+                                                                 rhs.max_replica_read_lag_,
+                                                                 rhs.deltas_batch_progress_size_);
   }
 
  private:
@@ -145,6 +152,7 @@ class CoordinatorClusterState {
   // The option controls what is the maximum lag allowed on the replica for the specific database when the routing
   // table is requested.
   uint64_t max_replica_read_lag_{std::numeric_limits<uint64_t>::max()};
+  uint64_t deltas_batch_progress_size_{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
   mutable utils::ResourceLock app_lock_;
 };
 

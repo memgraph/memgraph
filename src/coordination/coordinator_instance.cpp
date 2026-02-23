@@ -30,11 +30,11 @@
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_ops_status.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
@@ -215,15 +215,23 @@ auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
 void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
   auto connectors = coordinator_connectors_.Lock();
 
+  std::erase_if(*connectors, [&coord_instances_aux](auto const &connector) {
+    return std::ranges::none_of(coord_instances_aux, [coord_id = connector.first](auto const &instance_aux) {
+      return instance_aux.id == coord_id;
+    });
+  });
+
   for (auto const &coordinator : coord_instances_aux) {
     if (coordinator.id == raft_state_->GetMyCoordinatorId()) {
       continue;
     }
-    auto const coord_connector = std::ranges::find_if(
-        *connectors, [coordinator_id = coordinator.id](auto &&connector) { return connector.first == coordinator_id; });
-    if (coord_connector != connectors->end()) {
+
+    if (std::ranges::any_of(*connectors, [coordinator_id = coordinator.id](auto const &connector) {
+          return connector.first == coordinator_id;
+        })) {
       continue;
     }
+
     spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.",
                   coordinator.id,
                   coordinator.management_server);
@@ -371,16 +379,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     return ShowInstancesStatusAsFollower();
   }
 
-  CoordinatorInstanceConnector *leader{nullptr};
-  {
-    auto connectors = coordinator_connectors_.Lock();
-
-    auto connector = std::ranges::find_if(
-        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
-    if (connector != connectors->end()) {
-      leader = &connector->second;
-    }
-  }
+  CoordinatorInstanceConnector *leader = FindClientConnector(leader_id);
 
   if (leader == nullptr) {
     spdlog::trace("Connection to leader not found, returning SHOW INSTANCES output as follower.");
@@ -388,7 +387,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   }
 
   spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
-  auto maybe_res = leader->SendShowInstances();
+  auto maybe_res = leader->SendRpc<ShowInstancesRpc>();
 
   if (!maybe_res) {
     spdlog::trace("Couldn't get instances from leader {}. Returning result as a follower.", leader_id);
@@ -407,7 +406,8 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
     spdlog::trace("Trying to ensure cluster's healthy state. The coordinator is considered a leader. Attempt: {}.",
                   attempt_cnt++);
     switch (auto const result = ReconcileClusterState_()) {
-      case (ReconcileClusterStateStatus::SUCCESS): {
+      using enum ReconcileClusterStateStatus;
+      case SUCCESS: {
         auto expected = CoordinatorStatus::LEADER_NOT_READY;
         if (!status.compare_exchange_strong(
                 expected, CoordinatorStatus::LEADER_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
@@ -425,15 +425,19 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
         metrics::IncrementCounter(metrics::BecomeLeaderSuccess);
         return result;
       }
-      case ReconcileClusterStateStatus::FAIL:
+      case FAIL:
         spdlog::trace("ReconcileClusterState_ failed!");
         metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         break;
-      case ReconcileClusterStateStatus::SHUTTING_DOWN:
+      case SHUTTING_DOWN:
         spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
         metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         return result;
-      case ReconcileClusterStateStatus::NOT_LEADER_ANYMORE: {
+      case NOT_LEADER_ANYMORE:
+        [[fallthrough]];
+      case LEADER_FAILED:
+        [[fallthrough]];
+      case LEADER_NOT_FOUND: {
         metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         MG_ASSERT(false, "Invalid status handling. Crashing the database.");
       }
@@ -534,10 +538,18 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus {
   // Follows nomenclature from replication handler where Try<> means doing action from the
   // user query.
+  auto const leader_id = raft_state_->GetLeaderId();
   auto expected = CoordinatorStatus::LEADER_READY;
+  // If atomically changing leader_ready to leader_not_ready failed it means I am not the current leader and I should I
+  // try to forward the request to the current leader.
   if (!status.compare_exchange_strong(
           expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel, std::memory_order_acquire)) {
-    return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      return leader->SendRpc<ForceResetRpc>() ? ReconcileClusterStateStatus::SUCCESS
+                                              : ReconcileClusterStateStatus::LEADER_FAILED;
+    }
+
+    return ReconcileClusterStateStatus::LEADER_NOT_FOUND;
   }
   return ReconcileClusterState();
 }
@@ -591,6 +603,13 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main_name)
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
+
+  if (auto const res =
+          ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
+      res.has_value()) {
+    return *res;
+  }
+
   spdlog::trace("Acquired lock to set replication instance to main in thread {}.", std::this_thread::get_id());
 
   // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called
@@ -671,6 +690,11 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   metrics::IncrementCounter(metrics::DemoteInstance);
   auto lock = std::lock_guard{coord_instance_lock_};
 
+  if (auto const res = ForwardToLeader<DemoteInstanceRpc, DemoteInstanceCoordinatorStatus>(std::string{instance_name});
+      res.has_value()) {
+    return *res;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return DemoteInstanceCoordinatorStatus::NOT_LEADER;
   }
@@ -707,6 +731,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     -> RegisterInstanceCoordinatorStatus {
   // TODO: (andi) Can I move further down this lock
   auto lock = std::lock_guard{coord_instance_lock_};
+
+  if (auto const res = ForwardToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(config);
+      res.has_value()) {
+    return *res;
+  }
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
@@ -795,6 +824,13 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
   metrics::IncrementCounter(metrics::UnregisterReplInstance);
+
+  if (auto const res =
+          ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
+      res.has_value()) {
+    return *res;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
@@ -865,7 +901,11 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   metrics::IncrementCounter(metrics::RemoveCoordInstance);
-  spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
+  if (auto const res = ForwardToLeader<RemoveCoordinatorRpc, RemoveCoordinatorInstanceStatus>(coordinator_id);
+      res.has_value()) {
+    return *res;
+  }
+
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
   auto const existing_coord = std::ranges::find_if(
@@ -875,7 +915,10 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
     return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
   }
 
-  raft_state_->RemoveCoordinatorInstance(coordinator_id);
+  if (auto const res = raft_state_->RemoveCoordinatorInstance(coordinator_id);
+      res != RemoveCoordinatorInstanceStatus::SUCCESS) {
+    return res;
+  }
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
 
@@ -905,9 +948,9 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
 
 auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
     -> AddCoordinatorInstanceStatus {
-  spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}",
-                config.coordinator_id,
-                raft_state_->InstanceName());
+  if (auto const res = ForwardToLeader<AddCoordinatorRpc, AddCoordinatorInstanceStatus>(config); res.has_value()) {
+    return *res;
+  }
 
   auto const bolt_server_to_add = config.bolt_server.SocketAddress();
   auto const id_to_add = config.coordinator_id;
@@ -979,7 +1022,9 @@ auto CoordinatorInstance::AddNewCoordinator(
   }
 
   // We only need to add coordinator instance on Raft level if it's some new instance
-  raft_state_->AddCoordinatorInstance(config);
+  if (auto const res = raft_state_->AddCoordinatorInstance(config); res != AddCoordinatorInstanceStatus::SUCCESS) {
+    return res;
+  }
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = coordinator_instances_context};
 
@@ -1002,12 +1047,13 @@ auto CoordinatorInstance::AddSelfCoordinator(
   // I am adding myself
   auto const my_aux = raft_state_->GetMyCoordinatorInstanceAux();
   if (config.coordinator_server.SocketAddress() != my_aux.coordinator_server) {
-    throw RaftAddServerException(
-        "Failed to add server since NuRaft server has been started with different network configuration!");
+    spdlog::error("Failed to add server since NuRaft server has been started with different network configuration!");
+    return AddCoordinatorInstanceStatus::DIFF_NETWORK_CONFIG;
   }
   if (config.management_server.SocketAddress() != my_aux.management_server) {
-    throw RaftAddServerException(
+    spdlog::error(
         "Failed to add server since management server has been started with different network configuration!");
+    return AddCoordinatorInstanceStatus::DIFF_NETWORK_CONFIG;
   }
 
   // NOLINTNEXTLINE
@@ -1027,8 +1073,11 @@ auto CoordinatorInstance::AddSelfCoordinator(
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  if (constexpr std::array settings{
-          kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica, kMaxReplicaReadLag};
+  if (constexpr std::array settings{kEnabledReadsOnMain,
+                                    kSyncFailoverOnly,
+                                    kMaxFailoverLagOnReplica,
+                                    kMaxReplicaReadLag,
+                                    kDeltasBatchProgressSize};
       !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
@@ -1043,6 +1092,8 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kMaxReplicaReadLag) {
       delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
+    } else if (setting_name == kDeltasBatchProgressSize) {
+      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint64(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
@@ -1081,53 +1132,50 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
   if (raft_state_->IsCurrentMain(instance_name)) {
     // Update cache if there is a value received
-    if (instance_state.main_num_txns.has_value()) {
-      main_num_txns_cache_ = *instance_state.main_num_txns;
+    if (instance_state.inner_state.main_num_txns.has_value()) {
+      main_num_txns_cache_ = *instance_state.inner_state.main_num_txns;
     }
 
-    if (instance_state.replicas_num_txns.has_value()) {
-      replicas_num_txns_cache_ = *instance_state.replicas_num_txns;
+    if (instance_state.inner_state.replicas_num_txns.has_value()) {
+      replicas_num_txns_cache_ = *instance_state.inner_state.replicas_num_txns;
     }
 
     // According to raft, this is the current MAIN
     // Check if a promotion is needed:
     //  - instance is actually a replica
     //  - instance is main, but has stale state (missed a failover)
-    if (!instance_state.is_replica && instance_state.is_writing_enabled && instance_state.uuid &&
-        *instance_state.uuid == curr_main_uuid) {
-      // Promotion not needed
-      return;
-    }
+    if (instance_state.inner_state.is_replica || !instance_state.inner_state.is_writing_enabled ||
+        !instance_state.inner_state.uuid || *instance_state.inner_state.uuid != curr_main_uuid) {
+      auto const data_instances_cache = raft_state_->GetDataInstancesContext();
+      auto repl_clients_info =
+          data_instances_cache |
+          ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != instance_name; }) |
+          ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
+          ranges::to<ReplicationClientsInfo>();
 
-    auto const data_instances_cache = raft_state_->GetDataInstancesContext();
-    auto repl_clients_info =
-        data_instances_cache |
-        ranges::views::filter([&](auto const &instance) { return instance.config.instance_name != instance_name; }) |
-        ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
-        ranges::to<ReplicationClientsInfo>();
-
-    if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
-      spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
-                    std::string{curr_main_uuid});
-      switch (TryFailover()) {
-        case FailoverStatus::SUCCESS: {
-          spdlog::trace("Failover successful after failing to promote main instance.");
-          break;
+      if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
+        spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
+                      std::string{curr_main_uuid});
+        switch (TryFailover()) {
+          case FailoverStatus::SUCCESS: {
+            spdlog::trace("Failover successful after failing to promote main instance.");
+            break;
+          };
+          case FailoverStatus::NO_INSTANCE_ALIVE: {
+            spdlog::trace("Failover failed because no instance is alive.");
+            break;
+          };
+          case FailoverStatus::RAFT_FAILURE: {
+            spdlog::trace("Writing to Raft failed during failover.");
+            break;
+          };
         };
-        case FailoverStatus::NO_INSTANCE_ALIVE: {
-          spdlog::trace("Failover failed because no instance is alive.");
-          break;
-        };
-        case FailoverStatus::RAFT_FAILURE: {
-          spdlog::trace("Writing to Raft failed during failover.");
-          break;
-        };
-      };
-      return;
+        return;
+      }
     }
   } else {
     // According to raft, the instance should be replica
-    if (!instance_state.is_replica) {
+    if (!instance_state.inner_state.is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
 
@@ -1145,13 +1193,21 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       }
     }
 
-    if (!instance_state.uuid || *instance_state.uuid != curr_main_uuid) {
+    if (!instance_state.inner_state.uuid || *instance_state.inner_state.uuid != curr_main_uuid) {
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
         spdlog::error(
             "Failed to set new uuid for replica instance {} to {}.", instance_name, std::string{curr_main_uuid});
       } else {
         spdlog::trace("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
       }
+    }
+  }
+
+  if (auto const deltas_batch_progress_size = raft_state_->GetDeltasBatchProgressSize();
+      deltas_batch_progress_size != instance_state.deltas_batch_progress_size) {
+    if (!instance.SendRpc<UpdateDataInstanceConfigRpc>(deltas_batch_progress_size)) {
+      spdlog::error("Couldn't update deltas_batch_progress_size on data instance {}", instance_name);
+      return;
     }
   }
 }
@@ -1346,14 +1402,11 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
     return RoutingTable{};
   }
 
-  auto maybe_res = leader->SendGetRoutingTable(db_name);
-
-  if (!maybe_res) {
+  auto res = leader->SendRpc<GetRoutingTableRpc>(std::string{db_name});
+  if (res.empty()) {
     spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
-    return RoutingTable{};
   }
-
-  return std::move(maybe_res.value());
+  return res;
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
@@ -1451,11 +1504,21 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
       std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
-      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())}};
+      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())},
+      std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())}};
   return settings;
 }
 
-auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+auto CoordinatorInstance::ShowReplicationLagAsFollower(int32_t const leader_id) const
+    -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+  if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+    return leader->SendRpc<CoordReplicationLagRpc>();
+  }
+  return {};
+}
+
+auto CoordinatorInstance::ShowReplicationLagAsLeader() const
+    -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
   for (auto const &repl_instance : repl_instances_) {
     auto const &instance_name = repl_instance.InstanceName();
     if (!raft_state_->IsCurrentMain(instance_name)) {
@@ -1484,6 +1547,15 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
   return {};
 }
 
+auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (leader_id == raft_state_->GetMyCoordinatorId() &&
+      status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+    return ShowReplicationLagAsLeader();
+  }
+  return ShowReplicationLagAsFollower(leader_id);
+}
+
 auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
   return nlohmann::json({{"cluster_size", raft_state_->GetCoordinatorInstancesContext().size()},
                          {"enabled_reads_on_main", raft_state_->GetEnabledReadsOnMain()},
@@ -1492,14 +1564,17 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
                          {"instance_health_check_frequency_sec", instance_health_check_frequency_sec_.count()}});
 }
 
-auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const &instance,
-                                       io::network::Endpoint const &bolt_endpoint) -> UpdateConfigStatus {
-  if (std::holds_alternative<int32_t>(instance)) {
+auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> UpdateConfigStatus {
+  if (auto const res = ForwardToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
+    return *res;
+  }
+
+  if (std::holds_alternative<int32_t>(config.data)) {
     // Need to update coordinator's bolt server
-    auto const coord_id = std::get<int32_t>(instance);
+    auto const coord_id = std::get<int32_t>(config.data);
 
     auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
-    auto new_bolt_server = bolt_endpoint.SocketAddress();
+    auto new_bolt_server = config.bolt_endpoint.SocketAddress();
 
     {
       auto const existing_coord =
@@ -1533,12 +1608,12 @@ auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const 
 
   } else {
     // Updating a config for the replication instance
-    auto const instance_name = std::get<std::string>(instance);
+    auto const instance_name = std::get<std::string>(config.data);
     auto data_instances_context = raft_state_->GetDataInstancesContext();
     {
       auto const existing_repl_instance = std::ranges::find_if(
           data_instances_context,
-          [&bolt_endpoint](auto const &repl_instance) { return repl_instance.config.bolt_server == bolt_endpoint; });
+          [&config](auto const &repl_instance) { return repl_instance.config.bolt_server == config.bolt_endpoint; });
 
       if (existing_repl_instance != data_instances_context.end()) {
         spdlog::warn(
@@ -1556,7 +1631,7 @@ auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const 
       return UpdateConfigStatus::NO_SUCH_REPL_INSTANCE;
     }
 
-    repl_instance_it->config.bolt_server = bolt_endpoint;
+    repl_instance_it->config.bolt_server = config.bolt_endpoint;
 
     // NOLINTNEXTLINE
     CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_context)};
@@ -1569,6 +1644,19 @@ auto CoordinatorInstance::UpdateConfig(std::variant<int32_t, std::string> const 
     }
   }
   return UpdateConfigStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector * {
+  CoordinatorInstanceConnector *leader{nullptr};
+  {
+    auto connectors = coordinator_connectors_.Lock();
+    auto connector = std::ranges::find_if(
+        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
+    if (connector != connectors->end()) {
+      leader = &connector->second;
+    }
+  }
+  return leader;
 }
 
 }  // namespace memgraph::coordination

@@ -55,7 +55,9 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_query_handler.hpp"
+#include "query/common.hpp"
 #include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
@@ -154,15 +156,6 @@ extern const Event ShowSchema;
 }  // namespace memgraph::metrics
 
 namespace {
-// Builds a map of run-time settings
-auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
-  std::map<std::string, std::string, std::less<>> config;
-  config.emplace(memgraph::utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
-  config.emplace(memgraph::utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
-  config.emplace(memgraph::utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
-  config.emplace(memgraph::utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
-  return config;
-}
 
 using memgraph::query::Expression;
 using memgraph::query::ExpressionVisitor;
@@ -186,6 +179,20 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
            return std::pair{key_expr.ValueString(), value_expr.ValueString()};
          }) |
          ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+
+TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expression *> const &config_map,
+                                         ExpressionVisitor<TypedValue> &evaluator,
+                                         memgraph::utils::MemoryResource *memory) {
+  TypedValue::TMap result(memory);
+  for (const auto &[key_expr, value_expr] : config_map) {
+    auto key_tv = key_expr->Accept(evaluator);
+    if (!key_tv.IsString()) {
+      throw memgraph::query::QueryRuntimeException("Parameter config map keys must be strings, got {}.", key_tv.type());
+    }
+    result.emplace(TypedValue::TString(key_tv.ValueString(), memory), value_expr->Accept(evaluator));
+  }
+  return {std::move(result), memory};
 }
 
 }  // namespace
@@ -273,7 +280,6 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
 
 namespace memgraph::query {
 
-constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
 constexpr int kSystemTxTryMS = 100;  //!< Duration of the unique try_lock_for
 
 template <typename>
@@ -553,6 +559,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -588,6 +601,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -603,6 +623,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Force reset failed, check logs for more details!");
       case NOT_LEADER_ANYMORE:
         throw QueryRuntimeException("Force reset failed since the instance is not leader anymore!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -714,13 +741,22 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
   }
 
-  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint const &bolt_endpoint) override {
-    switch (coordinator_handler_.UpdateConfig(instance, bolt_endpoint)) {
+  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) override {
+    coordination::UpdateInstanceConfig const config{.data = std::move(instance),
+                                                    .bolt_endpoint = std::move(bolt_endpoint)};
+    switch (coordinator_handler_.UpdateConfig(config)) {
       using enum memgraph::coordination::UpdateConfigStatus;
       case NO_SUCH_COORD:
         throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
@@ -730,6 +766,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                     std::get<std::string>(instance));
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
         std::unreachable();
@@ -742,6 +785,51 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_SUCH_ID:
         throw QueryRuntimeException(
             "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a timeout!", coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for removing coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for removing coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the coordinator isn't a leader anymore!",
+            coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when removing coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for removing coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for removing coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when removing coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -786,6 +874,55 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException(
             "Couldn't add coordinator because Raft log couldn't be accepted. Please try again!");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
+      case LOCAL_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a timeout!", coordinator_id);
+      case DIFF_NETWORK_CONFIG:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator was started with different network "
+            "configuration. Check logs for more details.",
+            coordinator_id);
+      case RAFT_CANCELLED:
+        throw QueryRuntimeException("Request for adding coordinator {} was cancelled!", coordinator_id);
+      case RAFT_TIMEOUT:
+        throw QueryRuntimeException("Request for adding coordinator {} reached a raft timeout!", coordinator_id);
+      case RAFT_NOT_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the coordinator isn't a leader anymore!", coordinator_id);
+      case RAFT_BAD_REQUEST:
+        throw QueryRuntimeException("Bad request error occurred when adding coordinator {}!", coordinator_id);
+      case RAFT_SERVER_ALREADY_EXISTS:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server already exists!",
+                                    coordinator_id);
+      case RAFT_CONFIG_CHANGING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft config is changing!",
+                                    coordinator_id);
+      case RAFT_SERVER_IS_JOINING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is joining!",
+                                    coordinator_id);
+      case RAFT_SERVER_NOT_FOUND:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server isn't found!",
+                                    coordinator_id);
+      case RAFT_CANNOT_REMOVE_LEADER:
+        throw QueryRuntimeException(
+            "Request for adding coordinator {} failed because the current leader cannot be removed!", coordinator_id);
+      case RAFT_SERVER_IS_LEAVING:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft server is leaving!",
+                                    coordinator_id);
+      case RAFT_TERM_MISMATCH:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because of a term mismatch!",
+                                    coordinator_id);
+      case RAFT_RESULT_NOT_EXIST_YET:
+        throw QueryRuntimeException("Request for adding coordinator {} failed because raft result doesn't exist yet!",
+                                    coordinator_id);
+      case RAFT_FAILED:
+        throw QueryRuntimeException("Generic Raft failure occurred when adding coordinator {}!", coordinator_id);
       case SUCCESS:
         break;
     }
@@ -823,6 +960,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case LEADER_NOT_FOUND:
+        throw QueryRuntimeException(
+            "Tried to forward the request to the current leader but the leader couldn't be found!");
+      case LEADER_FAILED:
+        throw QueryRuntimeException(
+            "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to "
+            "find out what happened!");
       case SUCCESS:
         break;
     }
@@ -2172,20 +2316,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 }
 #endif
 
-auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
-  if (config_map.empty()) {
+namespace {
+auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>> const &transformed_map)
+    -> storage::VectorIndexConfigMap {
+  if (transformed_map.empty()) {
     throw std::invalid_argument(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
-
-  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
-                           auto key_expr = pair.first->Accept(evaluator);
-                           auto value_expr = pair.second->Accept(evaluator);
-                           return std::pair{key_expr.ValueString(), value_expr};
-                         }) |
-                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
-
   auto metric_kind_it = transformed_map.find(kMetric);
   auto metric_kind = storage::MetricFromName(
       metric_kind_it != transformed_map.end() ? metric_kind_it->second.ValueString() : kDefaultMetric);
@@ -2209,7 +2346,27 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto scalar_kind_it = transformed_map.find(kScalarKind);
   auto scalar_kind = storage::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);
-  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
+  return storage::VectorIndexConfigMap{.metric = metric_kind,
+                                       .dimension = dimension_value,
+                                       .capacity = capacity_value,
+                                       .resize_coefficient = resize_coefficient,
+                                       .scalar_kind = scalar_kind};
+}
+}  // namespace
+
+auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
+  if (config_map.empty()) {
+    throw std::invalid_argument(
+        "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
+  }
+  auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
+  return VectorIndexConfigFromTypedMap(transformed_map);
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
@@ -2588,6 +2745,99 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
         }
 
         return results;
+      };
+      return callback;
+    }
+  }
+}
+
+Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters &query_parameters,
+                              InterpreterContext *interpreter_context, Interpreter *interpreter) {
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = query_parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  constexpr auto kParamScope = parameters::ParameterScope::GLOBAL;
+
+  Callback callback;
+  switch (parameter_query->action_) {
+    case ParameterQuery::Action::SET_PARAMETER: {
+      const TypedValue parameter_value = std::visit(
+          [&evaluator, &evaluation_context](auto &&arg) -> TypedValue {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, Expression *>) {
+              return EvaluateOptionalExpression(arg, evaluator);
+            } else {
+              return EvaluateConfigMapToTypedValue(arg, evaluator, evaluation_context.memory);
+            }
+          },
+          parameter_query->parameter_value_);
+      nlohmann::json j;
+      query::to_json(j, parameter_value);
+      auto value_str = j.dump();
+
+      callback.fn = [parameter_name = parameter_query->parameter_name_,
+                     value_str,
+                     parameters = interpreter_context->parameters,
+                     interpreter]() {
+        if (!parameters) {
+          throw QueryRuntimeException("Parameters are not available");
+        }
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->SetParameter(parameter_name, value_str, kParamScope, &*interpreter->system_transaction_)) {
+          throw QueryRuntimeException("Failed to set parameter '{}'", parameter_name);
+        }
+        spdlog::info("Set parameter '{}' with value '{}'", parameter_name, value_str);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case ParameterQuery::Action::UNSET_PARAMETER: {
+      callback.fn = [parameter_name = parameter_query->parameter_name_,
+                     parameters = interpreter_context->parameters,
+                     interpreter]() {
+        if (!parameters) {
+          throw QueryRuntimeException("Parameters are not available");
+        }
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->UnsetParameter(parameter_name, kParamScope, &*interpreter->system_transaction_)) {
+          throw QueryRuntimeException("Parameter '{}' does not exist", parameter_name);
+        }
+        spdlog::info("Unset parameter '{}'", parameter_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case ParameterQuery::Action::SHOW_PARAMETERS: {
+      callback.header = {"name", "value", "scope"};
+      callback.fn = [parameters = interpreter_context->parameters]() {
+        if (!parameters) {
+          throw QueryRuntimeException("Parameters are not available");
+        }
+        auto all_params = parameters->GetAllParameters(parameters::ParameterScope::GLOBAL);
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(all_params.size());
+        for (const auto &param : all_params) {
+          results.emplace_back(std::vector<TypedValue>{TypedValue(param.name),
+                                                       TypedValue(param.value),
+                                                       TypedValue(parameters::ParameterScopeToString(param.scope))});
+        }
+        return results;
+      };
+      return callback;
+    }
+    case ParameterQuery::Action::DELETE_ALL_PARAMETERS: {
+      callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
+        if (!parameters) {
+          throw QueryRuntimeException("Parameters are not available");
+        }
+        MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
+        if (!parameters->DeleteAllParameters(&*interpreter->system_transaction_)) {
+          throw QueryRuntimeException("Failed to delete all parameters");
+        }
+        spdlog::info("Deleted all parameters");
+        return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }
@@ -3185,8 +3435,11 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
   auto inner_query = parsed_query.query_string.substr(kExplainQueryStart.size());
-  ParsedQuery parsed_inner_query = ParseQuery(
-      inner_query, parsed_query.user_parameters, &interpreter_context->ast_cache, interpreter_context->config.query);
+  ParsedQuery parsed_inner_query = ParseQuery(inner_query,
+                                              parsed_query.user_parameters,
+                                              &interpreter_context->ast_cache,
+                                              interpreter_context->config.query,
+                                              interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -3278,7 +3531,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   ParsedQuery parsed_inner_query = ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()),
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
-                                              interpreter_context->config.query);
+                                              interpreter_context->config.query,
+                                              interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
@@ -4167,13 +4421,26 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto index_name = vector_index_query->index_name_;
   auto label_name = vector_index_query->label_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
+  const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+      const auto vector_index_config = std::visit(
+          utils::Overloaded{
+              [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+              [&evaluator](Expression *expr) {
+                auto config_tv = expr->Accept(evaluator);
+                if (!config_tv.IsMap()) {
+                  throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+                }
+                std::map<std::string, TypedValue, std::less<>> transformed_map;
+                for (const auto &[k, v] : config_tv.ValueMap()) {
+                  transformed_map.emplace(std::string(k), v);
+                }
+                return VectorIndexConfigFromTypedMap(transformed_map);
+              }},
+          vector_index_query->config_);
       handler = [dba,
                  storage,
                  vector_index_config,
@@ -4263,12 +4530,25 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
   auto index_name = vector_index_query->index_name_;
   auto edge_type = vector_index_query->edge_type_.name;
   auto prop_name = vector_index_query->property_.name;
-  auto config = vector_index_query->configs_;
   auto *storage = db_acc->storage();
 
   const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context, dba};
+  const auto vector_index_config = std::visit(
+      utils::Overloaded{
+          [&evaluator](const ConfigMap &config_map) { return ParseVectorIndexConfigMap(config_map, evaluator); },
+          [&evaluator](Expression *expr) {
+            auto config_tv = expr->Accept(evaluator);
+            if (!config_tv.IsMap()) {
+              throw QueryRuntimeException("WITH CONFIG expression must evaluate to a map.");
+            }
+            std::map<std::string, TypedValue, std::less<>> transformed_map;
+            for (const auto &[k, v] : config_tv.ValueMap()) {
+              transformed_map.emplace(std::string(k), v);
+            }
+            return VectorIndexConfigFromTypedMap(transformed_map);
+          }},
+      vector_index_query->config_);
   handler = [dba,
              storage,
              vector_index_config,
@@ -5517,7 +5797,18 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             case S3GetFailure: {
               throw utils::BasicException("Failed to download snapshot file from s3 {}", path);
             }
+            case S3MissingAwsRegion: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_REGION));
+            }
+            case S3MissingAwsAccessKey: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_ACCESS_KEY));
+            }
+            case S3MissingAwsSecretKey: {
+              throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
+            }
+            default: {
               std::unreachable();
+            }
           }
         }
         // REPLICATION
@@ -5649,6 +5940,34 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
       .rw_type = RWType::NONE};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
+
+PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                    InterpreterContext *interpreter_context, Interpreter &interpreter) {
+  if (in_explicit_transaction) {
+    throw SettingConfigInMulticommandTxException{};
+  }
+
+  auto *parameter_query = utils::Downcast<ParameterQuery>(parsed_query.query);
+  MG_ASSERT(parameter_query);
+
+  auto callback = HandleParameterQuery(parameter_query, parsed_query.parameters, interpreter_context, &interpreter);
+
+  return PreparedQuery{
+      .header = std::move(callback.header),
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (UNLIKELY(!pull_plan)) {
+          pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      .rw_type = RWType::NONE};
 }
 }  // namespace
 
@@ -7758,14 +8077,16 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
       current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
     }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
-    bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
-    ParsedQuery parsed_query = ParseQuery(
-        query_string, params_getter(nullptr), &interpreter_context_->ast_cache, interpreter_context_->config.query);
+    ParsedQuery parsed_query = ParseQuery(query_string,
+                                          params_getter(nullptr),
+                                          &interpreter_context_->ast_cache,
+                                          interpreter_context_->config.query,
+                                          interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
-    return Interpreter::ParseInfo{std::move(parsed_query), parsing_time, is_schema_assert_query};
+    return Interpreter::ParseInfo{.parsed_query = std::move(parsed_query), .parsing_time = parsing_time};
   } catch (const utils::BasicException &e) {
     LogQueryMessage(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
@@ -7813,6 +8134,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(ReplicationInfoQuery & /*unused*/) override {}
 
   void Visit(CoordinatorQuery & /*unused*/) override {}
+
+  void Visit(ParameterQuery & /*unused*/) override {}
 
   // No database access required (but need current database)
   void Visit(SystemInfoQuery & /*unused*/) override {}
@@ -7984,7 +8307,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
-    if (parse_info.is_schema_assert_query) {
+    if (parse_info.parsed_query.using_schema_assert) {
       throw SchemaAssertInMulticommandTxException();
     }
 
@@ -8052,7 +8375,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
     bool system_queries =
         utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-        utils::Downcast<ReplicationQuery>(parsed_query.query) || utils::Downcast<UserProfileQuery>(parsed_query.query);
+        utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+        utils::Downcast<UserProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
@@ -8070,8 +8394,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto storage_mode = current_db_.db_acc_
                               ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
                               : std::nullopt;
-      auto transaction_requirements =
-          QueryTransactionRequirements{parse_info.is_schema_assert_query, parsed_query.is_cypher_read, storage_mode};
+      auto transaction_requirements = QueryTransactionRequirements{
+          parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
@@ -8084,7 +8408,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.db_acc_) {
       // fix parameters, enums requires storage to map to correct enum value
       parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
-      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query, parsed_query.user_parameters);
+      parsed_query.parameters = PrepareQueryParameters(
+          parsed_query.stripped_query, parsed_query.user_parameters, interpreter_context_->parameters);
     }
 
 #ifdef MG_ENTERPRISE
@@ -8283,6 +8608,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<ParameterQuery>(parsed_query.query)) {
+      /// SYSTEM PURE
+      prepared_query =
+          PrepareParameterQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
@@ -8691,13 +9020,15 @@ void Interpreter::Commit() {
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
-    // Only enterprise can do system replication
+    // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast()) {
+      if (license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity()) {
         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
-#endif
       return system_transaction_->Commit(memgraph::system::DoNothing{});
+#else
+      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+#endif
     };
 
     auto const replica_commit = [&](replication::RoleReplicaData &) {

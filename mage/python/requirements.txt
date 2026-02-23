@@ -3,12 +3,13 @@ boto3==1.36.23
 defusedxml==0.7.1
 duckdb==1.2.1
 elasticsearch==8.17.0
-filelock==3.19.1
+filelock==3.20.3
 gekko==1.2.1
 gensim==4.3.3
 gqlalchemy==1.8.0
 huggingface-hub==0.35.1
 igraph==0.11.8
+jaraco-context==6.1.0
 mysql-connector-python==9.1.0
 neo4j==5.28.2
 networkx==2.8.8
@@ -22,7 +23,9 @@ python-Levenshtein==0.26.1
 scikit-learn==1.5.2
 scipy==1.13.1
 sentence-transformers==5.1.1
+setuptools==81.0.0  # maximum version that can be used until torchmetrics doesn't rely on pkg_resources any more
 six==1.17.0
 torch==2.9.0+cpu; platform_machine != "aarch64"
 torch==2.9.0; platform_machine == "aarch64"
 torchmetrics==0.10.0 # current implementation of node_classification module depends on version <= 0.10.0
+litellm==1.81.9

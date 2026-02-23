@@ -12,6 +12,7 @@
 module;
 
 #include "flags/run_time_configurable.hpp"
+#include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "requests/requests.hpp"
 #include "utils/data_queue.hpp"
@@ -49,6 +50,13 @@ using namespace std::string_view_literals;
 namespace {
 
 constexpr std::string_view s3_prefix = "s3://";
+
+auto GetErrorMessage(arrow::Status const &status) -> std::string {
+  if (status.detail()) {
+    return fmt::format("{}. {}.", status.message(), status.detail()->ToString());
+  }
+  return status.message();
+}
 
 // NOTE: This is very similar to the GlobalS3APIManager from utils.aws.cppm but not completely the same.
 // Arrow has an adapter for S3 library and that adapter does more things during the initialization than
@@ -94,9 +102,12 @@ auto BuildHeader(std::shared_ptr<arrow::Schema> const &schema, memgraph::utils::
 
 // nullptr for error
 auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S3Config const &s3_config)
-    -> std::unique_ptr<parquet::arrow::FileReader> {
+    -> std::expected<std::unique_ptr<parquet::arrow::FileReader>, arrow::Status> {
   GlobalS3APIManager::GetInstance();
-  s3_config.Validate();
+  if (auto const res = s3_config.Validate(); res.has_value()) {
+    return std::unexpected{
+        arrow::Status{arrow::StatusCode::UnknownError, memgraph::utils::AwsValidationErrorToStr(*res)}};
+  }
 
   auto s3_options = arrow::fs::S3Options::FromAccessKey(*s3_config.aws_access_key, *s3_config.aws_secret_key);
   s3_options.region = *s3_config.aws_region;
@@ -107,8 +118,7 @@ auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S
 
   auto maybe_s3_fs = arrow::fs::S3FileSystem::Make(s3_options);
   if (!maybe_s3_fs.ok()) {
-    spdlog::error(maybe_s3_fs.status().message());
-    return nullptr;
+    return std::unexpected{maybe_s3_fs.status()};
   }
 
   auto const &s3_fs = *maybe_s3_fs;
@@ -116,28 +126,26 @@ auto LoadFileFromS3(memgraph::utils::pmr::string const &file, memgraph::utils::S
   auto const uri_wo_prefix = file.substr(s3_prefix.size());
   auto rnd_acc_file = s3_fs->OpenInputFile(std::string{uri_wo_prefix});
   if (!rnd_acc_file.ok()) {
-    spdlog::error(rnd_acc_file.status().message());
-    return nullptr;
+    return std::unexpected{rnd_acc_file.status()};
   }
 
   auto maybe_parquet_reader = parquet::arrow::OpenFile(*rnd_acc_file, arrow::default_memory_pool());
 
   if (!maybe_parquet_reader.ok()) {
-    spdlog::error(maybe_parquet_reader.status().message());
-    return nullptr;
+    return std::unexpected{maybe_parquet_reader.status()};
   }
 
   return std::move(*maybe_parquet_reader);
 }
 
 // nullptr for error
-auto LoadFileFromDisk(std::string file_path) -> std::unique_ptr<parquet::arrow::FileReader> {
+auto LoadFileFromDisk(std::string file_path)
+    -> std::expected<std::unique_ptr<parquet::arrow::FileReader>, arrow::Status> {
   arrow::MemoryPool *pool = arrow::default_memory_pool();
 
   auto maybe_file = arrow::io::ReadableFile::Open(file_path, pool);
   if (!maybe_file.ok()) {
-    spdlog::error(maybe_file.status().message());
-    return nullptr;
+    return std::unexpected{maybe_file.status()};
   }
 
   auto const &file = *maybe_file;
@@ -152,8 +160,7 @@ auto LoadFileFromDisk(std::string file_path) -> std::unique_ptr<parquet::arrow::
   parquet::arrow::FileReaderBuilder reader_builder;
 
   if (auto const status = reader_builder.Open(file, reader_properties); !status.ok()) {
-    spdlog::error(status.message());
-    return nullptr;
+    return std::unexpected{status};
   }
 
   reader_builder.memory_pool(pool);
@@ -161,8 +168,7 @@ auto LoadFileFromDisk(std::string file_path) -> std::unique_ptr<parquet::arrow::
 
   std::unique_ptr<parquet::arrow::FileReader> file_reader;
   if (auto const status = reader_builder.Build(&file_reader); !status.ok()) {
-    spdlog::error(status.message());
-    return nullptr;
+    return std::unexpected{status};
   }
 
   return file_reader;
@@ -530,8 +536,8 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
       rows_(resource),
       work_queue_(2),
       header_(std::move(header)),
-      prefetcher_thread_{[this]() {
-        while (true) {
+      prefetcher_thread_{[this](std::stop_token stop_token) {
+        while (!stop_token.stop_requested()) {
           auto const batch_ref = row_it_.Next();
           // No more data
           if (batch_ref.empty()) {
@@ -573,7 +579,10 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
   }
 }
 
-ParquetReader::impl::~impl() { prefetcher_thread_.request_stop(); }
+ParquetReader::impl::~impl() {
+  prefetcher_thread_.request_stop();
+  work_queue_.finish();
+}
 
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
@@ -589,7 +598,7 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
 
 ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_config, utils::MemoryResource *resource,
                              std::function<void()> abort_check) {
-  auto file_reader = std::invoke([&]() -> std::unique_ptr<parquet::arrow::FileReader> {
+  auto file_reader = std::invoke([&]() -> std::expected<std::unique_ptr<parquet::arrow::FileReader>, arrow::Status> {
     constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
     constexpr auto s3_matcher = ctre::starts_with<"s3://">;
 
@@ -606,39 +615,33 @@ ParquetReader::ParquetReader(utils::pmr::string const &uri, utils::S3Config s3_c
 
         return LoadFileFromDisk(local_file_path);
       }
-      spdlog::error("Couldn't download file {}", uri);
       utils::DeleteFile(local_file_path);
 
-      return nullptr;
+      return std::unexpected{
+          arrow::Status{arrow::StatusCode::UnknownError, fmt::format("Couldn't download file: {}", uri)}};
     }
 
     if (s3_matcher(uri)) {
-      try {
-        return LoadFileFromS3(uri, s3_config);
-      } catch (utils::BasicException const &e) {
-        spdlog::error(e.what());
-        return nullptr;
-      }
+      return LoadFileFromS3(uri, s3_config);
     }
 
     // Regular file that already exists on disk
     return LoadFileFromDisk(std::string{uri});
   });
 
-  if (!file_reader) {
-    throw utils::BasicException("Failed to load file {}.", uri);
+  if (!file_reader.has_value()) {
+    throw QueryRuntimeException(GetErrorMessage(file_reader.error()));
   }
 
-  auto maybe_batch_reader = file_reader->GetRecordBatchReader();
+  auto maybe_batch_reader = file_reader.value()->GetRecordBatchReader();
   if (!maybe_batch_reader.ok()) {
-    throw utils::BasicException("Couldn't create RecordBatchReader because of {}",
-                                maybe_batch_reader.status().message());
+    throw QueryRuntimeException(GetErrorMessage(maybe_batch_reader.status()));
   }
 
   auto batch_reader = std::move(*maybe_batch_reader);
   auto header = BuildHeader(batch_reader->schema(), resource);
 
-  pimpl_ = std::make_unique<impl>(std::move(file_reader), std::move(batch_reader), std::move(header), resource);
+  pimpl_ = std::make_unique<impl>(std::move(file_reader.value()), std::move(batch_reader), std::move(header), resource);
 }
 
 ParquetReader::~ParquetReader() = default;

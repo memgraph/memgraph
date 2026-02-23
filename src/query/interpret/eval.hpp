@@ -113,7 +113,8 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
 
 class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx) : ctx_(&ctx) {}
+  explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx, DbAccessor *dba = nullptr)
+      : ctx_(&ctx), dba_(dba) {}
 
   using ExpressionVisitor::Visit;
 
@@ -125,6 +126,57 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
+  }
+
+  TypedValue Visit(ListLiteral &list_literal) override {
+    TypedValue::TVector result(ctx_->memory);
+    result.reserve(list_literal.elements_.size());
+    for (Expression *expr : list_literal.elements_) {
+      result.emplace_back(expr ? expr->Accept(*this) : TypedValue(ctx_->memory));
+    }
+    return {std::move(result), ctx_->memory};
+  }
+
+  TypedValue Visit(MapLiteral &map_literal) override {
+    TypedValue::TMap result(ctx_->memory);
+    for (const auto &pair : map_literal.elements_) {
+      result.emplace(TypedValue::TString(pair.first.name, ctx_->memory), pair.second->Accept(*this));
+    }
+    return {std::move(result), ctx_->memory};
+  }
+
+  TypedValue Visit(Function &function) override {
+    if (!dba_) {
+      throw QueryRuntimeException("Function evaluation requires a database accessor.");
+    }
+    FunctionContext function_ctx{.db_accessor = dba_,
+                                 .memory = ctx_->memory,
+                                 .timestamp = ctx_->timestamp,
+                                 .counters = &ctx_->counters,
+                                 .view = storage::View::OLD};
+    TypedValue res(ctx_->memory);
+    if (function.arguments_.size() <= 8) {
+      utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
+      auto constructed_count = 0;
+      auto destroy_arguments = utils::OnScopeExit{[&] {
+        for (size_t i = 0; i != constructed_count; ++i) {
+          std::destroy_at(&(*arguments.as())[i]);
+        }
+      }};
+      for (size_t i = 0; i != function.arguments_.size(); ++i) {
+        std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
+        ++constructed_count;
+      }
+      res = function.function_(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
+    } else {
+      TypedValue::TVector arguments(ctx_->memory);
+      arguments.reserve(function.arguments_.size());
+      for (const auto &argument : function.arguments_) {
+        arguments.emplace_back(argument->Accept(*this));
+      }
+      res = function.function_(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
+    }
+    return res;
   }
 
 #define INVALID_VISIT(expr_name)                                                             \
@@ -158,15 +210,12 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(UnaryPlusOperator)
   INVALID_VISIT(UnaryMinusOperator)
   INVALID_VISIT(IsNullOperator)
-  INVALID_VISIT(ListLiteral)
-  INVALID_VISIT(MapLiteral)
   INVALID_VISIT(MapProjectionLiteral)
   INVALID_VISIT(PropertyLookup)
   INVALID_VISIT(AllPropertiesLookup)
   INVALID_VISIT(LabelsTest)
   INVALID_VISIT(EdgeTypesTest)
   INVALID_VISIT(Aggregation)
-  INVALID_VISIT(Function)
   INVALID_VISIT(Reduce)
   INVALID_VISIT(Coalesce)
   INVALID_VISIT(Extract)
@@ -184,13 +233,15 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
 #undef INVALID_VISIT
  private:
   EvaluationContext const *ctx_;
+  DbAccessor *dba_;
 };
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr, std::shared_ptr<QueryUserOrRole> user_or_role = nullptr)
+                      const int64_t *hops_counter = nullptr, std::shared_ptr<QueryUserOrRole> user_or_role = nullptr,
+                      std::shared_ptr<QueryUserOrRole> triggering_user = nullptr)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
@@ -198,7 +249,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         view_(view),
         frame_change_collector_(frame_change_collector),
         hops_counter_(hops_counter),
-        user_or_role_(std::move(user_or_role)) {}
+        user_or_role_(std::move(user_or_role)),
+        triggering_user_(std::move(triggering_user)) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -684,7 +736,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{
-        dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter(), user_or_role_};
+        dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter(), user_or_role_, triggering_user_};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -1100,6 +1152,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
   std::shared_ptr<QueryUserOrRole> user_or_role_;
+  std::shared_ptr<QueryUserOrRole> triggering_user_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

@@ -23,6 +23,14 @@ wait_for_memgraph $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_LAST_DATA_BOLT_PORT
 wait_for_memgraph $MEMGRAPH_DEFAULT_HOST $MEMGRAPH_NEXT_DATA_BOLT_PORT
 echo "Memgraph is up and running!"
 
+# check memgraph logs inside the container for errors loading query modules
+source $SCRIPT_DIR/check_container_logs.sh
+check_container_logs
+
+# check that the container has the required licenses
+source $SCRIPT_DIR/check_container_licenses.sh
+check_container_licenses
+
 # Test features using mgconsole.
 for test_file_path in "$SCRIPT_DIR/mgconsole/"*; do
   if [ "$(basename $test_file_path)" == "README.md" ]; then
@@ -58,9 +66,11 @@ test_shortest_paths
 test_text_search
 test_durability
 test_load_csv
+test_load_csv_ssl
 test_load_jsonl
 test_load_parquet
 test_parallel_runtime
+test_mgconsole "1.5"
 
 # NOTE: If the testing container is NOT restarted (each test having their own
 # container), all the auth test have to come after all tests that assume there

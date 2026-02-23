@@ -41,6 +41,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
@@ -357,6 +358,7 @@ int main(int argc, char **argv) {
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
+  auto parameters = std::make_shared<memgraph::parameters::Parameters>(data_directory / "parameters");
 
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
@@ -636,13 +638,7 @@ int main(int argc, char **argv) {
 
 #endif
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
-#ifdef MG_ENTERPRISE
-                                           ,
-                                           *auth_,
-                                           FLAGS_data_recovery_on_startup
-#endif
-  );
+  memgraph::dbms::DbmsHandler dbms_handler(db_config);
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
@@ -666,24 +662,12 @@ int main(int argc, char **argv) {
   //       We can now initialise the recovery of replication (which will include those subsystems)
   //       ReplicationHandler will handle the recovery
   auto replication_handler = memgraph::replication::ReplicationHandler{repl_state,
-                                                                       dbms_handler
-#ifdef MG_ENTERPRISE
-                                                                       ,
+                                                                       dbms_handler,
                                                                        system,
-                                                                       *auth_
-#endif
-  };
-
 #ifdef MG_ENTERPRISE
-  // MAIN or REPLICA instance
-  if (is_valid_data_instance) {
-    spdlog::trace("Starting data instance management server.");
-    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
-                                                                   replication_handler);
-    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
-    spdlog::trace("Data instance management server started.");
-  }
+                                                                       *auth_,
 #endif
+                                                                       *parameters};
 
   auto db_acc = dbms_handler.Get();
 
@@ -709,6 +693,7 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config,
       settings.get(),
+      parameters.get(),
       &dbms_handler,
       repl_state,
       system,
@@ -761,6 +746,22 @@ int main(int argc, char **argv) {
     spdlog::trace("Streams restored.");
   }
 
+#ifdef MG_ENTERPRISE
+  // MAIN or REPLICA instance
+  // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
+  // This thread takes unique lock on dbms handler and waits for storage write access
+  // Thread serving requests from DataInstanceManagementServer does the demote. Takes READ_ONLY access
+  // on all DBs and tries to acquire unique lock on replication_storage_state_ in order to clear replication
+  // storage clients.
+  if (is_valid_data_instance) {
+    spdlog::trace("Starting data instance management server.");
+    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
+                                                                   replication_handler);
+    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
+    spdlog::trace("Data instance management server started.");
+  }
+#endif
+
   ServerContext context;
   std::string service_name = "Bolt";
   if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
@@ -802,7 +803,7 @@ int main(int argc, char **argv) {
                       FLAGS_data_directory,
                       std::chrono::hours(8),
                       1);
-    telemetry->AddStorageCollector(dbms_handler, *auth_);
+    telemetry->AddStorageCollector(dbms_handler, *auth_, *parameters);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
     telemetry->AddCoordinatorCollector(coordinator_state);

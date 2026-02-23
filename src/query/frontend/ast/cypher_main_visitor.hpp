@@ -1199,6 +1199,34 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) override;
 
   /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitParameterQuery(MemgraphCypher::ParameterQueryContext *ctx) override;
+
+  /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitSetParameter(MemgraphCypher::SetParameterContext *ctx) override;
+
+  /**
+   * @return ParameterQuery*
+   */
+  /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitUnsetParameter(MemgraphCypher::UnsetParameterContext *ctx) override;
+
+  /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitShowParameters(MemgraphCypher::ShowParametersContext *ctx) override;
+
+  /**
+   * @return ParameterQuery*
+   */
+  antlrcpp::Any visitDeleteAllParameters(MemgraphCypher::DeleteAllParametersContext *ctx) override;
+
+  /**
    * @return CallSubquery*
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
@@ -1343,6 +1371,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     bool has_load_csv{false};
     bool has_load_parquet{false};
     bool has_load_jsonl{false};
+    bool has_schema_assert{false};
   };
 
   const auto &GetQueryInfo() const { return query_info_; }

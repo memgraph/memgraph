@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include "rpc/messages.hpp"
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
+#include "utils/concepts.hpp"
 #include "utils/function_traits.hpp"
 
 #include "spdlog/spdlog.h"
@@ -20,9 +22,8 @@
 namespace memgraph::rpc {
 
 template <typename T>
-concept HasDowngrade = requires(const std::remove_cvref_t<T> &res) {
-  { res.Downgrade() };
-  requires RpcMessage<T> && RpcMessage<std::remove_cvref_t<decltype(res.Downgrade())>>;
+concept HasDowngrade = utils::DowngradeableType<T> && RpcMessage<T> && requires(const std::remove_cvref_t<T> &res) {
+  requires RpcMessage<std::remove_cvref_t<decltype(res.Downgrade())>>;
 };
 
 template <RpcMessage TResponse>

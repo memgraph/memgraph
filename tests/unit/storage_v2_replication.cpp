@@ -26,6 +26,7 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
@@ -130,22 +131,18 @@ class ReplicationTest : public ::testing::Test {
 struct MinMemgraph {
   explicit MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+        parameters_{conf.durability.storage_directory},
         repl_state{ReplicationStateRootPath(conf)},
-        dbms{conf
-#ifdef MG_ENTERPRISE
-             ,
-             auth,
-             true
-#endif
-        },
+        dbms{conf},
         db_acc{dbms.Get()},
         db{*db_acc.get()},
-        repl_handler(repl_state, dbms
+        repl_handler(repl_state, dbms, system_
 #ifdef MG_ENTERPRISE
                      ,
-                     system_, auth
+                     auth
 #endif
-        ) {
+                     ,
+                     parameters_) {
   }
 
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> { return db.ReadOnlyAccess(); }
@@ -173,6 +170,7 @@ struct MinMemgraph {
 
   memgraph::auth::SynchedAuth auth;
   memgraph::system::System system_;
+  memgraph::parameters::Parameters parameters_;
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::dbms::DatabaseAccess db_acc;
@@ -1678,6 +1676,108 @@ TEST_F(ReplicationTest, SchemaReplication) {
   main.emplace(conf);  // Important to have a snapshot to recover from
   start_replica();
   EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+}
+
+TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  auto replica_store_handler = replica.repl_handler;
+  replica_store_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  const auto &reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(reg.has_value()) << (int)reg.error();
+
+  memgraph::storage::Gid v1_gid, v2_gid, v3_gid;
+  memgraph::storage::EdgeTypeId edge_type_1, edge_type_2;
+
+  // Create base vertices
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto v3 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    v3_gid = v3.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Wait for replication to catch up
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  // Transaction 1: Create edge from v1 to v2
+  {
+    auto tx1 = main.db.Access(memgraph::storage::WRITE);
+    auto v1_tx1 = tx1->FindVertex(v1_gid, View::OLD);
+    auto v2_tx1 = tx1->FindVertex(v2_gid, View::OLD);
+    ASSERT_TRUE(v1_tx1.has_value());
+    ASSERT_TRUE(v2_tx1.has_value());
+
+    edge_type_1 = tx1->NameToEdgeType("Edge1");
+    auto edge1 = tx1->CreateEdge(&*v1_tx1, &*v2_tx1, edge_type_1);
+    ASSERT_TRUE(edge1.has_value());
+
+    // Transaction 2: Create non-sequential edge from v1 to v3 (concurrent)
+    auto tx2 = main.db.Access(memgraph::storage::WRITE);
+    auto v1_tx2 = tx2->FindVertex(v1_gid, View::OLD);
+    auto v3_tx2 = tx2->FindVertex(v3_gid, View::OLD);
+    ASSERT_TRUE(v1_tx2.has_value());
+    ASSERT_TRUE(v3_tx2.has_value());
+
+    edge_type_2 = tx2->NameToEdgeType("Edge2");
+    auto edge2 = tx2->CreateEdge(&*v1_tx2, &*v3_tx2, edge_type_2);
+    ASSERT_TRUE(edge2.has_value());
+
+    // Commit tx1 first (this will create non-sequential deltas for tx2)
+    ASSERT_TRUE(tx1->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    tx1.reset();
+
+    // Commit tx2 (with non-sequential deltas)
+    ASSERT_TRUE(tx2->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    tx2.reset();
+  }
+
+  // Wait for replication to catch up
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  // Verify replica has both edges
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD);
+    ASSERT_TRUE(v1.has_value());
+
+    auto edges = v1->OutEdges(View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 2);
+
+    // Verify both edges exist
+    std::vector<memgraph::storage::EdgeTypeId> edge_types;
+    for (const auto &edge : edges->edges) {
+      edge_types.push_back(edge.EdgeType());
+    }
+    ASSERT_THAT(edge_types, UnorderedElementsAre(edge_type_1, edge_type_2));
+
+    // Verify edge destinations
+    bool found_edge1 = false, found_edge2 = false;
+    for (const auto &edge : edges->edges) {
+      if (edge.EdgeType() == edge_type_1 && edge.ToVertex().Gid() == v2_gid) {
+        found_edge1 = true;
+      }
+      if (edge.EdgeType() == edge_type_2 && edge.ToVertex().Gid() == v3_gid) {
+        found_edge2 = true;
+      }
+    }
+    ASSERT_TRUE(found_edge1) << "Edge1 (v1->v2) should exist on replica";
+    ASSERT_TRUE(found_edge2) << "Edge2 (v1->v3) should exist on replica";
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
 }
 
 TEST_F(ReplicationTest, GetTelemetryJson) {

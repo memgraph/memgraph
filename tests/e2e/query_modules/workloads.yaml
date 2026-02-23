@@ -43,3 +43,9 @@ workloads:
     proc: "tests/e2e/query_modules/query_modules/"
     args: ["query_modules/temporal_types_test.py"]
     <<: *in_memory_cluster
+
+  - name: "Vector index WITH CONFIG function test"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/query_modules/query_modules/"
+    args: ["query_modules/vector_index_config_test.py"]
+    <<: *in_memory_cluster

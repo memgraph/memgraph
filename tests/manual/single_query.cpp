@@ -44,6 +44,7 @@ int main(int argc, char *argv[]) {
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{},
                                                           nullptr,
                                                           nullptr,
+                                                          nullptr,
                                                           repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE

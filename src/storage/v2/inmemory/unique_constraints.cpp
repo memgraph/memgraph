@@ -125,55 +125,60 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     for (const auto &[i, property] : std::views::enumerate(properties)) {
       current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
     }
-  }
 
-  while (delta != nullptr) {
-    const auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts < commit_timestamp || ts == transaction.transaction_id) {
-      break;
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!vertex.has_uncommitted_non_sequential_deltas) {
+      guard.unlock();
     }
 
-    switch (delta->action) {
-      case Delta::Action::SET_PROPERTY: {
-        auto pos = FindPropertyPosition(property_array, delta->property.key);
-        if (pos) {
-          current_value_equal_to_value[*pos] = *delta->property.value == value_array[*pos];
-        }
+    while (delta != nullptr) {
+      const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+      if (ts < commit_timestamp || ts == transaction.transaction_id) {
         break;
       }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        MG_ASSERT(!deleted, "Invalid database state!");
-        deleted = true;
-        break;
-      }
-      case Delta::Action::RECREATE_OBJECT: {
-        MG_ASSERT(deleted, "Invalid database state!");
-        deleted = false;
-        break;
-      }
-      case Delta::Action::ADD_LABEL: {
-        if (delta->label.value == label) {
-          MG_ASSERT(!has_label, "Invalid database state!");
-          has_label = true;
-        }
-        break;
-      }
-      case Delta::Action::REMOVE_LABEL: {
-        if (delta->label.value == label) {
-          MG_ASSERT(has_label, "Invalid database state!");
-          has_label = false;
-        }
-        break;
-      }
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
 
-    delta = delta->next.load(std::memory_order_acquire);
+      switch (delta->action) {
+        case Delta::Action::SET_PROPERTY: {
+          auto pos = FindPropertyPosition(property_array, delta->property.key);
+          if (pos) {
+            current_value_equal_to_value[*pos] = *delta->property.value == value_array[*pos];
+          }
+          break;
+        }
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT: {
+          MG_ASSERT(!deleted, "Invalid database state!");
+          deleted = true;
+          break;
+        }
+        case Delta::Action::RECREATE_OBJECT: {
+          MG_ASSERT(deleted, "Invalid database state!");
+          deleted = false;
+          break;
+        }
+        case Delta::Action::ADD_LABEL: {
+          if (delta->label.value == label) {
+            MG_ASSERT(!has_label, "Invalid database state!");
+            has_label = true;
+          }
+          break;
+        }
+        case Delta::Action::REMOVE_LABEL: {
+          if (delta->label.value == label) {
+            MG_ASSERT(has_label, "Invalid database state!");
+            has_label = false;
+          }
+          break;
+        }
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          break;
+      }
+
+      delta = delta->next.load(std::memory_order_acquire);
+    }
   }
 
   for (size_t i = 0; i < properties.size(); ++i) {
@@ -220,75 +225,80 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
         return vertex.properties.IsPropertyEqual(property, value);
       });
     }
-  }
 
-  {
-    bool all_values_match = true;
-    for (size_t i = 0; i < values.size(); ++i) {
-      if (!current_value_equal_to_value[i]) {
-        all_values_match = false;
-        break;
-      }
-    }
-    if (!deleted && has_label && all_values_match) {
-      return true;
-    }
-  }
-
-  while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts < timestamp) {
-      break;
-    }
-    switch (delta->action) {
-      case Delta::Action::ADD_LABEL:
-        if (delta->label.value == label) {
-          MG_ASSERT(!has_label, "Invalid database state!");
-          has_label = true;
-        }
-        break;
-      case Delta::Action::REMOVE_LABEL:
-        if (delta->label.value == label) {
-          MG_ASSERT(has_label, "Invalid database state!");
-          has_label = false;
-        }
-        break;
-      case Delta::Action::SET_PROPERTY: {
-        auto pos = FindPropertyPosition(property_array, delta->property.key);
-        if (pos) {
-          current_value_equal_to_value[*pos] = *delta->property.value == values[*pos];
-        }
-        break;
-      }
-      case Delta::Action::RECREATE_OBJECT: {
-        MG_ASSERT(deleted, "Invalid database state!");
-        deleted = false;
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        MG_ASSERT(!deleted, "Invalid database state!");
-        deleted = true;
-        break;
-      }
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
+    // If vertex has non-sequential deltas, hold lock while applying them
+    if (!vertex.has_uncommitted_non_sequential_deltas) {
+      guard.unlock();
     }
 
-    bool all_values_match = true;
-    for (size_t i = 0; i < values.size(); ++i) {
-      if (!current_value_equal_to_value[i]) {
-        all_values_match = false;
-        break;
+    {
+      bool all_values_match = true;
+      for (size_t i = 0; i < values.size(); ++i) {
+        if (!current_value_equal_to_value[i]) {
+          all_values_match = false;
+          break;
+        }
+      }
+      if (!deleted && has_label && all_values_match) {
+        return true;
       }
     }
-    if (!deleted && has_label && all_values_match) {
-      return true;
+
+    while (delta != nullptr) {
+      auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+      if (ts < timestamp) {
+        break;
+      }
+      switch (delta->action) {
+        case Delta::Action::ADD_LABEL:
+          if (delta->label.value == label) {
+            MG_ASSERT(!has_label, "Invalid database state!");
+            has_label = true;
+          }
+          break;
+        case Delta::Action::REMOVE_LABEL:
+          if (delta->label.value == label) {
+            MG_ASSERT(has_label, "Invalid database state!");
+            has_label = false;
+          }
+          break;
+        case Delta::Action::SET_PROPERTY: {
+          auto pos = FindPropertyPosition(property_array, delta->property.key);
+          if (pos) {
+            current_value_equal_to_value[*pos] = *delta->property.value == values[*pos];
+          }
+          break;
+        }
+        case Delta::Action::RECREATE_OBJECT: {
+          MG_ASSERT(deleted, "Invalid database state!");
+          deleted = false;
+          break;
+        }
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT: {
+          MG_ASSERT(!deleted, "Invalid database state!");
+          deleted = true;
+          break;
+        }
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          break;
+      }
+
+      bool all_values_match = true;
+      for (size_t i = 0; i < values.size(); ++i) {
+        if (!current_value_equal_to_value[i]) {
+          all_values_match = false;
+          break;
+        }
+      }
+      if (!deleted && has_label && all_values_match) {
+        return true;
+      }
+      delta = delta->next.load(std::memory_order_acquire);
     }
-    delta = delta->next.load(std::memory_order_acquire);
   }
   return false;
 }

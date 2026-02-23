@@ -3,6 +3,8 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
+RUNTIME=$([ "$(uname -m)" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64")
+
 # check if dotnet-sdk-2.1 is installed
 for i in dotnet; do
   if ! which $i >/dev/null; then
@@ -16,7 +18,7 @@ for i in *; do
     continue
   fi
   pushd $i
-  dotnet publish -c release --self-contained --runtime linux-x64 --framework netcoreapp2.1 -o build/
+  dotnet publish -c release --self-contained --runtime $RUNTIME --framework netcoreapp2.1 -o build/
   ./build/$i
   popd
 done;

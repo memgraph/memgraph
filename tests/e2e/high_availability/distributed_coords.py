@@ -19,26 +19,26 @@ from functools import partial
 import interactive_mg_runner
 import pytest
 from common import (
-  connect,
-  execute_and_fetch_all,
-  find_instance_and_assert_instances,
-  get_data_path,
-  get_logs_path,
-  get_vertex_count,
-  has_leader,
-  has_main,
-  show_instances,
-  show_replicas,
-  update_tuple_value,
-  wait_until_main_writeable_assert_replica_down,
+    connect,
+    execute_and_fetch_all,
+    find_instance_and_assert_instances,
+    get_data_path,
+    get_logs_path,
+    get_vertex_count,
+    has_leader,
+    has_main,
+    show_instances,
+    show_replicas,
+    update_tuple_value,
+    wait_until_main_writeable_assert_replica_down,
 )
 from mg_utils import (
-  mg_sleep_and_assert,
-  mg_sleep_and_assert_collection,
-  mg_sleep_and_assert_eval_function,
-  mg_sleep_and_assert_multiple,
-  mg_sleep_and_assert_until_role_change,
-  wait_for_status_change,
+    mg_sleep_and_assert,
+    mg_sleep_and_assert_collection,
+    mg_sleep_and_assert_eval_function,
+    mg_sleep_and_assert_multiple,
+    mg_sleep_and_assert_until_role_change,
+    wait_for_status_change,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -2003,7 +2003,10 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down(tes
             "'localhost:10050', 'replication_server': 'localhost:10051'};",
         )
 
-    assert "Couldn't register replica instance since coordinator is not a leader!" in str(e.value)
+    assert (
+        "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to find out what happened!"
+        in str(e.value)
+    )
 
     # 6
 
@@ -2339,7 +2342,7 @@ def test_coordinator_not_leader_registration_does_not_work(test_name):
         )
 
     assert (
-        "Couldn't register replica instance since coordinator is not a leader! Current leader is coordinator with id 3 with bolt socket address localhost:7692"
+        "Request forwarded to the leader but leader failed with request processing! Check logs on the leader to find out what happened!"
         == str(e.value)
     )
 
@@ -3112,6 +3115,7 @@ def test_coord_settings(test_name):
     sync_failover_key = "sync_failover_only"
     max_failover_replica_lag = "max_failover_replica_lag"
     max_replica_read_lag = "max_replica_read_lag"
+    deltas_batch_progress_size = "deltas_batch_progress_size"
 
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
 
@@ -3119,11 +3123,13 @@ def test_coord_settings(test_name):
     assert sync_failover_key in settings, f"Missing setting key: {sync_failover_key}"
     assert max_failover_replica_lag in settings, f"Missing setting key: {max_failover_replica_lag}"
     assert max_replica_read_lag in settings, f"Missing setting key: {max_replica_read_lag}"
+    assert deltas_batch_progress_size in settings, f"Missing setting key: {deltas_batch_progress_size}"
 
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "true"
     assert settings[max_failover_replica_lag] == f"{2**64-1}"
     assert settings[max_replica_read_lag] == f"{2**64-1}"
+    assert settings[deltas_batch_progress_size] == "100000"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'true'")
 
@@ -3143,26 +3149,31 @@ def test_coord_settings(test_name):
     assert settings[sync_failover_key] == "true"
     assert settings[max_failover_replica_lag] == f"{2**64-1}"
     assert settings[max_replica_read_lag] == f"{2**64-1}"
+    assert settings[deltas_batch_progress_size] == "100000"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'sync_failover_only' to 'false'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'false'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_failover_replica_lag' to '25'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_replica_read_lag' to '10'")
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'deltas_batch_progress_size' to '10000'")
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
+    assert settings[deltas_batch_progress_size] == "10000"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
+    assert settings[deltas_batch_progress_size] == "10000"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
     assert settings[max_failover_replica_lag] == "25"
     assert settings[max_replica_read_lag] == "10"
+    assert settings[deltas_batch_progress_size] == "10000"
 
 
 def test_update_config(test_name):

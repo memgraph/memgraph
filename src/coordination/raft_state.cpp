@@ -34,6 +34,147 @@
 namespace {
 constexpr std::string_view kStateMgrDurabilityPath = "network";
 constexpr std::string_view kLogStoreDurabilityPath = "logs";
+
+void LogRaftResultCode(nuraft::cmd_result_code const raft_code) {
+  switch (raft_code) {
+    using enum nuraft::cmd_result_code;
+    case OK: {
+      spdlog::info("Result is OK");
+      break;
+    }
+    case CANCELLED: {
+      spdlog::error("The request was cancelled");
+      break;
+    }
+    case TIMEOUT: {
+      spdlog::error("The request timeouted");
+      break;
+    }
+    case NOT_LEADER: {
+      spdlog::error("Request failed because the coordinator isn't the leader anymore");
+      break;
+    }
+    case BAD_REQUEST: {
+      spdlog::error("Bad request was sent");
+      break;
+    }
+    case SERVER_ALREADY_EXISTS: {
+      spdlog::error("Request failed because server already exists");
+      break;
+    }
+    case CONFIG_CHANGING: {
+      spdlog::error("Request failed because config is changing");
+      break;
+    }
+    case SERVER_IS_JOINING: {
+      spdlog::error("Request failed because server is joining");
+      break;
+    }
+    case SERVER_NOT_FOUND: {
+      spdlog::error("Request failed because server is not found");
+      break;
+    }
+    case CANNOT_REMOVE_LEADER: {
+      spdlog::error("Request failed because the leader cannot be removed");
+      break;
+    }
+    case SERVER_IS_LEAVING: {
+      spdlog::error("Request failed because server is leaving");
+      break;
+    }
+    case TERM_MISMATCH: {
+      spdlog::error("Request failed because of a term mismatch");
+      break;
+    }
+    case RESULT_NOT_EXIST_YET: {
+      spdlog::error("Request failed because the result doesn't exist yet");
+      break;
+    }
+    case FAILED: {
+      spdlog::error("Generic request failure");
+      break;
+    }
+    default: {
+      std::unreachable();
+    }
+  }
+}
+
+auto RaftResultToRemoveStatus(nuraft::cmd_result_code raft_code)
+    -> memgraph::coordination::RemoveCoordinatorInstanceStatus {
+  switch (raft_code) {
+    using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;
+    using enum nuraft::cmd_result_code;
+    case OK:
+      return SUCCESS;
+    case CANCELLED:
+      return RAFT_CANCELLED;
+    case TIMEOUT:
+      return RAFT_TIMEOUT;
+    case NOT_LEADER:
+      return RAFT_NOT_LEADER;
+    case BAD_REQUEST:
+      return RAFT_BAD_REQUEST;
+    case SERVER_ALREADY_EXISTS:
+      return RAFT_SERVER_ALREADY_EXISTS;
+    case CONFIG_CHANGING:
+      return RAFT_CONFIG_CHANGING;
+    case SERVER_IS_JOINING:
+      return RAFT_SERVER_IS_JOINING;
+    case SERVER_NOT_FOUND:
+      return RAFT_SERVER_NOT_FOUND;
+    case CANNOT_REMOVE_LEADER:
+      return RAFT_CANNOT_REMOVE_LEADER;
+    case SERVER_IS_LEAVING:
+      return RAFT_SERVER_IS_LEAVING;
+    case TERM_MISMATCH:
+      return RAFT_TERM_MISMATCH;
+    case RESULT_NOT_EXIST_YET:
+      return RAFT_RESULT_NOT_EXIST_YET;
+    case FAILED:
+      return RAFT_FAILED;
+    default:
+      std::unreachable();
+  }
+}
+
+auto RaftResultToAddStatus(nuraft::cmd_result_code raft_code) -> memgraph::coordination::AddCoordinatorInstanceStatus {
+  switch (raft_code) {
+    using enum memgraph::coordination::AddCoordinatorInstanceStatus;
+    using enum nuraft::cmd_result_code;
+    case OK:
+      return SUCCESS;
+    case CANCELLED:
+      return RAFT_CANCELLED;
+    case TIMEOUT:
+      return RAFT_TIMEOUT;
+    case NOT_LEADER:
+      return RAFT_NOT_LEADER;
+    case BAD_REQUEST:
+      return RAFT_BAD_REQUEST;
+    case SERVER_ALREADY_EXISTS:
+      return RAFT_SERVER_ALREADY_EXISTS;
+    case CONFIG_CHANGING:
+      return RAFT_CONFIG_CHANGING;
+    case SERVER_IS_JOINING:
+      return RAFT_SERVER_IS_JOINING;
+    case SERVER_NOT_FOUND:
+      return RAFT_SERVER_NOT_FOUND;
+    case CANNOT_REMOVE_LEADER:
+      return RAFT_CANNOT_REMOVE_LEADER;
+    case SERVER_IS_LEAVING:
+      return RAFT_SERVER_IS_LEAVING;
+    case TERM_MISMATCH:
+      return RAFT_TERM_MISMATCH;
+    case RESULT_NOT_EXIST_YET:
+      return RAFT_RESULT_NOT_EXIST_YET;
+    case FAILED:
+      return RAFT_FAILED;
+    default:
+      std::unreachable();
+  }
+}
+
 }  // namespace
 
 namespace memgraph::coordination {
@@ -272,19 +413,14 @@ auto RaftState::GetBoltServer(int32_t coordinator_id) const -> std::optional<std
   return target_coordinator->bolt_server;
 }
 
-auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void {
-  spdlog::trace("Removing coordinator instance {}.", coordinator_id);
-
+auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   if (const auto cmd_result = raft_server_->remove_srv(coordinator_id);
-      cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
-    spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
-  } else {
-    throw RaftRemoveServerException(
-        "Failed to accept request for removing coordinator {} from the cluster with the error code {}",
-        coordinator_id,
-        static_cast<int>(cmd_result->get_result_code()));
+      cmd_result->get_result_code() != nuraft::cmd_result_code::OK) {
+    LogRaftResultCode(cmd_result->get_result_code());
+    return RaftResultToRemoveStatus(cmd_result->get_result_code());
   }
 
+  spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter(max_tries);
@@ -293,19 +429,21 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
     if (const auto server_config = raft_server_->get_srv_config(coordinator_id); !server_config) {
-      spdlog::trace("Coordinator with id {} removed from the cluster", coordinator_id);
+      spdlog::info("Coordinator with id {} removed from the cluster", coordinator_id);
       removed = true;
       break;
     }
   }
 
   if (!removed) {
-    throw RaftRemoveServerException(
+    spdlog::error(
         "Failed to remove coordinator {} from the cluster in {}ms", coordinator_id, max_tries * waiting_period);
+    return RemoveCoordinatorInstanceStatus::LOCAL_TIMEOUT;
   }
+  return RemoveCoordinatorInstanceStatus::SUCCESS;
 }
 
-auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void {
+auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus {
   spdlog::trace(
       "Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id, coordinator_id_);
 
@@ -319,13 +457,13 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
       config.coordinator_id, 0, coordinator_server, nlohmann::json(coord_instance_aux).dump(), false);
 
   if (const auto cmd_result = raft_server_->add_srv(srv_config_to_add);
-      cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
-    spdlog::info("Request to add server {} to the cluster accepted", coordinator_server);
-  } else {
-    throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
-                                 coordinator_server,
-                                 static_cast<int>(cmd_result->get_result_code()));
+      cmd_result->get_result_code() != nuraft::cmd_result_code::OK) {
+    LogRaftResultCode(cmd_result->get_result_code());
+    return RaftResultToAddStatus(cmd_result->get_result_code());
   }
+
+  spdlog::info("Request to add server {} to the cluster accepted", coordinator_server);
+
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter(max_tries);
@@ -334,11 +472,11 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
     std::this_thread::sleep_for(waiting_period);
     if (const auto server_config = raft_server_->get_srv_config(config.coordinator_id)) {
       spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
-      return;
+      return AddCoordinatorInstanceStatus::SUCCESS;
     }
   }
-  throw RaftAddServerException(
-      "Failed to add server {} to the cluster in {}ms", coordinator_server, max_tries * waiting_period);
+  spdlog::error("Failed to add server {} to the cluster in {}ms", coordinator_server, max_tries * waiting_period);
+  return AddCoordinatorInstanceStatus::LOCAL_TIMEOUT;
 }
 
 auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds {
@@ -450,6 +588,8 @@ auto RaftState::GetSyncFailoverOnly() const -> bool { return state_machine_->Get
 auto RaftState::GetMaxFailoverReplicaLag() const -> uint64_t { return state_machine_->GetMaxFailoverReplicaLag(); }
 
 auto RaftState::GetMaxReplicaReadLag() const -> uint64_t { return state_machine_->GetMaxReplicaReadLag(); }
+
+auto RaftState::GetDeltasBatchProgressSize() const -> uint64_t { return state_machine_->GetDeltasBatchProgressSize(); }
 
 }  // namespace memgraph::coordination
 

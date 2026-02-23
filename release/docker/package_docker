@@ -98,6 +98,8 @@ mkdir -p "${working_dir}/openssl"
 cp -v ../../build/openssl*.deb "${working_dir}/openssl"
 cp -v ../../build/libssl3t64*.deb "${working_dir}/openssl"
 
+cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-module-requirements.txt"
+
 extension="${package_path##*.}"
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
 echo "Dockerfile: $dockerfile_path"

@@ -239,15 +239,17 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
   "${MG_TOOLCHAIN_ROOT}/include"
 )
 
-macro(build_mgconsole)
-    add_external_project(mgconsole
-      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
-      CMAKE_ARGS
-      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
-      BUILD_COMMAND $(MAKE) mgconsole)
-    add_custom_target(mgconsole DEPENDS mgconsole-proj)
-endmacro()
-mg_build_if_needed(build_mgconsole "mgconsole")
+# Build mgconsole in isolation using the build script to avoid target conflicts
+# with memgraph's dependencies (e.g., gflags)
+# Default to v1.5.0 if not specified (used by install_mgconsole.cmake)
+if(NOT DEFINED MGCONSOLE_GIT_TAG)
+    set(MGCONSOLE_GIT_TAG "v1.5.0")
+endif()
+
+# Create dummy targets for build-time dependencies
+# mgconsole will be built during install/packaging stage
+add_custom_target(mgconsole-proj)
+add_custom_target(mgconsole)
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)

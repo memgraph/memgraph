@@ -775,6 +775,36 @@ package_memgraph() {
   if [[ "$os" == "centos-10" ]]; then
     docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
   fi
+
+  # check for mgconsole inside package
+  if [[ "$os" =~ ^"ubuntu".* || "$os" =~ ^"debian".* ]]; then
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.deb")"
+    check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
+  else
+    package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph*.rpm")"
+    check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
+  fi
+  if ! grep -q "mgconsole" <<< "$check_output"; then
+    echo "Error: mgconsole not found in package"
+    echo "Package: $package_name"
+    echo "Check output: $check_output"
+    exit 1
+  fi
+  echo "mgconsole found in package"
+
+  # check that the package has the required licenses
+  licenses=(
+    "MEL.pdf"
+    "BSL.txt"
+    "APL.txt"
+  )
+  for license in "${licenses[@]}"; do
+    if ! grep -q "$license" <<< "$check_output"; then
+      echo "Error: $license license not found in package"
+      exit 1
+    fi
+  done
+  echo "Package has the required licenses"
 }
 
 package_docker() {
@@ -1055,6 +1085,13 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run.sh'
     ;;
     drivers-high-availability)
+      copy_report() {
+        status=$?
+        echo "Copying test report to host..."
+        docker cp $build_container:$MGBUILD_ROOT_DIR/tests/drivers/test_report.tar.gz $PROJECT_ROOT/tests/drivers/test_report.tar.gz || true
+        exit $status
+      }
+      trap copy_report EXIT INT TERM
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run_cluster.sh'
     ;;
     integration)

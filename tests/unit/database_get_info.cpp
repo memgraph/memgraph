@@ -78,7 +78,7 @@ class InfoTest : public testing::Test {
 
   void SetUp() {
 #ifdef MG_ENTERPRISE
-    dbms_handler_.emplace(config, auth_, false);
+    dbms_handler_.emplace(config);
     auto db_acc = dbms_handler_->Get();  // Default db
     if (std::is_same_v<ConfigType, TenantConfig>) {
       constexpr std::string_view db_name = "test_db";
@@ -109,9 +109,6 @@ class InfoTest : public testing::Test {
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 
-#ifdef MG_ENTERPRISE
-  memgraph::auth::SynchedAuth auth_{storage_directory, memgraph::auth::Auth::Config {}};
-#endif
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};

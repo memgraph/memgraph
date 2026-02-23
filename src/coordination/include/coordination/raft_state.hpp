@@ -16,6 +16,7 @@
 #include <optional>
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "coordination/utils.hpp"
@@ -64,8 +65,8 @@ class RaftState {
   auto InstanceName() const -> std::string;
 
   // Only called when adding new coordinator instance, not itself.
-  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void;
-  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> void;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> int32_t;
@@ -99,6 +100,7 @@ class RaftState {
   auto GetSyncFailoverOnly() const -> bool;
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
   auto GetMaxReplicaReadLag() const -> uint64_t;
+  auto GetDeltasBatchProgressSize() const -> uint64_t;
 
  private:
   uint16_t coordinator_port_;

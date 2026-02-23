@@ -1,3 +1,44 @@
+FROM ubuntu:24.04 AS python-base
+# This stage will create the python venv used for the runtime in `prod`
+ARG CUSTOM_MIRROR=false
+ARG TARGETARCH
+ARG CUDA=false
+ARG CACHE_PRESENT=false
+ENV DEBIAN_FRONTEND=noninteractive
+
+USER root
+
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  apt-get update && apt-get install -y \
+  python3 libpython3.12 python3-pip adduser curl \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  fi && \
+  groupadd -g 103 memgraph && \
+  useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
+
+COPY python/requirements.txt /tmp/requirements.txt
+COPY python/requirements-gpu.txt /tmp/requirements-gpu.txt
+COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
+
+USER memgraph
+COPY --chown=memgraph:memgraph install_python_requirements.sh /home/memgraph/install_python_requirements.sh
+COPY --chown=memgraph:memgraph ./wheels /tmp/wheels
+RUN cd $HOME && \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+      pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
+    fi && \
+    chmod +x /home/memgraph/install_python_requirements.sh && \
+    ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda ${CUDA} --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
+    rm /home/memgraph/install_python_requirements.sh && \
+    rm -rf /tmp/wheels
+
 FROM ubuntu:24.04 AS base
 
 USER root
@@ -15,60 +56,45 @@ ARG CACHE_PRESENT=false
 ARG MEMGRAPH_PACKAGE
 
 # copy custom openssl packages, runtime install script and install requirements
-COPY openssl/ /tmp/openssl/
-COPY install_runtime_requirements.sh /install_runtime_requirements.sh
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source="./memgraph.deb",target=/memgraph.deb,ro \
+  --mount=type=bind,source="./openssl",target=/openssl,ro \
+  --mount=type=bind,source="./install_runtime_requirements.sh",target=/install_runtime_requirements.sh,ro \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
-  if test -n "$(find /tmp/openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
+  if test -n "$(find /openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
     apt-get update && apt-get install -y \
-    /tmp/openssl/*.deb \
-    --no-install-recommends && \
-    rm -rf /tmp/*; \
+    /openssl/*.deb \
+    --no-install-recommends; \
   fi && \
-  chmod +x /install_runtime_requirements.sh && \
+  apt-get install adduser -y && \
   /install_runtime_requirements.sh --ci --target-arch ${TARGETARCH} \
     --py-version ${PY_VERSION} --cuda ${CUDA} && \
-  rm /install_runtime_requirements.sh && \
+  groupadd -g 103 memgraph && \
+  useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
+  # Ubuntu Docker images exclude /usr/share/doc/* but only include copyright and changelog files
+  # Add an exception for memgraph to include all files in /usr/share/doc/memgraph/
+  if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+    echo "" >> /etc/dpkg/dpkg.cfg.d/excludes && \
+    echo "# Include all memgraph documentation files (licenses, etc.)" >> /etc/dpkg/dpkg.cfg.d/excludes && \
+    echo "path-include=/usr/share/doc/memgraph/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
+  fi && \
+  dpkg -i memgraph.deb && \
+  apt remove adduser -y && \
+  apt autoremove -y && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
-
-# install memgraph
-COPY memgraph.deb .
-
-# fix `memgraph` UID and GID for compatibility with previous Debian releases
-RUN groupadd -g 103 memgraph && \
-    useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph && \
-    dpkg -i memgraph.deb && \
-    rm memgraph.deb
 
 ENV LD_LIBRARY_PATH=/usr/lib/memgraph/query_modules
 
 # Copy modules
 RUN mkdir -p /usr/lib/memgraph/query_modules/
-COPY mage.tar.gz /tmp/mage.tar.gz
-RUN tar -xzvf /tmp/mage.tar.gz -C /usr/lib/memgraph/ && rm /tmp/mage.tar.gz
-
-# copy script to convert to dev container
-COPY make-dev-container.sh /make-dev-container.sh
-COPY python/requirements.txt /tmp/requirements.txt
-COPY python/requirements-gpu.txt /tmp/requirements-gpu.txt
-COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
-
-USER memgraph
-COPY --chown=memgraph:memgraph install_python_requirements.sh /home/memgraph/install_python_requirements.sh
-COPY --chown=memgraph:memgraph ./wheels /tmp/wheels
-RUN cd $HOME && \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-      pip install --no-cache-dir /tmp/wheels/pymgclient-*.whl --break-system-packages; \
-    fi && \
-    chmod +x /home/memgraph/install_python_requirements.sh && \
-    ./install_python_requirements.sh --arch ${TARGETARCH} --ci --cuda ${CUDA} --cache-present ${CACHE_PRESENT} --wheel-cache-dir /tmp/wheels && \
-    rm /home/memgraph/install_python_requirements.sh && \
-    rm -rf /tmp/wheels
+RUN --mount=type=bind,source="./mage.tar.gz",target=/mage.tar.gz,ro \
+  tar -xzvf /mage.tar.gz -C /usr/lib/memgraph/
 
 FROM base AS prod
 
@@ -82,6 +108,8 @@ ENV BUILD_TYPE=${BUILD_TYPE}
 ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
+
+COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
 USER memgraph
 EXPOSE 7687
@@ -103,6 +131,11 @@ ENV PY_VERSION=${PY_VERSION_DEFAULT}
 ENV MEMGRAPH_REF=${MEMGRAPH_REF}
 ARG CUSTOM_MIRROR
 
+COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
+
+# copy script to convert to dev container
+COPY make-dev-container.sh /make-dev-container.sh
+
 # Add gdb
 RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
   if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
@@ -121,8 +154,8 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
 COPY --chown=memgraph:memgraph ./ /mage/
 
 # Copy heaptrack and install it properly
-COPY heaptrack /tmp/heaptrack
-RUN cp -vr /tmp/heaptrack/* /usr/ && rm -rf /tmp/heaptrack
+RUN --mount=type=bind,source="./heaptrack",target=/heaptrack,ro \
+  cp -vr /heaptrack/* /usr/
 
 # Copy script from Memgraph repo to run Memgraph with GDB - override the entrypoint to use it
 COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh

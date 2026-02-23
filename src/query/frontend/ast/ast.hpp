@@ -2368,6 +2368,8 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+using ConfigMap = std::unordered_map<Expression *, Expression *>;
+
 class VectorIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -2384,7 +2386,7 @@ class VectorIndexQuery : public memgraph::query::Query {
   std::string index_name_;
   memgraph::query::LabelIx label_;
   memgraph::query::PropertyIx property_;
-  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+  std::variant<ConfigMap, Expression *> config_;
 
   VectorIndexQuery *Clone(AstStorage *storage) const override {
     VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
@@ -2392,20 +2394,29 @@ class VectorIndexQuery : public memgraph::query::Query {
     object->index_name_ = index_name_;
     object->label_ = storage->GetLabelIx(label_.name);
     object->property_ = storage->GetPropertyIx(property_.name);
-    for (const auto &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
-    }
+    object->config_ =
+        std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
+                                       ConfigMap cloned;
+                                       for (const auto &[key, value] : map) {
+                                         cloned[key->Clone(storage)] = value->Clone(storage);
+                                       }
+                                       return cloned;
+                                     },
+                                     [storage](Expression *expr) -> std::variant<ConfigMap, Expression *> {
+                                       return expr ? expr->Clone(storage) : nullptr;
+                                     }},
+                   config_);
     return object;
   }
 
  protected:
   VectorIndexQuery(Action action, std::string index_name, LabelIx label, PropertyIx property,
-                   std::unordered_map<Expression *, Expression *> configs)
+                   std::variant<ConfigMap, Expression *> config)
       : action_(action),
         index_name_(std::move(index_name)),
         label_(std::move(label)),
         property_(std::move(property)),
-        configs_(std::move(configs)) {}
+        config_(std::move(config)) {}
 
  private:
   friend class AstStorage;
@@ -2424,26 +2435,35 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   std::string index_name_;
   memgraph::query::EdgeTypeIx edge_type_;
   memgraph::query::PropertyIx property_;
-  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+  std::variant<ConfigMap, Expression *> config_;
 
   CreateVectorEdgeIndexQuery *Clone(AstStorage *storage) const override {
     CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
     object->index_name_ = index_name_;
     object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
     object->property_ = storage->GetPropertyIx(property_.name);
-    for (const auto &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
-    }
+    object->config_ =
+        std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
+                                       ConfigMap cloned;
+                                       for (const auto &[key, value] : map) {
+                                         cloned[key->Clone(storage)] = value->Clone(storage);
+                                       }
+                                       return cloned;
+                                     },
+                                     [storage](Expression *expr) -> std::variant<ConfigMap, Expression *> {
+                                       return expr ? expr->Clone(storage) : nullptr;
+                                     }},
+                   config_);
     return object;
   }
 
  protected:
   CreateVectorEdgeIndexQuery(std::string index_name, EdgeTypeIx edge_type, PropertyIx property,
-                             std::unordered_map<Expression *, Expression *> configs)
+                             std::variant<ConfigMap, Expression *> config)
       : index_name_(std::move(index_name)),
         edge_type_(std::move(edge_type)),
         property_(std::move(property)),
-        configs_(std::move(configs)) {}
+        config_(std::move(config)) {}
 
  private:
   friend class AstStorage;
@@ -3241,7 +3261,7 @@ class CoordinatorQuery : public memgraph::query::Query {
 
   Action action_;
   std::string instance_name_{};
-  std::unordered_map<Expression *, Expression *> configs_;
+  ConfigMap configs_;
   Expression *coordinator_id_{nullptr};
   SyncMode sync_mode_;
   Expression *setting_name_{nullptr};
@@ -3394,7 +3414,7 @@ class LoadCsv : public memgraph::query::Clause {
   memgraph::query::Expression *quote_{nullptr};
   memgraph::query::Expression *nullif_{nullptr};
   memgraph::query::Identifier *row_var_{nullptr};
-  std::unordered_map<Expression *, Expression *> configs_;
+  ConfigMap configs_;
 
   LoadCsv *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadCsv>();
@@ -3444,7 +3464,7 @@ class LoadParquet : public Clause {
   }
 
   Expression *file_;
-  std::unordered_map<Expression *, Expression *> configs_;
+  ConfigMap configs_;
   Identifier *row_var_{nullptr};
 
   LoadParquet *Clone(AstStorage *storage) const override {
@@ -3483,7 +3503,7 @@ class LoadJsonl : public Clause {
 
   Expression *file_;
   Identifier *row_var_{nullptr};
-  std::unordered_map<Expression *, Expression *> configs_;
+  ConfigMap configs_;
 
   LoadJsonl *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadJsonl>();
@@ -3650,7 +3670,7 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
   }
 
   Expression *snapshot_;
-  std::unordered_map<Expression *, Expression *> configs_;
+  ConfigMap configs_;
   bool force_;
 };
 
@@ -3717,8 +3737,8 @@ class StreamQuery : public memgraph::query::Query {
   std::string consumer_group_;
   memgraph::query::Expression *bootstrap_servers_{nullptr};
   memgraph::query::Expression *service_url_{nullptr};
-  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
-  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> credentials_;
+  ConfigMap configs_;
+  ConfigMap credentials_;
 
   StreamQuery *Clone(AstStorage *storage) const override {
     StreamQuery *object = storage->Create<StreamQuery>();
@@ -3776,6 +3796,49 @@ class SettingQuery : public memgraph::query::Query {
     object->action_ = action_;
     object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
     object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class ParameterQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action : uint8_t { SET_PARAMETER, UNSET_PARAMETER, SHOW_PARAMETERS, DELETE_ALL_PARAMETERS };
+
+  ParameterQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::ParameterQuery::Action action_;
+  std::string parameter_name_;
+  /// SET parameter value: either a single expression (literal or parameter) or a config-style map (like WITH CONFIG).
+  std::variant<Expression *, std::unordered_map<Expression *, Expression *>> parameter_value_{
+      static_cast<Expression *>(nullptr)};
+
+  ParameterQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ParameterQuery>();
+    object->action_ = action_;
+    object->parameter_name_ = parameter_name_;
+    object->parameter_value_ = std::visit(
+        [storage](auto &&arg) -> std::variant<Expression *, std::unordered_map<Expression *, Expression *>> {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, Expression *>) {
+            return arg ? arg->Clone(storage) : nullptr;
+          } else {
+            std::unordered_map<Expression *, Expression *> cloned;
+            for (const auto &[k, v] : arg) {
+              cloned[k->Clone(storage)] = v->Clone(storage);
+            }
+            return cloned;
+          }
+        },
+        parameter_value_);
     return object;
   }
 

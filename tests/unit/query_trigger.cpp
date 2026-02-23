@@ -28,8 +28,6 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/exceptions.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 namespace {
 const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
     memgraph::query::TriggerEventType::ANY,

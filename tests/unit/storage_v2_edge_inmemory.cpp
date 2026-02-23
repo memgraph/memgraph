@@ -18,7 +18,6 @@
 #include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
 
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {};
@@ -5411,4 +5410,122 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
   ASSERT_EQ(*edge->GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue("value"));
 
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateNonSequentialOperations) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
+  memgraph::storage::Gid gid_v1, gid_v2;
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    gid_v1 = v1.Gid();
+    gid_v2 = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc1 = store->Access(memgraph::storage::WRITE);
+  auto acc2 = store->Access(memgraph::storage::WRITE);
+
+  auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
+  auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto v2_tx2 = acc2->FindVertex(gid_v2, memgraph::storage::View::NEW);
+  ASSERT_TRUE(v1_tx1 && v2_tx1 && v1_tx2 && v2_tx2);
+
+  auto et1 = acc1->NameToEdgeType("Edge1");
+  auto et2 = acc2->NameToEdgeType("Edge2");
+  auto et3 = acc2->NameToEdgeType("Edge3");
+
+  auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et1);
+  ASSERT_TRUE(edge1.has_value());
+
+  auto edge2 = acc2->CreateEdge(&*v1_tx2, &*v2_tx2, et2);
+  ASSERT_TRUE(edge2.has_value());
+
+  auto edge3 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et3);
+  ASSERT_TRUE(edge3.has_value());
+
+  ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+TEST_P(StorageEdgeTest, NonSequentialOperationsOnCurrentTransactionsAreSerializationErrors) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
+  memgraph::storage::Gid gid_v1, gid_v2;
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    gid_v1 = v1.Gid();
+    gid_v2 = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc1 = store->Access(memgraph::storage::WRITE);
+  auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
+  ASSERT_TRUE(v1_tx1 && v2_tx1);
+  auto et = acc1->NameToEdgeType("Edge");
+  auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et);
+  ASSERT_TRUE(edge1.has_value());
+
+  auto acc2 = store->Access(memgraph::storage::WRITE);
+  auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto label = acc2->NameToLabel("Label");
+  auto label_result = v1_tx2->AddLabel(label);
+  EXPECT_FALSE(label_result.has_value());
+  EXPECT_EQ(label_result.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
+}
+
+TEST_P(StorageEdgeTest, OnlyNonSequentialOperationsCanBePerformedWhenHeadOperationIsNonSequential) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
+  memgraph::storage::Gid gid_v1, gid_v2, gid_v3;
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto v3 = acc->CreateVertex();
+    gid_v1 = v1.Gid();
+    gid_v2 = v2.Gid();
+    gid_v3 = v3.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc1 = store->Access(memgraph::storage::WRITE);
+  auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
+  ASSERT_TRUE(v1_tx1 && v2_tx1);
+
+  auto et1 = acc1->NameToEdgeType("Edge1");
+  auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et1);
+  ASSERT_TRUE(edge1.has_value());
+
+  auto acc2 = store->Access(memgraph::storage::WRITE);
+  auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto v3_tx2 = acc2->FindVertex(gid_v3, memgraph::storage::View::NEW);
+  ASSERT_TRUE(v1_tx2 && v3_tx2);
+
+  auto et2 = acc2->NameToEdgeType("Edge2");
+  auto edge2 = acc2->CreateEdge(&*v1_tx2, &*v3_tx2, et2);
+  ASSERT_TRUE(edge2.has_value());
+
+  auto et3 = acc2->NameToEdgeType("Edge3");
+  auto v2_tx2 = acc2->FindVertex(gid_v2, memgraph::storage::View::NEW);
+  ASSERT_TRUE(v2_tx2);
+  auto edge3 = acc2->CreateEdge(&*v1_tx2, &*v2_tx2, et3);
+  ASSERT_TRUE(edge3.has_value());
+
+  auto label = acc2->NameToLabel("Label");
+  auto label_result = v1_tx2->AddLabel(label);
+  EXPECT_FALSE(label_result.has_value());
+  EXPECT_EQ(label_result.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
+
+  ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }

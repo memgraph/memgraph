@@ -21,8 +21,6 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
-
 class ClearingOldDiskDataTest : public ::testing::Test {
  public:
   const std::string testSuite = "clearing_old_disk_data";

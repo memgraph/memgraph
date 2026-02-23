@@ -175,6 +175,7 @@ class TTLFixture : public ::testing::Test {
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{},
                                                            nullptr,
                                                            nullptr,
+                                                           nullptr,
                                                            repl_state,
                                                            system_state,
 #ifdef MG_ENTERPRISE

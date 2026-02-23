@@ -146,11 +146,12 @@
   GenerateHARpcCounters(DemoteMainToReplicaRpc)                                                                        \
   GenerateHARpcCounters(RegisterReplicaOnMainRpc)                                                                      \
   GenerateHARpcCounters(SwapMainUUIDRpc)                                                                               \
-  GenerateHARpcCounters(GetDatabaseHistoriesRpc)
+  GenerateHARpcCounters(GetDatabaseHistoriesRpc)                                                                       \
+  GenerateHARpcCounters(UpdateDataInstanceConfigRpc)
+
 // clang-format on
 
 namespace memgraph::metrics {
-
 // define every Event as an index in the array of counters
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

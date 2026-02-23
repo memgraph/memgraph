@@ -137,6 +137,8 @@ memgraphCypherKeyword : cypherKeyword
                       | OFF
                       | ON
                       | ON_DISK_TRANSACTIONAL
+                      | PARAMETER
+                      | PARAMETERS
                       | PARALLEL
                       | PARALLEL_EXECUTION
                       | PARQUET
@@ -168,6 +170,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SCHEMA
                       | SECURITY
                       | SERVER
+                      | SERVER_SIDE_PARAMETERS
                       | SERVICE_URL
                       | SESSION
                       | SETTING
@@ -204,6 +207,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TYPES
                       | UNCOMMITTED
                       | UNLOCK
+                      | UNSET
                       | UNREGISTER
                       | UPDATE
                       | USAGE
@@ -254,6 +258,7 @@ query : cypherQuery
       | showNextSnapshotQuery
       | streamQuery
       | settingQuery
+      | parameterQuery
       | versionQuery
       | showConfigQuery
       | transactionQueueQuery
@@ -401,6 +406,12 @@ settingQuery : setSetting
              | showSettings
              ;
 
+parameterQuery : setParameter
+              | unsetParameter
+              | showParameters
+              | deleteAllParameters
+              ;
+
 transactionQueueQuery : showTransactions
                       | terminateTransactions
                       ;
@@ -520,6 +531,7 @@ privilege : CREATE
           | IMPERSONATE_USER
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
+          | SERVER_SIDE_PARAMETERS
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
@@ -577,6 +589,8 @@ registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
 configKeyValuePair : literal ':' literal ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
+
+configMapOrExpression : configMap | expression ;
 
 registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC | AS STRICT_SYNC ) ? WITH CONFIG configsMap=configMap ;
 
@@ -704,6 +718,18 @@ showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
 
+parameterName : symbolicName ;
+
+parameterValue : parameter | literal | configMap ;
+
+setParameter : SET GLOBAL PARAMETER parameterName '=' parameterValue ;
+
+unsetParameter : UNSET GLOBAL PARAMETER parameterName ;
+
+showParameters : SHOW PARAMETERS ;
+
+deleteAllParameters : DELETE ALL PARAMETERS ;
+
 showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;
@@ -757,9 +783,9 @@ dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 pointIndexQuery : createPointIndex | dropPointIndex ;
 
-createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMapOrExpression ;
 
-createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMapOrExpression ;
 
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 

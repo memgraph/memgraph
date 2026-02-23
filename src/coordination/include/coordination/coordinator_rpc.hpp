@@ -14,16 +14,94 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_slk.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
+#include "utils/fixed_string.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
+#define DECLARE_SLK_SERIALIZATION_FUNCTIONS(Type)               \
+  void Save(const Type &self, memgraph::slk::Builder *builder); \
+  void Load(Type *self, memgraph::slk::Reader *reader);
+
+#define DECLARE_SLK_FREE_FUNCTIONS(Type)                        \
+  void Save(Type::Response const &self, slk::Builder *builder); \
+  void Load(Type::Response *self, slk::Reader *reader);         \
+  void Save(Type::Request const &self, slk::Builder *builder);  \
+  void Load(Type::Request *self, slk::Reader *reader);
+
 namespace memgraph::coordination {
+
+template <utils::TypeId Id, FixedString Name, uint64_t Version, typename ArgType>
+struct SingleArgMsg {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  static void Save(SingleArgMsg const &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.arg_, builder);
+  }
+
+  static void Load(SingleArgMsg *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
+
+  SingleArgMsg(ArgType arg) : arg_(std::move(arg)) {}
+
+  SingleArgMsg() = default;
+
+  ArgType arg_;
+};
+
+template <rpc::RpcMessage PriorVersionType, utils::DowngradeableType ArgType>
+struct DowngradeableSingleArgMsg {
+  static constexpr utils::TypeInfo kType{PriorVersionType::kType};
+  static constexpr uint64_t kVersion{PriorVersionType::kVersion + 1};
+
+  static void Save(DowngradeableSingleArgMsg const &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.arg_, builder);
+  }
+
+  static void Load(DowngradeableSingleArgMsg *self, memgraph::slk::Reader *reader) {
+    memgraph::slk::Load(&self->arg_, reader);
+  }
+
+  DowngradeableSingleArgMsg(ArgType arg) : arg_(std::move(arg)) {}
+
+  DowngradeableSingleArgMsg() = default;
+
+  PriorVersionType Downgrade() const { return PriorVersionType{arg_.Downgrade()}; }
+
+  ArgType arg_;
+};
+
+template <utils::TypeId Id, FixedString Name, uint64_t Version>
+struct EmptyReq {
+  static constexpr utils::TypeInfo kType{.id = Id, .name = Name.c_str()};
+  static constexpr uint64_t kVersion{Version};
+
+  static void Save(EmptyReq const & /*self*/, memgraph::slk::Builder * /*builder*/) {}
+
+  static void Load(EmptyReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
+
+  EmptyReq() = default;
+};
+
+template <rpc::RpcMessage PriorVersionType>
+struct UpgradeableEmptyReq {
+  static constexpr utils::TypeInfo kType{PriorVersionType::kType};
+  static constexpr uint64_t kVersion{PriorVersionType::kVersion + 1};
+
+  static void Save(UpgradeableEmptyReq const & /*self*/, memgraph::slk::Builder * /*builder*/) {}
+
+  static void Load(UpgradeableEmptyReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
+
+  static UpgradeableEmptyReq Upgrade(PriorVersionType const &) { return UpgradeableEmptyReq{}; }
+
+  UpgradeableEmptyReq() = default;
+};
 
 struct PromoteToMainReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
@@ -49,11 +127,11 @@ struct PromoteToMainRes {
   static void Load(PromoteToMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteToMainRes(bool success) : success(success) {}
+  explicit PromoteToMainRes(bool success) : arg_(success) {}
 
   PromoteToMainRes() = default;
 
-  bool success;
+  bool arg_;
 };
 
 using PromoteToMainRpc = rpc::RequestResponse<PromoteToMainReq, PromoteToMainRes>;
@@ -83,11 +161,11 @@ struct RegisterReplicaOnMainRes {
   static void Load(RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
 
-  explicit RegisterReplicaOnMainRes(bool success) : success(success) {}
+  explicit RegisterReplicaOnMainRes(bool success) : arg_(success) {}
 
   RegisterReplicaOnMainRes() = default;
 
-  bool success;
+  bool arg_;
 };
 
 using RegisterReplicaOnMainRpc = rpc::RequestResponse<RegisterReplicaOnMainReq, RegisterReplicaOnMainRes>;
@@ -120,11 +198,11 @@ struct DemoteMainToReplicaRes {
   static void Load(DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
   static void Save(const DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
 
-  explicit DemoteMainToReplicaRes(bool success) : success(success) {}
+  explicit DemoteMainToReplicaRes(bool success) : arg_(success) {}
 
   DemoteMainToReplicaRes() = default;
 
-  bool success;
+  bool arg_;
 };
 
 using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
@@ -137,11 +215,11 @@ struct UnregisterReplicaReq {
   static void Load(UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 
-  explicit UnregisterReplicaReq(std::string_view inst_name) : instance_name(inst_name) {}
+  explicit UnregisterReplicaReq(std::string_view inst_name) : arg_(inst_name) {}
 
   UnregisterReplicaReq() = default;
 
-  std::string instance_name;
+  std::string arg_;
 };
 
 struct UnregisterReplicaRes {
@@ -152,11 +230,11 @@ struct UnregisterReplicaRes {
   static void Load(UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
   static void Save(const UnregisterReplicaRes &self, memgraph::slk::Builder *builder);
 
-  explicit UnregisterReplicaRes(bool success) : success(success) {}
+  explicit UnregisterReplicaRes(bool success) : arg_(success) {}
 
   UnregisterReplicaRes() = default;
 
-  bool success;
+  bool arg_;
 };
 
 using UnregisterReplicaRpc = rpc::RequestResponse<UnregisterReplicaReq, UnregisterReplicaRes>;
@@ -180,11 +258,11 @@ struct EnableWritingOnMainRes {
   static void Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
   static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
 
-  explicit EnableWritingOnMainRes(bool const success) : success(success) {}
+  explicit EnableWritingOnMainRes(bool const success) : arg_(success) {}
 
   EnableWritingOnMainRes() = default;
 
-  bool success;
+  bool arg_;
 };
 
 using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
@@ -224,11 +302,11 @@ struct GetDatabaseHistoriesResV1 {
   static void Save(const GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder);
 
   explicit GetDatabaseHistoriesResV1(replication_coordination_glue::InstanceInfoV1 instance_info)
-      : instance_info(std::move(instance_info)) {}
+      : arg_(std::move(instance_info)) {}
 
   GetDatabaseHistoriesResV1() = default;
 
-  replication_coordination_glue::InstanceInfoV1 instance_info;
+  replication_coordination_glue::InstanceInfoV1 arg_;
 };
 
 struct GetDatabaseHistoriesRes {
@@ -239,7 +317,7 @@ struct GetDatabaseHistoriesRes {
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 
   explicit GetDatabaseHistoriesRes(replication_coordination_glue::InstanceInfo instance_info)
-      : instance_info(std::move(instance_info)) {}
+      : arg_(std::move(instance_info)) {}
 
   GetDatabaseHistoriesRes() = default;
 
@@ -247,7 +325,7 @@ struct GetDatabaseHistoriesRes {
   // independently
   GetDatabaseHistoriesResV1 Downgrade() = delete;
 
-  replication_coordination_glue::InstanceInfo instance_info;
+  replication_coordination_glue::InstanceInfo arg_;
 };
 
 using GetDatabaseHistoriesRpc = rpc::RequestResponse<GetDatabaseHistoriesReq, GetDatabaseHistoriesRes>;
@@ -270,11 +348,11 @@ struct ShowInstancesRes {
   static void Save(const ShowInstancesRes &self, memgraph::slk::Builder *builder);
 
   explicit ShowInstancesRes(std::optional<std::vector<InstanceStatus>> instances_status)
-      : instances_status_(std::move(instances_status)) {}
+      : arg_(std::move(instances_status)) {}
 
   ShowInstancesRes() = default;
 
-  std::optional<std::vector<InstanceStatus>> instances_status_;
+  std::optional<std::vector<InstanceStatus>> arg_;
 };
 
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
@@ -289,9 +367,9 @@ struct GetRoutingTableReq {
 
   GetRoutingTableReq() = default;
 
-  explicit GetRoutingTableReq(std::string db_name) : db_name_(std::move(db_name)) {}
+  explicit GetRoutingTableReq(std::string arg) : arg_(std::move(arg)) {}
 
-  std::string db_name_;
+  std::string arg_;
 };
 
 struct GetRoutingTableRes {
@@ -302,80 +380,69 @@ struct GetRoutingTableRes {
   static void Load(GetRoutingTableRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetRoutingTableRes &self, memgraph::slk::Builder *builder);
 
-  explicit GetRoutingTableRes(RoutingTable routing_table) : routing_table_(std::move(routing_table)) {}
+  explicit GetRoutingTableRes(RoutingTable routing_table) : arg_(std::move(routing_table)) {}
 
   GetRoutingTableRes() = default;
 
-  RoutingTable routing_table_;
+  RoutingTable arg_;
 };
 
 using GetRoutingTableRpc = rpc::RequestResponse<GetRoutingTableReq, GetRoutingTableRes>;
 
-struct StateCheckReqV1 {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_REQ, .name = "StateCheckReq"};
-  static constexpr uint64_t kVersion{1};
+constexpr FixedString<14> kStateCheckReq = "StateCheckReq";
+using StateCheckReqV1 = EmptyReq<utils::TypeId::COORD_STATE_CHECK_REQ, kStateCheckReq, 1>;
+using StateCheckReqV2 = UpgradeableEmptyReq<StateCheckReqV1>;
+using StateCheckReq = UpgradeableEmptyReq<StateCheckReqV2>;
 
-  static void Load(StateCheckReqV1 *self, memgraph::slk::Reader *reader);
-  static void Save(const StateCheckReqV1 &self, memgraph::slk::Builder *builder);
-  StateCheckReqV1() = default;
-};
+constexpr FixedString<14> kStateCheckRes = "StateCheckRes";
 
-struct StateCheckReq {
-  static constexpr utils::TypeInfo kType{StateCheckReqV1::kType};
-  static constexpr uint64_t kVersion{2};
-
-  static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
-  static void Save(const StateCheckReq &self, memgraph::slk::Builder *builder);
-
-  static StateCheckReq Upgrade(StateCheckReqV1 const &) { return StateCheckReq{}; }
-
-  StateCheckReq() = default;
-};
-
+// Implemented as a struct before, that's why for this type using Type isn't used
 struct StateCheckResV1 {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_RES, .name = "StateCheckRes"};
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_RES, .name = kStateCheckRes.c_str()};
   static constexpr uint64_t kVersion{1};
 
   static void Load(StateCheckResV1 *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckResV1 &self, memgraph::slk::Builder *builder);
 
   StateCheckResV1(bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled)
-      : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
+      : arg_({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
 
-  explicit StateCheckResV1(InstanceStateV1 const &rec_state) : state(rec_state) {}
+  explicit StateCheckResV1(InstanceStateV1 const &rec_state) : arg_(rec_state) {}
 
   StateCheckResV1() = default;
 
-  InstanceStateV1 state;
+  InstanceStateV1 arg_;
 };
 
-struct StateCheckRes {
+// Implemented as a struct before, that's why for this type using Type isn't used
+struct StateCheckResV2 {
   static constexpr utils::TypeInfo kType{StateCheckResV1::kType};
   static constexpr uint64_t kVersion{2};
 
-  static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
-  static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
+  static void Load(StateCheckResV2 *self, memgraph::slk::Reader *reader);
+  static void Save(const StateCheckResV2 &self, memgraph::slk::Builder *builder);
 
-  StateCheckRes(
+  StateCheckResV2(
       bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled,
       std::optional<std::map<std::string, uint64_t>> const &maybe_main_num_txns,
       // instance -> (db -> lag)
       std::optional<std::map<std::string, std::map<std::string, int64_t>>> const &maybe_main_num_txns_replicas)
-      : state({.is_replica = replica,
-               .uuid = req_uuid,
-               .is_writing_enabled = writing_enabled,
-               .main_num_txns = maybe_main_num_txns,
-               .replicas_num_txns = maybe_main_num_txns_replicas}) {}
+      : arg_({.is_replica = replica,
+              .uuid = req_uuid,
+              .is_writing_enabled = writing_enabled,
+              .main_num_txns = maybe_main_num_txns,
+              .replicas_num_txns = maybe_main_num_txns_replicas}) {}
 
-  explicit StateCheckRes(InstanceState const &rec_state) : state(rec_state) {}
+  explicit StateCheckResV2(InstanceStateV2 const &rec_state) : arg_(rec_state) {}
 
-  StateCheckRes() = default;
+  StateCheckResV2() = default;
 
-  StateCheckResV1 Downgrade() const { return StateCheckResV1{state.Downgrade()}; }
+  StateCheckResV1 Downgrade() const { return StateCheckResV1{arg_.Downgrade()}; }
 
-  InstanceState state;
+  InstanceStateV2 arg_;
 };
 
+using StateCheckRes = DowngradeableSingleArgMsg<StateCheckResV2, InstanceState>;
 using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;
 
 struct ReplicationLagReq {
@@ -396,14 +463,66 @@ struct ReplicationLagRes {
   static void Load(ReplicationLagRes *self, memgraph::slk::Reader *reader);
   static void Save(const ReplicationLagRes &self, memgraph::slk::Builder *builder);
 
-  explicit ReplicationLagRes(std::optional<ReplicationLagInfo> lag_info) : lag_info_(std::move(lag_info)) {}
+  explicit ReplicationLagRes(std::optional<ReplicationLagInfo> lag_info) : arg_(std::move(lag_info)) {}
 
   ReplicationLagRes() = default;
 
-  std::optional<ReplicationLagInfo> lag_info_;
+  std::optional<ReplicationLagInfo> arg_;
 };
 
 using ReplicationLagRpc = rpc::RequestResponse<ReplicationLagReq, ReplicationLagRes>;
+
+using AddCoordinatorReq =
+    SingleArgMsg<utils::TypeId::COORD_ADD_COORD_REQ, "AddCoordinatorReq", 1, CoordinatorInstanceConfig>;
+using AddCoordinatorRes = SingleArgMsg<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1, bool>;
+using AddCoordinatorRpc = rpc::RequestResponse<AddCoordinatorReq, AddCoordinatorRes>;
+
+using RemoveCoordinatorReq = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_REQ, "RemoveCoordinatorReq", 1, int>;
+using RemoveCoordinatorRes = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1, bool>;
+using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCoordinatorRes>;
+
+using RegisterInstanceReq =
+    SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfig>;
+using RegisterInstanceRes = SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1, bool>;
+using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
+
+using UnregisterInstanceReq =
+    SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_REQ, "UnregisterInstanceReq", 1, std::string>;
+using UnregisterInstanceRes =
+    SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_RES, "UnregisterInstanceRes", 1, bool>;
+using UnregisterInstanceRpc = rpc::RequestResponse<UnregisterInstanceReq, UnregisterInstanceRes>;
+
+using SetInstanceToMainReq =
+    SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_REQ, "SetInstanceToMainReq", 1, std::string>;
+using SetInstanceToMainRes =
+    SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_RES, "SetInstanceToMainRes", 1, bool>;
+using SetInstanceToMainRpc = rpc::RequestResponse<SetInstanceToMainReq, SetInstanceToMainRes>;
+
+using DemoteInstanceReq = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
+using DemoteInstanceRes = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_RES, "DemoteInstanceRes", 1, bool>;
+using DemoteInstanceRpc = rpc::RequestResponse<DemoteInstanceReq, DemoteInstanceRes>;
+
+using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceResetReq", 1>;
+using ForceResetRes = SingleArgMsg<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1, bool>;
+using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
+
+using UpdateConfigReq =
+    SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
+using UpdateConfigRes = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
+using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
+
+using CoordReplicationLagReq = EmptyReq<utils::TypeId::COORD_REPL_LAG_REQ, "CoordReplLagReq", 1>;
+using CoordReplicationLagRes = SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "CoordReplLagRes", 1,
+                                            std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
+using CoordReplicationLagRpc = rpc::RequestResponse<CoordReplicationLagReq, CoordReplicationLagRes>;
+
+// Use this RPC message for updating all data instance config managed by coordinator in the future. Currently only used
+// for sending deltas_batch_progress_size
+using UpdateDataInstanceConfigReq =
+    SingleArgMsg<utils::TypeId::COORD_UPDATE_DATA_INSTANCE_CONFIG_REQ, "UpdateDataInstanceConfigReq", 1, uint64_t>;
+using UpdateDataInstanceConfigRes =
+    SingleArgMsg<utils::TypeId::COORD_UPDATE_DATA_INSTANCE_CONFIG_RES, "UpdateDataInstanceConfigRes", 1, bool>;
+using UpdateDataInstanceConfigRpc = rpc::RequestResponse<UpdateDataInstanceConfigReq, UpdateDataInstanceConfigRes>;
 
 }  // namespace memgraph::coordination
 
@@ -457,20 +576,30 @@ void Save(memgraph::coordination::GetRoutingTableReq const &self, memgraph::slk:
 void Load(memgraph::coordination::GetRoutingTableReq *self, memgraph::slk::Reader *reader);
 
 // StateCheckRpc
-void Save(memgraph::coordination::StateCheckResV1 const &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::StateCheckResV1 *self, memgraph::slk::Reader *reader);
-void Save(memgraph::coordination::StateCheckRes const &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *reader);
-void Save(memgraph::coordination::StateCheckReqV1 const &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::StateCheckReqV1 *self, memgraph::slk::Reader *reader);
-void Save(memgraph::coordination::StateCheckReq const &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader);
 
 // ReplicationLagRpc
 void Save(coordination::ReplicationLagRes const &self, slk::Builder *builder);
 void Load(coordination::ReplicationLagRes *self, slk::Reader *reader);
 void Save(coordination::ReplicationLagReq const &self, slk::Builder *builder);
 void Load(coordination::ReplicationLagReq *self, slk::Reader *reader);
+
+DECLARE_SLK_FREE_FUNCTIONS(coordination::AddCoordinatorRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::RemoveCoordinatorRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::RegisterInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::UnregisterInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::SetInstanceToMainRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateDataInstanceConfigRpc)
+
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV2)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckResV2)
+
+DECLARE_SLK_FREE_FUNCTIONS(coordination::StateCheckRpc)
 
 }  // namespace memgraph::slk
 

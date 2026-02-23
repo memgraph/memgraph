@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "parameters/parameters.hpp"
 #include "plan/read_write_type_checker.hpp"
 #include "query/config.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -59,8 +60,8 @@ class LogicalPlan {
 
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters;
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            parameters::Parameters const *global_parameters = nullptr) -> Parameters;
 
 class PlanWrapper {
  public:
@@ -85,6 +86,7 @@ struct CachedQuery {
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cypher_read{false};
+  bool using_schema_assert{false};
 };
 
 struct QueryCacheEntry {
@@ -112,13 +114,15 @@ struct ParsedQuery {
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cypher_read{false};
+  bool using_schema_assert{false};
   bool is_cacheable{true};
   UserParameters user_parameters;
   Parameters parameters;
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
+                       parameters::Parameters const *global_parameters = nullptr);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
@@ -146,9 +150,10 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 using PlanCache_t = utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>>;
 using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
-std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor,
-                                             const std::vector<Identifier *> &predefined_identifiers);
+// Return plan and if its cachable
+auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
+                     const std::vector<Identifier *> &predefined_identifiers)
+    -> std::pair<std::unique_ptr<LogicalPlan>, bool>;
 
 /**
  * Return the parsed *Cypher* query's AST cached logical plan, or create and

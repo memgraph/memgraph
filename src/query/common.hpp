@@ -254,4 +254,7 @@ auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::P
 }
 
 int64_t QueryTimestamp();
+
+auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>>;
+
 }  // namespace memgraph::query

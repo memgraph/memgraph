@@ -978,3 +978,43 @@ Feature: Match
             | n                |
             | (:A:C {prop: 2}) |
             | (:A:B {prop: 3}) |
+
+    Scenario: Using OR expression with index and property filter on different labels
+        Given an empty graph
+        And with new index :LabelA
+        And with new index :LabelB(x)
+        And having executed:
+            """
+            CREATE (:LabelA {x: 1, name: 'A1'})
+            CREATE (:LabelA {x: 999, name: 'A999'})
+            CREATE (:LabelB {x: 1, name: 'B1'})
+            CREATE (:LabelB {x: 999, name: 'B999'});
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n:LabelA OR n:LabelB) AND n.x = 1 RETURN n.name ORDER BY n.name;
+            """
+        Then the result should be:
+            | n.name |
+            | 'A1'   |
+            | 'B1'   |
+
+    Scenario: Using OR expression with index and property filter on different labels with two property indices
+        Given an empty graph
+        And with new index :LabelA(y)
+        And with new index :LabelB(name)
+        And having executed:
+            """
+            CREATE (:LabelA {x: 1, name: 'A1'})
+            CREATE (:LabelA {x: 999, name: 'A999'})
+            CREATE (:LabelB {x: 1, name: 'B1'})
+            CREATE (:LabelB {x: 999, name: 'B999'});
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n:LabelA OR n:LabelB) AND n.x = 1 RETURN n.name ORDER BY n.name;
+            """
+        Then the result should be:
+            | n.name |
+            | 'A1'   |
+            | 'B1'   |

@@ -5,15 +5,18 @@ source "$SCRIPT_DIR/../utils.bash"
 test_query_modules() {
   IMAGE_TYPE=${1:-"mage"}
   if [ "$IMAGE_TYPE" == "mage" ]; then
-    expected_module_count=322
+    expected_procedure_count=322
+    expected_function_count=47
   elif [ "$IMAGE_TYPE" == "memgraph" ]; then
-    expected_module_count=142
+    expected_procedure_count=138
+    expected_function_count=6
   else
     echo "Invalid image type: $IMAGE_TYPE"
     exit 1
   fi
-  echo "FEATURE: All MAGE query modules"
-  run_next_csv "CALL mg.procedures() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e $expected_module_count
+  echo "FEATURE: All Memgraph/MAGE query modules"
+  run_next_csv "CALL mg.procedures() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e $expected_procedure_count
+  run_next_csv "CALL mg.functions() YIELD * RETURN count(*) AS cnt;" | python3 $SCRIPT_DIR/validator.py first_as_int -f cnt -e $expected_function_count
   if [ "$IMAGE_TYPE" == "mage" ]; then
     run_next "CREATE (a), (b), (c), (d), (a)-[:ET]->(b), (c)-[:ET]->(d);"
     run_next "CALL leiden_community_detection.get() YIELD * RETURN communities, community_id, node;"

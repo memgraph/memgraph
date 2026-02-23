@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,6 +33,16 @@ inline void Save(io::network::Endpoint const &obj, Builder *builder) {
 inline void Load(io::network::Endpoint *obj, Reader *reader) {
   Load(&obj->GetAddress(), reader);
   Load(&obj->GetPort(), reader);
+}
+
+inline void Save(coordination::UpdateInstanceConfig const &config, Builder *builder) {
+  slk::Save(config.data, builder);
+  slk::Save(config.bolt_endpoint, builder);
+}
+
+inline void Load(coordination::UpdateInstanceConfig *config, Reader *reader) {
+  slk::Load(&config->data, reader);
+  slk::Load(&config->bolt_endpoint, reader);
 }
 
 inline void Save(ReplicationClientInfo const &obj, Builder *builder) {
@@ -121,7 +131,7 @@ inline void Load(coordination::InstanceStateV1 *obj, Reader *reader) {
   Load(&obj->is_writing_enabled, reader);
 }
 
-inline void Save(const coordination::InstanceState &obj, Builder *builder) {
+inline void Save(const coordination::InstanceStateV2 &obj, Builder *builder) {
   Save(obj.is_replica, builder);
   Save(obj.uuid, builder);
   Save(obj.is_writing_enabled, builder);
@@ -129,12 +139,22 @@ inline void Save(const coordination::InstanceState &obj, Builder *builder) {
   Save(obj.replicas_num_txns, builder);
 }
 
-inline void Load(coordination::InstanceState *obj, Reader *reader) {
+inline void Load(coordination::InstanceStateV2 *obj, Reader *reader) {
   Load(&obj->is_replica, reader);
   Load(&obj->uuid, reader);
   Load(&obj->is_writing_enabled, reader);
   Load(&obj->main_num_txns, reader);
   Load(&obj->replicas_num_txns, reader);
+}
+
+inline void Save(const coordination::InstanceState &obj, Builder *builder) {
+  Save(obj.inner_state, builder);
+  Save(obj.deltas_batch_progress_size, builder);
+}
+
+inline void Load(coordination::InstanceState *obj, Reader *reader) {
+  Load(&obj->inner_state, reader);
+  Load(&obj->deltas_batch_progress_size, reader);
 }
 
 inline void Save(const coordination::ReplicaDBLagData &obj, Builder *builder) {
@@ -155,6 +175,36 @@ inline void Save(const coordination::ReplicationLagInfo &obj, Builder *builder) 
 inline void Load(coordination::ReplicationLagInfo *obj, Reader *reader) {
   Load(&obj->dbs_main_committed_txns_, reader);
   Load(&obj->replicas_info_, reader);
+}
+
+inline void Save(coordination::CoordinatorInstanceConfig const &config, Builder *builder) {
+  Save(config.coordinator_hostname, builder);
+  Save(config.coordinator_id, builder);
+  Save(config.coordinator_server, builder);
+  Save(config.bolt_server, builder);
+  Save(config.management_server, builder);
+}
+
+inline void Load(coordination::CoordinatorInstanceConfig *obj, Reader *reader) {
+  Load(&obj->coordinator_hostname, reader);
+  Load(&obj->coordinator_id, reader);
+  Load(&obj->coordinator_server, reader);
+  Load(&obj->bolt_server, reader);
+  Load(&obj->management_server, reader);
+}
+
+inline void Save(coordination::DataInstanceConfig const &config, Builder *builder) {
+  Save(config.instance_name, builder);
+  Save(config.replication_client_info, builder);
+  Save(config.bolt_server, builder);
+  Save(config.mgt_server, builder);
+}
+
+inline void Load(coordination::DataInstanceConfig *obj, Reader *reader) {
+  Load(&obj->instance_name, reader);
+  Load(&obj->replication_client_info, reader);
+  Load(&obj->bolt_server, reader);
+  Load(&obj->mgt_server, reader);
 }
 
 }  // namespace memgraph::slk

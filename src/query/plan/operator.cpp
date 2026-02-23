@@ -664,7 +664,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
 
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
@@ -816,7 +817,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
   auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
 
@@ -1282,7 +1284,8 @@ std::optional<storage::PropertyValue> EvaluateExpressionToPropertyValue(Expressi
                                 view,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   auto value = expression->Accept(evaluator);
   if (value.IsNull()) {
     return std::nullopt;
@@ -1408,7 +1411,8 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1560,7 +1564,8 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1627,7 +1632,8 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     if (!maybe_prop_value_ranges) {
@@ -1686,7 +1692,8 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     auto value = expression_->Accept(evaluator);
     if (!value.IsNumeric()) return std::nullopt;
     int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
@@ -1731,7 +1738,8 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     auto value = expression_->Accept(evaluator);
     if (!value.IsNumeric()) return std::nullopt;
     int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
@@ -1789,7 +1797,11 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
                bool existing_node, storage::View view)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      common_{.node_symbol = node_symbol,
+              .edge_symbol = edge_symbol,
+              .direction = direction,
+              .edge_types = edge_types,
+              .existing_node = existing_node},
       view_(view) {}
 
 ACCEPT_WITH_INPUT(Expand)
@@ -2053,7 +2065,11 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                                std::optional<Symbol> total_weight, Expression *limit)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      common_{.node_symbol = node_symbol,
+              .edge_symbol = edge_symbol,
+              .direction = direction,
+              .edge_types = edge_types,
+              .existing_node = existing_node},
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
@@ -2067,7 +2083,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                  type_ == EdgeAtom::Type::KSHORTEST,
              "ExpandVariable can only be used with breadth first, depth first, "
              "weighted shortest path, all shortest paths or bfs all paths type");
-  DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
+  // Note: BFS can be reversed - when is_reverse is true, edges are ordered from node_symbol to input_symbol
   DMG_ASSERT(type_ == EdgeAtom::Type::KSHORTEST || limit_ == nullptr,
              "Limit is only supported for KSHORTEST path expansion");
 }
@@ -2223,7 +2239,8 @@ class ExpandVariableCursor : public Cursor {
                                     storage::View::OLD,
                                     nullptr,
                                     &context.number_of_hops,
-                                    context.user_or_role);
+                                    context.user_or_role,
+                                    context.triggering_user);
       auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
         if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
@@ -2293,7 +2310,8 @@ class ExpandVariableCursor : public Cursor {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
@@ -2420,7 +2438,8 @@ class STShortestPathCursor : public query::plan::Cursor {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     while (input_cursor_->Pull(frame, context)) {
       if (context.hops_limit.IsLimitReached()) return false;
 
@@ -2677,11 +2696,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         processed_(mem),
         to_visit_next_(mem),
         to_visit_current_(mem) {
-    MG_ASSERT(!self_.common_.existing_node,
-              "Single source shortest path algorithm "
-              "should not be used when `existing_node` "
-              "flag is set, s-t shortest path algorithm "
-              "should be used instead!");
+    DMG_ASSERT(!self_.common_.existing_node,
+               "Single source shortest path algorithm "
+               "should not be used when `existing_node` "
+               "flag is set, s-t shortest path algorithm "
+               "should be used instead!");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -2695,7 +2714,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     // for the given (edge, vertex) pair checks if they satisfy the
@@ -2855,7 +2875,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       frame_writer.Write(self_.common_.node_symbol, curr_vertex);
 
       // place edges on the frame in the correct order
-      std::reverse(edge_list.begin(), edge_list.end());
+      // If is_reverse_ is false, reverse to get source-to-destination order (input_symbol -> node_symbol)
+      // If is_reverse_ is true, keep as-is to get destination-to-source order (node_symbol -> input_symbol)
+      if (!self_.is_reverse_) {
+        std::ranges::reverse(edge_list);
+      }
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
 
       return true;
@@ -2964,7 +2988,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -3280,7 +3305,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto *memory = context.evaluation_context.memory;
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
@@ -3695,7 +3721,8 @@ class KShortestPathsCursor : public Cursor {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
                           : std::numeric_limits<int64_t>::max();
@@ -4204,24 +4231,29 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
   switch (type_) {
-    case EdgeAtom::Type::BREADTH_FIRST:
-      if (common_.existing_node) {
-        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem);
-      } else {
-        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-      }
-    case EdgeAtom::Type::DEPTH_FIRST:
+    case EdgeAtom::Type::BREADTH_FIRST: {
+      return common_.existing_node ? MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem)
+                                   : MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
+    }
+    case EdgeAtom::Type::DEPTH_FIRST: {
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
-    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
+    }
+    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH: {
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
-    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
+    }
+    case EdgeAtom::Type::ALL_SHORTEST_PATHS: {
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::KSHORTEST:
+    }
+    case EdgeAtom::Type::KSHORTEST: {
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::SINGLE:
+    }
+    case EdgeAtom::Type::SINGLE: {
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
+    }
+    default:
+      std::unreachable();
   }
-}
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
 std::string ExpandVariable::ToString() const {
   return fmt::format(
@@ -4254,6 +4286,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
     object->weight_lambda_ = std::nullopt;
   }
   object->total_weight_ = total_weight_;
+  object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
   return object;
 }
 
@@ -4560,7 +4593,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
                                 storage::View::OLD,
                                 context.frame_change_collector,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
@@ -4676,7 +4710,8 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   storage::View::NEW,
                                   context.frame_change_collector,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     for (auto *named_expr : self_.named_expressions_) {
       named_expr->Accept(evaluator);
     }
@@ -4728,7 +4763,8 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
 
   auto *pull_memory = context.evaluation_context.memory;
   // collect expressions results so edges can get deleted before vertices
@@ -4835,7 +4871,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
   }
 
@@ -4937,7 +4974,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -5054,7 +5092,8 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
                                 storage::View::NEW,
                                 nullptr,
                                 nullptr,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -5380,7 +5419,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   TypedValue rhs = self_.rhs_->Accept(evaluator);
@@ -5478,7 +5518,8 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -5585,7 +5626,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
@@ -5699,7 +5741,8 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_nested_property = [this, &context, &evaluator](auto *record) {
@@ -5836,7 +5879,8 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
                                 storage::View::NEW,
                                 nullptr,
                                 &context.number_of_hops,
-                                context.user_or_role);
+                                context.user_or_role,
+                                context.triggering_user);
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -6734,7 +6778,8 @@ class OrderByCursor : public Cursor {
                                     storage::View::OLD,
                                     nullptr,
                                     &context.number_of_hops,
-                                    context.user_or_role);
+                                    context.user_or_role,
+                                    context.triggering_user);
       // auto *pull_mem = context.evaluation_context.memory;
       auto *query_mem = cache_.get_allocator().resource();
 
@@ -7072,7 +7117,8 @@ class UnwindCursor : public Cursor {
                                       storage::View::OLD,
                                       nullptr,
                                       nullptr,
-                                      context.user_or_role);
+                                      context.user_or_role,
+                                      context.triggering_user);
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
@@ -7897,7 +7943,8 @@ class CallProcedureCursor : public Cursor {
                                     graph_view,
                                     nullptr,
                                     &context.number_of_hops,
-                                    context.user_or_role);
+                                    context.user_or_role,
+                                    context.triggering_user);
       result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
@@ -7987,7 +8034,8 @@ class CallValidateProcedureCursor : public Cursor {
                                   storage::View::NEW,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     const auto args = self_->arguments_;
     if (args.size() != 3U) {
@@ -8150,16 +8198,6 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
     }
   }
   return {std::move(m), mem};
-}
-
-// Builds a map of run-time settings
-auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>> {
-  std::map<std::string, std::string, std::less<>> config;
-  config.emplace(utils::kAwsRegionQuerySetting, memgraph::flags::run_time::GetAwsRegion());
-  config.emplace(utils::kAwsAccessKeyQuerySetting, memgraph::flags::run_time::GetAwsAccessKey());
-  config.emplace(utils::kAwsSecretKeyQuerySetting, memgraph::flags::run_time::GetAwsSecretKey());
-  config.emplace(utils::kAwsEndpointUrlQuerySetting, memgraph::flags::run_time::GetAwsEndpointUrl());
-  return config;
 }
 
 }  // namespace
@@ -8538,7 +8576,8 @@ class ForeachCursor : public Cursor {
                                   storage::View::NEW,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     TypedValue expr_result = expression->Accept(evaluator);
 
     if (expr_result.IsNull()) {
@@ -8829,7 +8868,8 @@ class HashJoinCursor : public Cursor {
                                       storage::View::OLD,
                                       nullptr,
                                       &context.number_of_hops,
-                                      context.user_or_role);
+                                      context.user_or_role,
+                                      context.triggering_user);
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
@@ -8883,7 +8923,8 @@ class HashJoinCursor : public Cursor {
                                     storage::View::OLD,
                                     nullptr,
                                     &context.number_of_hops,
-                                    context.user_or_role);
+                                    context.user_or_role,
+                                    context.triggering_user);
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
       if (left_value.type() != TypedValue::Type::Null) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
@@ -9065,7 +9106,8 @@ class PeriodicCommitCursor : public Cursor {
                                     storage::View::OLD,
                                     nullptr,
                                     &context.number_of_hops,
-                                    context.user_or_role);
+                                    context.user_or_role,
+                                    context.triggering_user);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
     }
 
@@ -9168,7 +9210,8 @@ class PeriodicSubqueryCursor : public Cursor {
                                     storage::View::OLD,
                                     nullptr,
                                     &context.number_of_hops,
-                                    context.user_or_role);
+                                    context.user_or_role,
+                                    context.triggering_user);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
     }
 
@@ -9277,7 +9320,8 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
                                          view_,
                                          nullptr,
                                          &context.number_of_hops,
-                                         context.user_or_role);
+                                         context.user_or_role,
+                                         context.triggering_user);
     auto value = cmp_value_->Accept(evaluator);
 
     auto crs = GetCRS(value);
@@ -9336,7 +9380,8 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem)
                                          view_,
                                          nullptr,
                                          &context.number_of_hops,
-                                         context.user_or_role);
+                                         context.user_or_role,
+                                         context.triggering_user);
     auto bottom_left_value = bottom_left_->Accept(evaluator);
     auto top_right_value = top_right_->Accept(evaluator);
 
@@ -9729,7 +9774,8 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
     // Return empty chunks if bounds are null - need to handle this case
@@ -9829,7 +9875,8 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyRange::MakeCursor(utils::MemoryRes
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, edge_type_, property_, maybe_lower, maybe_upper, num_threads_);
@@ -9964,7 +10011,8 @@ UniqueCursorPtr ScanParallelByEdgePropertyRange::MakeCursor(utils::MemoryResourc
                                   view_,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     return db->ChunkedEdges(view_, property_, maybe_lower, maybe_upper, num_threads_);
@@ -11034,7 +11082,8 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
                                     storage::View::OLD,
                                     nullptr,
                                     &context.number_of_hops,
-                                    context.user_or_role);
+                                    context.user_or_role,
+                                    context.triggering_user);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Number of elements to skip must be an integer.");
@@ -11124,7 +11173,8 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   storage::View::OLD,
                                   nullptr,
                                   &context.number_of_hops,
-                                  context.user_or_role);
+                                  context.user_or_role,
+                                  context.triggering_user);
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Limit on number of returned elements must be an integer.");

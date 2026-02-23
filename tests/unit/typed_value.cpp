@@ -686,6 +686,64 @@ class TypedValueLogicTest : public AllTypesFixture<StorageType> {
   }
 };
 
+TEST(TypedValue, ToJsonFromJsonRoundTrip) {
+  auto round_trip = [](const TypedValue &v) {
+    nlohmann::json j;
+    memgraph::query::to_json(j, v);
+    TypedValue w;
+    memgraph::query::from_json(j, w);
+    EXPECT_TRUE(TypedValue::BoolEqual{}(v, w)) << "Round-trip failed for type " << static_cast<int>(v.type());
+  };
+
+  round_trip(TypedValue());
+  round_trip(TypedValue(true));
+  round_trip(TypedValue(false));
+  round_trip(TypedValue(42));
+  round_trip(TypedValue(-1));
+  round_trip(TypedValue(3.14));
+  round_trip(TypedValue(-2.5));
+  round_trip(TypedValue(""));
+  round_trip(TypedValue("hello"));
+  round_trip(TypedValue(std::vector<TypedValue>{}));
+  round_trip(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue("a"), TypedValue(true)}));
+  round_trip(TypedValue(std::map<std::string, TypedValue>{}));
+  round_trip(TypedValue(
+      std::map<std::string, TypedValue>{{"k1", TypedValue(1)},
+                                        {"k2", TypedValue("v2")},
+                                        {"k3", TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})}}));
+}
+
+TEST(TypedValue, ToJsonProducesExpectedJson) {
+  nlohmann::json j;
+
+  memgraph::query::to_json(j, TypedValue());
+  EXPECT_TRUE(j.is_null());
+
+  memgraph::query::to_json(j, TypedValue(true));
+  EXPECT_TRUE(j.get<bool>());
+
+  memgraph::query::to_json(j, TypedValue(42));
+  EXPECT_EQ(j.get<int64_t>(), 42);
+
+  memgraph::query::to_json(j, TypedValue(3.14));
+  EXPECT_DOUBLE_EQ(j.get<double>(), 3.14);
+
+  memgraph::query::to_json(j, TypedValue("value"));
+  EXPECT_EQ(j.get<std::string>(), "value");
+
+  memgraph::query::to_json(j, TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)}));
+  EXPECT_TRUE(j.is_array());
+  EXPECT_EQ(j.size(), 2);
+  EXPECT_EQ(j[0].get<int64_t>(), 1);
+  EXPECT_EQ(j[1].get<int64_t>(), 2);
+
+  memgraph::query::to_json(j,
+                           TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue("x")}}));
+  EXPECT_TRUE(j.is_object());
+  EXPECT_EQ(j["a"].get<int64_t>(), 1);
+  EXPECT_EQ(j["b"].get<std::string>(), "x");
+};
+
 TYPED_TEST_SUITE(TypedValueLogicTest, StorageTypes);
 
 TYPED_TEST(TypedValueLogicTest, LogicalAnd) {
