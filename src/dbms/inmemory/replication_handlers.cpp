@@ -381,6 +381,29 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t const request_version,
     slk::Reader *req_reader, slk::Builder *res_builder) {
+  // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
+  // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
+  // take the read lock on repl state, main promotion will start after committing is finished.
+  // If I am unable to take the read lock, then something else of a higher priority is running and I should commit
+  // later.
+  auto const maybe_locked_repl_state =
+      std::invoke([&repl_state]() -> std::optional<decltype(repl_state.TryReadLock())> {
+        try {
+          return repl_state.TryReadLock();
+        } catch (utils::TryLockException const &) {
+          spdlog::info("Failed to take repl state read lock, cannot commit");
+          return std::nullopt;
+        }
+      });
+
+  if (!maybe_locked_repl_state.has_value()) {
+    const storage::replication::PrepareCommitRes res{false};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
+
   storage::replication::PrepareCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -440,11 +463,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
-
-  auto const deltas_batch_progress_size = std::invoke([&repl_state]() -> uint64_t {
-    auto const locked_repl_state = repl_state.ReadLock();
-    return locked_repl_state->GetDeltasBatchProgressSize();
-  });
 
   auto deltas_res = ReadAndApplyDeltasSingleTxn(storage,
                                                 &decoder,
@@ -732,6 +750,29 @@ void InMemoryReplicationHandlers::WalFilesHandler(
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
     utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
+  // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
+  // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
+  // take the read lock on repl state, main promotion will start after loading WAL files is finished.
+  // If I am unable to take the read lock, then something else of a higher priority is running and I should apply WAL
+  // files later
+  auto const maybe_locked_repl_state =
+      std::invoke([&repl_state]() -> std::optional<decltype(repl_state.TryReadLock())> {
+        try {
+          return repl_state.TryReadLock();
+        } catch (utils::TryLockException const &) {
+          spdlog::info("Failed to take repl state read lock, cannot commit");
+          return std::nullopt;
+        }
+      });
+
+  if (!maybe_locked_repl_state.has_value()) {
+    const storage::replication::PrepareCommitRes res{false};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
+
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -798,7 +839,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   uint64_t num_committed_txns{0};
   for (auto i = 0UL; i < wal_file_number; ++i) {
     const auto [success, current_batch_counter, num_txns_committed] =
-        LoadWal(repl_state, active_files[i], storage, res_builder, local_batch_counter);
+        LoadWal(deltas_batch_progress_size, active_files[i], storage, res_builder, local_batch_counter);
 
     if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
@@ -833,6 +874,29 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
     utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
+  // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
+  // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
+  // take the read lock on repl state, main promotion will start after loading the current WAL is finished.
+  // If I am unable to take the read lock, then something else of a higher priority is running and I should apply this
+  // WAL file later
+  auto const maybe_locked_repl_state =
+      std::invoke([&repl_state]() -> std::optional<decltype(repl_state.TryReadLock())> {
+        try {
+          return repl_state.TryReadLock();
+        } catch (utils::TryLockException const &) {
+          spdlog::info("Failed to take repl state read lock, cannot commit");
+          return std::nullopt;
+        }
+      });
+
+  if (!maybe_locked_repl_state.has_value()) {
+    const storage::replication::PrepareCommitRes res{false};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
+
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -891,7 +955,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   // When loading a single WAL file, we don't care about saving number of deltas
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
-  auto const load_wal_res = LoadWal(repl_state, active_files[0], storage, res_builder);
+  auto const load_wal_res = LoadWal(deltas_batch_progress_size, active_files[0], storage, res_builder);
   if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
@@ -920,9 +984,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
 InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
-    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-    std::filesystem::path const &wal_path, storage::InMemoryStorage *storage, slk::Builder *res_builder,
-    uint32_t const start_batch_counter) {
+    uint64_t const deltas_batch_progress_size, std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
+    slk::Builder *res_builder, uint32_t const start_batch_counter) {
   spdlog::trace("Received WAL saved to {}", wal_path);
 
   std::optional<storage::durability::WalInfo> maybe_wal_info;
@@ -977,11 +1040,6 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   }
 
   wal_decoder.SetPosition(wal_info.offset_deltas);
-
-  auto const deltas_batch_progress_size = std::invoke([&repl_state]() -> uint64_t {
-    auto const locked_repl_state = repl_state.ReadLock();
-    return locked_repl_state->GetDeltasBatchProgressSize();
-  });
 
   uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
