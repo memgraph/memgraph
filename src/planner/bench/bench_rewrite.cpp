@@ -349,3 +349,63 @@ BENCHMARK_REGISTER_F(VMvsEMatcherLargeFixture, VM)
     ->Args({kHuge})
     ->ArgNames({"matches"})
     ->Unit(benchmark::kMicrosecond);
+
+// ============================================================================
+// Top-Down vs Bottom-Up VM Comparison
+// ============================================================================
+//
+// Measures: Top-down (start from root symbol) vs Bottom-up (start from leaf variable)
+// Why it matters: Bottom-up can be O(n) in e-classes vs O(k) in root symbol candidates.
+//   For deep chains, leaf variables are fewer than root symbols.
+// Variables: num_chains (independent chains), chain_depth (Neg nesting).
+
+class TopDownVsBottomUpFixture : public benchmark::Fixture {
+ protected:
+  TestEGraph egraph_;
+  std::unique_ptr<TestEMatcher> matcher_;
+  memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
+  TestRewriteContext ctx_;
+  std::vector<EClassId> candidates_;
+  TestRewriteRule rule_ = RuleDoubleNeg();
+  int64_t num_chains_ = 0;
+  int64_t chain_depth_ = 0;
+
+  void SetUp(const benchmark::State &state) override {
+    num_chains_ = state.range(0);
+    chain_depth_ = state.range(1);
+    egraph_ = TestEGraph{};
+    BuildNegChains(egraph_, num_chains_, chain_depth_);
+    matcher_ = std::make_unique<TestEMatcher>(egraph_);
+    vm_executor_ = memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+  }
+};
+
+// Benchmark top-down VM (start from Neg candidates, descend via children)
+BENCHMARK_DEFINE_F(TopDownVsBottomUpFixture, TopDown)(benchmark::State &state) {
+  for (auto _ : state) {
+    ctx_.clear();
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
+    benchmark::DoNotOptimize(rewrites);
+  }
+  state.SetItemsProcessed(state.iterations() * num_chains_);
+}
+
+// Benchmark bottom-up VM (start from all e-classes, traverse up via parents)
+BENCHMARK_DEFINE_F(TopDownVsBottomUpFixture, BottomUp)(benchmark::State &state) {
+  for (auto _ : state) {
+    ctx_.clear();
+    auto rewrites = rule_.apply_vm_bottomup(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
+    benchmark::DoNotOptimize(rewrites);
+  }
+  state.SetItemsProcessed(state.iterations() * num_chains_);
+}
+
+BENCHMARK_REGISTER_F(TopDownVsBottomUpFixture, TopDown)
+    ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
+    ->ArgNames({"chains", "depth"})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(TopDownVsBottomUpFixture, BottomUp)
+    ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
+    ->ArgNames({"chains", "depth"})
+    ->Unit(benchmark::kMicrosecond);
