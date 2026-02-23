@@ -760,13 +760,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(
         try {
           return repl_state.TryReadLock();
         } catch (utils::TryLockException const &) {
-          spdlog::info("Failed to take repl state read lock, cannot commit");
+          spdlog::info("Failed to take repl state read lock, cannot apply WAL files");
           return std::nullopt;
         }
       });
 
   if (!maybe_locked_repl_state.has_value()) {
-    const storage::replication::PrepareCommitRes res{false};
+    const storage::replication::WalFilesRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
@@ -884,13 +884,13 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
         try {
           return repl_state.TryReadLock();
         } catch (utils::TryLockException const &) {
-          spdlog::info("Failed to take repl state read lock, cannot commit");
+          spdlog::info("Failed to take repl state read lock, cannot apply current WAL file");
           return std::nullopt;
         }
       });
 
   if (!maybe_locked_repl_state.has_value()) {
-    const storage::replication::PrepareCommitRes res{false};
+    const storage::replication::CurrentWalRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
