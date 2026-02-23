@@ -670,7 +670,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, transaction, view)) {
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index", vertex.gid.ToString());
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
+      const uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
       /// TODO: here are doing serialization and then later deserialization again -> expensive
       LoadVertexToLabelIndexCache(transaction,
                                   utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
@@ -724,7 +724,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
     if (label_property_filter(vertex, label, property, view)) {
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
+      const uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
@@ -815,7 +815,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     auto prop_value = GetVertexProperty(vertex, property, transaction, view);
     if (VertexHasLabel(vertex, label, transaction, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
+      const uint64_t ts = utils::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
           transaction,
           utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),

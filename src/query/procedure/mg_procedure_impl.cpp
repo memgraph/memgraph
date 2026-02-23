@@ -354,7 +354,6 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       throw std::logic_error{"mgp_value for TypedValue::Type::Graph doesn't exist."};
   }
 }
-}  // namespace
 
 bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted(); }
 
@@ -376,6 +375,11 @@ bool ContainsDeleted(const mgp_map *map) {
       },
       map->items);
 }
+
+memgraph::storage::NameIdMapper *GetNameIdMapper(const mgp_graph *graph) {
+  return graph->getImpl()->GetStorageAccessor()->GetNameIdMapper();
+}
+}  // namespace
 
 bool ContainsDeleted(const mgp_value *val) {
   switch (val->type) {
@@ -406,10 +410,6 @@ bool ContainsDeleted(const mgp_value *val) {
       throw memgraph::query::QueryRuntimeException("Value of unknown type");
   }
   return false;
-}
-
-memgraph::storage::NameIdMapper *GetNameIdMapper(const mgp_graph *graph) {
-  return graph->getImpl()->GetStorageAccessor()->GetNameIdMapper();
 }
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::Allocator<mgp_value> alloc) {
