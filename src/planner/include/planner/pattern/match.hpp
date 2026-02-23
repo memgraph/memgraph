@@ -13,8 +13,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <span>
+#include <vector>
 
 #include <boost/container/small_vector.hpp>
 #include <boost/dynamic_bitset.hpp>
@@ -123,6 +123,8 @@ class VarLocation {
 using JoinMatchView = std::span<PatternMatch const>;
 
 /// Append-only pool for pattern match bindings. Bulk-freed via clear().
+/// Uses vector instead of deque for better cache locality on append-only workloads.
+/// Since we return offsets (not pointers), we don't need deque's iterator stability.
 class MatchArena {
  public:
   auto intern(std::span<EClassId const> bindings) -> PatternMatch {
@@ -143,8 +145,11 @@ class MatchArena {
 
   [[nodiscard]] auto size() const -> std::size_t { return pool_.size(); }
 
+  /// Reserve capacity to avoid reallocations during matching
+  void reserve(std::size_t capacity) { pool_.reserve(capacity); }
+
  private:
-  std::deque<EClassId> pool_;
+  std::vector<EClassId> pool_;
 };
 
 /// Context for e-matching: arena for storing matches, processed set for deduplication.
