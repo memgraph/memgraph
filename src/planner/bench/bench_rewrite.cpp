@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "bench_common.hpp"
+#include "planner/pattern/vm/executor.hpp"
 
 #include <vector>
 
@@ -224,4 +225,127 @@ BENCHMARK_REGISTER_F(RealisticFixture, Saturate)
     ->Args({kXLarge})
     ->Args({kHuge})
     ->ArgNames({"size"})
+    ->Unit(benchmark::kMicrosecond);
+
+// ============================================================================
+// VM vs EMatcher Comparison
+// ============================================================================
+//
+// Measures: Direct comparison of apply() (EMatcher) vs apply_vm() (VM executor)
+// for single-pattern rules where VM should be faster.
+// Why it matters: Validates the performance benefit of VM integration.
+
+class VMvsEMatcherFixture : public benchmark::Fixture {
+ protected:
+  TestEGraph egraph_;
+  std::unique_ptr<TestEMatcher> matcher_;
+  memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
+  TestRewriteContext ctx_;
+  std::vector<EClassId> candidates_;
+  TestRewriteRule rule_ = RuleDoubleNeg();
+  int64_t num_chains_ = 0;
+  int64_t chain_depth_ = 0;
+
+  void SetUp(const benchmark::State &state) override {
+    num_chains_ = state.range(0);
+    chain_depth_ = state.range(1);
+    egraph_ = TestEGraph{};
+    BuildNegChains(egraph_, num_chains_, chain_depth_);
+    matcher_ = std::make_unique<TestEMatcher>(egraph_);
+    vm_executor_ = memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+  }
+};
+
+// Benchmark apply() - uses EMatcher for pattern matching
+BENCHMARK_DEFINE_F(VMvsEMatcherFixture, ApplyEMatcher)(benchmark::State &state) {
+  for (auto _ : state) {
+    ctx_.clear();
+    auto rewrites = rule_.apply(egraph_, *matcher_, ctx_);
+    benchmark::DoNotOptimize(rewrites);
+  }
+  state.SetItemsProcessed(state.iterations() * num_chains_);
+}
+
+// Benchmark apply_vm() - uses VM executor for pattern matching
+BENCHMARK_DEFINE_F(VMvsEMatcherFixture, ApplyVM)(benchmark::State &state) {
+  for (auto _ : state) {
+    ctx_.clear();
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
+    benchmark::DoNotOptimize(rewrites);
+  }
+  state.SetItemsProcessed(state.iterations() * num_chains_);
+}
+
+BENCHMARK_REGISTER_F(VMvsEMatcherFixture, ApplyEMatcher)
+    ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
+    ->ArgNames({"chains", "depth"})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(VMvsEMatcherFixture, ApplyVM)
+    ->ArgsProduct({{kSmall, kMedium, kLarge}, {2, 4, 8}})
+    ->ArgNames({"chains", "depth"})
+    ->Unit(benchmark::kMicrosecond);
+
+// ============================================================================
+// Single-Pattern Rule Comparison (Larger Scale)
+// ============================================================================
+//
+// Measures: VM vs EMatcher for larger graphs with more matches.
+
+class VMvsEMatcherLargeFixture : public benchmark::Fixture {
+ protected:
+  TestEGraph egraph_;
+  std::unique_ptr<TestEMatcher> matcher_;
+  memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_{egraph_};
+  TestRewriteContext ctx_;
+  std::vector<EClassId> candidates_;
+  TestRewriteRule rule_ = RuleDoubleNeg();
+  int64_t graph_size_ = 0;
+
+  void SetUp(const benchmark::State &state) override {
+    graph_size_ = state.range(0);
+    egraph_ = TestEGraph{};
+    // Create graph_size_ double negations
+    for (int64_t i = 0; i < graph_size_; ++i) {
+      auto var = egraph_.emplace(Op::Var, static_cast<uint64_t>(i)).eclass_id;
+      auto neg1 = egraph_.emplace(Op::Neg, {var}).eclass_id;
+      egraph_.emplace(Op::Neg, {neg1});
+    }
+    matcher_ = std::make_unique<TestEMatcher>(egraph_);
+    vm_executor_ = memgraph::planner::core::vm::VMExecutorVerify<Op, NoAnalysis>(egraph_);
+  }
+};
+
+BENCHMARK_DEFINE_F(VMvsEMatcherLargeFixture, EMatcher)(benchmark::State &state) {
+  for (auto _ : state) {
+    ctx_.clear();
+    auto rewrites = rule_.apply(egraph_, *matcher_, ctx_);
+    benchmark::DoNotOptimize(rewrites);
+  }
+  state.SetItemsProcessed(state.iterations() * graph_size_);
+}
+
+BENCHMARK_DEFINE_F(VMvsEMatcherLargeFixture, VM)(benchmark::State &state) {
+  for (auto _ : state) {
+    ctx_.clear();
+    auto rewrites = rule_.apply_vm(egraph_, *matcher_, vm_executor_, ctx_, candidates_);
+    benchmark::DoNotOptimize(rewrites);
+  }
+  state.SetItemsProcessed(state.iterations() * graph_size_);
+}
+
+BENCHMARK_REGISTER_F(VMvsEMatcherLargeFixture, EMatcher)
+    ->Args({kMedium})
+    ->Args({kLarge})
+    ->Args({kXLarge})
+    ->Args({kHuge})
+    ->ArgNames({"matches"})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(VMvsEMatcherLargeFixture, VM)
+    ->Args({kMedium})
+    ->Args({kLarge})
+    ->Args({kXLarge})
+    ->Args({kHuge})
+    ->ArgNames({"matches"})
     ->Unit(benchmark::kMicrosecond);

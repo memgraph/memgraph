@@ -25,6 +25,7 @@
 #include "planner/egraph/egraph.hpp"
 #include "planner/pattern/matcher.hpp"
 #include "planner/pattern/pattern.hpp"
+#include "planner/pattern/vm/compiler.hpp"
 #include "planner/rewrite/join.hpp"
 #include "utils/small_vector.hpp"
 
@@ -262,6 +263,21 @@ class RewriteRule {
   /// Test accessor: returns the computed join steps for verifying join ordering.
   [[nodiscard]] auto join_steps() const -> std::span<JoinStep const> { return join_steps_; }
 
+  /// Access compiled patterns for VM execution
+  [[nodiscard]] auto compiled_patterns() const -> std::span<std::optional<vm::CompiledPattern<Symbol>> const> {
+    return compiled_patterns_;
+  }
+
+  /// Get the root symbol of the first pattern (for index-based candidate lookup)
+  [[nodiscard]] auto first_pattern_root_symbol() const -> std::optional<Symbol> {
+    if (patterns_.empty()) return std::nullopt;
+    auto const &root_node = patterns_[0][patterns_[0].root()];
+    if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node)) {
+      return sym->sym;
+    }
+    return std::nullopt;
+  }
+
   /// Match patterns and invoke apply function. Returns number of rewrites.
   auto apply(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, RewriteContext &ctx) const
       -> std::size_t {
@@ -298,6 +314,55 @@ class RewriteRule {
     return rule_ctx.rewrites();
   }
 
+  /// Match patterns using VM executor for single-pattern rules. Returns number of rewrites.
+  /// Falls back to EMatcher for multi-pattern joins or when VM compilation failed.
+  template <typename VMExecutor>
+  auto apply_vm(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
+                RewriteContext &ctx, std::vector<EClassId> &candidates_buffer) const -> std::size_t {
+    if (patterns_.empty() || !apply_fn_) [[unlikely]] {
+      return 0;
+    }
+
+    // For multi-pattern rules, fall back to EMatcher-based join
+    // (VM currently only handles single patterns; FusedPatternCompiler can be added later)
+    if (patterns_.size() > 1) {
+      return apply(egraph, matcher, ctx);
+    }
+
+    // For single-pattern rules, use VM if compiled successfully
+    auto const &compiled = compiled_patterns_[0];
+    if (!compiled) {
+      // Pattern too deep for VM (register overflow), fall back to EMatcher
+      return apply(egraph, matcher, ctx);
+    }
+
+    ctx.match_ctx.clear();
+    auto &join_ctx = ctx.join_ctx;
+    auto &arena = ctx.match_ctx.arena();
+
+    // Get candidates based on pattern's entry symbol
+    if (auto entry_sym = compiled->entry_symbol()) {
+      matcher.candidates_for_symbol(*entry_sym, candidates_buffer);
+    } else {
+      // Root is variable/wildcard - get all e-classes
+      matcher.all_candidates(candidates_buffer);
+    }
+
+    if (candidates_buffer.empty()) return 0;
+
+    // Execute VM to find matches
+    join_ctx.right.clear();
+    vm_executor.execute(*compiled, candidates_buffer, ctx.match_ctx, join_ctx.right);
+
+    if (join_ctx.right.empty()) return 0;
+
+    // For single-pattern rules, matches go directly to apply function
+    // (no join needed, stride is 1)
+    RuleContext rule_ctx(egraph, ctx.new_eclasses);
+    apply_fn_(rule_ctx, join_ctx.right, 1, var_locations_, arena);
+    return rule_ctx.rewrites();
+  }
+
  private:
   RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names,
               std::vector<JoinStep> join_steps, VarLocMap var_locations, ApplyFn apply_fn, std::string name)
@@ -306,7 +371,19 @@ class RewriteRule {
         join_steps_(std::move(join_steps)),
         var_locations_(std::move(var_locations)),
         apply_fn_(std::move(apply_fn)),
-        name_(std::move(name)) {}
+        name_(std::move(name)) {
+    // Pre-compile patterns for VM execution
+    compile_patterns();
+  }
+
+  void compile_patterns() {
+    compiled_patterns_.clear();
+    compiled_patterns_.reserve(patterns_.size());
+    vm::PatternCompiler<Symbol> compiler;
+    for (auto const &pattern : patterns_) {
+      compiled_patterns_.push_back(compiler.compile(pattern));
+    }
+  }
 
   std::vector<Pattern<Symbol>> patterns_;
   std::vector<std::string> pattern_names_;
@@ -314,6 +391,7 @@ class RewriteRule {
   VarLocMap var_locations_;
   ApplyFn apply_fn_;
   std::string name_;
+  std::vector<std::optional<vm::CompiledPattern<Symbol>>> compiled_patterns_;
 };
 
 /// Immutable, shareable collection of rewrite rules. Cheap to copy (shared_ptr).
