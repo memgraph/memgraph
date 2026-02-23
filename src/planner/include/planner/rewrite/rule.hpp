@@ -315,18 +315,11 @@ class RewriteRule {
   }
 
   /// Match patterns using VM executor. Uses unified fused pattern for all rules.
-  /// Falls back to EMatcher only for register overflow (patterns exceeding 64 registers).
   template <typename VMExecutor>
   auto apply_vm(EGraph<Symbol, Analysis> &egraph, EMatcher<Symbol, Analysis> &matcher, VMExecutor &vm_executor,
                 RewriteContext &ctx) const -> std::size_t {
-    if (patterns_.empty() || !apply_fn_) [[unlikely]] {
+    if (patterns_.empty() || !apply_fn_ || !compiled_pattern_) [[unlikely]] {
       return 0;
-    }
-
-    // Check if compilation succeeded
-    if (!compiled_pattern_) {
-      // Compilation failed (register overflow), fall back to EMatcher
-      return apply(egraph, matcher, ctx);
     }
 
     ctx.match_ctx.clear();
@@ -359,7 +352,7 @@ class RewriteRule {
   }
 
   /// Compile all patterns into a single unified VM pattern.
-  /// Uses PatternsCompiler which handles both single and multi-pattern cases.
+  /// Uses PatternCompiler which handles both single and multi-pattern cases.
   void compile_patterns() {
     compiled_pattern_.reset();
     compiled_var_locations_.clear();
@@ -368,13 +361,9 @@ class RewriteRule {
       return;
     }
 
-    // PatternsCompiler handles both single and multi-pattern rules uniformly
-    vm::PatternsCompiler<Symbol> compiler;
+    // PatternCompiler handles both single and multi-pattern rules uniformly
+    vm::PatternCompiler<Symbol> compiler;
     compiled_pattern_ = compiler.compile(patterns_);
-
-    if (!compiled_pattern_) {
-      return;  // Compilation failed (too many registers)
-    }
 
     // Build var_locations map using the compiler's actual slot assignments.
     // All vars are in a single match (pattern_index=0), with slot indices
