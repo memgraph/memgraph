@@ -438,6 +438,7 @@ int main(int argc, char **argv) {
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
                             FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
+                        .storage_light_edge = FLAGS_storage_light_edge,
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
                         .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
       .salient.storage_mode = memgraph::flags::ParseStorageMode(),
@@ -452,6 +453,16 @@ int main(int argc, char **argv) {
     spdlog::warn(
         "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
         "extra metadata on edges, enable properties on edges as well.");
+  }
+  if (db_config.salient.items.storage_light_edge) {
+    if (!db_config.salient.items.properties_on_edges) {
+      spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
+      db_config.salient.items.properties_on_edges = true;
+    }
+    if (db_config.salient.items.enable_edges_metadata) {
+      spdlog::warn("Light edges are incompatible with edges metadata. Disabling edges metadata.");
+      db_config.salient.items.enable_edges_metadata = false;
+    }
   }
   spdlog::info("config recover on startup {}, flags {}",
                db_config.durability.recover_on_startup,

@@ -631,6 +631,29 @@ class PoolResource final : public std::pmr::memory_resource {
   std::pmr::memory_resource *unpooled_memory_;
 };
 
+/// std::pmr::memory_resource backed by a single ThreadSafePool for one fixed block size.
+/// Allocations whose size (max of bytes and alignment) matches block_size are served
+/// from the pool; everything else is rejected.  Chunks are allocated from upstream in
+/// units of blocks_per_chunk * block_size.  Choose blocks_per_chunk large enough so that
+/// each chunk exceeds jemalloc's "large" threshold (~14 KiB), ensuring dedicated pages
+/// with no slab-level interleaving from other allocations.
+class SingleSizeThreadSafePoolResource final : public std::pmr::memory_resource {
+ public:
+  explicit SingleSizeThreadSafePoolResource(std::size_t block_size, std::size_t blocks_per_chunk = 8192,
+                                            std::pmr::memory_resource *chunk_memory = NewDeleteResource());
+
+  ~SingleSizeThreadSafePoolResource() override;
+
+ protected:
+  void *do_allocate(size_t bytes, size_t alignment) override;
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override;
+  bool do_is_equal(std::pmr::memory_resource const &other) const noexcept override;
+
+ private:
+  std::size_t const block_size_;
+  impl::ThreadSafePool pool_;
+};
+
 // NOTE: Used only for procedure calls (single threaded)
 class MemoryTrackingResource final : public std::pmr::memory_resource {
  public:
