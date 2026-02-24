@@ -9,8 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <chrono>
-#include <iostream>
+// Correctness tests for VM executor modes (Verify vs Clean) and EMatcher vs VM comparison.
+// Performance benchmarks have been moved to src/planner/bench/bench_vm.cpp.
+
 #include <random>
 
 #include <gtest/gtest.h>
@@ -27,118 +28,60 @@ using namespace test;
 using namespace vm;
 
 // ============================================================================
-// Benchmark Fixture
+// VM Mode Comparison Fixture
 // ============================================================================
 
-class VMMatchingBenchmark : public EGraphTestBase {
+class VMModesComparison : public EGraphTestBase {
  protected:
-  using Clock = std::chrono::high_resolution_clock;
-  using Duration = std::chrono::duration<double, std::milli>;
-
   EMatchContext ctx;
-  std::vector<PatternMatch> results;
+  std::vector<PatternMatch> verify_results;
+  std::vector<PatternMatch> clean_results;
 
-  struct BenchmarkResult {
-    Duration verify_time;
-    Duration clean_time;
-    Duration index_build_time;
-    std::size_t verify_matches;
-    std::size_t clean_matches;
-    VMStats verify_stats;
-    VMStats clean_stats;
-  };
-
-  /// Run both executors and compare results
-  auto run_benchmark(CompiledPattern<Op> const &pattern, std::span<EClassId const> candidates, std::size_t iterations)
-      -> BenchmarkResult {
-    BenchmarkResult result{};
-
-    // Build parent index
+  /// Run both executors and verify they produce the same number of matches
+  void verify_modes_match(CompiledPattern<Op> const &pattern, std::span<EClassId const> candidates) {
+    // Build parent index for clean mode
     ParentSymbolIndex<Op, NoAnalysis> parent_index(egraph);
-    auto index_start = Clock::now();
     parent_index.rebuild();
-    result.index_build_time = Clock::now() - index_start;
 
-    // Warm up
     VMExecutorVerify<Op, NoAnalysis> verify_executor(egraph);
     VMExecutorClean<Op, NoAnalysis> clean_executor(egraph, parent_index);
 
-    results.clear();
-    verify_executor.execute(pattern, candidates, ctx, results);
-    results.clear();
-    clean_executor.execute(pattern, candidates, ctx, results);
+    verify_results.clear();
+    verify_executor.execute(pattern, candidates, ctx, verify_results);
 
-    // Benchmark verify mode
-    auto verify_start = Clock::now();
-    for (std::size_t i = 0; i < iterations; ++i) {
-      results.clear();
-      verify_executor.execute(pattern, candidates, ctx, results);
-    }
-    result.verify_time = Clock::now() - verify_start;
-    result.verify_matches = results.size();
-    result.verify_stats = verify_executor.stats();
+    clean_results.clear();
+    clean_executor.execute(pattern, candidates, ctx, clean_results);
 
-    // Benchmark clean mode
-    auto clean_start = Clock::now();
-    for (std::size_t i = 0; i < iterations; ++i) {
-      results.clear();
-      clean_executor.execute(pattern, candidates, ctx, results);
-    }
-    result.clean_time = Clock::now() - clean_start;
-    result.clean_matches = results.size();
-    result.clean_stats = clean_executor.stats();
-
-    return result;
+    // Both modes should produce the same number of matches
+    EXPECT_EQ(verify_results.size(), clean_results.size());
   }
 
-  void print_result(std::string const &name, BenchmarkResult const &r) {
-    std::cout << "\n=== " << name << " ===\n";
-    std::cout << "Index build: " << r.index_build_time.count() << " ms\n";
-    std::cout << "Verify mode: " << r.verify_time.count() << " ms (" << r.verify_matches << " matches)\n";
-    std::cout << "Clean mode:  " << r.clean_time.count() << " ms (" << r.clean_matches << " matches)\n";
-    std::cout << "Speedup:     " << (r.verify_time / r.clean_time) << "x\n";
-    std::cout << "\nVerify stats:\n";
-    std::cout << "  Instructions: " << r.verify_stats.instructions_executed << "\n";
-    std::cout << "  Parent iterations: " << r.verify_stats.iter_parent_calls << "\n";
-    std::cout << "  Symbol misses: " << r.verify_stats.parent_symbol_misses << "\n";
-    std::cout << "  CheckSlot misses: " << r.verify_stats.check_slot_misses << "\n";
-    std::cout << "\nClean stats:\n";
-    std::cout << "  Instructions: " << r.clean_stats.instructions_executed << "\n";
-    std::cout << "  Parent iterations: " << r.clean_stats.iter_parent_calls << "\n";
-    std::cout << "  Symbol misses: " << r.clean_stats.parent_symbol_misses << "\n";
-    std::cout << "  CheckSlot misses: " << r.clean_stats.check_slot_misses << "\n";
+  auto get_all_candidates() -> std::vector<EClassId> {
+    std::vector<EClassId> candidates;
+    for (auto id : egraph.canonical_class_ids()) {
+      candidates.push_back(id);
+    }
+    return candidates;
   }
 };
 
 // ============================================================================
-// Benchmark: Parent Traversal Selectivity
+// Test: Verify vs Clean mode produce same results
 // ============================================================================
 
-TEST_F(VMMatchingBenchmark, ParentTraversalSelectivity) {
+TEST_F(VMModesComparison, ParentTraversalSelectivity) {
   // Create an e-graph with many nodes sharing common children.
-  // This tests how well the symbol index helps filter parents.
-  //
-  // Structure:
-  //   - 100 leaf nodes (Const)
-  //   - Each leaf has N parents of various symbols (Add, Mul, Neg, F)
-  //   - Pattern: Neg(?x) - should only match Neg parents
-  //
-  // Expected: Clean mode with symbol index should be much faster
-  // because it skips non-Neg parents entirely.
-
+  // Both modes should find the same matches.
   constexpr std::size_t kNumLeaves = 100;
   constexpr std::size_t kParentsPerLeaf = 20;
-  constexpr std::size_t kIterations = 100;
 
   std::vector<EClassId> leaves;
   leaves.reserve(kNumLeaves);
 
-  // Create leaves
   for (std::size_t i = 0; i < kNumLeaves; ++i) {
     leaves.push_back(leaf(Op::Const, static_cast<uint64_t>(i)));
   }
 
-  // Create diverse parents for each leaf
   std::mt19937 rng(42);
   std::uniform_int_distribution<int> sym_dist(0, 3);
   std::array<Op, 4> symbols = {Op::Add, Op::Mul, Op::Neg, Op::F};
@@ -149,7 +92,6 @@ TEST_F(VMMatchingBenchmark, ParentTraversalSelectivity) {
       if (sym == Op::Neg) {
         node(Op::Neg, leaf_id);
       } else {
-        // Binary ops need two children
         auto other_leaf = leaves[rng() % leaves.size()];
         node(sym, leaf_id, other_leaf);
       }
@@ -158,99 +100,38 @@ TEST_F(VMMatchingBenchmark, ParentTraversalSelectivity) {
 
   rebuild_egraph();
 
-  // Pattern: Neg(?x)
   PatternCompiler<Op> compiler;
   auto pattern = compiler.compile(TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot));
+  auto candidates = get_all_candidates();
 
-  // Get all candidates (all canonical e-classes)
-  std::vector<EClassId> candidates;
-  for (auto id : egraph.canonical_class_ids()) {
-    candidates.push_back(id);
-  }
-
-  auto result = run_benchmark(*pattern, candidates, kIterations);
-  print_result("Parent Traversal Selectivity", result);
-
-  // Verify both modes found the same matches
-  EXPECT_EQ(result.verify_matches, result.clean_matches);
-
-  // Note: The current pattern compiler generates code that iterates through e-nodes
-  // in each candidate e-class (going down), not by traversing parents (going up).
-  // Therefore, both modes will have similar symbol miss counts since they both
-  // iterate through e-nodes and check symbols the same way.
-  // The parent symbol index would be useful for patterns that traverse upward
-  // (e.g., "find all Neg parents of a given e-class"), which would require
-  // additional compiler support for parent traversal instructions.
+  verify_modes_match(*pattern, candidates);
 }
 
-// ============================================================================
-// Benchmark: Deep Pattern Matching
-// ============================================================================
-
-TEST_F(VMMatchingBenchmark, DeepPatternMatching) {
-  // Create chains of Neg nodes and match with a deep pattern.
-  // This tests the basic VM execution efficiency.
-  //
-  // Structure:
-  //   - Create 100 chains of Neg(Neg(Neg(...Const)))
-  //   - Each chain has depth 10
-  //   - Pattern: Neg(Neg(Neg(?x)))
-  //
-  // Expected: Both modes should perform similarly since this
-  // doesn't heavily use parent traversal.
-
+TEST_F(VMModesComparison, DeepPatternMatching) {
+  // Chains of Neg nodes - both modes should match identically.
   constexpr std::size_t kNumChains = 100;
   constexpr std::size_t kChainDepth = 10;
-  constexpr std::size_t kIterations = 100;
-
-  std::vector<EClassId> chain_roots;
-  chain_roots.reserve(kNumChains);
 
   for (std::size_t i = 0; i < kNumChains; ++i) {
     auto current = leaf(Op::Const, static_cast<uint64_t>(i));
     for (std::size_t d = 0; d < kChainDepth; ++d) {
       current = node(Op::Neg, current);
     }
-    chain_roots.push_back(current);
   }
 
   rebuild_egraph();
 
-  // Pattern: Neg(Neg(Neg(?x)))
   PatternCompiler<Op> compiler;
   auto pattern = compiler.compile(TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Var{kVarX}))}, kTestRoot));
+  auto candidates = get_all_candidates();
 
-  // Get all candidates
-  std::vector<EClassId> candidates;
-  for (auto id : egraph.canonical_class_ids()) {
-    candidates.push_back(id);
-  }
-
-  auto result = run_benchmark(*pattern, candidates, kIterations);
-  print_result("Deep Pattern Matching", result);
-
-  EXPECT_EQ(result.verify_matches, result.clean_matches);
+  verify_modes_match(*pattern, candidates);
 }
 
-// ============================================================================
-// Benchmark: Self-Referential E-Class
-// ============================================================================
-
-TEST_F(VMMatchingBenchmark, SelfReferentialEClass) {
-  // Create a self-referential e-class (via merge) and match.
-  // This is the bug scenario from the failing test.
-  //
-  // Setup:
-  //   n0 = B(64)
-  //   n1 = F(n0)
-  //   n2 = F(n1)
-  //   merge(n1, n2) => EC1 = {F(n0), F(EC1)}
-  //
-  // Pattern: F(F(?x))
-  //
-  // Expected: Should find multiple matches due to self-reference.
-
-  constexpr std::size_t kIterations = 1000;
+TEST_F(VMModesComparison, SelfReferentialEClass) {
+  // Self-referential e-class via merge.
+  // Setup: n0 = Const(64), n1 = F(n0), n2 = F(n1), merge(n1, n2)
+  // Results in EC1 = {F(n0), F(EC1)}
 
   auto n0 = leaf(Op::B, 64);
   auto n1 = node(Op::F, n0);
@@ -259,78 +140,39 @@ TEST_F(VMMatchingBenchmark, SelfReferentialEClass) {
   merge(n1, n2);
   rebuild_egraph();
 
-  // Pattern: F(F(?x))
   PatternCompiler<Op> compiler;
   auto pattern = compiler.compile(TestPattern::build(Op::F, {Sym(Op::F, Var{kVarX})}, kTestRoot));
+  auto candidates = get_all_candidates();
 
-  std::vector<EClassId> candidates;
-  for (auto id : egraph.canonical_class_ids()) {
-    candidates.push_back(id);
-  }
+  verify_modes_match(*pattern, candidates);
 
-  auto result = run_benchmark(*pattern, candidates, kIterations);
-  print_result("Self-Referential E-Class", result);
-
-  EXPECT_EQ(result.verify_matches, result.clean_matches);
-  // Should find at least 2 matches (the self-referential case)
-  EXPECT_GE(result.verify_matches, 2);
+  // Should find at least 2 matches due to self-reference
+  EXPECT_GE(verify_results.size(), 2);
 }
 
-// ============================================================================
-// Benchmark: High Parent Count
-// ============================================================================
-
-TEST_F(VMMatchingBenchmark, HighParentCount) {
-  // Create a "hub" node that is referenced by many parents.
-  // This tests the worst case for parent traversal.
-  //
-  // Structure:
-  //   - 1 "hub" leaf
-  //   - 1000 F(hub) nodes, 100 Neg(hub) nodes
-  //   - Pattern: Neg(?x)
-  //
-  // Expected: Clean mode should be much faster because it
-  // only iterates the 100 Neg parents, not all 1100.
-
+TEST_F(VMModesComparison, HighParentCount) {
+  // Hub node with many parents of different types.
   constexpr std::size_t kFParents = 1000;
   constexpr std::size_t kNegParents = 100;
-  constexpr std::size_t kIterations = 100;
 
   auto hub = leaf(Op::Const, 0);
 
-  // Create many F parents
   for (std::size_t i = 0; i < kFParents; ++i) {
     auto other = leaf(Op::Const, i + 1);
     node(Op::F, hub, other);
   }
 
-  // Create Neg parents (these are what we're matching)
   for (std::size_t i = 0; i < kNegParents; ++i) {
     node(Op::Neg, hub);
   }
 
   rebuild_egraph();
 
-  // Pattern: Neg(?x)
   PatternCompiler<Op> compiler;
   auto pattern = compiler.compile(TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot));
+  auto candidates = get_all_candidates();
 
-  std::vector<EClassId> candidates;
-  for (auto id : egraph.canonical_class_ids()) {
-    candidates.push_back(id);
-  }
-
-  auto result = run_benchmark(*pattern, candidates, kIterations);
-  print_result("High Parent Count", result);
-
-  EXPECT_EQ(result.verify_matches, result.clean_matches);
-
-  // Clean mode should have significantly fewer instructions
-  // because it doesn't iterate through F parents
-  std::cout << "\nInstruction ratio (verify/clean): "
-            << (static_cast<double>(result.verify_stats.instructions_executed) /
-                static_cast<double>(result.clean_stats.instructions_executed))
-            << "\n";
+  verify_modes_match(*pattern, candidates);
 }
 
 // ============================================================================
@@ -339,34 +181,19 @@ TEST_F(VMMatchingBenchmark, HighParentCount) {
 
 class EMatcherVsVMComparison : public EGraphTestBase {
  protected:
-  using Clock = std::chrono::high_resolution_clock;
-  using Duration = std::chrono::duration<double, std::milli>;
-
   EMatchContext ctx;
   std::vector<PatternMatch> ematcher_results;
   std::vector<PatternMatch> vm_results;
 
-  struct ComparisonResult {
-    Duration ematcher_time;
-    Duration vm_time;
-    std::size_t ematcher_matches;
-    std::size_t vm_matches;
-    bool results_match;
-  };
-
   /// Compare EMatcher and VM executor on the same pattern
-  auto compare_matching(TestPattern const &pattern, std::size_t iterations) -> ComparisonResult {
-    ComparisonResult result{};
-
-    // Build EMatcher
+  void verify_ematcher_vs_vm(TestPattern const &pattern) {
     EMatcher<Op, NoAnalysis> ematcher(egraph);
 
-    // Compile pattern for VM
     PatternCompiler<Op> compiler;
     auto compiled = compiler.compile(pattern);
-    EXPECT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+    ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
 
-    // Get candidates for VM (based on entry symbol)
+    // Get candidates for VM based on entry symbol
     std::vector<EClassId> candidates;
     if (auto entry_sym = compiled->entry_symbol()) {
       ematcher.candidates_for_symbol(*entry_sym, candidates);
@@ -374,75 +201,26 @@ class EMatcherVsVMComparison : public EGraphTestBase {
       ematcher.all_candidates(candidates);
     }
 
-    // Create VM executor
     VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
 
-    // Warm up
     ematcher_results.clear();
     ematcher.match_into(pattern, ctx, ematcher_results);
+
     vm_results.clear();
     vm_executor.execute(*compiled, candidates, ctx, vm_results);
 
-    // Benchmark EMatcher
-    auto ematcher_start = Clock::now();
-    for (std::size_t i = 0; i < iterations; ++i) {
-      ematcher_results.clear();
-      ematcher.match_into(pattern, ctx, ematcher_results);
-    }
-    result.ematcher_time = Clock::now() - ematcher_start;
-    result.ematcher_matches = ematcher_results.size();
-
-    // Benchmark VM
-    auto vm_start = Clock::now();
-    for (std::size_t i = 0; i < iterations; ++i) {
-      vm_results.clear();
-      vm_executor.execute(*compiled, candidates, ctx, vm_results);
-    }
-    result.vm_time = Clock::now() - vm_start;
-    result.vm_matches = vm_results.size();
-
-    // Compare results - extract actual e-class bindings and compare
-    result.results_match = compare_match_sets(pattern, ematcher_results, *compiled, vm_results);
-
-    return result;
-  }
-
-  /// Compare match results by extracting bindings
-  auto compare_match_sets(TestPattern const &pattern, std::vector<PatternMatch> const &ematcher_matches,
-                          CompiledPattern<Op> const &compiled, std::vector<PatternMatch> const &vm_matches) -> bool {
-    if (ematcher_matches.size() != vm_matches.size()) {
-      std::cout << "Match count mismatch: EMatcher=" << ematcher_matches.size() << " VM=" << vm_matches.size() << "\n";
-      return false;
-    }
-
-    // Extract binding sets from both - we need to compare by actual bound values
-    // since slot ordering may differ between EMatcher and PatternCompiler
-    auto const &arena = ctx.arena();
-
-    // For simplicity, just check counts match (full comparison would need to normalize bindings)
-    return true;
-  }
-
-  void print_comparison(std::string const &name, ComparisonResult const &r) {
-    std::cout << "\n=== " << name << " ===\n";
-    std::cout << "EMatcher: " << r.ematcher_time.count() << " ms (" << r.ematcher_matches << " matches)\n";
-    std::cout << "VM:       " << r.vm_time.count() << " ms (" << r.vm_matches << " matches)\n";
-    std::cout << "Speedup:  " << (r.ematcher_time / r.vm_time) << "x\n";
-    std::cout << "Results match: " << (r.results_match ? "YES" : "NO") << "\n";
+    // Both should find the same number of matches
+    EXPECT_EQ(ematcher_results.size(), vm_results.size());
   }
 };
 
 // ============================================================================
-// Comparison: Simple Pattern
+// Tests: EMatcher vs VM produce same results
 // ============================================================================
 
 TEST_F(EMatcherVsVMComparison, SimplePattern_Neg) {
-  // Simple pattern: Neg(?x)
-  // This tests the basic overhead of both matchers
   constexpr std::size_t kNumNodes = 1000;
-  constexpr std::size_t kIterations = 100;
 
-  // Create nodes
   for (std::size_t i = 0; i < kNumNodes; ++i) {
     auto x = leaf(Op::Const, i);
     node(Op::Neg, x);
@@ -450,17 +228,13 @@ TEST_F(EMatcherVsVMComparison, SimplePattern_Neg) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
-  auto result = compare_matching(pattern, kIterations);
-  print_comparison("Simple Pattern: Neg(?x)", result);
+  verify_ematcher_vs_vm(pattern);
 
-  EXPECT_TRUE(result.results_match);
-  EXPECT_EQ(result.ematcher_matches, kNumNodes);
+  EXPECT_EQ(ematcher_results.size(), kNumNodes);
 }
 
 TEST_F(EMatcherVsVMComparison, NestedPattern_NegNeg) {
-  // Nested pattern: Neg(Neg(?x))
   constexpr std::size_t kNumChains = 500;
-  constexpr std::size_t kIterations = 100;
 
   for (std::size_t i = 0; i < kNumChains; ++i) {
     auto x = leaf(Op::Const, i);
@@ -470,17 +244,13 @@ TEST_F(EMatcherVsVMComparison, NestedPattern_NegNeg) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Var{kVarX})}, kTestRoot);
-  auto result = compare_matching(pattern, kIterations);
-  print_comparison("Nested Pattern: Neg(Neg(?x))", result);
+  verify_ematcher_vs_vm(pattern);
 
-  EXPECT_TRUE(result.results_match);
-  EXPECT_EQ(result.ematcher_matches, kNumChains);
+  EXPECT_EQ(ematcher_results.size(), kNumChains);
 }
 
 TEST_F(EMatcherVsVMComparison, BinaryPattern_Add) {
-  // Binary pattern: Add(?x, ?y)
   constexpr std::size_t kNumNodes = 500;
-  constexpr std::size_t kIterations = 100;
 
   std::vector<EClassId> leaves;
   for (std::size_t i = 0; i < 50; ++i) {
@@ -496,16 +266,11 @@ TEST_F(EMatcherVsVMComparison, BinaryPattern_Add) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}, kTestRoot);
-  auto result = compare_matching(pattern, kIterations);
-  print_comparison("Binary Pattern: Add(?x, ?y)", result);
-
-  EXPECT_TRUE(result.results_match);
+  verify_ematcher_vs_vm(pattern);
 }
 
 TEST_F(EMatcherVsVMComparison, DeepPattern_Chain4) {
-  // Deep pattern: Neg(Neg(Neg(Neg(?x))))
   constexpr std::size_t kNumChains = 200;
-  constexpr std::size_t kIterations = 100;
 
   for (std::size_t i = 0; i < kNumChains; ++i) {
     auto x = leaf(Op::Const, i);
@@ -517,18 +282,13 @@ TEST_F(EMatcherVsVMComparison, DeepPattern_Chain4) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Sym(Op::Neg, Var{kVarX})))}, kTestRoot);
-  auto result = compare_matching(pattern, kIterations);
-  print_comparison("Deep Pattern: Neg(Neg(Neg(Neg(?x))))", result);
+  verify_ematcher_vs_vm(pattern);
 
-  EXPECT_TRUE(result.results_match);
-  EXPECT_EQ(result.ematcher_matches, kNumChains);
+  EXPECT_EQ(ematcher_results.size(), kNumChains);
 }
 
 TEST_F(EMatcherVsVMComparison, SameVariablePattern_AddXX) {
-  // Same variable pattern: Add(?x, ?x)
-  // This tests variable consistency checking
   constexpr std::size_t kNumLeaves = 100;
-  constexpr std::size_t kIterations = 100;
 
   std::vector<EClassId> leaves;
   for (std::size_t i = 0; i < kNumLeaves; ++i) {
@@ -552,20 +312,15 @@ TEST_F(EMatcherVsVMComparison, SameVariablePattern_AddXX) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarX}}, kTestRoot);
-  auto result = compare_matching(pattern, kIterations);
-  print_comparison("Same Variable: Add(?x, ?x)", result);
+  verify_ematcher_vs_vm(pattern);
 
-  EXPECT_TRUE(result.results_match);
-  EXPECT_EQ(result.ematcher_matches, kNumLeaves);  // Only Add(x,x) matches
+  EXPECT_EQ(ematcher_results.size(), kNumLeaves);
 }
 
 TEST_F(EMatcherVsVMComparison, WideEClass_ManyENodes) {
-  // Test with wide e-classes (many e-nodes per e-class)
-  // This happens after many merges in saturation
+  // Multiple e-nodes per e-class after merges
   constexpr std::size_t kNumMerges = 100;
-  constexpr std::size_t kIterations = 100;
 
-  // Create many Neg nodes
   std::vector<EClassId> neg_nodes;
   for (std::size_t i = 0; i < kNumMerges; ++i) {
     auto x = leaf(Op::Const, i);
@@ -578,19 +333,15 @@ TEST_F(EMatcherVsVMComparison, WideEClass_ManyENodes) {
   }
   rebuild_egraph();
 
-  // Pattern should match all e-nodes in the wide e-class
   auto pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot);
-  auto result = compare_matching(pattern, kIterations);
-  print_comparison("Wide E-Class: Many E-Nodes", result);
+  verify_ematcher_vs_vm(pattern);
 
-  EXPECT_TRUE(result.results_match);
-  EXPECT_EQ(result.ematcher_matches, kNumMerges);  // Each e-node matches separately
+  EXPECT_EQ(ematcher_results.size(), kNumMerges);
 }
 
 TEST_F(EMatcherVsVMComparison, MixedPattern_Complex) {
-  // More complex pattern: F(Add(?x, ?y), Neg(?z))
+  // Pattern: F(Add(?x, ?y), Neg(?z))
   constexpr std::size_t kNumNodes = 200;
-  constexpr std::size_t kIterations = 100;
 
   std::vector<EClassId> leaves;
   for (std::size_t i = 0; i < 30; ++i) {
@@ -609,10 +360,7 @@ TEST_F(EMatcherVsVMComparison, MixedPattern_Complex) {
   rebuild_egraph();
 
   auto pattern = TestPattern::build(Op::F, {Sym(Op::Add, Var{kVarX}, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}, kTestRoot);
-  auto result = compare_matching(pattern, kIterations);
-  print_comparison("Complex: F(Add(?x,?y), Neg(?z))", result);
-
-  EXPECT_TRUE(result.results_match);
+  verify_ematcher_vs_vm(pattern);
 }
 
 }  // namespace memgraph::planner::core

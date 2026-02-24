@@ -199,6 +199,69 @@ inline void BuildAddNegDisjoint(TestEGraph &g, int64_t n) {
   }
 }
 
+// HighParentCount: A "hub" leaf with many parents of different symbols.
+// Tests symbol index filtering effectiveness.
+// Creates 1 hub + parents_f F(hub, other) nodes + parents_neg Neg(hub) nodes.
+inline void BuildHighParentHub(TestEGraph &g, int64_t parents_f, int64_t parents_neg) {
+  auto hub = g.emplace(Op::Const, 0).eclass_id;
+
+  // Create F parents (binary op using hub and unique leaves)
+  for (int64_t i = 0; i < parents_f; ++i) {
+    auto other = g.emplace(Op::Const, static_cast<uint64_t>(i + 1)).eclass_id;
+    g.emplace(Op::F, {hub, other});
+  }
+
+  // Create Neg parents (unary op using hub)
+  for (int64_t i = 0; i < parents_neg; ++i) {
+    g.emplace(Op::Neg, {hub});
+  }
+}
+
+// SelfReferentialEClass: Creates a self-referential e-class via merge.
+// n0 = Const(seed), n1 = F(n0), n2 = F(n1), merge(n1, n2) => EC1 = {F(n0), F(EC1)}
+inline auto BuildSelfReferential(TestEGraph &g, uint64_t seed = 42) -> EClassId {
+  ProcessingContext<Op> pctx;
+  auto n0 = g.emplace(Op::Const, seed).eclass_id;
+  auto n1 = g.emplace(Op::F, {n0}).eclass_id;
+  auto n2 = g.emplace(Op::F, {n1}).eclass_id;
+  g.merge(n1, n2);
+  g.rebuild(pctx);
+  return g.find(n1);  // Return canonical ID of self-referential class
+}
+
+// ParentDiversity: Many leaves each with diverse parents of various symbols.
+// num_leaves leaves, parents_per_leaf parents randomly distributed among Add, Mul, Neg, F.
+inline void BuildParentDiversity(TestEGraph &g, int64_t num_leaves, int64_t parents_per_leaf, uint64_t seed = 42) {
+  std::vector<EClassId> leaves;
+  leaves.reserve(static_cast<std::size_t>(num_leaves));
+
+  for (int64_t i = 0; i < num_leaves; ++i) {
+    leaves.push_back(g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id);
+  }
+
+  // Simple deterministic "random" distribution
+  std::array<Op, 4> symbols = {Op::Add, Op::Mul, Op::Neg, Op::F};
+  uint64_t rng = seed;
+  auto next_rng = [&rng]() {
+    rng = rng * 6364136223846793005ULL + 1442695040888963407ULL;
+    return rng;
+  };
+
+  for (auto leaf_id : leaves) {
+    for (int64_t p = 0; p < parents_per_leaf; ++p) {
+      auto sym = symbols[next_rng() % 4];
+      if (sym == Op::Neg) {
+        g.emplace(Op::Neg, {leaf_id});
+      } else {
+        // Binary ops need two children
+        auto other_idx = next_rng() % static_cast<uint64_t>(leaves.size());
+        auto other_leaf = leaves[other_idx];
+        g.emplace(sym, {leaf_id, other_leaf});
+      }
+    }
+  }
+}
+
 // ============================================================================
 // Pattern Builders
 // ============================================================================
@@ -217,6 +280,10 @@ inline auto PatternNestedNeg(int depth) -> TestPattern {
   for (int i = 0; i < depth; ++i) cur = b.sym(Op::Neg, {cur});
   return std::move(b).build();
 }
+
+inline auto PatternNeg() { return TestPattern::build(Op::Neg, {Var{kX}}); }
+
+inline auto PatternNestedF() { return TestPattern::build(Op::F, {Sym(Op::F, Var{kX})}); }
 
 // ============================================================================
 // Rule Builders

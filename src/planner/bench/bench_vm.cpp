@@ -12,6 +12,7 @@
 #include "bench_common.hpp"
 
 #include <array>
+#include <memory>
 #include <optional>
 
 #include "planner/pattern/vm/compiler.hpp"
@@ -400,4 +401,180 @@ BENCHMARK_REGISTER_F(BindIdentVMFusedFixture, ParentTraversal)
     ->Args({100, 10})  // 100 binds, 10 idents each = 1000 matches
     ->Args({1000, 1})  // 1000 binds, 1 ident each = 1000 matches
     ->ArgNames({"binds", "idents_per"})
+    ->Unit(benchmark::kMicrosecond);
+
+// ============================================================================
+// High Parent Count: Hub node with many parents of different symbols
+// ============================================================================
+//
+// Measures: Symbol index filtering effectiveness when a node has many parents.
+// Why it matters: Clean mode with IterParentsSym should skip non-matching parents
+//   entirely, while Verify mode iterates all parents and filters.
+// Variables: parents_f (F parents), parents_neg (Neg parents to match).
+
+class VMHighParentFixture : public VMFixtureBase {
+ protected:
+  std::optional<CompiledPattern<Op>> pattern_;
+  std::vector<EClassId> candidates_;
+  std::unique_ptr<ParentSymbolIndex<Op, NoAnalysis>> parent_index_;
+  int64_t parents_f_ = 0;
+  int64_t parents_neg_ = 0;
+
+  void SetUp(const benchmark::State &state) override {
+    parents_f_ = state.range(0);
+    parents_neg_ = state.range(1);
+    SetupGraph([this](TestEGraph &g) { BuildHighParentHub(g, parents_f_, parents_neg_); });
+    pattern_ = compiler_.compile(PatternNeg());
+    candidates_ = GetAllCandidates();
+    parent_index_ = std::make_unique<ParentSymbolIndex<Op, NoAnalysis>>(egraph_);
+    parent_index_->rebuild();
+  }
+};
+
+BENCHMARK_DEFINE_F(VMHighParentFixture, VerifyMode)(benchmark::State &state) {
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  for (auto _ : state) {
+    match_context_.clear();
+    matches_.clear();
+    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    benchmark::DoNotOptimize(matches_);
+  }
+  state.SetItemsProcessed(state.iterations() * parents_neg_);
+}
+
+BENCHMARK_DEFINE_F(VMHighParentFixture, CleanMode)(benchmark::State &state) {
+  VMExecutorClean<Op, NoAnalysis> executor(egraph_, *parent_index_);
+  for (auto _ : state) {
+    match_context_.clear();
+    matches_.clear();
+    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    benchmark::DoNotOptimize(matches_);
+  }
+  state.SetItemsProcessed(state.iterations() * parents_neg_);
+}
+
+BENCHMARK_REGISTER_F(VMHighParentFixture, VerifyMode)
+    ->Args({1000, 100})   // 1000 F parents, 100 Neg parents
+    ->Args({5000, 100})   // 5000 F parents, 100 Neg parents
+    ->Args({10000, 100})  // 10000 F parents, 100 Neg parents
+    ->ArgNames({"F_parents", "Neg_parents"})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(VMHighParentFixture, CleanMode)
+    ->Args({1000, 100})
+    ->Args({5000, 100})
+    ->Args({10000, 100})
+    ->ArgNames({"F_parents", "Neg_parents"})
+    ->Unit(benchmark::kMicrosecond);
+
+// ============================================================================
+// Self-Referential E-Class: Pattern matching on cyclic structures
+// ============================================================================
+//
+// Measures: Matching patterns on e-classes that reference themselves.
+// Why it matters: Self-referential e-classes (from merges) create unique
+//   matching scenarios where the same e-class appears at multiple depths.
+// Setup: EC1 = {F(Const), F(EC1)} - e-class contains F node pointing to itself.
+
+class VMSelfRefFixture : public VMFixtureBase {
+ protected:
+  std::optional<CompiledPattern<Op>> pattern_;
+  std::vector<EClassId> candidates_;
+  std::unique_ptr<ParentSymbolIndex<Op, NoAnalysis>> parent_index_;
+
+  void SetUp(const benchmark::State &) override {
+    SetupGraph([](TestEGraph &g) { BuildSelfReferential(g, 42); });
+    pattern_ = compiler_.compile(PatternNestedF());
+    candidates_ = GetAllCandidates();
+    parent_index_ = std::make_unique<ParentSymbolIndex<Op, NoAnalysis>>(egraph_);
+    parent_index_->rebuild();
+  }
+};
+
+BENCHMARK_DEFINE_F(VMSelfRefFixture, VerifyMode)(benchmark::State &state) {
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  for (auto _ : state) {
+    match_context_.clear();
+    matches_.clear();
+    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    benchmark::DoNotOptimize(matches_);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_DEFINE_F(VMSelfRefFixture, CleanMode)(benchmark::State &state) {
+  VMExecutorClean<Op, NoAnalysis> executor(egraph_, *parent_index_);
+  for (auto _ : state) {
+    match_context_.clear();
+    matches_.clear();
+    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    benchmark::DoNotOptimize(matches_);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_REGISTER_F(VMSelfRefFixture, VerifyMode)->Unit(benchmark::kNanosecond);
+BENCHMARK_REGISTER_F(VMSelfRefFixture, CleanMode)->Unit(benchmark::kNanosecond);
+
+// ============================================================================
+// Parent Diversity: Many nodes with diverse parent symbols
+// ============================================================================
+//
+// Measures: Matching when parents are distributed across many symbols.
+// Why it matters: Tests how well the symbol index filters vs linear scan.
+// Variables: num_leaves, parents_per_leaf (parents randomly distributed).
+
+class VMParentDiversityFixture : public VMFixtureBase {
+ protected:
+  std::optional<CompiledPattern<Op>> pattern_;
+  std::vector<EClassId> candidates_;
+  std::unique_ptr<ParentSymbolIndex<Op, NoAnalysis>> parent_index_;
+  int64_t num_leaves_ = 0;
+  int64_t parents_per_leaf_ = 0;
+
+  void SetUp(const benchmark::State &state) override {
+    num_leaves_ = state.range(0);
+    parents_per_leaf_ = state.range(1);
+    SetupGraph([this](TestEGraph &g) { BuildParentDiversity(g, num_leaves_, parents_per_leaf_, 42); });
+    pattern_ = compiler_.compile(PatternNeg());
+    candidates_ = GetAllCandidates();
+    parent_index_ = std::make_unique<ParentSymbolIndex<Op, NoAnalysis>>(egraph_);
+    parent_index_->rebuild();
+  }
+};
+
+BENCHMARK_DEFINE_F(VMParentDiversityFixture, VerifyMode)(benchmark::State &state) {
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  for (auto _ : state) {
+    match_context_.clear();
+    matches_.clear();
+    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    benchmark::DoNotOptimize(matches_);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_DEFINE_F(VMParentDiversityFixture, CleanMode)(benchmark::State &state) {
+  VMExecutorClean<Op, NoAnalysis> executor(egraph_, *parent_index_);
+  for (auto _ : state) {
+    match_context_.clear();
+    matches_.clear();
+    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    benchmark::DoNotOptimize(matches_);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_REGISTER_F(VMParentDiversityFixture, VerifyMode)
+    ->Args({100, 20})  // 100 leaves, 20 parents each
+    ->Args({500, 20})  // 500 leaves, 20 parents each
+    ->Args({100, 50})  // 100 leaves, 50 parents each
+    ->ArgNames({"leaves", "parents_per"})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(VMParentDiversityFixture, CleanMode)
+    ->Args({100, 20})
+    ->Args({500, 20})
+    ->Args({100, 50})
+    ->ArgNames({"leaves", "parents_per"})
     ->Unit(benchmark::kMicrosecond);
