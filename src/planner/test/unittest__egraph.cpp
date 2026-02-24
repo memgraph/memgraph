@@ -504,4 +504,114 @@ TEST(EGraphDuplicateRemoval, ClearResetsDuplicateCount) {
   EXPECT_EQ(egraph.num_dead_nodes(), 0);
 }
 
+// ============================================================================
+// Duplicate Detection Triggers E-Class Merge Tests
+// ============================================================================
+//
+// When duplicate e-nodes are detected during hashcons repair, their e-classes
+// must be merged. This tests the scenario where:
+//   1. E-nodes in different e-classes become congruent after a merge
+//   2. During rebuild, hashcons repair detects duplicates
+//   3. The e-classes containing the duplicates must be merged
+
+TEST(EGraphCongruenceClosureBug, DuplicateDetectionMergesEClasses) {
+  // Reproduces the bug from crash-19575df5f7b4c24248ece3ea22ac44956c4bacb9
+  //
+  // Scenario:
+  //   n0 = A      -> class 0
+  //   n1 = F(n0)  -> class 1  (n1 is parent of class 0)
+  //   n2 = F(n1)  -> class 2  (n2 is parent of class 1)
+  //   merge(n0, n1)           (creates self-referential class)
+  //   n3 = F(n2)  -> class 3  (created AFTER merge, BEFORE rebuild)
+  //   rebuild()
+  //
+  // After merge(n0, n1), n1's children [class 0] canonicalize to [class 1].
+  // So n1 = F(class 1). But n2 = F(class 1) also exists in class 2!
+  // These are congruent duplicates, so class 1 and class 2 must merge.
+  // This cascades to merge class 3 as well.
+  //
+  // Expected: All F nodes end up in the same e-class.
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  // n0 = A -> class 0
+  auto n0 = egraph.emplace(Op::A, 203).eclass_id;
+  EXPECT_EQ(egraph.num_classes(), 1);
+
+  // n1 = F(n0) -> class 1
+  auto n1 = egraph.emplace(Op::F, {n0}).eclass_id;
+  EXPECT_EQ(egraph.num_classes(), 2);
+
+  // n2 = F(n1) -> class 2
+  auto n2 = egraph.emplace(Op::F, {n1}).eclass_id;
+  EXPECT_EQ(egraph.num_classes(), 3);
+
+  // merge(n0, n1) - creates self-referential class
+  egraph.merge(n0, n1);
+  // Don't rebuild yet - simulate creating more nodes before rebuild
+  // After merge, num_classes is 2 (class 0 merged into class 1, class 2 remains)
+  EXPECT_EQ(egraph.num_classes(), 2);
+
+  // n3 = F(n2) -> new class
+  auto n3 = egraph.emplace(Op::F, {n2}).eclass_id;
+  EXPECT_EQ(egraph.num_classes(), 3);
+
+  // Now rebuild - this should trigger congruence closure
+  egraph.rebuild(ctx);
+
+  // After rebuild:
+  // - n1 = F(class 1) (since n0 merged with n1, and n1's child was n0 = class 0 -> class 1)
+  // - n2 = F(class 1) (n2's child was n1 = class 1)
+  // - n3 = F(class 1) (n3's child was n2, which is now congruent to n1)
+  // All F nodes should be in the same e-class
+
+  // The merged class should contain n0 and all F nodes
+  EXPECT_EQ(egraph.find(n1), egraph.find(n2));
+  EXPECT_EQ(egraph.find(n2), egraph.find(n3));
+
+  // Should have only 1 e-class (all merged together)
+  EXPECT_EQ(egraph.num_classes(), 1);
+
+  // Validate congruence closure
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCongruenceClosureBug, DuplicateDetectionWithMultipleLayers) {
+  // Similar to above but with deeper nesting to ensure cascading works
+  //
+  //   a, b separate
+  //   F(a), F(b) separate
+  //   F2(F(a)), F2(F(b)) separate
+  //   merge(a, b)
+  //   rebuild -> F(a)≡F(b), then F2(F(a))≡F2(F(b))
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+  auto f2fa = egraph.emplace(Op::F2, {fa}).eclass_id;
+  auto f2fb = egraph.emplace(Op::F2, {fb}).eclass_id;
+
+  EXPECT_EQ(egraph.num_classes(), 6);
+
+  egraph.merge(a, b);
+  egraph.rebuild(ctx);
+
+  // After merge(a,b) and rebuild:
+  // - a≡b
+  // - F(a)≡F(b) by congruence
+  // - F2(F(a))≡F2(F(b)) by congruence
+  EXPECT_EQ(egraph.find(a), egraph.find(b));
+  EXPECT_EQ(egraph.find(fa), egraph.find(fb));
+  EXPECT_EQ(egraph.find(f2fa), egraph.find(f2fb));
+
+  EXPECT_EQ(egraph.num_classes(), 3);  // a≡b, F(a)≡F(b), F2(F(a))≡F2(F(b))
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
 }  // namespace memgraph::planner::core
