@@ -60,7 +60,10 @@ struct IterState {
   /// Get current e-node from span (for ENodes and ParentsFiltered)
   [[nodiscard]] auto current() const -> ENodeId { return nodes_span[current_idx]; }
 
-  void advance() { ++current_idx; }
+  void advance() {
+    // TODO: If we have a span then why not subspan?
+    ++current_idx;
+  }
 
   void reset() { kind = Kind::Inactive; }
 

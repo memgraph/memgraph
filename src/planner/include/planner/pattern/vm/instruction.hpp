@@ -144,16 +144,13 @@ struct Instruction {
   static constexpr auto yield() -> Instruction { return {VMOp::Yield, 0, 0, 0, 0}; }
 
   static constexpr auto halt() -> Instruction { return {VMOp::Halt, 0, 0, 0, 0}; }
+
+  /// Equality for testing compiled bytecode
+  friend constexpr auto operator==(Instruction const &a, Instruction const &b) -> bool = default;
 };
 
 static_assert(sizeof(Instruction) == 6, "Instruction should be 6 bytes");
-
-/// Equality for testing compiled bytecode
-constexpr auto operator==(Instruction const &a, Instruction const &b) -> bool {
-  return a.op == b.op && a.dst == b.dst && a.src == b.src && a.arg == b.arg && a.target == b.target;
-}
-
-constexpr auto operator!=(Instruction const &a, Instruction const &b) -> bool { return !(a == b); }
+static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
 
 /// Get human-readable name for opcode
 [[nodiscard]] constexpr auto op_name(VMOp op) -> std::string_view {
