@@ -459,10 +459,6 @@ int main(int argc, char **argv) {
       spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
       db_config.salient.items.properties_on_edges = true;
     }
-    if (db_config.salient.items.enable_edges_metadata) {
-      spdlog::warn("Light edges are incompatible with edges metadata. Disabling edges metadata.");
-      db_config.salient.items.enable_edges_metadata = false;
-    }
   }
   spdlog::info("config recover on startup {}, flags {}",
                db_config.durability.recover_on_startup,
