@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/executor.hpp"
 #include "test_ematcher_fixture.hpp"
 #include "test_patterns.hpp"
 
@@ -508,6 +510,158 @@ TEST(MatchArena, ClearResetsForReuse) {
   // Can reuse after clear
   arena.intern(std::array{EClassId{10}});
   EXPECT_EQ(arena.size(), 1);
+}
+
+// ============================================================================
+// EMatcher vs VM Executor Consistency
+// ============================================================================
+//
+// These tests verify that EMatcher and VM executor produce identical results.
+// This is important because the VM executor is used as an optimized alternative
+// to EMatcher in the rewrite engine.
+
+TEST_F(EMatcherTest, VMExecutorMatchesSameAsEMatcher) {
+  // Basic test: both matchers should produce the same results for a simple pattern.
+  //
+  //   Pattern: Add(?x, ?y)
+  //   E-graph: Add(a, b)
+  //
+  //   Both EMatcher and VM should find exactly 1 match.
+  use_pattern(make_binary_pattern(Op::Add, kVarX, kVarY, kTestRoot));
+
+  auto a = leaf(Op::Var, 1);
+  auto b = leaf(Op::Var, 2);
+  auto add = node(Op::Add, a, b);
+  rebuild_index();
+
+  // EMatcher results
+  matches.clear();
+  ematcher.match_into(pattern(), ctx, matches);
+  ASSERT_EQ(matches.size(), 1);
+
+  // VM results
+  vm::PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(std::span{&pattern(), 1});
+  ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+  EMatchContext vm_ctx;
+  TestMatches vm_matches;
+  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
+
+  EXPECT_EQ(matches.size(), vm_matches.size()) << "EMatcher and VM should produce same number of matches";
+}
+
+TEST_F(EMatcherTest, LeafSymbolChildWithMergedENodesConsistency) {
+  // Regression test: When a leaf symbol appears as a CHILD (not root) of a
+  // pattern, and that child e-class contains multiple e-nodes with the same
+  // symbol (but different disambiguators), EMatcher and VM should produce
+  // the same number of matches.
+  //
+  // This tests the bug found by the fuzzer where EMatcher was producing
+  // more matches than VM for leaf symbol children.
+  //
+  //   Setup:
+  //     a0 = A(0)
+  //     a1 = A(1)
+  //     x = X(0)
+  //     f = F(x, a0)
+  //     merge(a0, a1)  -> merged_a = { A(0), A(1) }
+  //
+  //   After rebuild, f = F(x, merged_a)
+  //
+  //   Pattern: F(?x, A)  - A is a leaf child (not root)
+  //
+  //   Expected: EMatcher and VM produce same number of matches
+
+  auto x = leaf(Op::X, 0);
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  node(Op::F, x, a0);  // F(x, a0)
+
+  // Merge a0 and a1 into the same e-class
+  merge(a0, a1);
+  rebuild_egraph();
+  rebuild_index();
+
+  // Pattern: F(?x, A) - leaf symbol A as child
+  use_pattern(TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A)}, kTestRoot));
+
+  // EMatcher results
+  matches.clear();
+  ematcher.match_into(pattern(), ctx, matches);
+  auto ematcher_count = matches.size();
+
+  // VM results
+  vm::PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(std::span{&pattern(), 1});
+  ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+  EMatchContext vm_ctx;
+  TestMatches vm_matches;
+  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
+  auto vm_count = vm_matches.size();
+
+  // EMatcher and VM should produce the same number of matches
+  // Correct behavior: 1 match per e-class (existence check for leaf symbols)
+  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should produce same number of matches. "
+                                      << "EMatcher: " << ematcher_count << ", VM: " << vm_count;
+  // Verify the correct count
+  EXPECT_EQ(ematcher_count, 1u) << "Expected 1 match (one per e-class, not per e-node)";
+}
+
+TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
+  // Regression test from fuzzer: Pattern with a leaf symbol child in 3-ary pattern.
+  //
+  //   Setup (reproduces fuzzer bug):
+  //     v0 = X(0)
+  //     v1 = Y(0)
+  //     a0 = A(0)
+  //     a1 = A(1)
+  //     t = F(v0, a0, v1)   <- 3-ary F with A in the middle
+  //     merge(a0, a1)       -> merged_a = { A(0), A(1) }
+  //
+  //   After rebuild, t = F(v0, merged_a, v1)
+  //
+  //   Pattern: F(?x, A, ?y)  <- A is a leaf symbol, not a variable
+  //
+  //   Bug: EMatcher produces 2 matches while VM produces 1 match.
+  //        EMatcher iterates e-nodes for leaf symbol children and produces
+  //        one match per e-node, when it should produce one match per e-class.
+
+  auto v0 = leaf(Op::X, 0);
+  auto v1 = leaf(Op::Y, 0);
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  node(Op::F, v0, a0, v1);  // 3-ary F
+
+  // Merge a0 and a1
+  merge(a0, a1);
+  rebuild_egraph();
+  rebuild_index();
+
+  // Pattern: F(?x, A, ?y) - leaf symbol A in the middle
+  use_pattern(TestPattern::build(Op::F, {Var{kVarX}, Sym(Op::A), Var{kVarY}}, kTestRoot));
+
+  // EMatcher results
+  matches.clear();
+  ematcher.match_into(pattern(), ctx, matches);
+
+  // VM results
+  vm::PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(std::span{&pattern(), 1});
+  ASSERT_TRUE(compiled.has_value()) << "Pattern should compile successfully";
+
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+  EMatchContext vm_ctx;
+  TestMatches vm_matches;
+  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
+
+  // EMatcher and VM should produce the same number of matches
+  // Currently fails: EMatcher produces 2, VM produces 1 (VM is correct)
+  EXPECT_EQ(matches.size(), vm_matches.size()) << "EMatcher and VM should produce same number of matches. "
+                                               << "EMatcher: " << matches.size() << ", VM: " << vm_matches.size();
 }
 
 }  // namespace memgraph::planner::core

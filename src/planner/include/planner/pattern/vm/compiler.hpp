@@ -267,6 +267,13 @@ class PatternCompiler {
       emit_var_binding(*binding, eclass_reg, loop_pos);
     }
 
+    // For leaf symbols (no children), existence check is sufficient - after matching
+    // one e-node, backtrack to parent instead of trying more e-nodes in this e-class.
+    // This prevents duplicate matches when an e-class has multiple e-nodes with same symbol.
+    if (sym.children.empty()) {
+      return backtrack;
+    }
+
     // Process children
     uint16_t innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
@@ -419,11 +426,16 @@ class PatternCompiler {
               code_.push_back(Instruction::bind_slot(get_slot(*binding), eclass_reg));
             }
 
-            innermost = loop_pos;
-            for (std::size_t i = 0; i < n.children.size(); ++i) {
-              auto child_reg = alloc_reg();
-              code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-              innermost = emit_joined_child(pattern, n.children[i], child_reg, innermost);
+            // For leaf symbols, backtrack to parent after match (existence check only)
+            if (n.children.empty()) {
+              innermost = backtrack;
+            } else {
+              innermost = loop_pos;
+              for (std::size_t i = 0; i < n.children.size(); ++i) {
+                auto child_reg = alloc_reg();
+                code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
+                innermost = emit_joined_child(pattern, n.children[i], child_reg, innermost);
+              }
             }
           }
         },

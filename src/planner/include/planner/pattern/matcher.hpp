@@ -378,12 +378,13 @@ void EMatcher<Symbol, Analysis>::collect_matches_impl(Pattern<Symbol> const &pat
                           }
 
                           if (sym_node.children.empty()) {
-                            // Leaf symbol node - just add binding for this node if needed
+                            // Leaf symbol node - existence check only, one match per e-class
                             CollectedBindings bindings(pattern.num_vars());
                             if (auto binding = pattern.binding_for(pnode)) {
                               bindings.bind(pattern.var_slot(*binding), eclass);
                             }
                             results.push_back(std::move(bindings));
+                            break;  // Don't iterate remaining e-nodes - one match per e-class
                           } else {
                             // Non-leaf: collect matches from each child, then Cartesian product
                             std::vector<std::vector<CollectedBindings>> child_matches;
