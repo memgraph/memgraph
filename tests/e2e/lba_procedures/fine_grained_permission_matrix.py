@@ -10,73 +10,23 @@
 # licenses/APL.txt.
 
 """
-Tests all 16 combinations of {CREATE, READ, UPDATE, DELETE} permissions
-against each operation type to verify exact permission requirements.
+Tests fine-grained permission requirements for each operation.
+
+For each operation, we test:
+1. With all required permissions = PASS
+2. With NOTHING (explicit deny) = FAIL
+3. Missing each required permission individually = FAIL
+
+Memgraph 3.8 permissions:
+- Labels: CREATE, READ, UPDATE, DELETE
+- Edge types: CREATE, READ, UPDATE, DELETE
 """
 
 import sys
-from itertools import combinations
 
 import pytest
 from common import connect, execute_and_fetch_all
 from mgclient import DatabaseError
-
-ALL_PERMISSIONS = ["CREATE", "READ", "UPDATE", "DELETE"]
-
-
-def generate_permission_combinations():
-    result = [set()]
-    for r in range(1, len(ALL_PERMISSIONS) + 1):
-        for combo in combinations(ALL_PERMISSIONS, r):
-            result.append(set(combo))
-    return result
-
-
-PERMISSION_COMBINATIONS = generate_permission_combinations()
-
-
-OPERATIONS = [
-    {
-        "name": "create_vertex",
-        "setup": None,
-        "query": "CREATE (:Target)",
-        "required_on_target": {"CREATE"},
-        "required_on_existing": set(),
-        "expect_empty_match": False,
-    },
-    {
-        "name": "add_label",
-        "setup": "CREATE (:Existing)",
-        "query": "MATCH (n:Existing) SET n:Target",
-        "required_on_target": {"CREATE"},
-        "required_on_existing": {"READ", "UPDATE"},
-        "expect_empty_match": False,
-    },
-    {
-        "name": "remove_label",
-        "setup": "CREATE (:Target)",
-        "query": "MATCH (n:Target) REMOVE n:Target",
-        "required_on_target": {"READ", "UPDATE", "DELETE"},
-        "required_on_existing": set(),
-        "expect_empty_match": True,
-    },
-    {
-        "name": "set_property",
-        "setup": "CREATE (:Target)",
-        "query": "MATCH (n:Target) SET n.prop = 1",
-        "required_on_target": {"READ", "UPDATE"},
-        "required_on_existing": set(),
-        "expect_empty_match": True,
-    },
-    {
-        "name": "delete_vertex",
-        "setup": "CREATE (:Target)",
-        "query": "MATCH (n:Target) DELETE n",
-        "required_on_target": {"READ", "DELETE"},
-        "required_on_existing": set(),
-        "expect_empty_match": True,
-    },
-]
 
 
 def get_admin_cursor():
@@ -87,79 +37,453 @@ def get_user_cursor():
     return connect(username="user", password="test").cursor()
 
 
-def reset_and_grant(admin_cursor, permissions_on_target, permissions_on_existing):
+def reset_permissions(admin_cursor):
     execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
     execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES OF TYPE * FROM user;")
     execute_and_fetch_all(admin_cursor, "MATCH (n) DETACH DELETE n;")
 
-    if permissions_on_target:
-        perms = ", ".join(permissions_on_target)
-        execute_and_fetch_all(admin_cursor, f"GRANT {perms} ON NODES CONTAINING LABELS :Target TO user;")
 
-    if permissions_on_existing:
-        perms = ", ".join(permissions_on_existing)
-        execute_and_fetch_all(admin_cursor, f"GRANT {perms} ON NODES CONTAINING LABELS :Existing TO user;")
-
-
-def expect_success(
-    granted_on_target, granted_on_existing, required_on_target, required_on_existing, expect_empty_match
-):
-    if expect_empty_match and "READ" not in granted_on_target:
-        return True
-    target_ok = required_on_target.issubset(granted_on_target)
-    existing_ok = required_on_existing.issubset(granted_on_existing)
-    return target_ok and existing_ok
-
-
-@pytest.mark.parametrize("permissions_on_target", PERMISSION_COMBINATIONS)
-@pytest.mark.parametrize("op", OPERATIONS, ids=[op["name"] for op in OPERATIONS])
-def test_permission_matrix(permissions_on_target, op):
-    admin_cursor = get_admin_cursor()
-    permissions_on_existing = op["required_on_existing"]
-
-    reset_and_grant(admin_cursor, permissions_on_target, permissions_on_existing)
-
-    if op["setup"]:
-        execute_and_fetch_all(admin_cursor, op["setup"])
-
-    user_cursor = get_user_cursor()
-
-    expected_success = expect_success(
-        permissions_on_target,
-        permissions_on_existing,
-        op["required_on_target"],
-        op["required_on_existing"],
-        op["expect_empty_match"],
-    )
-
-    if expected_success:
-        execute_and_fetch_all(user_cursor, op["query"])
+def grant_label_permissions(admin_cursor, permissions):
+    if not permissions:
+        return
+    if "NOTHING" in permissions:
+        execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
     else:
+        perms = ", ".join(permissions)
+        execute_and_fetch_all(admin_cursor, f"GRANT {perms} ON NODES CONTAINING LABELS * TO user;")
+
+
+def grant_edge_permissions(admin_cursor, permissions):
+    if not permissions:
+        return
+    if "NOTHING" in permissions:
+        execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON EDGES OF TYPE * TO user;")
+    else:
+        perms = ", ".join(permissions)
+        execute_and_fetch_all(admin_cursor, f"GRANT {perms} ON EDGES OF TYPE * TO user;")
+
+
+class TestCreateVertex:
+    """CREATE (:Label) requires CREATE on label."""
+
+    REQUIRED_LABEL = {"CREATE"}
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"READ", "CREATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "CREATE (:Target)")
+
+    def test_with_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
         with pytest.raises(DatabaseError):
-            execute_and_fetch_all(user_cursor, op["query"])
+            execute_and_fetch_all(user, "CREATE (:Target)")
 
+    def test_without_create_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        grant_label_permissions(admin, {"READ", "UPDATE", "DELETE"})
 
-@pytest.mark.parametrize("permissions_on_existing", PERMISSION_COMBINATIONS)
-def test_add_label_existing_permissions(permissions_on_existing):
-    admin_cursor = get_admin_cursor()
-    permissions_on_target = {"CREATE"}
-    required_on_existing = {"READ", "UPDATE"}
-
-    reset_and_grant(admin_cursor, permissions_on_target, permissions_on_existing)
-    execute_and_fetch_all(admin_cursor, "CREATE (:Existing)")
-
-    user_cursor = get_user_cursor()
-
-    if "READ" not in permissions_on_existing:
-        expected_success = True
-    else:
-        expected_success = required_on_existing.issubset(permissions_on_existing)
-
-    if expected_success:
-        execute_and_fetch_all(user_cursor, "MATCH (n:Existing) SET n:Target")
-    else:
+        user = get_user_cursor()
         with pytest.raises(DatabaseError):
-            execute_and_fetch_all(user_cursor, "MATCH (n:Existing) SET n:Target")
+            execute_and_fetch_all(user, "CREATE (:Target)")
+
+
+class TestMatchVertex:
+    """MATCH (n:Label) RETURN n requires READ on label."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ"})
+
+        user = get_user_cursor()
+        result = execute_and_fetch_all(user, "MATCH (n:Target) RETURN n")
+        assert len(result) == 1
+
+    def test_with_nothing_returns_empty(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        result = execute_and_fetch_all(user, "MATCH (n:Target) RETURN n")
+        assert len(result) == 0
+
+    def test_without_read_returns_empty(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"CREATE", "UPDATE", "DELETE"})
+
+        user = get_user_cursor()
+        result = execute_and_fetch_all(user, "MATCH (n:Target) RETURN n")
+        assert len(result) == 0
+
+
+class TestSetVertexProperty:
+    """MATCH (n:Label) SET n.prop = 1 requires READ + UPDATE on label."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ", "UPDATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (n:Target) SET n.prop = 1")
+
+    def test_with_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        # With NOTHING, MATCH returns empty, so SET does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (n:Target) SET n.prop = 1")
+
+    def test_without_update_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ", "CREATE", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Target) SET n.prop = 1")
+
+
+class TestDeleteVertex:
+    """MATCH (n:Label) DELETE n requires READ + DELETE on label."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (n:Target) DELETE n")
+
+    def test_with_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        # With NOTHING, MATCH returns empty, so DELETE does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (n:Target) DELETE n")
+
+    def test_without_delete_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ", "CREATE", "UPDATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Target) DELETE n")
+
+
+class TestSetLabel:
+    """MATCH (n:Existing) SET n:NewLabel requires READ + UPDATE on existing label + CREATE on new label."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Existing)")
+        # Grant READ + UPDATE on :Existing, CREATE on :NewLabel
+        execute_and_fetch_all(admin, "GRANT READ, UPDATE ON NODES CONTAINING LABELS :Existing TO user;")
+        execute_and_fetch_all(admin, "GRANT CREATE ON NODES CONTAINING LABELS :NewLabel TO user;")
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (n:Existing) SET n:NewLabel")
+
+    def test_with_nothing_on_existing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Existing)")
+        execute_and_fetch_all(admin, "GRANT NOTHING ON NODES CONTAINING LABELS :Existing TO user;")
+        execute_and_fetch_all(admin, "GRANT CREATE ON NODES CONTAINING LABELS :NewLabel TO user;")
+
+        user = get_user_cursor()
+        # With NOTHING on existing label, MATCH returns empty, so SET does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (n:Existing) SET n:NewLabel")
+
+    def test_without_update_on_existing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Existing)")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS :Existing TO user;")
+        execute_and_fetch_all(admin, "GRANT CREATE ON NODES CONTAINING LABELS :NewLabel TO user;")
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Existing) SET n:NewLabel")
+
+    def test_without_create_on_new_label_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Existing)")
+        execute_and_fetch_all(admin, "GRANT READ, UPDATE ON NODES CONTAINING LABELS :Existing TO user;")
+        execute_and_fetch_all(admin, "GRANT READ ON NODES CONTAINING LABELS :NewLabel TO user;")
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Existing) SET n:NewLabel")
+
+
+class TestRemoveLabel:
+    """MATCH (n:Target) REMOVE n:Target requires READ + UPDATE + DELETE on label."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ", "UPDATE", "DELETE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (n:Target) REMOVE n:Target")
+
+    def test_with_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        # With NOTHING, MATCH returns empty, so REMOVE does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (n:Target) REMOVE n:Target")
+
+    def test_without_update_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ", "CREATE", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Target) REMOVE n:Target")
+
+    def test_without_delete_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Target)")
+        grant_label_permissions(admin, {"READ", "CREATE", "UPDATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (n:Target) REMOVE n:Target")
+
+
+class TestCreateEdge:
+    """MATCH (a), (b) CREATE (a)-[:Type]->(b) requires READ on labels + CREATE on edge type."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+    def test_with_label_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        grant_label_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"CREATE"})
+
+        user = get_user_cursor()
+        # With NOTHING on labels, MATCH returns empty, so no edge created (no error)
+        execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+    def test_with_edge_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+    def test_without_edge_create_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"READ", "UPDATE", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
+
+
+class TestMatchEdge:
+    """MATCH ()-[r:Type]->() RETURN r requires READ on labels + READ on edge type."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"READ"})
+
+        user = get_user_cursor()
+        result = execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) RETURN r")
+        assert len(result) == 1
+
+    def test_with_label_nothing_returns_empty(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"READ"})
+
+        user = get_user_cursor()
+        result = execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) RETURN r")
+        assert len(result) == 0
+
+    def test_with_edge_nothing_returns_empty(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        result = execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) RETURN r")
+        assert len(result) == 0
+
+    def test_without_edge_read_returns_empty(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"CREATE", "UPDATE", "DELETE"})
+
+        user = get_user_cursor()
+        result = execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) RETURN r")
+        assert len(result) == 0
+
+
+class TestSetEdgeProperty:
+    """MATCH ()-[r:Type]->() SET r.prop = 1 requires READ on labels + READ + UPDATE on edge type."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"READ", "UPDATE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) SET r.prop = 1")
+
+    def test_with_label_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"READ", "UPDATE"})
+
+        user = get_user_cursor()
+        # With NOTHING on labels, MATCH returns empty, so SET does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) SET r.prop = 1")
+
+    def test_with_edge_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        # With NOTHING on edge, MATCH returns empty, so SET does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) SET r.prop = 1")
+
+    def test_without_edge_update_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ"})
+        grant_edge_permissions(admin, {"READ", "CREATE", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) SET r.prop = 1")
+
+
+class TestDeleteEdge:
+    """MATCH ()-[r:Type]->() DELETE r requires READ + UPDATE on labels + DELETE on edge type."""
+
+    def test_with_required_permissions(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ", "UPDATE"})
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+    def test_with_label_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        # With NOTHING on labels, MATCH returns empty, so DELETE does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+    def test_with_edge_nothing_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ", "UPDATE"})
+        grant_edge_permissions(admin, {"NOTHING"})
+
+        user = get_user_cursor()
+        # With NOTHING on edge, MATCH returns empty, so DELETE does nothing (no error)
+        execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+    def test_without_label_update_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ", "CREATE", "DELETE"})
+        grant_edge_permissions(admin, {"READ", "DELETE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
+
+    def test_without_edge_delete_fails(self):
+        admin = get_admin_cursor()
+        reset_permissions(admin)
+        execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
+        grant_label_permissions(admin, {"READ", "UPDATE"})
+        grant_edge_permissions(admin, {"READ", "CREATE", "UPDATE"})
+
+        user = get_user_cursor()
+        with pytest.raises(DatabaseError):
+            execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
 
 
 if __name__ == "__main__":
