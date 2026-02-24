@@ -248,6 +248,37 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
+      // When transitioning between files (remaining_file_size was set), verify sufficient data exists after the mask
+      // for the next file's metadata (filename + filesize). TCP can split the sender's segment such that the mask
+      // arrives but the metadata doesn't. Without this check, OpenFile would fail with "Size data missing in SLK
+      // stream!" because the Reader runs out of data.
+      // File metadata format: [string_marker(1)][string_length(8)][string_data(N)][uint_marker(1)][uint_value(8)]
+      if (remaining_file_size) {
+        constexpr size_t kStringPrefixSize = 1 + sizeof(uint64_t);  // marker + string length
+        size_t const remaining_after_mask = size - pos;
+
+        if (remaining_after_mask < kStringPrefixSize) {
+          return {.status = StreamStatus::PARTIAL,
+                  .stream_size = pos + kSegmentMaxTotalSize,
+                  .encoded_data_size = data_size,
+                  .pos = pos};
+        }
+
+        uint64_t str_len;
+        memcpy(&str_len, data + pos + 1, sizeof(uint64_t));  // +1 to skip marker byte
+
+        constexpr size_t kUintFieldSize = 1 + sizeof(uint64_t);  // marker + uint64_t
+        if (str_len <= kSegmentMaxDataSize) {
+          size_t const needed = kStringPrefixSize + str_len + kUintFieldSize;
+          if (remaining_after_mask < needed) {
+            return {.status = StreamStatus::PARTIAL,
+                    .stream_size = pos + needed,
+                    .encoded_data_size = data_size,
+                    .pos = pos};
+          }
+        }
+      }
+
       // Pos is important here, and it points to the byte after the mask
       return {.status = StreamStatus::NEW_FILE, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
