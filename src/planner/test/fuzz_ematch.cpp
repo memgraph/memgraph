@@ -59,6 +59,7 @@
 #include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/pattern/vm/tracer.hpp"
 #include "planner/rewrite/rule.hpp"
 
 import memgraph.planner.core.eids;
@@ -74,6 +75,62 @@ static bool g_skip_egglog = false;
 
 #define VERBOSE_OUT \
   if (g_verbose) std::cerr
+
+// ============================================================================
+// Diagnostic Helpers
+// ============================================================================
+
+using BindingTuple = std::vector<EClassId>;
+
+/// Format a binding tuple as a string for diagnostics
+inline auto format_tuple(BindingTuple const &tuple) -> std::string {
+  std::ostringstream ss;
+  ss << "(";
+  for (std::size_t i = 0; i < tuple.size(); ++i) {
+    if (i > 0) ss << ", ";
+    ss << tuple[i];
+  }
+  ss << ")";
+  return ss.str();
+}
+
+/// Print the difference between two sets of binding tuples
+inline void print_tuple_diff(std::set<BindingTuple> const &set_a, std::set<BindingTuple> const &set_b,
+                             std::string const &name_a, std::string const &name_b) {
+  // Find tuples in A but not in B
+  std::set<BindingTuple> only_in_a;
+  std::set_difference(
+      set_a.begin(), set_a.end(), set_b.begin(), set_b.end(), std::inserter(only_in_a, only_in_a.begin()));
+
+  // Find tuples in B but not in A
+  std::set<BindingTuple> only_in_b;
+  std::set_difference(
+      set_b.begin(), set_b.end(), set_a.begin(), set_a.end(), std::inserter(only_in_b, only_in_b.begin()));
+
+  if (!only_in_a.empty()) {
+    std::cerr << "\n  In " << name_a << " but NOT in " << name_b << " (" << only_in_a.size() << " tuples):\n";
+    std::size_t count = 0;
+    for (auto const &t : only_in_a) {
+      std::cerr << "    " << format_tuple(t) << "\n";
+      if (++count >= 10) {
+        std::cerr << "    ... and " << (only_in_a.size() - 10) << " more\n";
+        break;
+      }
+    }
+  }
+
+  if (!only_in_b.empty()) {
+    std::cerr << "\n  In " << name_b << " but NOT in " << name_a << " (" << only_in_b.size() << " tuples):\n";
+    std::size_t count = 0;
+    for (auto const &t : only_in_b) {
+      std::cerr << "    " << format_tuple(t) << "\n";
+      if (++count >= 10) {
+        std::cerr << "    ... and " << (only_in_b.size() - 10) << " more\n";
+        break;
+      }
+    }
+  }
+}
 
 // ============================================================================
 // Fuzz Symbols - reused from fuzz_egraph.cpp
@@ -791,6 +848,9 @@ class FuzzerState {
     VERBOSE_OUT << "EMatcher found " << ematcher_raw << " raw matches, " << ematcher_unique.size() << " unique\n";
 
     // Run VM-based matching via RewriteRule::apply_vm
+    // Store compiled pattern for diagnostics
+    std::optional<vm::CompiledPattern<FuzzSymbol>> compiled_pattern_copy;
+    bool vm_compilation_succeeded = false;
     {
       EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
       vm::VMExecutorVerify<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
@@ -825,6 +885,8 @@ class FuzzerState {
         vm_raw = ematcher_raw;
         vm_unique = ematcher_unique;
       } else {
+        vm_compilation_succeeded = true;
+        compiled_pattern_copy = *vm_rule.compiled_pattern();  // Copy for diagnostics
         vm_rule.apply_vm(egraph_, matcher, vm_executor, rewrite_ctx);
       }
     }
@@ -859,7 +921,21 @@ class FuzzerState {
       VERBOSE_OUT << "Pattern contains pure variable - skipping egglog (EMatcher=VM=" << ematcher_count << ")\n";
       if (ematcher_count != vm_count) {
         std::cerr << "\n!!! EMatcher/VM MISMATCH for variable pattern !!!\n";
-        std::cerr << "EMatcher: " << ematcher_count << ", VM: " << vm_count << "\n";
+        std::cerr << "EMatcher: " << ematcher_count << " unique (" << ematcher_raw << " raw)\n";
+        std::cerr << "VM:       " << vm_count << " unique (" << vm_raw << " raw)\n";
+        std::cerr << "\nPatterns:\n";
+        for (size_t i = 0; i < current_patterns_egglog_.size(); ++i) {
+          std::cerr << "  " << i << ": " << current_patterns_egglog_[i] << "\n";
+        }
+        std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
+        // Print binding tuple differences
+        print_tuple_diff(ematcher_unique, vm_unique, "EMatcher", "VM");
+        // Print bytecode if available
+        if (vm_compilation_succeeded && compiled_pattern_copy) {
+          std::cerr << "\nVM Bytecode:\n"
+                    << vm::disassemble<FuzzSymbol>(compiled_pattern_copy->code(), compiled_pattern_copy->symbols())
+                    << "\n";
+        }
         abort();
       }
       return true;
@@ -941,6 +1017,27 @@ class FuzzerState {
         std::cerr << "  " << i << ": " << current_patterns_egglog_[i] << "\n";
       }
       std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
+
+      // Print binding tuple differences between EMatcher and VM
+      if (!ematcher_ok && !vm_ok) {
+        // Both wrong - compare EMatcher vs VM
+        std::cerr << "\nBinding tuple difference (EMatcher vs VM):";
+        print_tuple_diff(ematcher_unique, vm_unique, "EMatcher", "VM");
+      } else if (!ematcher_ok) {
+        std::cerr << "\nEMatcher has wrong count (VM is correct)";
+        print_tuple_diff(ematcher_unique, vm_unique, "EMatcher", "VM");
+      } else {
+        std::cerr << "\nVM has wrong count (EMatcher is correct)";
+        print_tuple_diff(vm_unique, ematcher_unique, "VM", "EMatcher");
+      }
+
+      // Print VM bytecode for debugging
+      if (vm_compilation_succeeded && compiled_pattern_copy) {
+        std::cerr << "\nVM Bytecode:\n"
+                  << vm::disassemble<FuzzSymbol>(compiled_pattern_copy->code(), compiled_pattern_copy->symbols())
+                  << "\n";
+      }
+
       std::cerr << "\nEgglog program:\n" << full_program.str() << "\n";
       std::cerr << "\nEgglog output:\n" << egglog_result.output << "\n";
       abort();
