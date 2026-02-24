@@ -128,6 +128,9 @@ struct VMState {
   // those sets were for the old prefix.
   std::vector<FastEClassSet> seen_per_slot;
 
+  // Highest slot index that has been used (for optimization in bind())
+  std::size_t max_seen_slot_{0};
+
   // Program counter
   std::size_t pc{0};
 
@@ -162,6 +165,7 @@ struct VMState {
     for (auto &seen_map : seen_per_slot) {
       seen_map.clear();
     }
+    max_seen_slot_ = 0;
   }
 
   /// Start an e-node iteration on a register (uses span)
@@ -217,8 +221,12 @@ struct VMState {
   void bind(std::size_t slot, EClassId eclass) {
     if (slots[slot] != eclass) {
       // Slot value changed - clear seen sets for dependent slots
-      for (std::size_t i = slot + 1; i < seen_per_slot.size(); ++i) {
-        seen_per_slot[i].clear();
+      // Only iterate up to max_seen_slot_ to avoid unnecessary work
+      auto end = std::min(max_seen_slot_ + 1, seen_per_slot.size());
+      for (std::size_t i = slot + 1; i < end; ++i) {
+        if (!seen_per_slot[i].empty()) {
+          seen_per_slot[i].clear();
+        }
       }
       slots[slot] = eclass;
     }
@@ -238,6 +246,11 @@ struct VMState {
     // We only need to check if the last slot's value is new for this prefix.
     auto last_slot_idx = canonicalized_slots.size() - 1;
     auto last_value = canonicalized_slots.back();
+
+    // Track highest slot used for optimization in bind()
+    if (last_slot_idx > max_seen_slot_) {
+      max_seen_slot_ = last_slot_idx;
+    }
 
     // Try to insert - returns false if already present
     return seen_per_slot[last_slot_idx].insert(last_value).second;
