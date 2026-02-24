@@ -440,8 +440,11 @@ class Interpreter final {
    */
   void Abort();
 
-  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
-  // Atomic so ShowTransactions can safely read it without CAS protection for non-ACTIVE states.
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
+  // ShowTransactions/TerminateTransactions CAS transaction_status_ → VERIFYING before reading fields.
+  // Commit/abort cleanup paths spin-wait on VERIFYING before clearing fields and transitioning to IDLE.
+  // This ensures all field reads in ShowTransactions see consistent, stable data.
+  // current_transaction_ is atomic as an additional safety net (reads via GetTransactionId).
   // 0 means "no active transaction". Valid IDs start at kInterpreterTransactionInitialId (1 << 63).
   std::atomic<uint64_t> current_transaction_{0};
 

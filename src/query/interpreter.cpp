@@ -6002,31 +6002,26 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       continue;
     }
 
-    // For ACTIVE transactions, use CAS to block commit/abort while we read interpreter fields.
-    // For other states (STARTED_COMMITTING, STARTED_ROLLBACK, TERMINATED):
-    //   - current_transaction_ is atomic, so always safe to read.
-    //   - transaction_queries_ is SpinLock-protected, so always safe to read via GetQueries().
-    //   - metadata_ is non-atomic and may be concurrently written during STARTED_ROLLBACK,
-    //     so we only read it under CAS protection (need_restore == true).
-    bool need_restore = false;
-    if (status == TransactionStatus::ACTIVE) {
+    // CAS any non-IDLE/non-VERIFYING state → VERIFYING to block the interpreter's own
+    // commit/abort cleanup from modifying fields while we read them.
+    // The commit/abort cleanup paths spin-wait on VERIFYING before transitioning to IDLE,
+    // so our reads of current_transaction_, metadata_, transaction_queries_, etc. are safe.
+    TransactionStatus original_status = status;
+    if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
+      // CAS failed — status changed between load and CAS
+      if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
+        continue;
+      }
+      // Status changed to a different observable state — try once more
+      original_status = status;
       if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
-        // Status changed between load and CAS — re-evaluate
-        if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
-          continue;
-        }
-        // Status changed to a non-ACTIVE state (committing/aborting/terminated) — fall through to read it
-      } else {
-        need_restore = true;
-        // For display purposes, show CAS'd ACTIVE transactions as "running"
-        status = TransactionStatus::ACTIVE;
+        continue;  // Give up rather than spinning in ShowTransactions
       }
     }
 
-    utils::OnScopeExit clean_status([interpreter, need_restore]() {
-      if (need_restore) {
-        interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-      }
+    // Restore original status on scope exit — this unblocks the interpreter's cleanup path
+    utils::OnScopeExit clean_status([interpreter, original_status]() {
+      interpreter->transaction_status_.store(original_status, std::memory_order_release);
     });
 
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
@@ -6050,11 +6045,11 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                           : ""),
            TypedValue(std::to_string(transaction_id.value())),
            TypedValue(typed_queries),
-           TypedValue(TransactionStatusToString(status))});
-      // Handle user-defined metadata — only safe to read under CAS protection (ACTIVE state).
-      // For non-ACTIVE states, metadata_ may be concurrently modified (e.g. during abort).
+           TypedValue(TransactionStatusToString(original_status))});
+      // metadata_ is safe to read — we hold CAS protection (status is VERIFYING,
+      // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
-      if (need_restore && interpreter->metadata_) {
+      if (interpreter->metadata_) {
         for (const auto &md : *(interpreter->metadata_)) {
           metadata_tv.emplace(md.first, TypedValue(md.second));
         }
@@ -8864,23 +8859,39 @@ void Interpreter::Abort() {
   system_transaction_.reset();
 
   // Data tx
+  // CAS ACTIVE → STARTED_ROLLBACK. Also accept TERMINATED and IDLE (already dead/cleaned up).
+  // Use CAS (not unconditional store) for TERMINATED/IDLE to avoid racing with ShowTransactions
+  // which may have CAS'd the status to VERIFYING.
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
     if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
       decrement = false;
-      break;
+      // Retry CAS from the current expected value (compare_exchange_weak already updated expected)
+      continue;
     }
+    // VERIFYING or other transient states — wait for ShowTransactions/TerminateTransactions to restore
     expected = TransactionStatus::ACTIVE;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  // current_transaction_ is atomic — safe to reset at any point.
-  // metadata_ is non-atomic but ShowTransactions skips it for non-CAS states, so no concurrent reader.
+  // Cleanup: transition to IDLE, then clear fields.
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_ROLLBACK
+  // when done reading, allowing us to proceed.
   utils::OnScopeExit clean_status([this]() {
+    auto expected = TransactionStatus::STARTED_ROLLBACK;
+    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+      if (expected == TransactionStatus::VERIFYING) {
+        expected = TransactionStatus::STARTED_ROLLBACK;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      // Unexpected state — force IDLE to avoid deadlock
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      break;
+    }
+    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
     current_transaction_.store(0, std::memory_order_release);
     metadata_ = std::nullopt;
-    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
   });
 
   expect_rollback_ = false;
@@ -9058,7 +9069,6 @@ void Interpreter::Commit() {
     // Clean transaction status on exit
     utils::OnScopeExit clean_status([this]() {
       system_transaction_.reset();
-      current_transaction_.store(0, std::memory_order_release);
       // System transactions are not terminable
       // Durability has happened at time of PULL
       // Commit is doing replication and timestamp update
@@ -9066,6 +9076,7 @@ void Interpreter::Commit() {
       // What we are trying to do is set the transaction back to IDLE
       // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
+      // ShowTransactions may also CAS us to VERIFYING — the CAS loop naturally spin-waits on that.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
         if (expected == TransactionStatus::TERMINATED) {
@@ -9074,6 +9085,8 @@ void Interpreter::Commit() {
         expected = TransactionStatus::ACTIVE;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
+      // Status is now IDLE — safe to clear fields
+      current_transaction_.store(0, std::memory_order_release);
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
@@ -9114,11 +9127,23 @@ void Interpreter::Commit() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  // Clean transaction status if something went wrong.
-  // current_transaction_ is atomic — safe to reset at any point.
+  // Clean transaction status on exit.
+  // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_COMMITTING
+  // when done reading, allowing us to proceed.
   utils::OnScopeExit clean_status([this]() {
+    auto expected = TransactionStatus::STARTED_COMMITTING;
+    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+      if (expected == TransactionStatus::VERIFYING) {
+        expected = TransactionStatus::STARTED_COMMITTING;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      // Unexpected state — force IDLE to avoid deadlock
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      break;
+    }
+    // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
     current_transaction_.store(0, std::memory_order_release);
-    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
   });
 
   auto current_storage_mode = db->GetStorageMode();

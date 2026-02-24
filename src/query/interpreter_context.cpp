@@ -127,22 +127,21 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
       continue;
     }
 
-    // For ACTIVE transactions, use CAS to block commit/abort while we read interpreter fields.
-    bool need_restore = false;
-    if (status == TransactionStatus::ACTIVE) {
+    // CAS any non-IDLE/non-VERIFYING state → VERIFYING to read fields safely.
+    // Commit/abort cleanup paths spin-wait on VERIFYING before modifying fields.
+    TransactionStatus original_status = status;
+    if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
+      if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
+        continue;
+      }
+      original_status = status;
       if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
-        if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
-          continue;
-        }
-      } else {
-        need_restore = true;
+        continue;
       }
     }
 
-    const utils::OnScopeExit clean_status([interpreter, need_restore]() {
-      if (need_restore) {
-        interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-      }
+    const utils::OnScopeExit clean_status([interpreter, original_status]() {
+      interpreter->transaction_status_.store(original_status, std::memory_order_release);
     });
     // Transaction is running, so cannot change the underlying db
     if (interpreter->current_db_.db_acc_ && interpreter->current_db_.db_acc_->get()->name() != db_name) {
