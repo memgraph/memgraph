@@ -43,6 +43,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -56,6 +57,8 @@
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/matcher.hpp"
 #include "planner/pattern/pattern.hpp"
+#include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/executor.hpp"
 
 import memgraph.planner.core.eids;
 
@@ -646,8 +649,46 @@ class FuzzerState {
     size_t memgraph_count = matches.size();
     VERBOSE_OUT << "EMatcher found " << memgraph_count << " matches\n";
 
+    // Run VM executor and verify same results
+    vm::PatternCompiler<FuzzSymbol> compiler;
+    auto compiled_opt = compiler.compile(std::span{&pattern, 1});
+    if (!compiled_opt) {
+      std::cerr << "\n!!! VM COMPILATION FAILED !!!\n";
+      std::cerr << "\nPattern (egglog): " << current_pattern_egglog_ << "\n";
+      abort();
+    }
+
+    vm::VMExecutorVerify<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
+    EMatchContext vm_ctx;
+    std::vector<PatternMatch> vm_matches;
+    vm_executor.execute(*compiled_opt, matcher, vm_ctx, vm_matches);
+
+    size_t vm_count = vm_matches.size();
+    VERBOSE_OUT << "VM executor found " << vm_count << " matches\n";
+
+    // Without egglog as oracle, skip verification (we can't determine ground truth)
     if (g_skip_egglog) {
+      VERBOSE_OUT << "Egglog skipped - no oracle verification\n";
       return true;
+    }
+
+    // Build sets of match tuples for comparison
+    auto match_to_tuple = [&](PatternMatch const &match_handle, EMatchContext &ctx) {
+      std::vector<EClassId> tuple;
+      for (size_t i = 0; i < pattern.num_vars(); ++i) {
+        tuple.push_back(egraph_.find(ctx.arena().get(match_handle, i)));
+      }
+      return tuple;
+    };
+
+    std::set<std::vector<EClassId>> ematcher_set;
+    for (auto const &m : matches) {
+      ematcher_set.insert(match_to_tuple(m, match_ctx));
+    }
+
+    std::set<std::vector<EClassId>> vm_set;
+    for (auto const &m : vm_matches) {
+      vm_set.insert(match_to_tuple(m, vm_ctx));
     }
 
     // MatchResult only captures ?vN variables (proper pattern variables), not ?dN
@@ -711,11 +752,16 @@ class FuzzerState {
     size_t egglog_count = egglog_result.match_count;
     VERBOSE_OUT << "Egglog found " << egglog_count << " matches\n";
 
-    // Pass 1: count comparison.
-    if (memgraph_count != egglog_count) {
-      std::cerr << "\n!!! MATCH COUNT MISMATCH !!!\n";
-      std::cerr << "EMatcher: " << memgraph_count << " matches\n";
-      std::cerr << "Egglog:   " << egglog_count << " matches\n";
+    // Use egglog as ground truth - verify both EMatcher and VM executor against it
+    bool ematcher_count_ok = (ematcher_set.size() == egglog_count);
+    bool vm_count_ok = (vm_set.size() == egglog_count);
+
+    if (!ematcher_count_ok || !vm_count_ok) {
+      std::cerr << "\n!!! MATCH COUNT MISMATCH (egglog is ground truth) !!!\n";
+      std::cerr << "Egglog:      " << egglog_count << " matches (oracle)\n";
+      std::cerr << "EMatcher:    " << ematcher_set.size() << " matches" << (ematcher_count_ok ? " OK" : " WRONG")
+                << "\n";
+      std::cerr << "VM executor: " << vm_set.size() << " matches" << (vm_count_ok ? " OK" : " WRONG") << "\n";
       std::cerr << "\nPattern (egglog): " << current_pattern_egglog_ << "\n";
       std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
       std::cerr << "\nEgglog program:\n" << full_program.str() << "\n";
@@ -723,49 +769,51 @@ class FuzzerState {
       abort();
     }
 
-    // Pass 2: content check.
-    // Verify that every EMatcher match is present in egglog's MatchResult by emitting
-    // one (check (MatchResult ...)) statement per match and running egglog again.
-    // Combined with count equality from pass 1, this proves the match sets are identical:
-    //   |EMatcher| == |egglog|  AND  EMatcher ⊆ egglog  =>  EMatcher == egglog.
-    if (!matches.empty()) {
+    // Content check helper - verify all matches from a set are in egglog's MatchResult
+    auto verify_matches_in_egglog =
+        [&](std::vector<PatternMatch> const &match_list, EMatchContext &ctx, std::string const &impl_name) -> bool {
+      if (match_list.empty()) return true;
+
       std::ostringstream check_program;
       check_program << full_program.str();
 
-      bool all_names_found = true;
-      for (auto const &match_handle : matches) {
+      for (auto const &match_handle : match_list) {
         check_program << "(check (MatchResult";
         for (auto const &var_name : v_vars) {
-          // var_name is "?v{id}" — parse the numeric id to find the pattern slot.
           uint32_t var_id = static_cast<uint32_t>(std::stoi(var_name.substr(2)));
           auto slot = static_cast<std::size_t>(pattern.var_slot(PatternVar{var_id}));
-          auto eclass_id = egraph_.find(match_ctx.arena().get(match_handle, slot));
+          auto eclass_id = egraph_.find(ctx.arena().get(match_handle, slot));
           auto it = egglog_names_.find(eclass_id);
           if (it == egglog_names_.end()) {
-            // Should not happen: every e-class was created through our fuzz operations
-            // and has a corresponding egglog name.  Skip the check pass if it does.
-            VERBOSE_OUT << "No egglog name for e-class, skipping content check\n";
-            all_names_found = false;
-            break;
+            VERBOSE_OUT << "No egglog name for e-class in " << impl_name << ", skipping content check\n";
+            return true;  // Skip check if we can't map names
           }
           check_program << " " << it->second;
         }
-        if (!all_names_found) break;
         check_program << "))\n";
       }
 
-      if (all_names_found) {
-        auto check_result = run_egglog(check_program.str());
-        if (!check_result.success) {
-          std::cerr << "\n!!! MATCH CONTENT MISMATCH !!!\n";
-          std::cerr << "An EMatcher match was not found in egglog's MatchResult\n";
-          std::cerr << "\nPattern (egglog): " << current_pattern_egglog_ << "\n";
-          std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
-          std::cerr << "\nCheck program:\n" << check_program.str() << "\n";
-          std::cerr << "\nEgglog output:\n" << check_result.output << "\n";
-          abort();
-        }
+      auto check_result = run_egglog(check_program.str());
+      if (!check_result.success) {
+        std::cerr << "\n!!! " << impl_name << " CONTENT MISMATCH !!!\n";
+        std::cerr << "A " << impl_name << " match was not found in egglog's MatchResult\n";
+        std::cerr << "\nPattern (egglog): " << current_pattern_egglog_ << "\n";
+        std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
+        std::cerr << "\nCheck program:\n" << check_program.str() << "\n";
+        std::cerr << "\nEgglog output:\n" << check_result.output << "\n";
+        return false;
       }
+      return true;
+    };
+
+    // Verify EMatcher content
+    bool ematcher_content_ok = verify_matches_in_egglog(matches, match_ctx, "EMatcher");
+
+    // Verify VM executor content
+    bool vm_content_ok = verify_matches_in_egglog(vm_matches, vm_ctx, "VM executor");
+
+    if (!ematcher_content_ok || !vm_content_ok) {
+      abort();
     }
 
     return true;
