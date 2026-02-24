@@ -19,11 +19,11 @@ import memgraph.planner.core.eids;
 #include <cstdint>
 #include <functional>
 #include <span>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 namespace memgraph::planner::core::vm {
 
@@ -114,6 +114,13 @@ struct PrefixHash {
   }
 };
 
+/// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
+using FastEClassSet = boost::unordered_flat_set<EClassId>;
+
+/// Open-addressing hash map from prefix vector to set of seen values
+/// boost::unordered_flat_map uses open addressing with better cache behavior
+using PrefixToSeenMap = boost::unordered_flat_map<std::vector<EClassId>, FastEClassSet, PrefixHash>;
+
 /// VM execution state
 struct VMState {
   // E-class registers (result of navigation)
@@ -133,7 +140,8 @@ struct VMState {
   // seen_per_slot[i] is a map from prefix (slots 0..i-1) to set of seen values at slot i.
   // This allows efficient per-level deduplication without storing full tuples.
   // For slot 0, the prefix is empty, so it's just a simple set.
-  std::vector<std::unordered_map<std::vector<EClassId>, std::unordered_set<EClassId>, PrefixHash>> seen_per_slot;
+  // Uses flat containers (sorted vectors) for cache-friendly access on small sets.
+  std::vector<PrefixToSeenMap> seen_per_slot;
 
   // Program counter
   std::size_t pc{0};

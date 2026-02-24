@@ -289,12 +289,13 @@ class PatternCompiler {
       return backtrack;
     }
 
-    // Process children
+    // Process children - each child should backtrack to the innermost loop so far
+    // (not the parent's loop), so that we try all combinations of nested e-nodes
     uint16_t innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
       auto child_reg = alloc_reg();
       code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
-      innermost = emit_node(pattern, sym.children[i], child_reg, loop_pos);
+      innermost = emit_node(pattern, sym.children[i], child_reg, innermost);
     }
 
     return innermost;
