@@ -88,11 +88,11 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
       // UPDATE is a grammar shorthand. For labels, this expands to
-      // SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE. For edge types,
+      // MODIFY_LABELS | SET_PROPERTY | DELETE_EDGE. For edge types,
       // it is a synonym for SET_PROPERTY.
       if (type == FineGrainedPermissionType::LABEL) {
-        return auth::FineGrainedPermission::SET_LABEL | auth::FineGrainedPermission::REMOVE_LABEL |
-               auth::FineGrainedPermission::SET_PROPERTY | auth::FineGrainedPermission::DELETE_EDGE;
+        return auth::FineGrainedPermission::MODIFY_LABELS | auth::FineGrainedPermission::SET_PROPERTY |
+               auth::FineGrainedPermission::DELETE_EDGE;
       }
       return auth::FineGrainedPermission::SET_PROPERTY;
     case query::AuthQuery::FineGrainedPrivilege::SET_LABEL:
@@ -107,6 +107,8 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
       return auth::FineGrainedPermission::DELETE;
     case query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE:
       return auth::FineGrainedPermission::DELETE_EDGE;
+    case query::AuthQuery::FineGrainedPrivilege::MODIFY_LABELS:
+      return auth::FineGrainedPermission::MODIFY_LABELS;
     case query::AuthQuery::FineGrainedPrivilege::ALL:
       return type == FineGrainedPermissionType::LABEL ? auth::kAllLabelPermissions : auth::kAllEdgeTypePermissions;
   }
