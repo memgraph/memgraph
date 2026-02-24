@@ -406,11 +406,17 @@ wait_for_external_ips() {
 setup_ha() {
     log_info "Setting up HA cluster configuration..."
 
+    # Helm's post-install Job handles: ADD COORDINATOR, REGISTER INSTANCE, SET INSTANCE TO MAIN
+    # Instance names from Helm: instance_1 (data-0), instance_2 (data-1)
+
     log_info "Waiting for HA cluster to become healthy..."
     if ! wait_for_healthy_cluster; then
         log_error "HA cluster did not become healthy in time"
         return 1
     fi
+
+    log_info "Current cluster state:"
+    kubectl exec -i memgraph-coordinator-1-0 -- mgconsole --host 127.0.0.1 --port 7687 --output-format=csv <<< "SHOW INSTANCES;" || true
 
     log_info "Updating bolt_server configs to external addresses..."
 
@@ -432,8 +438,8 @@ setup_ha() {
 UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '${coord1_ext}:7687'};
 UPDATE CONFIG FOR COORDINATOR 2 {'bolt_server': '${coord2_ext}:7687'};
 UPDATE CONFIG FOR COORDINATOR 3 {'bolt_server': '${coord3_ext}:7687'};
-UPDATE CONFIG FOR INSTANCE instance_0 {'bolt_server': '${data0_ext}:7687'};
-UPDATE CONFIG FOR INSTANCE instance_1 {'bolt_server': '${data1_ext}:7687'};
+UPDATE CONFIG FOR INSTANCE instance_1 {'bolt_server': '${data0_ext}:7687'};
+UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': '${data1_ext}:7687'};
 "
 
     if ! kubectl exec -i memgraph-coordinator-1-0 -- mgconsole --host 127.0.0.1 --port 7687 <<< "$update_query"; then
