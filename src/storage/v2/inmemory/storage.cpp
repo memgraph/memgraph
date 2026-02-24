@@ -1367,13 +1367,12 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
 
   // LIGHT EDGES: defer freeing to graveyard so index entries referencing Edge* remain
   // valid until the next GC drains the graveyard (after index cleanup).
+  // NOTE: engine_lock_ is already held by PrepareForCommitPhase (our caller),
+  // so we can read timestamp_ directly without re-acquiring.
   if (!current_deleted_light_edges.empty()) {
-    auto engine_guard = std::unique_lock(storage_->engine_lock_);
     uint64_t mark_timestamp = storage_->timestamp_;
-    mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
-      engine_guard.unlock();
-      graveyard.push_back({mark_timestamp, std::move(current_deleted_light_edges)});
-    });
+    mem_storage->light_edge_graveyard_.WithLock(
+        [&](auto &graveyard) { graveyard.push_back({mark_timestamp, std::move(current_deleted_light_edges)}); });
   }
 
   // STEP 4) hint to GC that indices need cleanup for performance reasons
