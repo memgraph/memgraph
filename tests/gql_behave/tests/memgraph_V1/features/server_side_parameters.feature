@@ -47,18 +47,6 @@ Feature: Server-side parameters
             | 'x'  | '"global_val"' | 'global'   |
             | 'y'  | '"db_val"'     | 'database' |
 
-    Scenario: Cannot set database parameter when global parameter with same name exists
-        Given an empty graph
-        And having executed:
-            """
-            SET GLOBAL PARAMETER x='global_val'
-            """
-        When executing query:
-            """
-            SET PARAMETER x='db_val'
-            """
-        Then an error should be raised
-
     Scenario: Unset database parameter
         Given an empty graph
         And having executed:

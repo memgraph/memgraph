@@ -96,8 +96,6 @@ Parameters::Parameters(const std::filesystem::path &storage_path) : storage_(sto
 
 SetParameterResult Parameters::SetParameter(std::string_view name, std::string_view value, std::string_view scope,
                                             system::Transaction *txn) {
-  if (scope != kGlobalScope && GetParameter(name, kGlobalScope).has_value())
-    return SetParameterResult::GlobalAlreadyExists;
   if (!storage_.Put(MakeKey(name, scope), value)) return SetParameterResult::StorageError;
   if (txn) txn->AddAction<SetParameterAction>(name, value, scope);
   return SetParameterResult::Success;

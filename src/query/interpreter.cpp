@@ -2791,10 +2791,6 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
         switch (res) {
           case parameters::SetParameterResult::Success:
             break;
-          case parameters::SetParameterResult::GlobalAlreadyExists:
-            throw QueryRuntimeException(
-                "Cannot set database parameter '{}' because a global parameter with that name already exists.",
-                parameter_name);
           case parameters::SetParameterResult::StorageError:
             throw QueryRuntimeException("Failed to set parameter '{}' (storage error).", parameter_name);
           default:

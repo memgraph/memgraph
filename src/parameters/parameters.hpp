@@ -21,7 +21,6 @@ inline constexpr std::string_view kGlobalScope = "global";
 
 enum class SetParameterResult : std::uint8_t {
   Success,
-  GlobalAlreadyExists,
   StorageError,
 };
 
