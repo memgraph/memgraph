@@ -42,6 +42,7 @@ void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config
   // No need to record the edge set property info if the edge was created in this transaction
   // The edge set property info is only used to speed up the edge search, during recovery/replication.
   if (config.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL &&
+      transaction->commit_info &&
       !EdgeWasCreatedThisTransaction(edge, transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
     transaction->RecordEdgeSetPropertyInfo(edge->gid, to_vertex->gid, edge_type_id);
   }
