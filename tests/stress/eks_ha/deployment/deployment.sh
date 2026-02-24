@@ -406,48 +406,38 @@ wait_for_external_ips() {
 setup_ha() {
     log_info "Setting up HA cluster configuration..."
 
-    # Wait a bit for coordinators to be fully ready
-    sleep 5
-
-    # Internal K8s DNS names for cluster communication
-    local coord1_internal="memgraph-coordinator-1.default.svc.cluster.local"
-    local coord2_internal="memgraph-coordinator-2.default.svc.cluster.local"
-    local coord3_internal="memgraph-coordinator-3.default.svc.cluster.local"
-    local data0_internal="memgraph-data-0.default.svc.cluster.local"
-    local data1_internal="memgraph-data-1.default.svc.cluster.local"
-
-    log_info "Connecting to coordinator 1 via kubectl exec..."
-
-    log_info "Adding coordinators..."
-
-    local add_coord_query="
-ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"${coord1_internal}:7687\", \"coordinator_server\": \"${coord1_internal}:12000\", \"management_server\": \"${coord1_internal}:10000\"};
-ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"${coord2_internal}:7687\", \"coordinator_server\": \"${coord2_internal}:12000\", \"management_server\": \"${coord2_internal}:10000\"};
-ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"${coord3_internal}:7687\", \"coordinator_server\": \"${coord3_internal}:12000\", \"management_server\": \"${coord3_internal}:10000\"};
-"
-
-    if ! kubectl exec -i memgraph-coordinator-1-0 -- mgconsole --host 127.0.0.1 --port 7687 <<< "$add_coord_query"; then
-        log_error "Failed to add coordinators"
-        return 1
-    fi
-
-    log_info "Registering data instances..."
-
-    local register_query="
-REGISTER INSTANCE instance_0 WITH CONFIG {\"bolt_server\": \"${data0_internal}:7687\", \"management_server\": \"${data0_internal}:10000\", \"replication_server\": \"${data0_internal}:20000\"};
-REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"${data1_internal}:7687\", \"management_server\": \"${data1_internal}:10000\", \"replication_server\": \"${data1_internal}:20000\"};
-SET INSTANCE instance_0 TO MAIN;
-"
-
-    if ! kubectl exec -i memgraph-coordinator-1-0 -- mgconsole --host 127.0.0.1 --port 7687 <<< "$register_query"; then
-        log_error "Failed to register instances"
-        return 1
-    fi
-
-    # Wait for cluster to become healthy
     log_info "Waiting for HA cluster to become healthy..."
     if ! wait_for_healthy_cluster; then
         log_error "HA cluster did not become healthy in time"
+        return 1
+    fi
+
+    log_info "Updating bolt_server configs to external addresses..."
+
+    local coord1_ext coord2_ext coord3_ext data0_ext data1_ext
+    coord1_ext=$(get_service_ip "coordinator-1")
+    coord2_ext=$(get_service_ip "coordinator-2")
+    coord3_ext=$(get_service_ip "coordinator-3")
+    data0_ext=$(get_service_ip "data-0")
+    data1_ext=$(get_service_ip "data-1")
+
+    log_info "External addresses:"
+    log_info "  coordinator-1: $coord1_ext"
+    log_info "  coordinator-2: $coord2_ext"
+    log_info "  coordinator-3: $coord3_ext"
+    log_info "  data-0: $data0_ext"
+    log_info "  data-1: $data1_ext"
+
+    local update_query="
+UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': '${coord1_ext}:7687'};
+UPDATE CONFIG FOR COORDINATOR 2 {'bolt_server': '${coord2_ext}:7687'};
+UPDATE CONFIG FOR COORDINATOR 3 {'bolt_server': '${coord3_ext}:7687'};
+UPDATE CONFIG FOR INSTANCE instance_0 {'bolt_server': '${data0_ext}:7687'};
+UPDATE CONFIG FOR INSTANCE instance_1 {'bolt_server': '${data1_ext}:7687'};
+"
+
+    if ! kubectl exec -i memgraph-coordinator-1-0 -- mgconsole --host 127.0.0.1 --port 7687 <<< "$update_query"; then
+        log_error "Failed to update bolt_server configs"
         return 1
     fi
 
