@@ -38,11 +38,24 @@ class MemgraphIgraph(igraph.Graph):
 
         return [(self.get_vertex_by_id(node_id), rank) for node_id, rank in enumerate(pagerank_values)]
 
-    def get_all_simple_paths(self, v: mgp.Vertex, to: mgp.Vertex, cutoff: int) -> List[List[mgp.Vertex]]:
+    def get_all_simple_paths(
+        self,
+        v: mgp.Vertex,
+        to: mgp.Vertex,
+        maxlen: int = -1,
+        minlen: int = 0,
+        mode: str = "out",
+        max_results: mgp.Nullable[int] = None,
+    ) -> List[List[mgp.Vertex]]:
         paths = [
             self._convert_vertex_ids_to_mgp_vertices(path)
             for path in super().get_all_simple_paths(
-                v=self.id_mappings[v.id], to=self.id_mappings[to.id], cutoff=cutoff
+                v=self.id_mappings[v.id],
+                to=self.id_mappings[to.id],
+                maxlen=maxlen,
+                minlen=minlen,
+                mode=mode,
+                max_results=max_results,
             )
         ]
         return paths
@@ -160,7 +173,7 @@ class MemgraphIgraph(igraph.Graph):
         """
 
         min_span_tree = []
-        for edge in min_spanning_tree_edges:
+        for edge in sorted(min_spanning_tree_edges, key=lambda e: (e.source, e.target)):
             min_span_tree.append(
                 [
                     self.ctx_graph.get_vertex_by_id(self.reverse_id_mappings[edge.source]),

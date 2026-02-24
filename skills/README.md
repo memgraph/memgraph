@@ -7,6 +7,8 @@ Portable AI agent skills following the [Agent Skills Standard](https://agentskil
 | Skill | Description |
 |-------|-------------|
 | `memgraph-storage-reviewer` | Expert code reviewer for storage layer (MVCC, WAL, DDL, indices) |
+| `memgraph-generate-docker-images` | Build MAGE Docker images locally for testing |
+| `memgraph-mage-e2e-testing` | Build a MAGE Docker image and run e2e tests for query modules |
 
 ## Setup by Tool
 

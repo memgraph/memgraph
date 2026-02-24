@@ -56,11 +56,19 @@ def get_all_simple_paths(
     ctx: mgp.ProcCtx,
     v: mgp.Vertex,
     to: mgp.Vertex,
-    cutoff: int = -1,
+    maxlen: int = -1,
+    minlen: int = 0,
+    mode: str = "out",
+    max_results: mgp.Nullable[int] = None,
 ) -> mgp.Record(path=mgp.List[mgp.Vertex]):
     graph = MemgraphIgraph(ctx=ctx, directed=True)
 
-    return [mgp.Record(path=path) for path in graph.get_all_simple_paths(v=v, to=to, cutoff=cutoff)]
+    return [
+        mgp.Record(path=path)
+        for path in graph.get_all_simple_paths(
+            v=v, to=to, maxlen=maxlen, minlen=minlen, mode=mode, max_results=max_results
+        )
+    ]
 
 
 @mgp.read_proc
