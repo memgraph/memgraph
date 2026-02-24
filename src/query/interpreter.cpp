@@ -5976,7 +5976,7 @@ auto TransactionStatusToString(TransactionStatus status) -> char const * {
     case TransactionStatus::IDLE:
       return "idle";
     case TransactionStatus::ACTIVE:
-      return "running";
+      [[fallthrough]];
     case TransactionStatus::VERIFYING:
       return "running";
     case TransactionStatus::TERMINATED:
@@ -6020,7 +6020,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
     }
 
     // Restore original status on scope exit — this unblocks the interpreter's cleanup path
-    utils::OnScopeExit clean_status([interpreter, original_status]() {
+    const utils::OnScopeExit clean_status([interpreter, original_status]() {
       interpreter->transaction_status_.store(original_status, std::memory_order_release);
     });
 
@@ -8916,7 +8916,7 @@ void Interpreter::Abort() {
   // Cleanup: transition to IDLE, then clear fields.
   // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_ROLLBACK
   // when done reading, allowing us to proceed.
-  utils::OnScopeExit clean_status([this]() {
+  const utils::OnScopeExit clean_status([this]() {
     auto expected = TransactionStatus::STARTED_ROLLBACK;
     while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
       if (expected == TransactionStatus::VERIFYING) {
@@ -9169,7 +9169,7 @@ void Interpreter::Commit() {
   // Clean transaction status on exit.
   // Spin-wait if ShowTransactions has CAS'd us to VERIFYING — it will restore STARTED_COMMITTING
   // when done reading, allowing us to proceed.
-  utils::OnScopeExit clean_status([this]() {
+  const utils::OnScopeExit clean_status([this]() {
     auto expected = TransactionStatus::STARTED_COMMITTING;
     while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
       if (expected == TransactionStatus::VERIFYING) {

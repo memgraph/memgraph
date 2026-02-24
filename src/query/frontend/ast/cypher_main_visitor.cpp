@@ -1593,7 +1593,7 @@ antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTrans
   if (auto *status_list = ctx->transactionStatusList()) {
     for (auto *status_ctx : status_list->transactionStatus()) {
       auto text = status_ctx->getText();
-      std::transform(text.begin(), text.end(), text.begin(), ::tolower);
+      std::ranges::transform(text, text.begin(), ::tolower);
       transaction_shower->status_filter_.push_back(std::move(text));
     }
   }
