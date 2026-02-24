@@ -2385,10 +2385,11 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label.name); }, v->graph->impl);
 
 #ifdef MG_ENTERPRISE
+    // Check MODIFY_LABELS on existing vertex (gatekeeper) and SET_LABEL on new label (target)
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !(ctx->auth_checker->Has(
-              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL) &&
-          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE))) {
+              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::MODIFY_LABELS) &&
+          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL))) {
       throw AuthorizationException{"Insufficient permissions for adding a label to vertex!"};
     }
 #endif
@@ -2429,10 +2430,11 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     const auto label_id = std::visit([&label](auto *impl) { return impl->NameToLabel(label.name); }, v->graph->impl);
 
 #ifdef MG_ENTERPRISE
+    // Check MODIFY_LABELS on existing vertex (gatekeeper) and REMOVE_LABEL on the label being removed (target)
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !(ctx->auth_checker->Has(
-              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL) &&
-          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE))) {
+              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::MODIFY_LABELS) &&
+          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL))) {
       throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
     }
 #endif
