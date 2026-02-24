@@ -209,7 +209,7 @@
                   (assoc op :type :info :value "SYNC replica is down")
 
                   (utils/cannot-get-shared-access? e)
-                  (assoc op :type :ok :value {:str "Cannot get shared access to the storage."})
+                  (assoc op :type :info :value {:str "Cannot get shared access to the storage."})
 
                   (utils/main-unwriteable? e)
                   (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})))))
