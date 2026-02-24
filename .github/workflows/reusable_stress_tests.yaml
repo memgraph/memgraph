@@ -281,6 +281,20 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install K8s tools
+        run: |
+          EKS_TOOLS="${{ runner.temp }}/eks-tools"
+          mkdir -p "$EKS_TOOLS"
+
+          curl -Lo "$EKS_TOOLS/kubectl" "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x "$EKS_TOOLS/kubectl"
+
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | HELM_INSTALL_DIR="$EKS_TOOLS" USE_SUDO=false bash
+
+          curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz" | tar -xz -C "$EKS_TOOLS"
+
+          echo "$EKS_TOOLS" >> $GITHUB_PATH
+
       - name: Run stress tests (EKS HA)
         run: |
           ./release/package/mgbuild.sh \
