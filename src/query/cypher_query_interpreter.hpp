@@ -61,7 +61,8 @@ class LogicalPlan {
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
-                            parameters::Parameters const *global_parameters = nullptr) -> Parameters;
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
+    -> Parameters;
 
 class PlanWrapper {
  public:
@@ -122,7 +123,7 @@ struct ParsedQuery {
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       parameters::Parameters const *global_parameters = nullptr);
+                       std::string_view database_uuid, parameters::Parameters const *server_parameters);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:

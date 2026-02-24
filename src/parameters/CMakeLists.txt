@@ -4,7 +4,7 @@ add_library(mg::parameters ALIAS mg-parameters)
 target_sources(mg-parameters
     PRIVATE
     parameters.cpp
-    parameters_rpc.cpp
+    rpc.cpp
     replication_handlers.cpp
 )
 
