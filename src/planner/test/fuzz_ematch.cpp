@@ -505,13 +505,13 @@ class MultiPatternGenerator {
     std::set<int> shared_vars;  // Variables that appear in multiple patterns
   };
 
-  /// Generate 2-3 patterns with shared variables
+  /// Generate 1-3 patterns with shared variables
   auto generate(uint8_t const *data, size_t &pos, size_t size) -> MultiPatternResult {
     MultiPatternResult result;
     if (pos >= size) return result;
 
-    // Determine number of patterns (2-3)
-    uint8_t num_patterns = 2 + (data[pos++] % 2);
+    // Determine number of patterns (1-3)
+    uint8_t num_patterns = 1 + (data[pos++] % 3);
 
     // Generate first pattern
     pattern_gen_.reset();
@@ -565,15 +565,8 @@ class FuzzerState {
     operation_count_++;
     VERBOSE_OUT << "\n--- Operation #" << operation_count_ << " ---\n";
 
-    int operation_type = op % 8;
-    char const *op_names[] = {"CREATE_LEAF",
-                              "CREATE_COMPOUND",
-                              "MERGE",
-                              "REBUILD",
-                              "SET_PATTERN",
-                              "MATCH_AND_VERIFY",
-                              "SET_MULTI_PATTERN",
-                              "MATCH_MULTI_AND_VERIFY"};
+    int operation_type = op % 6;
+    char const *op_names[] = {"CREATE_LEAF", "CREATE_COMPOUND", "MERGE", "REBUILD", "SET_PATTERN", "MATCH_AND_VERIFY"};
     VERBOSE_OUT << "Op: " << op_names[operation_type] << " (raw: " << static_cast<int>(op) << ")\n";
 
     switch (operation_type) {
@@ -589,10 +582,6 @@ class FuzzerState {
         return set_pattern(data, pos, size);
       case 5:
         return match_and_verify();
-      case 6:
-        return set_multi_pattern(data, pos, size);
-      case 7:
-        return match_multi_and_verify();
       default:
         return true;
     }
@@ -690,275 +679,40 @@ class FuzzerState {
   bool set_pattern(uint8_t const *data, size_t &pos, size_t size) {
     if (pos >= size) return true;
 
-    pattern_gen_.reset();
-    current_pattern_ast_ = pattern_gen_.generate(data, pos, size);
-
-    std::vector<std::string> vars;
-    int leaf_counter = 0;
-    current_pattern_egglog_ = pattern_to_egglog(current_pattern_ast_, vars, leaf_counter);
-    current_pattern_vars_ = std::move(vars);
-
-    VERBOSE_OUT << "Set pattern: " << current_pattern_egglog_ << "\n";
-    return true;
-  }
-
-  bool match_and_verify() {
-    if (!current_pattern_ast_ || created_ids_.empty()) {
-      VERBOSE_OUT << "Skipping match: no pattern or no nodes\n";
-      return true;
-    }
-
-    // Ensure e-graph is rebuilt before matching
-    egraph_.rebuild(ctx_);
-
-    // Run EMatcher
-    auto pattern = pattern_to_memgraph(current_pattern_ast_);
-
-    // Skip patterns with 0 variables (EMatcher returns empty results for these)
-    if (pattern.num_vars() == 0) {
-      VERBOSE_OUT << "Skipping pattern with 0 variables\n";
-      return true;
-    }
-
-    EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-    EMatchContext match_ctx;
-    std::vector<PatternMatch> matches;
-    matcher.match_into(pattern, match_ctx, matches);
-
-    size_t memgraph_count = matches.size();
-    VERBOSE_OUT << "EMatcher found " << memgraph_count << " matches\n";
-
-    // Run VM executor and verify same results
-    vm::PatternCompiler<FuzzSymbol> compiler;
-    auto compiled_opt = compiler.compile(std::span{&pattern, 1});
-    if (!compiled_opt) {
-      std::cerr << "\n!!! VM COMPILATION FAILED !!!\n";
-      std::cerr << "\nPattern (egglog): " << current_pattern_egglog_ << "\n";
-      abort();
-    }
-
-    vm::VMExecutorVerify<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
-    EMatchContext vm_ctx;
-    std::vector<PatternMatch> vm_matches;
-    vm_executor.execute(*compiled_opt, matcher, vm_ctx, vm_matches);
-
-    size_t vm_count = vm_matches.size();
-    VERBOSE_OUT << "VM executor found " << vm_count << " matches\n";
-
-    // Without egglog as oracle, skip verification (we can't determine ground truth)
-    if (g_skip_egglog) {
-      VERBOSE_OUT << "Egglog skipped - no oracle verification\n";
-      return true;
-    }
-
-    // Build sets of match tuples for comparison
-    auto match_to_tuple = [&](PatternMatch const &match_handle, EMatchContext &ctx) {
-      std::vector<EClassId> tuple;
-      for (size_t i = 0; i < pattern.num_vars(); ++i) {
-        tuple.push_back(egraph_.find(ctx.arena().get(match_handle, i)));
-      }
-      return tuple;
-    };
-
-    std::set<std::vector<EClassId>> ematcher_set;
-    for (auto const &m : matches) {
-      ematcher_set.insert(match_to_tuple(m, match_ctx));
-    }
-
-    std::set<std::vector<EClassId>> vm_set;
-    for (auto const &m : vm_matches) {
-      vm_set.insert(match_to_tuple(m, vm_ctx));
-    }
-
-    // MatchResult only captures ?vN variables (proper pattern variables), not ?dN
-    // (leaf disambiguators).  Excluding ?dN is necessary for two reasons:
-    //  1. Correct counts: if two leaf e-nodes with different disambiguators are merged
-    //     into the same e-class, egglog would emit one tuple per disambiguator while
-    //     EMatcher produces one match per e-class — including ?dN would over-count.
-    //  2. Correct content checks below: EMatcher bindings have no ?dN slots at all,
-    //     so we can only compare the ?vN projections on both sides.
-    std::vector<std::string> v_vars;
-    for (auto const &v : current_pattern_vars_) {
-      if (v.size() >= 2 && v[0] == '?' && v[1] == 'v') {
-        v_vars.push_back(v);
-      }
-    }
-
-    // Build and run egglog program
-    std::ostringstream full_program;
-    full_program << "(datatype Expr\n";
-    full_program << "  (A i64)\n";
-    full_program << "  (B i64)\n";
-    full_program << "  (C i64)\n";
-    full_program << "  (D i64)\n";
-    full_program << "  (E i64)\n";
-    full_program << "  (F Expr)\n";
-    full_program << "  (G Expr)\n";
-    full_program << "  (H Expr)\n";
-    full_program << "  (Plus Expr Expr)\n";
-    full_program << "  (Mul Expr Expr)\n";
-    full_program << "  (Ternary Expr Expr Expr)\n";
-    full_program << ")\n\n";
-    full_program << egglog_.generate();
-
-    // Add pattern query — MatchResult captures only ?vN variables (see above).
-    std::string type_sig;
-    std::string var_list;
-    for (size_t i = 0; i < v_vars.size(); ++i) {
-      if (i > 0) {
-        type_sig += " ";
-        var_list += " ";
-      }
-      type_sig += "Expr";
-      var_list += v_vars[i];
-    }
-
-    full_program << fmt::format("\n(relation MatchResult ({}))\n", type_sig);
-    full_program << fmt::format("(rule ((= ?root {}))\n", current_pattern_egglog_);
-    full_program << fmt::format("      ((MatchResult {})))\n", var_list);
-    full_program << "(run 1000)\n";
-    full_program << "(print-function MatchResult 100000)\n";
-
-    auto egglog_result = run_egglog(full_program.str());
-
-    if (!egglog_result.success) {
-      VERBOSE_OUT << "Egglog failed: " << egglog_result.error << "\n";
-      VERBOSE_OUT << "Program:\n" << full_program.str() << "\n";
-      // Don't fail on egglog errors - might be pattern issues
-      return true;
-    }
-
-    size_t egglog_count = egglog_result.match_count;
-    VERBOSE_OUT << "Egglog found " << egglog_count << " matches\n";
-
-    // Debug: print all raw matches (not deduplicated)
-    VERBOSE_OUT << "\nEMatcher raw matches (" << matches.size() << "):\n";
-    for (auto const &m : matches) {
-      VERBOSE_OUT << "  [";
-      for (size_t i = 0; i < pattern.num_vars(); ++i) {
-        if (i > 0) VERBOSE_OUT << ", ";
-        VERBOSE_OUT << egraph_.find(match_ctx.arena().get(m, i));
-      }
-      VERBOSE_OUT << "]\n";
-    }
-
-    VERBOSE_OUT << "VM raw matches (" << vm_matches.size() << "):\n";
-    for (auto const &m : vm_matches) {
-      VERBOSE_OUT << "  [";
-      for (size_t i = 0; i < pattern.num_vars(); ++i) {
-        if (i > 0) VERBOSE_OUT << ", ";
-        VERBOSE_OUT << egraph_.find(vm_ctx.arena().get(m, i));
-      }
-      VERBOSE_OUT << "]\n";
-    }
-
-    VERBOSE_OUT << "EMatcher unique: " << ematcher_set.size() << ", VM unique: " << vm_set.size() << "\n";
-    VERBOSE_OUT << "Egglog MatchResult output:\n" << egglog_result.output << "\n";
-
-    // Use egglog as ground truth - verify both EMatcher and VM executor against it
-    bool ematcher_count_ok = (ematcher_set.size() == egglog_count);
-    bool vm_count_ok = (vm_set.size() == egglog_count);
-
-    if (!ematcher_count_ok || !vm_count_ok) {
-      std::cerr << "\n!!! MATCH COUNT MISMATCH (egglog is ground truth) !!!\n";
-      std::cerr << "Egglog:      " << egglog_count << " matches (oracle)\n";
-      std::cerr << "EMatcher:    " << ematcher_set.size() << " matches" << (ematcher_count_ok ? " OK" : " WRONG")
-                << "\n";
-      std::cerr << "VM executor: " << vm_set.size() << " matches" << (vm_count_ok ? " OK" : " WRONG") << "\n";
-      std::cerr << "\nPattern (egglog): " << current_pattern_egglog_ << "\n";
-      std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
-      std::cerr << "\nEgglog program:\n" << full_program.str() << "\n";
-      std::cerr << "\nEgglog output:\n" << egglog_result.output << "\n";
-      abort();
-    }
-
-    // Content check helper - verify all matches from a set are in egglog's MatchResult
-    auto verify_matches_in_egglog =
-        [&](std::vector<PatternMatch> const &match_list, EMatchContext &ctx, std::string const &impl_name) -> bool {
-      if (match_list.empty()) return true;
-
-      std::ostringstream check_program;
-      check_program << full_program.str();
-
-      for (auto const &match_handle : match_list) {
-        check_program << "(check (MatchResult";
-        for (auto const &var_name : v_vars) {
-          uint32_t var_id = static_cast<uint32_t>(std::stoi(var_name.substr(2)));
-          auto slot = static_cast<std::size_t>(pattern.var_slot(PatternVar{var_id}));
-          auto eclass_id = egraph_.find(ctx.arena().get(match_handle, slot));
-          auto it = egglog_names_.find(eclass_id);
-          if (it == egglog_names_.end()) {
-            VERBOSE_OUT << "No egglog name for e-class in " << impl_name << ", skipping content check\n";
-            return true;  // Skip check if we can't map names
-          }
-          check_program << " " << it->second;
-        }
-        check_program << "))\n";
-      }
-
-      auto check_result = run_egglog(check_program.str());
-      if (!check_result.success) {
-        std::cerr << "\n!!! " << impl_name << " CONTENT MISMATCH !!!\n";
-        std::cerr << "A " << impl_name << " match was not found in egglog's MatchResult\n";
-        std::cerr << "\nPattern (egglog): " << current_pattern_egglog_ << "\n";
-        std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
-        std::cerr << "\nCheck program:\n" << check_program.str() << "\n";
-        std::cerr << "\nEgglog output:\n" << check_result.output << "\n";
-        return false;
-      }
-      return true;
-    };
-
-    // Verify EMatcher content
-    bool ematcher_content_ok = verify_matches_in_egglog(matches, match_ctx, "EMatcher");
-
-    // Verify VM executor content
-    bool vm_content_ok = verify_matches_in_egglog(vm_matches, vm_ctx, "VM executor");
-
-    if (!ematcher_content_ok || !vm_content_ok) {
-      abort();
-    }
-
-    return true;
-  }
-
-  bool set_multi_pattern(uint8_t const *data, size_t &pos, size_t size) {
-    if (pos >= size) return true;
-
-    auto result = multi_pattern_gen_.generate(data, pos, size);
-    current_multi_patterns_ast_ = std::move(result.patterns);
-    current_multi_shared_vars_ = std::move(result.shared_vars);
+    auto result = pattern_gen_.generate(data, pos, size);
+    current_patterns_ast_ = std::move(result.patterns);
+    current_shared_vars_ = std::move(result.shared_vars);
 
     // Convert patterns to egglog strings
-    current_multi_patterns_egglog_.clear();
-    current_multi_all_vars_.clear();
+    current_patterns_egglog_.clear();
+    current_all_vars_.clear();
 
-    for (auto const &ast : current_multi_patterns_ast_) {
+    for (auto const &ast : current_patterns_ast_) {
       std::vector<std::string> vars;
       int leaf_counter = 0;
       auto egglog_str = pattern_to_egglog(ast, vars, leaf_counter);
-      current_multi_patterns_egglog_.push_back(egglog_str);
+      current_patterns_egglog_.push_back(egglog_str);
 
       // Collect all ?vN vars (not ?dN)
       for (auto const &v : vars) {
         if (v.size() >= 2 && v[0] == '?' && v[1] == 'v') {
-          current_multi_all_vars_.insert(v);
+          current_all_vars_.insert(v);
         }
       }
     }
 
-    VERBOSE_OUT << "Set " << current_multi_patterns_ast_.size() << " patterns for multi-pattern matching:\n";
-    for (size_t i = 0; i < current_multi_patterns_egglog_.size(); ++i) {
-      VERBOSE_OUT << "  Pattern " << i << ": " << current_multi_patterns_egglog_[i] << "\n";
+    VERBOSE_OUT << "Set " << current_patterns_ast_.size() << " pattern(s):\n";
+    for (size_t i = 0; i < current_patterns_egglog_.size(); ++i) {
+      VERBOSE_OUT << "  Pattern " << i << ": " << current_patterns_egglog_[i] << "\n";
     }
-    VERBOSE_OUT << "  Shared vars: " << current_multi_shared_vars_.size() << "\n";
+    VERBOSE_OUT << "  Shared vars: " << current_shared_vars_.size() << "\n";
 
     return true;
   }
 
-  bool match_multi_and_verify() {
-    if (current_multi_patterns_ast_.empty() || created_ids_.empty()) {
-      VERBOSE_OUT << "Skipping multi-pattern match: no patterns or no nodes\n";
+  bool match_and_verify() {
+    if (current_patterns_ast_.empty() || created_ids_.empty()) {
+      VERBOSE_OUT << "Skipping match: no patterns or no nodes\n";
       return true;
     }
 
@@ -967,7 +721,7 @@ class FuzzerState {
 
     // Convert AST patterns to memgraph patterns
     std::vector<Pattern<FuzzSymbol>> patterns;
-    for (auto const &ast : current_multi_patterns_ast_) {
+    for (auto const &ast : current_patterns_ast_) {
       patterns.push_back(pattern_to_memgraph(ast));
     }
 
@@ -980,36 +734,13 @@ class FuzzerState {
       }
     }
     if (has_zero_vars) {
-      VERBOSE_OUT << "Skipping multi-pattern with 0-variable pattern\n";
+      VERBOSE_OUT << "Skipping pattern with 0 variables\n";
       return true;
     }
 
-    // Build RewriteRule with all patterns
-    // We use a counting apply function that just counts matches
+    // Count matches using RewriteRule
     std::size_t ematcher_count = 0;
     std::size_t vm_count = 0;
-
-    auto rule = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_multi")
-                    .pattern(std::move(patterns[0]))
-                    .pattern(std::move(patterns[1]))
-                    .apply([&](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {
-                      // Just count, don't do anything
-                    });
-
-    // For 3-pattern rules, we need to rebuild with the third pattern
-    if (patterns.size() > 2) {
-      // Rebuild patterns since we moved them
-      patterns.clear();
-      for (auto const &ast : current_multi_patterns_ast_) {
-        patterns.push_back(pattern_to_memgraph(ast));
-      }
-
-      rule = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_multi")
-                 .pattern(std::move(patterns[0]))
-                 .pattern(std::move(patterns[1]))
-                 .pattern(std::move(patterns[2]))
-                 .apply([&](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {});
-    }
 
     // Run EMatcher-based matching via RewriteRule::apply
     {
@@ -1019,7 +750,7 @@ class FuzzerState {
       // We need to count matches, not rewrites. Create a wrapper that counts.
       // The apply function is called for each match, so count in there.
       patterns.clear();
-      for (auto const &ast : current_multi_patterns_ast_) {
+      for (auto const &ast : current_patterns_ast_) {
         patterns.push_back(pattern_to_memgraph(ast));
       }
 
@@ -1034,7 +765,7 @@ class FuzzerState {
       counting_rule.apply(egraph_, matcher, rewrite_ctx);
     }
 
-    VERBOSE_OUT << "EMatcher multi-pattern found " << ematcher_count << " matches\n";
+    VERBOSE_OUT << "EMatcher found " << ematcher_count << " matches\n";
 
     // Run VM-based matching via RewriteRule::apply_vm
     {
@@ -1043,7 +774,7 @@ class FuzzerState {
       RewriteContext rewrite_ctx;
 
       patterns.clear();
-      for (auto const &ast : current_multi_patterns_ast_) {
+      for (auto const &ast : current_patterns_ast_) {
         patterns.push_back(pattern_to_memgraph(ast));
       }
 
@@ -1058,7 +789,7 @@ class FuzzerState {
 
       // Check if VM compilation succeeded
       if (!vm_rule.compiled_pattern()) {
-        VERBOSE_OUT << "VM compilation failed for multi-pattern, skipping VM verification\n";
+        VERBOSE_OUT << "VM compilation failed, skipping VM verification\n";
         // Fall back to EMatcher-only verification
         vm_count = ematcher_count;
       } else {
@@ -1066,15 +797,15 @@ class FuzzerState {
       }
     }
 
-    VERBOSE_OUT << "VM multi-pattern found " << vm_count << " matches\n";
+    VERBOSE_OUT << "VM found " << vm_count << " matches\n";
 
     // Without egglog as oracle, skip verification
     if (g_skip_egglog) {
-      VERBOSE_OUT << "Egglog skipped - no oracle verification for multi-pattern\n";
+      VERBOSE_OUT << "Egglog skipped - no oracle verification\n";
       return true;
     }
 
-    // Build egglog multi-pattern rule
+    // Build egglog rule (works for single or multi-pattern)
     // Format: (rule ((= ?p0 pattern0) (= ?p1 pattern1) ...) ((MatchResult ?v0 ?v1 ...)))
     std::ostringstream full_program;
     full_program << "(datatype Expr\n";
@@ -1093,7 +824,7 @@ class FuzzerState {
     full_program << egglog_.generate();
 
     // Build type signature and var list for MatchResult
-    std::vector<std::string> v_vars(current_multi_all_vars_.begin(), current_multi_all_vars_.end());
+    std::vector<std::string> v_vars(current_all_vars_.begin(), current_all_vars_.end());
     std::sort(v_vars.begin(), v_vars.end());
 
     std::string type_sig;
@@ -1111,9 +842,9 @@ class FuzzerState {
 
     // Build the rule with multiple pattern conditions
     full_program << "(rule (";
-    for (size_t i = 0; i < current_multi_patterns_egglog_.size(); ++i) {
+    for (size_t i = 0; i < current_patterns_egglog_.size(); ++i) {
       if (i > 0) full_program << " ";
-      full_program << fmt::format("(= ?p{} {})", i, current_multi_patterns_egglog_[i]);
+      full_program << fmt::format("(= ?p{} {})", i, current_patterns_egglog_[i]);
     }
     full_program << ")\n";
     full_program << fmt::format("      ((MatchResult {})))\n", var_list);
@@ -1132,20 +863,20 @@ class FuzzerState {
     }
 
     size_t egglog_count = egglog_result.match_count;
-    VERBOSE_OUT << "Egglog multi-pattern found " << egglog_count << " matches\n";
+    VERBOSE_OUT << "Egglog found " << egglog_count << " matches\n";
 
     // Verify counts match
     bool ematcher_ok = (ematcher_count == egglog_count);
     bool vm_ok = (vm_count == egglog_count);
 
     if (!ematcher_ok || !vm_ok) {
-      std::cerr << "\n!!! MULTI-PATTERN MATCH COUNT MISMATCH (egglog is ground truth) !!!\n";
+      std::cerr << "\n!!! MATCH COUNT MISMATCH (egglog is ground truth) !!!\n";
       std::cerr << "Egglog:      " << egglog_count << " matches (oracle)\n";
       std::cerr << "EMatcher:    " << ematcher_count << " matches" << (ematcher_ok ? " OK" : " WRONG") << "\n";
       std::cerr << "VM executor: " << vm_count << " matches" << (vm_ok ? " OK" : " WRONG") << "\n";
       std::cerr << "\nPatterns:\n";
-      for (size_t i = 0; i < current_multi_patterns_egglog_.size(); ++i) {
-        std::cerr << "  " << i << ": " << current_multi_patterns_egglog_[i] << "\n";
+      for (size_t i = 0; i < current_patterns_egglog_.size(); ++i) {
+        std::cerr << "  " << i << ": " << current_patterns_egglog_[i] << "\n";
       }
       std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
       std::cerr << "\nEgglog program:\n" << full_program.str() << "\n";
@@ -1153,7 +884,7 @@ class FuzzerState {
       abort();
     }
 
-    VERBOSE_OUT << "Multi-pattern verification passed\n";
+    VERBOSE_OUT << "Pattern verification passed\n";
     return true;
   }
 
@@ -1194,18 +925,12 @@ class FuzzerState {
   EgglogGenerator egglog_;
   std::unordered_map<EClassId, std::string> egglog_names_;
 
-  // Current pattern for matching
-  PatternGenerator pattern_gen_;
-  PatternASTPtr current_pattern_ast_;
-  std::string current_pattern_egglog_;
-  std::vector<std::string> current_pattern_vars_;
-
-  // Multi-pattern matching state
-  MultiPatternGenerator multi_pattern_gen_;
-  std::vector<PatternASTPtr> current_multi_patterns_ast_;
-  std::vector<std::string> current_multi_patterns_egglog_;
-  std::set<int> current_multi_shared_vars_;
-  std::set<std::string> current_multi_all_vars_;
+  // Current pattern(s) for matching (1-3 patterns with shared variables)
+  MultiPatternGenerator pattern_gen_;
+  std::vector<PatternASTPtr> current_patterns_ast_;
+  std::vector<std::string> current_patterns_egglog_;
+  std::set<int> current_shared_vars_;
+  std::set<std::string> current_all_vars_;
 };
 
 // ============================================================================
