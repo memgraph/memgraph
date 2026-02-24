@@ -127,8 +127,8 @@ struct Instruction {
     return {VMOp::CheckArity, 0, src, arity, on_mismatch};
   }
 
-  static constexpr auto bind_slot(uint8_t slot_idx, uint8_t src) -> Instruction {
-    return {VMOp::BindSlot, 0, src, slot_idx, 0};
+  static constexpr auto bind_slot(uint8_t slot_idx, uint8_t src, uint16_t on_duplicate = 0) -> Instruction {
+    return {VMOp::BindSlot, 0, src, slot_idx, on_duplicate};
   }
 
   static constexpr auto check_slot(uint8_t slot_idx, uint8_t src, uint16_t on_mismatch) -> Instruction {

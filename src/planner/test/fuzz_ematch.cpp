@@ -738,17 +738,31 @@ class FuzzerState {
       return true;
     }
 
-    // Count matches using RewriteRule
-    std::size_t ematcher_count = 0;
-    std::size_t vm_count = 0;
+    // Collect binding tuples instead of just counting.
+    // Egglog uses set semantics (deduplicates), so we must deduplicate too.
+    // Extract the ?vN variable IDs to collect from matches.
+    std::vector<uint32_t> var_ids;
+    for (auto const &v : current_all_vars_) {
+      // Parse "?vN" to get N
+      if (v.size() >= 3 && v[0] == '?' && v[1] == 'v') {
+        var_ids.push_back(static_cast<uint32_t>(std::stoi(v.substr(2))));
+      }
+    }
+    std::sort(var_ids.begin(), var_ids.end());
+
+    // Use set of canonicalized binding tuples for deduplication
+    using BindingTuple = std::vector<EClassId>;
+    std::set<BindingTuple> ematcher_unique;
+    std::set<BindingTuple> vm_unique;
+
+    std::size_t ematcher_raw = 0;
+    std::size_t vm_raw = 0;
 
     // Run EMatcher-based matching via RewriteRule::apply
     {
       EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
       RewriteContext rewrite_ctx;
 
-      // We need to count matches, not rewrites. Create a wrapper that counts.
-      // The apply function is called for each match, so count in there.
       patterns.clear();
       for (auto const &ast : current_patterns_ast_) {
         patterns.push_back(pattern_to_memgraph(ast));
@@ -758,14 +772,23 @@ class FuzzerState {
       for (auto &p : patterns) {
         counting_rule_builder = std::move(counting_rule_builder).pattern(std::move(p));
       }
-      auto counting_rule =
-          std::move(counting_rule_builder)
-              .apply([&ematcher_count](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) { ++ematcher_count; });
+      auto counting_rule = std::move(counting_rule_builder)
+                               .apply([this, &ematcher_raw, &ematcher_unique, &var_ids](
+                                          RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &m) {
+                                 ++ematcher_raw;
+                                 BindingTuple tuple;
+                                 tuple.reserve(var_ids.size());
+                                 for (auto id : var_ids) {
+                                   auto eclass_id = m[PatternVar{id}];
+                                   tuple.push_back(egraph_.find(eclass_id));
+                                 }
+                                 ematcher_unique.insert(std::move(tuple));
+                               });
 
       counting_rule.apply(egraph_, matcher, rewrite_ctx);
     }
 
-    VERBOSE_OUT << "EMatcher found " << ematcher_count << " matches\n";
+    VERBOSE_OUT << "EMatcher found " << ematcher_raw << " raw matches, " << ematcher_unique.size() << " unique\n";
 
     // Run VM-based matching via RewriteRule::apply_vm
     {
@@ -783,21 +806,34 @@ class FuzzerState {
         vm_rule_builder = std::move(vm_rule_builder).pattern(std::move(p));
       }
       auto vm_rule =
-          std::move(vm_rule_builder).apply([&vm_count](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {
-            ++vm_count;
-          });
+          std::move(vm_rule_builder)
+              .apply([this, &vm_raw, &vm_unique, &var_ids](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &m) {
+                ++vm_raw;
+                BindingTuple tuple;
+                tuple.reserve(var_ids.size());
+                for (auto id : var_ids) {
+                  auto eclass_id = m[PatternVar{id}];
+                  tuple.push_back(egraph_.find(eclass_id));
+                }
+                vm_unique.insert(std::move(tuple));
+              });
 
       // Check if VM compilation succeeded
       if (!vm_rule.compiled_pattern()) {
         VERBOSE_OUT << "VM compilation failed, skipping VM verification\n";
         // Fall back to EMatcher-only verification
-        vm_count = ematcher_count;
+        vm_raw = ematcher_raw;
+        vm_unique = ematcher_unique;
       } else {
         vm_rule.apply_vm(egraph_, matcher, vm_executor, rewrite_ctx);
       }
     }
 
-    VERBOSE_OUT << "VM found " << vm_count << " matches\n";
+    VERBOSE_OUT << "VM found " << vm_raw << " raw matches, " << vm_unique.size() << " unique\n";
+
+    // Use unique counts for comparison with egglog
+    std::size_t ematcher_count = ematcher_unique.size();
+    std::size_t vm_count = vm_unique.size();
 
     // Without egglog as oracle, skip verification
     if (g_skip_egglog) {
@@ -895,9 +931,11 @@ class FuzzerState {
 
     if (!ematcher_ok || !vm_ok) {
       std::cerr << "\n!!! MATCH COUNT MISMATCH (egglog is ground truth) !!!\n";
-      std::cerr << "Egglog:      " << egglog_count << " matches (oracle)\n";
-      std::cerr << "EMatcher:    " << ematcher_count << " matches" << (ematcher_ok ? " OK" : " WRONG") << "\n";
-      std::cerr << "VM executor: " << vm_count << " matches" << (vm_ok ? " OK" : " WRONG") << "\n";
+      std::cerr << "Egglog:      " << egglog_count << " unique matches (oracle)\n";
+      std::cerr << "EMatcher:    " << ematcher_count << " unique (" << ematcher_raw << " raw)"
+                << (ematcher_ok ? " OK" : " WRONG") << "\n";
+      std::cerr << "VM executor: " << vm_count << " unique (" << vm_raw << " raw)" << (vm_ok ? " OK" : " WRONG")
+                << "\n";
       std::cerr << "\nPatterns:\n";
       for (size_t i = 0; i < current_patterns_egglog_.size(); ++i) {
         std::cerr << "  " << i << ": " << current_patterns_egglog_[i] << "\n";
