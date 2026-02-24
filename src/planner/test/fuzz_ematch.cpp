@@ -752,6 +752,30 @@ class FuzzerState {
     size_t egglog_count = egglog_result.match_count;
     VERBOSE_OUT << "Egglog found " << egglog_count << " matches\n";
 
+    // Debug: print all raw matches (not deduplicated)
+    VERBOSE_OUT << "\nEMatcher raw matches (" << matches.size() << "):\n";
+    for (auto const &m : matches) {
+      VERBOSE_OUT << "  [";
+      for (size_t i = 0; i < pattern.num_vars(); ++i) {
+        if (i > 0) VERBOSE_OUT << ", ";
+        VERBOSE_OUT << egraph_.find(match_ctx.arena().get(m, i));
+      }
+      VERBOSE_OUT << "]\n";
+    }
+
+    VERBOSE_OUT << "VM raw matches (" << vm_matches.size() << "):\n";
+    for (auto const &m : vm_matches) {
+      VERBOSE_OUT << "  [";
+      for (size_t i = 0; i < pattern.num_vars(); ++i) {
+        if (i > 0) VERBOSE_OUT << ", ";
+        VERBOSE_OUT << egraph_.find(vm_ctx.arena().get(m, i));
+      }
+      VERBOSE_OUT << "]\n";
+    }
+
+    VERBOSE_OUT << "EMatcher unique: " << ematcher_set.size() << ", VM unique: " << vm_set.size() << "\n";
+    VERBOSE_OUT << "Egglog MatchResult output:\n" << egglog_result.output << "\n";
+
     // Use egglog as ground truth - verify both EMatcher and VM executor against it
     bool ematcher_count_ok = (ematcher_set.size() == egglog_count);
     bool vm_count_ok = (vm_set.size() == egglog_count);
