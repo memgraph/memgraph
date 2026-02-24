@@ -1364,9 +1364,15 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
   }
 
-  // LIGHT EDGES: no other transactions active during fast discard, free immediately
-  for (auto *edge : current_deleted_light_edges) {
-    mem_storage->DeleteLightEdge(edge);
+  // LIGHT EDGES: defer freeing to graveyard so index entries referencing Edge* remain
+  // valid until the next GC drains the graveyard (after index cleanup).
+  if (!current_deleted_light_edges.empty()) {
+    auto engine_guard = std::unique_lock(storage_->engine_lock_);
+    uint64_t mark_timestamp = storage_->timestamp_;
+    mem_storage->light_edge_graveyard_.WithLock([&](auto &graveyard) {
+      engine_guard.unlock();
+      graveyard.push_back({mark_timestamp, std::move(current_deleted_light_edges)});
+    });
   }
 
   // STEP 4) hint to GC that indices need cleanup for performance reasons
@@ -2991,11 +2997,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       memgraph::metrics::GCSkiplistCleanupLatency_us,
       std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
 
+  // mark_timestamp used for both garbage_undo_buffers and light edge graveyard
+  uint64_t gc_mark_timestamp = 0;
   {
     auto guard = std::unique_lock{engine_lock_};
-    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+    gc_mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+    if (main_guard.owns_lock() || gc_mark_timestamp == oldest_active_start_timestamp) {
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them all now
@@ -3009,7 +3017,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         guard.unlock();
         // correct the markers, and defer until next GC run
         for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
-          unlinked_undo_buffer.mark_timestamp_ = mark_timestamp;
+          unlinked_undo_buffer.mark_timestamp_ = gc_mark_timestamp;
         }
         // ensure insert at end to preserve the order
         garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
@@ -3041,9 +3049,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // LIGHT EDGES: free pool-allocated Edge* that are no longer referenced
-  for (auto *edge : current_deleted_light_edges) {
-    DeleteLightEdge(edge);
+  // LIGHT EDGES: defer freeing to graveyard so Edge* remains valid for any
+  // concurrent index readers. Graveyard entries are drained below.
+  if (!current_deleted_light_edges.empty()) {
+    light_edge_graveyard_.WithLock(
+        [&](auto &graveyard) { graveyard.push_back({gc_mark_timestamp, std::move(current_deleted_light_edges)}); });
   }
 
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
@@ -3072,6 +3082,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         edge_metadata_acc.remove(edge.gid);
       }
     }
+  }
+
+  // LIGHT EDGE GRAVEYARD: drain entries whose mark_timestamp is older than
+  // oldest_active_start_timestamp. At this point, no active transaction could
+  // hold an Edge* from these entries (all readers started after mark_timestamp).
+  if (light_edges) {
+    light_edge_graveyard_.WithLock([&](auto &graveyard) {
+      while (!graveyard.empty() && graveyard.front().mark_timestamp <= oldest_active_start_timestamp) {
+        for (auto *edge : graveyard.front().edges) {
+          DeleteLightEdge(edge);
+        }
+        graveyard.pop_front();
+      }
+    });
   }
 }
 
@@ -4113,7 +4137,21 @@ EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr) {
 
 EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
   if (config_.salient.items.storage_light_edge) {
-    // Light edges: not in skip list, scan vertex out_edges by GID
+    // Light edges: not in skip list. Use edges_metadata for O(log N) lookup if available.
+    if (config_.salient.items.enable_edges_metadata) {
+      auto edge_metadata_acc = edges_metadata_.access();
+      auto edge_metadata_it = edge_metadata_acc.find(gid);
+      if (edge_metadata_it == edge_metadata_acc.end()) return std::nullopt;
+      auto *from_vertex = edge_metadata_it->from_vertex;
+      std::shared_lock const guard{from_vertex->lock};
+      for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+        if (edge_ref.ptr->gid == gid) {
+          return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+        }
+      }
+      return std::nullopt;
+    }
+    // Fallback: scan all vertices' out_edges by GID
     auto vertices_acc = vertices_.access();
     for (auto &from_vertex : vertices_acc) {
       std::shared_lock const guard{from_vertex.lock};
