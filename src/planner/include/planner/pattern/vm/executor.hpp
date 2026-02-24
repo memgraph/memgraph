@@ -496,9 +496,10 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] auto exec_check_slot(Instruction instr) -> bool {
-    auto expected = egraph_->find(state_.slots[instr.arg]);
-    auto actual = egraph_->find(state_.eclass_regs[instr.src]);
-    if (expected != actual) {
+    // Both values are already canonical:
+    // - slots[] was set by BindSlot from canonical eclass_regs
+    // - eclass_regs[] was set by LoadChild which canonicalizes
+    if (state_.slots[instr.arg] != state_.eclass_regs[instr.src]) {
       if constexpr (kTracingEnabled) {
         ++stats_.check_slot_misses;
         tracer_->on_check_fail(state_.pc, "slot mismatch");
@@ -523,14 +524,11 @@ class VMExecutorVerify {
   }
 
   [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    // Build canonicalized tuple for deduplication
-    canonicalized_tuple_.clear();
-    for (auto const &slot : state_.slots) {
-      canonicalized_tuple_.push_back(egraph_->find(slot));
-    }
+    // Slots already contain canonical IDs (set by BindSlot from canonical eclass_regs).
+    // No need to re-canonicalize since e-graph isn't modified during execute().
 
     // Check if this tuple has already been yielded
-    if (!state_.try_yield_dedup(canonicalized_tuple_)) {
+    if (!state_.try_yield_dedup(state_.slots)) {
       // Duplicate tuple, skip
       if constexpr (kTracingEnabled) {
         tracer_->on_check_fail(state_.pc, "duplicate yield");
@@ -558,7 +556,6 @@ class VMExecutorVerify {
   std::vector<EClassId> all_eclasses_buffer_;                            // Buffer for IterAllEClasses
   std::vector<EClassId> candidates_buffer_;                              // Buffer for automatic candidate lookup
   boost::container::small_vector<ENodeId, 16> filtered_parents_buffer_;  // Buffer for IterParentsSym filtering
-  boost::container::small_vector<EClassId, 8> canonicalized_tuple_;      // Buffer for yield-time deduplication
   bool all_eclasses_cached_ = false;                                     // Whether all_eclasses_buffer_ is valid
 };
 
@@ -902,9 +899,8 @@ class VMExecutorClean {
   void exec_bind_slot(Instruction instr) { state_.bind(instr.arg, state_.eclass_regs[instr.src]); }
 
   [[nodiscard]] auto exec_check_slot(Instruction instr) -> bool {
-    auto expected = egraph_->find(state_.slots[instr.arg]);
-    auto actual = egraph_->find(state_.eclass_regs[instr.src]);
-    return expected == actual;
+    // Both values are already canonical (see VMExecutorVerify::exec_check_slot)
+    return state_.slots[instr.arg] == state_.eclass_regs[instr.src];
   }
 
   [[nodiscard]] auto exec_bind_or_check(Instruction instr) -> bool {
@@ -916,14 +912,10 @@ class VMExecutorClean {
   }
 
   [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    // Build canonicalized tuple for deduplication
-    canonicalized_tuple_.clear();
-    for (auto const &slot : state_.slots) {
-      canonicalized_tuple_.push_back(egraph_->find(slot));
-    }
+    // Slots already contain canonical IDs - no need to re-canonicalize
 
     // Check if this tuple has already been yielded
-    if (!state_.try_yield_dedup(canonicalized_tuple_)) {
+    if (!state_.try_yield_dedup(state_.slots)) {
       // Duplicate tuple, skip
       state_.bound.reset();
       return;
@@ -941,10 +933,9 @@ class VMExecutorClean {
   std::span<ENodeId const> filtered_parents_;  // Current filtered parent list
   VMState state_;
   VMStats stats_;
-  std::vector<EClassId> all_eclasses_buffer_;                        // Buffer for IterAllEClasses
-  std::vector<EClassId> candidates_buffer_;                          // Buffer for automatic candidate lookup
-  boost::container::small_vector<EClassId, 8> canonicalized_tuple_;  // Buffer for yield-time deduplication
-  bool all_eclasses_cached_ = false;                                 // Whether all_eclasses_buffer_ is valid
+  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
+  std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
+  bool all_eclasses_cached_ = false;           // Whether all_eclasses_buffer_ is valid
 };
 
 }  // namespace memgraph::planner::core::vm
