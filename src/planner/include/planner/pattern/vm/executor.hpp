@@ -96,10 +96,6 @@ class VMExecutorVerify {
       auto canonical = egraph_->find(candidate);
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
-      state_.iter_order.clear();
-      for (auto &iter : state_.iter_by_reg) {
-        iter.reset();
-      }
       state_.bound.reset();
 
       run_until_halt(ctx, results);
@@ -144,6 +140,7 @@ class VMExecutorVerify {
         &&op_IterParents,
         &&op_IterParentsSym,
         &&op_NextParent,
+        &&op_NextParentFiltered,
         &&op_CheckSymbol,
         &&op_CheckArity,
         &&op_BindSlot,
@@ -225,6 +222,13 @@ class VMExecutorVerify {
 
   op_NextParent:
     if (exec_next_parent(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_NextParentFiltered:
+    if (exec_next_parent_filtered(code_[state_.pc])) {
       NEXT();
     } else {
       JUMP(code_[state_.pc].target);
@@ -320,21 +324,12 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction const &instr) -> bool {
-    auto &iter = state_.get_iter(instr.dst);
-
-    if (iter.kind != IterState::Kind::ENodes) {
-      if constexpr (kTracingEnabled) {
-        tracer_->on_iter_advance(state_.pc, 0);
-      }
-      return false;
-    }
-
+    auto &iter = state_.get_enodes_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
       if constexpr (kTracingEnabled) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
-      state_.deactivate_iter_and_nested(instr.dst);
       return false;
     }
 
@@ -364,19 +359,13 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction const &instr) -> bool {
-    auto &iter = state_.get_iter(instr.dst);
-
-    if (iter.kind != IterState::Kind::AllEClasses) {
-      return false;
-    }
-
+    auto &iter = state_.get_eclasses_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
-      state_.deactivate_iter_and_nested(instr.dst);
       return false;
     }
 
-    state_.eclass_regs[instr.dst] = iter.current_eclass();
+    state_.eclass_regs[instr.dst] = iter.current();
     return true;
   }
 
@@ -436,38 +425,42 @@ class VMExecutorVerify {
     return true;
   }
 
+  /// Advance index-based parent iteration (for IterParents)
   [[nodiscard]] auto exec_next_parent(Instruction const &instr) -> bool {
-    auto &iter = state_.get_iter(instr.dst);
-
-    if (iter.kind != IterState::Kind::Parents && iter.kind != IterState::Kind::ParentsFiltered) {
-      if constexpr (kTracingEnabled) {
-        tracer_->on_iter_advance(state_.pc, 0);
-      }
-      return false;
-    }
-
+    auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
       if constexpr (kTracingEnabled) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
-      state_.deactivate_iter_and_nested(instr.dst);
       return false;
     }
-
     if constexpr (kTracingEnabled) {
       tracer_->on_iter_advance(state_.pc, iter.remaining());
     }
+    // Index-based iteration requires looking up the e-class again
+    auto const &eclass = egraph_->eclass(iter.eclass);
+    auto const &parent_set = eclass.parents();
+    auto pit = parent_set.begin();
+    std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
+    state_.enode_regs[instr.dst] = *pit;
+    return true;
+  }
 
-    if (iter.kind == IterState::Kind::ParentsFiltered) {
-      state_.enode_regs[instr.dst] = iter.nodes_span[iter.current_idx];
-    } else {
-      auto const &eclass = egraph_->eclass(iter.parent_eclass);
-      auto const &parents = eclass.parents();
-      auto pit = parents.begin();
-      std::advance(pit, static_cast<std::ptrdiff_t>(iter.current_idx));
-      state_.enode_regs[instr.dst] = *pit;
+  /// Advance span-based filtered parent iteration (for IterParentsSym)
+  [[nodiscard]] auto exec_next_parent_filtered(Instruction const &instr) -> bool {
+    auto &iter = state_.get_filtered_iter(instr.dst);
+    iter.advance();
+    if (iter.exhausted()) {
+      if constexpr (kTracingEnabled) {
+        tracer_->on_iter_advance(state_.pc, 0);
+      }
+      return false;
     }
+    if constexpr (kTracingEnabled) {
+      tracer_->on_iter_advance(state_.pc, iter.remaining());
+    }
+    state_.enode_regs[instr.dst] = iter.current();
     return true;
   }
 
@@ -603,10 +596,6 @@ class VMExecutorClean {
       auto canonical = egraph_->find(candidate);
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
-      state_.iter_order.clear();
-      for (auto &iter : state_.iter_by_reg) {
-        iter.reset();
-      }
       state_.bound.reset();
       filtered_parents_ = {};
 
@@ -646,6 +635,7 @@ class VMExecutorClean {
         &&op_IterParents,
         &&op_IterParentsSym,
         &&op_NextParent,
+        &&op_NextParentFiltered,
         &&op_CheckSymbol,
         &&op_CheckArity,
         &&op_BindSlot,
@@ -726,6 +716,13 @@ class VMExecutorClean {
       JUMP(code_[state_.pc].target);
     }
 
+  op_NextParentFiltered:
+    if (exec_next_parent_filtered(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
   op_CheckSymbol:
     if (exec_check_symbol(code_[state_.pc])) {
       NEXT();
@@ -798,18 +795,11 @@ class VMExecutorClean {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction const &instr) -> bool {
-    auto &iter = state_.get_iter(instr.dst);
-
-    if (iter.kind != IterState::Kind::ENodes) {
-      return false;
-    }
-
+    auto &iter = state_.get_enodes_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
-      state_.deactivate_iter_and_nested(instr.dst);
       return false;
     }
-
     state_.enode_regs[instr.dst] = iter.current();
     return true;
   }
@@ -833,19 +823,12 @@ class VMExecutorClean {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction const &instr) -> bool {
-    auto &iter = state_.get_iter(instr.dst);
-
-    if (iter.kind != IterState::Kind::AllEClasses) {
-      return false;
-    }
-
+    auto &iter = state_.get_eclasses_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
-      state_.deactivate_iter_and_nested(instr.dst);
       return false;
     }
-
-    state_.eclass_regs[instr.dst] = iter.current_eclass();
+    state_.eclass_regs[instr.dst] = iter.current();
     return true;
   }
 
@@ -879,29 +862,32 @@ class VMExecutorClean {
     return true;
   }
 
+  /// Advance index-based parent iteration (for IterParents)
   [[nodiscard]] auto exec_next_parent(Instruction const &instr) -> bool {
-    auto &iter = state_.get_iter(instr.dst);
-
-    if (iter.kind != IterState::Kind::Parents && iter.kind != IterState::Kind::ParentsFiltered) {
-      return false;
-    }
-
+    auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
-      state_.deactivate_iter_and_nested(instr.dst);
       filtered_parents_ = {};
       return false;
     }
+    // Index-based iteration requires looking up the e-class again
+    auto const &eclass = egraph_->eclass(iter.eclass);
+    auto const &parent_set = eclass.parents();
+    auto pit = parent_set.begin();
+    std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
+    state_.enode_regs[instr.dst] = *pit;
+    return true;
+  }
 
-    if (iter.kind == IterState::Kind::ParentsFiltered) {
-      state_.enode_regs[instr.dst] = iter.current();
-    } else {
-      auto const &eclass = egraph_->eclass(iter.parent_eclass);
-      auto const &parents = eclass.parents();
-      auto pit = parents.begin();
-      std::advance(pit, static_cast<std::ptrdiff_t>(iter.current_idx));
-      state_.enode_regs[instr.dst] = *pit;
+  /// Advance span-based filtered parent iteration (for IterParentsSym)
+  [[nodiscard]] auto exec_next_parent_filtered(Instruction const &instr) -> bool {
+    auto &iter = state_.get_filtered_iter(instr.dst);
+    iter.advance();
+    if (iter.exhausted()) {
+      filtered_parents_ = {};
+      return false;
     }
+    state_.enode_regs[instr.dst] = iter.current();
     return true;
   }
 

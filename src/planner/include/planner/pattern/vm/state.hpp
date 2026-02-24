@@ -30,77 +30,66 @@ namespace memgraph::planner::core::vm {
 /// Default register count for small patterns (avoids reallocation)
 static constexpr std::size_t kDefaultRegisters = 16;
 
-/// Iteration state for nested loops (e-node or parent iteration)
-/// For e-nodes: uses span (e-class nodes are stored contiguously)
-/// For parents: stores e-class ID for lookup (parents are in a set)
-struct IterState {
-  enum class Kind : uint8_t {
-    Inactive,         // No active iteration for this register
-    ENodes,           // Iterating e-nodes in an e-class (uses span)
-    Parents,          // Iterating parent e-nodes (index-based)
-    ParentsFiltered,  // Iterating filtered parents (uses span from index)
-    AllEClasses       // Iterating all canonical e-classes (uses e-class span)
-  };
+// === Specialized iteration state types ===
+// Each type uses exhausted state as inactive indicator (no separate discriminator needed).
+// The compiler statically knows which iteration type each register uses.
 
-  Kind kind{Kind::Inactive};
+/// Iterating e-nodes in an e-class (span-based, advances via subspan)
+/// Empty span = inactive/exhausted
+struct ENodesIter {
+  std::span<ENodeId const> nodes;
 
-  // Iteration position
-  std::size_t current_idx{0};
-  std::size_t end_idx{0};
+  [[nodiscard]] auto exhausted() const -> bool { return nodes.empty(); }
 
-  // For ENodes and ParentsFiltered: span into e-class or parent index
-  std::span<ENodeId const> nodes_span;
+  [[nodiscard]] auto remaining() const -> std::size_t { return nodes.size(); }
 
-  // For AllEClasses: span of e-class IDs to iterate
-  std::span<EClassId const> eclasses_span;
+  [[nodiscard]] auto current() const -> ENodeId { return nodes.front(); }
 
-  // For Parents: the e-class whose parents we're iterating
-  EClassId parent_eclass{};
+  void advance() { nodes = nodes.subspan(1); }
+};
 
-  [[nodiscard]] auto exhausted() const -> bool { return current_idx >= end_idx; }
+/// Iterating parent e-nodes (index-based, set doesn't support span)
+/// idx >= end = inactive/exhausted
+struct ParentsIter {
+  EClassId eclass;
+  std::size_t idx{0};
+  std::size_t end{0};
 
-  [[nodiscard]] auto remaining() const -> std::size_t { return end_idx - current_idx; }
+  [[nodiscard]] auto exhausted() const -> bool { return idx >= end; }
 
-  /// Get current e-node from span (for ENodes and ParentsFiltered)
-  [[nodiscard]] auto current() const -> ENodeId { return nodes_span[current_idx]; }
+  [[nodiscard]] auto remaining() const -> std::size_t { return end - idx; }
 
-  void advance() {
-    // TODO: If we have a span then why not subspan?
-    ++current_idx;
-  }
+  [[nodiscard]] auto index() const -> std::size_t { return idx; }
 
-  void reset() { kind = Kind::Inactive; }
+  void advance() { ++idx; }
+};
 
-  void start_enodes(std::span<ENodeId const> node_span) {
-    kind = Kind::ENodes;
-    current_idx = 0;
-    end_idx = node_span.size();
-    nodes_span = node_span;
-  }
+/// Iterating filtered parents (span-based, advances via subspan)
+/// Empty span = inactive/exhausted
+struct ParentsFilteredIter {
+  std::span<ENodeId const> nodes;
 
-  void start_parents(EClassId eclass, std::size_t parent_count) {
-    kind = Kind::Parents;
-    current_idx = 0;
-    end_idx = parent_count;
-    parent_eclass = eclass;
-  }
+  [[nodiscard]] auto exhausted() const -> bool { return nodes.empty(); }
 
-  void start_parents_filtered(std::span<ENodeId const> parent_span) {
-    kind = Kind::ParentsFiltered;
-    current_idx = 0;
-    end_idx = parent_span.size();
-    nodes_span = parent_span;
-  }
+  [[nodiscard]] auto remaining() const -> std::size_t { return nodes.size(); }
 
-  void start_all_eclasses(std::span<EClassId const> eclass_span) {
-    kind = Kind::AllEClasses;
-    current_idx = 0;
-    end_idx = eclass_span.size();
-    eclasses_span = eclass_span;
-  }
+  [[nodiscard]] auto current() const -> ENodeId { return nodes.front(); }
 
-  /// Get current e-class from span (for AllEClasses)
-  [[nodiscard]] auto current_eclass() const -> EClassId { return eclasses_span[current_idx]; }
+  void advance() { nodes = nodes.subspan(1); }
+};
+
+/// Iterating all canonical e-classes (span-based, advances via subspan)
+/// Empty span = inactive/exhausted
+struct AllEClassesIter {
+  std::span<EClassId const> eclasses;
+
+  [[nodiscard]] auto exhausted() const -> bool { return eclasses.empty(); }
+
+  [[nodiscard]] auto remaining() const -> std::size_t { return eclasses.size(); }
+
+  [[nodiscard]] auto current() const -> EClassId { return eclasses.front(); }
+
+  void advance() { eclasses = eclasses.subspan(1); }
 };
 
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
@@ -134,14 +123,14 @@ struct VMState {
   // Program counter
   std::size_t pc{0};
 
-  // Iteration state indexed by register for O(1) lookup
-  // Each register can have at most one active iteration
-  std::vector<IterState> iter_by_reg;
-
-  // Stack of active register indices for cleanup ordering
-  // When an iteration exhausts, we need to deactivate all iterations
-  // that were started after it (nested iterations)
-  boost::container::small_vector<uint8_t, 16> iter_order;
+  // Iteration state: separate homogeneous vectors indexed by register
+  // Each type uses exhausted state as inactive indicator (no explicit deactivation needed)
+  // The compiler statically determines which type each register uses
+  // When an iteration exhausts, its state is naturally inert; fresh iterations overwrite
+  std::vector<ENodesIter> enodes_iters;             // E-node iterations (span-based)
+  std::vector<ParentsIter> parents_iters;           // Parent iterations (index-based)
+  std::vector<ParentsFilteredIter> filtered_iters;  // Filtered parent iterations (span-based)
+  std::vector<AllEClassesIter> eclasses_iters;      // All e-classes iterations (span-based)
 
   /// Initialize state for execution with given number of slots and registers
   void reset(std::size_t num_slots, std::size_t num_registers) {
@@ -152,13 +141,13 @@ struct VMState {
     if (eclass_regs.size() < num_registers) {
       eclass_regs.resize(num_registers);
       enode_regs.resize(num_registers);
-      iter_by_reg.resize(num_registers);
+      enodes_iters.resize(num_registers);
+      parents_iters.resize(num_registers);
+      filtered_iters.resize(num_registers);
+      eclasses_iters.resize(num_registers);
     }
-    // Reset all iteration states
-    for (std::size_t i = 0; i < num_registers; ++i) {
-      iter_by_reg[i].reset();
-    }
-    iter_order.clear();
+    // No need to reset iteration states - exhausted() is the inactive indicator,
+    // and start_*_iter() overwrites with fresh state when re-entering loops
 
     // Reset per-slot seen maps for deduplication
     seen_per_slot.resize(num_slots);
@@ -169,51 +158,42 @@ struct VMState {
   }
 
   /// Start an e-node iteration on a register (uses span)
-  void start_enode_iter(uint8_t reg, std::span<ENodeId const> nodes) {
-    iter_by_reg[reg].start_enodes(nodes);
-    iter_order.push_back(reg);
-  }
+  void start_enode_iter(uint8_t reg, std::span<ENodeId const> nodes) { enodes_iters[reg] = ENodesIter{nodes}; }
 
   /// Start a parent iteration on a register (index-based)
   void start_parent_iter(uint8_t reg, EClassId eclass, std::size_t parent_count) {
-    iter_by_reg[reg].start_parents(eclass, parent_count);
-    iter_order.push_back(reg);
+    parents_iters[reg] = ParentsIter{eclass, 0, parent_count};
   }
 
   /// Start a filtered parent iteration on a register (uses span from index)
   void start_filtered_parent_iter(uint8_t reg, std::span<ENodeId const> parents) {
-    iter_by_reg[reg].start_parents_filtered(parents);
-    iter_order.push_back(reg);
+    filtered_iters[reg] = ParentsFilteredIter{parents};
   }
 
   /// Start an all-eclasses iteration on a register (uses span of e-class IDs)
   void start_all_eclasses_iter(uint8_t reg, std::span<EClassId const> eclasses) {
-    iter_by_reg[reg].start_all_eclasses(eclasses);
-    iter_order.push_back(reg);
+    eclasses_iters[reg] = AllEClassesIter{eclasses};
   }
 
-  /// Get iteration state for a register (O(1) lookup)
-  [[nodiscard]] auto get_iter(uint8_t reg) -> IterState & { return iter_by_reg[reg]; }
+  /// Get e-nodes iterator for a register
+  [[nodiscard]] auto get_enodes_iter(uint8_t reg) -> ENodesIter & { return enodes_iters[reg]; }
 
-  [[nodiscard]] auto get_iter(uint8_t reg) const -> IterState const & { return iter_by_reg[reg]; }
+  [[nodiscard]] auto get_enodes_iter(uint8_t reg) const -> ENodesIter const & { return enodes_iters[reg]; }
 
-  /// Check if register has active iteration
-  [[nodiscard]] auto has_active_iter(uint8_t reg) const -> bool {
-    return iter_by_reg[reg].kind != IterState::Kind::Inactive;
-  }
+  /// Get parents iterator for a register
+  [[nodiscard]] auto get_parents_iter(uint8_t reg) -> ParentsIter & { return parents_iters[reg]; }
 
-  /// Deactivate this register's iteration and all iterations started after it
-  void deactivate_iter_and_nested(uint8_t reg) {
-    // Find position of this register in the order stack
-    auto it = std::find(iter_order.begin(), iter_order.end(), reg);
-    if (it == iter_order.end()) return;
+  [[nodiscard]] auto get_parents_iter(uint8_t reg) const -> ParentsIter const & { return parents_iters[reg]; }
 
-    // Deactivate all iterations from this point onward
-    for (auto rit = it; rit != iter_order.end(); ++rit) {
-      iter_by_reg[*rit].reset();
-    }
-    iter_order.erase(it, iter_order.end());
-  }
+  /// Get filtered parents iterator for a register
+  [[nodiscard]] auto get_filtered_iter(uint8_t reg) -> ParentsFilteredIter & { return filtered_iters[reg]; }
+
+  [[nodiscard]] auto get_filtered_iter(uint8_t reg) const -> ParentsFilteredIter const & { return filtered_iters[reg]; }
+
+  /// Get all e-classes iterator for a register
+  [[nodiscard]] auto get_eclasses_iter(uint8_t reg) -> AllEClassesIter & { return eclasses_iters[reg]; }
+
+  [[nodiscard]] auto get_eclasses_iter(uint8_t reg) const -> AllEClassesIter const & { return eclasses_iters[reg]; }
 
   /// Bind a slot to an e-class.
   /// If the slot value changes, clears the seen sets for all later slots

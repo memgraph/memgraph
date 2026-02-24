@@ -181,6 +181,7 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
 
       case VMOp::NextENode:
       case VMOp::NextParent:
+      case VMOp::NextParentFiltered:
       case VMOp::NextEClass:
         ss << " r" << static_cast<int>(instr.dst) << ", @" << instr.target;
         break;

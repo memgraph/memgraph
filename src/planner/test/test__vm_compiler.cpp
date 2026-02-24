@@ -541,7 +541,7 @@ TEST_F(FusedCompilerTest, SimpleJoinWithParentTraversal) {
     if (instr.op == VMOp::IterParentsSym || instr.op == VMOp::IterParents) {
       has_iter_parents = true;
     }
-    if (instr.op == VMOp::NextParent) {
+    if (instr.op == VMOp::NextParent || instr.op == VMOp::NextParentFiltered) {
       has_next_parent = true;
     }
     if (instr.op == VMOp::GetENodeEClass) {
@@ -550,7 +550,7 @@ TEST_F(FusedCompilerTest, SimpleJoinWithParentTraversal) {
   }
 
   EXPECT_TRUE(has_iter_parents) << "Fused bytecode should have IterParents(Sym) instruction";
-  EXPECT_TRUE(has_next_parent) << "Fused bytecode should have NextParent instruction";
+  EXPECT_TRUE(has_next_parent) << "Fused bytecode should have NextParent or NextParentFiltered instruction";
   EXPECT_TRUE(has_get_enode_eclass) << "Fused bytecode should have GetENodeEClass for ?id binding";
 
   // Execute and verify matches
