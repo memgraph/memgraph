@@ -103,23 +103,8 @@ struct IterState {
   [[nodiscard]] auto current_eclass() const -> EClassId { return eclasses_span[current_idx]; }
 };
 
-/// Hash function for prefix vectors (used in deduplication)
-struct PrefixHash {
-  auto operator()(std::vector<EClassId> const &v) const -> std::size_t {
-    std::size_t h = 0;
-    for (auto id : v) {
-      h ^= std::hash<EClassId>{}(id) + 0x9e3779b9 + (h << 6) + (h >> 2);
-    }
-    return h;
-  }
-};
-
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
 using FastEClassSet = boost::unordered_flat_set<EClassId>;
-
-/// Open-addressing hash map from prefix vector to set of seen values
-/// boost::unordered_flat_map uses open addressing with better cache behavior
-using PrefixToSeenMap = boost::unordered_flat_map<std::vector<EClassId>, FastEClassSet, PrefixHash>;
 
 /// VM execution state
 struct VMState {
@@ -137,11 +122,11 @@ struct VMState {
   std::bitset<256> bound;
 
   // Per-slot seen sets for deduplication.
-  // seen_per_slot[i] is a map from prefix (slots 0..i-1) to set of seen values at slot i.
-  // This allows efficient per-level deduplication without storing full tuples.
-  // For slot 0, the prefix is empty, so it's just a simple set.
-  // Uses flat containers (sorted vectors) for cache-friendly access on small sets.
-  std::vector<PrefixToSeenMap> seen_per_slot;
+  // seen_per_slot[i] tracks which values we've seen at slot i for the CURRENT prefix.
+  // The prefix is implicitly defined by the current bindings of slots 0..i-1.
+  // When slot j is rebound to a different value, we clear seen_per_slot[j+1..] since
+  // those sets were for the old prefix.
+  std::vector<FastEClassSet> seen_per_slot;
 
   // Program counter
   std::size_t pc{0};
@@ -226,9 +211,17 @@ struct VMState {
     iter_order.erase(it, iter_order.end());
   }
 
-  /// Bind a slot to an e-class
+  /// Bind a slot to an e-class.
+  /// If the slot value changes, clears the seen sets for all later slots
+  /// (since their prefix has changed).
   void bind(std::size_t slot, EClassId eclass) {
-    slots[slot] = eclass;
+    if (slots[slot] != eclass) {
+      // Slot value changed - clear seen sets for dependent slots
+      for (std::size_t i = slot + 1; i < seen_per_slot.size(); ++i) {
+        seen_per_slot[i].clear();
+      }
+      slots[slot] = eclass;
+    }
     bound.set(slot);
   }
 
@@ -241,20 +234,14 @@ struct VMState {
       return true;  // No variables, always yield (single match)
     }
 
-    // Build the prefix (all slots except the last) - reuse buffer
-    prefix_buffer_.assign(canonicalized_slots.begin(), canonicalized_slots.end() - 1);
-
-    // Check if the last slot's value is new given this prefix
+    // The prefix (slots 0..n-2) is implicitly tracked by the current bindings.
+    // We only need to check if the last slot's value is new for this prefix.
     auto last_slot_idx = canonicalized_slots.size() - 1;
-    auto &seen_set = seen_per_slot[last_slot_idx][prefix_buffer_];
     auto last_value = canonicalized_slots.back();
 
     // Try to insert - returns false if already present
-    return seen_set.insert(last_value).second;
+    return seen_per_slot[last_slot_idx].insert(last_value).second;
   }
-
-  // Reusable buffer for prefix construction in try_yield_dedup
-  std::vector<EClassId> prefix_buffer_;
 
   /// Check if slot is bound
   [[nodiscard]] auto is_bound(std::size_t slot) const -> bool { return bound.test(slot); }
