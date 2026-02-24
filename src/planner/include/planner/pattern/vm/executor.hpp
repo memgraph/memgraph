@@ -85,6 +85,13 @@ class VMExecutorVerify {
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
+    // Pre-cache all e-classes for IterAllEClasses (avoids rebuilding on each call)
+    all_eclasses_buffer_.clear();
+    for (auto const &[id, _] : egraph_->canonical_classes()) {
+      all_eclasses_buffer_.push_back(id);
+    }
+    all_eclasses_cached_ = true;
+
     for (auto candidate : candidates) {
       auto canonical = egraph_->find(candidate);
       state_.eclass_regs[0] = canonical;
@@ -97,6 +104,8 @@ class VMExecutorVerify {
 
       run_until_halt(ctx, results);
     }
+
+    all_eclasses_cached_ = false;
   }
 
   /// Execute compiled pattern with automatic candidate lookup via EMatcher
@@ -288,7 +297,7 @@ class VMExecutorVerify {
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  [[nodiscard]] auto exec_iter_enodes(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction const &instr) -> bool {
     ++stats_.iter_enode_calls;  // TODO: is this overkill, the normal user will not need this, can me make it compile
                                 // time choice (for developer investigations)
                                 //       kTracingEnabled could be made general so that all diagnostics are "dev mode"
@@ -310,7 +319,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_next_enode(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::ENodes) {
@@ -336,10 +345,13 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
-    all_eclasses_buffer_.clear();
-    for (auto const &[id, _] : egraph_->canonical_classes()) {
-      all_eclasses_buffer_.push_back(id);
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
+    // Use cached all-eclasses buffer if available, otherwise rebuild
+    if (!all_eclasses_cached_) {
+      all_eclasses_buffer_.clear();
+      for (auto const &[id, _] : egraph_->canonical_classes()) {
+        all_eclasses_buffer_.push_back(id);
+      }
     }
 
     if (all_eclasses_buffer_.empty()) {
@@ -351,7 +363,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_next_eclass(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::AllEClasses) {
@@ -509,7 +521,7 @@ class VMExecutorVerify {
     return exec_check_slot(instr);
   }
 
-  void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
+  [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
     // Build canonicalized tuple for deduplication
     canonicalized_tuple_.clear();
     for (auto const &slot : state_.slots) {
@@ -546,6 +558,7 @@ class VMExecutorVerify {
   std::vector<EClassId> candidates_buffer_;       // Buffer for automatic candidate lookup
   std::vector<ENodeId> filtered_parents_buffer_;  // Buffer for IterParentsSym filtering
   std::vector<EClassId> canonicalized_tuple_;     // Buffer for yield-time deduplication
+  bool all_eclasses_cached_ = false;              // Whether all_eclasses_buffer_ is valid
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -569,6 +582,13 @@ class VMExecutorClean {
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
+    // Pre-cache all e-classes for IterAllEClasses (avoids rebuilding on each call)
+    all_eclasses_buffer_.clear();
+    for (auto const &[id, _] : egraph_->canonical_classes()) {
+      all_eclasses_buffer_.push_back(id);
+    }
+    all_eclasses_cached_ = true;
+
     for (auto candidate : candidates) {
       auto canonical = egraph_->find(candidate);
       state_.eclass_regs[0] = canonical;
@@ -582,6 +602,8 @@ class VMExecutorClean {
 
       run_until_halt(ctx, results);
     }
+
+    all_eclasses_cached_ = false;
   }
 
   /// Execute compiled pattern with automatic candidate lookup via EMatcher
@@ -752,7 +774,7 @@ class VMExecutorClean {
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  [[nodiscard]] auto exec_iter_enodes(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction const &instr) -> bool {
     ++stats_.iter_enode_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
@@ -767,7 +789,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_next_enode(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::ENodes) {
@@ -784,10 +806,13 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
-    all_eclasses_buffer_.clear();
-    for (auto const &[id, _] : egraph_->canonical_classes()) {
-      all_eclasses_buffer_.push_back(id);
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
+    // Use cached all-eclasses buffer if available, otherwise rebuild
+    if (!all_eclasses_cached_) {
+      all_eclasses_buffer_.clear();
+      for (auto const &[id, _] : egraph_->canonical_classes()) {
+        all_eclasses_buffer_.push_back(id);
+      }
     }
 
     if (all_eclasses_buffer_.empty()) {
@@ -799,7 +824,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_next_eclass(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::AllEClasses) {
@@ -915,7 +940,7 @@ class VMExecutorClean {
     return exec_check_slot(instr);
   }
 
-  void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
+  [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
     // Build canonicalized tuple for deduplication
     canonicalized_tuple_.clear();
     for (auto const &slot : state_.slots) {
@@ -945,6 +970,7 @@ class VMExecutorClean {
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
   std::vector<EClassId> canonicalized_tuple_;  // Buffer for yield-time deduplication
+  bool all_eclasses_cached_ = false;           // Whether all_eclasses_buffer_ is valid
 };
 
 }  // namespace memgraph::planner::core::vm
