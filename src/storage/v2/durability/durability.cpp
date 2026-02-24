@@ -709,11 +709,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             schema_info,
                             find_edge,
                             ttl,
-<<<<<<< HEAD
-                            description_store);
-=======
+                            description_store,
                             light_edge_pool);
->>>>>>> a6f2a8cbc (feat: Implement WAL recovery for light edges)
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
