@@ -1117,4 +1117,122 @@ TEST_F(FusedPatternNestedTest, VariableOnlyJoinedPatternBytecode) {
   EXPECT_TRUE(has_next_eclass) << "Variable-only joined pattern should use NextEClass";
 }
 
+// Test that VM executor correctly deduplicates matches
+// This tests the try_yield_dedup mechanism with self-referential e-classes
+TEST_F(VMExecutionTest, DeduplicationSelfReferentialEClass) {
+  // Create a self-referential e-class where multiple paths lead to the same binding:
+  //   a = Const(1)
+  //   n0 = F(a)
+  //   n1 = F(n0)
+  //   merge(n0, n1) => EC1 = {F(a), F(EC1)}
+  //
+  // Pattern F(?x) matching against EC1 will iterate both e-nodes:
+  //   - F(a) binds ?x = a
+  //   - F(EC1) binds ?x = EC1
+  // These are different bindings, so both should be returned (2 matches).
+  //
+  // But Pattern F(F(?x)) matching against EC1:
+  //   - F(a) -> inner F(?x) needs F symbol, a has no F, no match
+  //   - F(EC1) -> inner F(?x) iterates EC1's e-nodes:
+  //       - F(a) binds ?x = a
+  //       - F(EC1) binds ?x = EC1
+  // So we get 2 matches, which are distinct (no dedup needed here).
+  //
+  // For actual deduplication, we need multiple candidates that lead to the same binding.
+
+  auto a = leaf(Op::Const, 1);
+  auto n0 = node(Op::F, a);
+  auto n1 = node(Op::F, n0);
+
+  merge(n0, n1);
+  rebuild_egraph();
+
+  // EC1 = {F(a), F(EC1)} - self-referential
+  auto ec1 = egraph.find(n0);
+
+  // Pattern: F(?x)
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+
+  // Use EC1 as candidate - it has 2 e-nodes with different children
+  std::vector<EClassId> candidates = {ec1};
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should get 2 distinct matches: {?x=a} and {?x=EC1}
+  EXPECT_EQ(results.size(), 2) << "Self-referential e-class should yield 2 distinct matches";
+}
+
+// Test deduplication when same candidate is provided multiple times
+TEST_F(VMExecutionTest, DeduplicationDuplicateCandidates) {
+  // If the same candidate is provided twice, deduplication should prevent
+  // duplicate matches.
+
+  auto a = leaf(Op::Const, 1);
+  auto f_a = node(Op::F, a);
+
+  // Pattern: F(?x)
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+
+  // Provide the same candidate twice
+  auto candidate = egraph.find(f_a);
+  std::vector<EClassId> candidates = {candidate, candidate};
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should get only 1 match despite duplicate candidates
+  EXPECT_EQ(results.size(), 1) << "Should deduplicate matches from duplicate candidates";
+}
+
+// Test deduplication with merged e-classes that have different symbols
+TEST_F(VMExecutionTest, DeduplicationMergedDifferentSymbols) {
+  // Create e-class with multiple e-nodes of different symbols pointing to same child:
+  //   a = Const(1)
+  //   f_a = F(a)
+  //   f2_a = F2(a)
+  //   merge(f_a, f2_a) => EC1 = {F(a), F2(a)}
+  //
+  // Pattern F(?x) should match only F(a), not F2(a).
+
+  auto a = leaf(Op::Const, 1);
+  auto f_a = node(Op::F, a);
+  auto f2_a = node(Op::F2, a);
+
+  merge(f_a, f2_a);
+  rebuild_egraph();
+
+  auto ec1 = egraph.find(f_a);
+  auto const &eclass = egraph.eclass(ec1);
+  ASSERT_EQ(eclass.nodes().size(), 2) << "Merged e-class should have F(a) and F2(a)";
+
+  // Pattern: F(?x) - should match only the F(a) e-node
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}}, kTestRoot);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+
+  std::vector<EClassId> candidates = {ec1};
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should get exactly 1 match: {?x=a} from F(a), F2(a) doesn't match F pattern
+  EXPECT_EQ(results.size(), 1) << "Should match only F(a), not F2(a)";
+
+  if (!results.empty()) {
+    auto bound_x = ctx.arena().get(results[0], 0);
+    EXPECT_EQ(egraph.find(bound_x), egraph.find(a)) << "?x should be bound to 'a'";
+  }
+}
+
 }  // namespace memgraph::planner::core
