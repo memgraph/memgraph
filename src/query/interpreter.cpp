@@ -6078,8 +6078,35 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       };
       callback.header = {"username", "transaction_id", "query", "status", "metadata"};
       callback.fn = [interpreter_context, show_transactions = std::move(show_transactions)] {
-        // Multiple simultaneous SHOW TRANSACTIONS aren't allowed
-        return interpreter_context->interpreters.WithLock(show_transactions);
+        auto results = interpreter_context->interpreters.WithLock(show_transactions);
+        // Append synthetic rows for running snapshots (background/periodic/exit)
+        if (interpreter_context->dbms_handler) {
+          interpreter_context->dbms_handler->ForEach([&results](auto db_acc) {
+            auto *storage = db_acc->storage();
+            if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
+            auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+            if (!mem_storage->IsSnapshotRunning()) return;
+            auto progress = mem_storage->GetSnapshotProgress();
+            // Build progress metadata
+            std::map<std::string, TypedValue> metadata;
+            metadata["phase"] = TypedValue(storage::SnapshotProgress::PhaseToString(progress.phase));
+            metadata["items_done"] = TypedValue(static_cast<int64_t>(progress.items_done));
+            metadata["items_total"] = TypedValue(static_cast<int64_t>(progress.items_total));
+            if (progress.start_time_us > 0) {
+              auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+              metadata["elapsed_ms"] = TypedValue(static_cast<int64_t>((now_us - progress.start_time_us) / 1000));
+            }
+            metadata["db_name"] = TypedValue(db_acc->name());
+            results.push_back({TypedValue(""),
+                               TypedValue("snapshot"),
+                               TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
+                               TypedValue("running"),
+                               TypedValue(metadata)});
+          });
+        }
+        return results;
       };
       break;
     }

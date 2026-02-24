@@ -2508,7 +2508,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             repl_storage_state_.epoch_.id(),
                                                             repl_storage_state_.history,
                                                             &file_retainer_,
-                                                            &abort_snapshot_);
+                                                            &abort_snapshot_,
+                                                            &snapshot_progress_);
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
@@ -3516,8 +3517,11 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   if (already_running) {
     return std::unexpected{CreateSnapshotError::AlreadyRunning};
   }
-  auto const clear_snapshot_running_on_exit =
-      utils::OnScopeExit{[&] { snapshot_running_.store(false, std::memory_order_release); }};
+  snapshot_progress_.Start();
+  auto const clear_snapshot_running_on_exit = utils::OnScopeExit{[&] {
+    snapshot_progress_.Reset();
+    snapshot_running_.store(false, std::memory_order_release);
+  }};
 
   // This is to make sure SHOW SNAPSHOTS, CREATE SNAPSHOT, and some replication
   // stuff are mutually exclusive from each other
@@ -3562,7 +3566,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         epoch.id(),
                                                         epochHistory,
                                                         &file_retainer_,
-                                                        &abort_snapshot_);
+                                                        &abort_snapshot_,
+                                                        &snapshot_progress_);
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
