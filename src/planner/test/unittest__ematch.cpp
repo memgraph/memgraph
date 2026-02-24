@@ -784,4 +784,164 @@ TEST_F(EMatcherTest, MultiPatternMatchWithSharedVariable) {
   EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should produce same number of matches";
 }
 
+// ============================================================================
+// Match Deduplication Tests
+// ============================================================================
+
+TEST_F(EMatcherTest, DuplicateBindingsFromDifferentENodes) {
+  // Test: Multiple e-nodes can produce different binding tuples even when
+  // some variables have the same values. VM deduplicates by FULL tuple.
+  //
+  // Setup:
+  //   a = A(0)   <- leaf A
+  //   b = A(1)   <- different leaf A
+  //   t1 = F(a, b, b)   <- 3-ary F with first child a
+  //   t2 = F(b, b, b)   <- 3-ary F with first child b
+  //
+  // Pattern: F(A, ?x, ?y)  where root is bound to kTestRoot
+  //   t1 matches: root=t1, ?x=b, ?y=b
+  //   t2 matches: root=t2, ?x=b, ?y=b
+  //
+  // Both EMatcher and VM find 2 matches because the full tuples differ (different roots).
+  // VM deduplicates by FULL tuple (all slots), not just non-root variables.
+
+  auto a = leaf(Op::A, 0);
+  auto b = leaf(Op::A, 1);
+  auto t1 = node(Op::F, a, b, b);  // 3-ary F(a, b, b)
+  auto t2 = node(Op::F, b, b, b);  // 3-ary F(b, b, b)
+  rebuild_egraph();
+  rebuild_index();
+
+  // Pattern: F(A, ?x, ?y) - leaf symbol A as first child
+  use_pattern(TestPattern::build(Op::F, {Sym(Op::A), Var{kVarX}, Var{kVarY}}, kTestRoot));
+
+  // Get raw matches from EMatcher
+  matches.clear();
+  ematcher.match_into(pattern(), ctx, matches);
+
+  // EMatcher finds 2 raw matches (one per F e-node that has A as first child)
+  EXPECT_EQ(matches.size(), 2u) << "EMatcher expected 2 raw matches (one per F node with A child)";
+
+  // Full tuples including root are unique
+  std::set<std::vector<EClassId>> full_tuples;
+  for (auto const &m : matches) {
+    std::vector<EClassId> tuple;
+    for (size_t i = 0; i < pattern().num_vars(); ++i) {
+      tuple.push_back(egraph.find(ctx.arena().get(m, i)));
+    }
+    full_tuples.insert(tuple);
+  }
+  EXPECT_EQ(full_tuples.size(), 2u) << "Full tuples (including root) should be unique";
+
+  // Non-root bindings are identical
+  std::set<std::vector<EClassId>> non_root_bindings;
+  for (auto const &m : matches) {
+    std::vector<EClassId> tuple;
+    // Only include non-root variables: kVarX and kVarY
+    tuple.push_back(egraph.find(ctx.arena().get(m, pattern().var_slot(kVarX))));
+    tuple.push_back(egraph.find(ctx.arena().get(m, pattern().var_slot(kVarY))));
+    non_root_bindings.insert(tuple);
+  }
+  EXPECT_EQ(non_root_bindings.size(), 1u)
+      << "Non-root bindings (?x, ?y) should deduplicate to 1 (both have ?x=b, ?y=b)";
+
+  // VM deduplicates by FULL tuple (all slots including root)
+  vm::PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(std::span{&pattern(), 1});
+  ASSERT_TRUE(compiled.has_value());
+
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+  EMatchContext vm_ctx;
+  TestMatches vm_matches;
+  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
+
+  // VM finds 2 matches because full tuples (including root) are different
+  EXPECT_EQ(vm_matches.size(), 2u) << "VM finds 2 unique full tuples";
+}
+
+TEST_F(EMatcherTest, DeepNestedTernaryPatternNoMatches) {
+  // Regression test from fuzzer crash-2f63faa4a8ed614df99ebc535024ccfb510b171f
+  // Tests that deeply nested patterns with many variables correctly return
+  // 0 matches when the e-graph doesn't contain matching structure.
+  //
+  // Pattern (simplified from crash):
+  //   F(F(?v0, Neg(F(?v1, ?v2, ?v3)), Neg(Neg(?v4))), Neg(Neg(Neg(?v5))), ...)
+  //
+  // E-graph: Single leaf node B(0)
+  // Expected: 0 matches (pattern structure doesn't exist in e-graph)
+
+  auto b = leaf(Op::B, 0);
+  rebuild_egraph();
+  rebuild_index();
+
+  // Pattern: F(F(?x, ?y, ?z), Neg(Neg(?w)), Neg(?a))
+  // Uses Neg as unary operator for nesting depth
+  use_pattern(TestPattern::build(Op::F,
+                                 {Sym(Op::F, Var{kVarX}, Var{kVarY}, Var{kVarZ}),
+                                  Sym(Op::Neg, Sym(Op::Neg, Var{kVarW})),
+                                  Sym(Op::Neg, Var{kVarA})},
+                                 kTestRoot));
+
+  // EMatcher should find 0 matches
+  matches.clear();
+  ematcher.match_into(pattern(), ctx, matches);
+  EXPECT_EQ(matches.size(), 0u) << "EMatcher should find 0 matches for non-existent pattern structure";
+
+  // VM should also find 0 matches
+  vm::PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(std::span{&pattern(), 1});
+  ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
+
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+  EMatchContext vm_ctx;
+  TestMatches vm_matches;
+  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
+
+  EXPECT_EQ(vm_matches.size(), 0u) << "VM should find 0 matches for non-existent pattern structure";
+}
+
+TEST_F(EMatcherTest, DeepNestedTernaryPatternWithMatches) {
+  // Test deeply nested patterns actually finding matches when structure exists.
+  // This ensures the pattern compilation and execution work correctly for
+  // complex nested structures.
+  //
+  // Pattern: F(Neg(?x), Neg(?y), Neg(?z))
+  // E-graph: F(Neg(a), Neg(b), Neg(c))
+  // Expected: 1 match with ?x=a, ?y=b, ?z=c
+
+  auto a = leaf(Op::A, 0);
+  auto b = leaf(Op::B, 0);
+  auto c = leaf(Op::C, 0);
+  auto neg_a = node(Op::Neg, a);
+  auto neg_b = node(Op::Neg, b);
+  auto neg_c = node(Op::Neg, c);
+  auto f = node(Op::F, neg_a, neg_b, neg_c);
+  rebuild_egraph();
+  rebuild_index();
+
+  // Pattern: F(Neg(?x), Neg(?y), Neg(?z))
+  use_pattern(TestPattern::build(
+      Op::F, {Sym(Op::Neg, Var{kVarX}), Sym(Op::Neg, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}, kTestRoot));
+
+  // EMatcher results
+  matches.clear();
+  ematcher.match_into(pattern(), ctx, matches);
+  auto ematcher_count = matches.size();
+
+  // VM results
+  vm::PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(std::span{&pattern(), 1});
+  ASSERT_TRUE(compiled.has_value()) << "Deep pattern should compile successfully";
+
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+  EMatchContext vm_ctx;
+  TestMatches vm_matches;
+  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
+  auto vm_count = vm_matches.size();
+
+  EXPECT_EQ(ematcher_count, 1u) << "EMatcher should find exactly 1 match";
+  EXPECT_EQ(vm_count, 1u) << "VM should find exactly 1 match";
+  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should agree on match count";
+}
+
 }  // namespace memgraph::planner::core

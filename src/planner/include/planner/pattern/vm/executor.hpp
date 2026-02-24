@@ -510,6 +510,22 @@ class VMExecutorVerify {
   }
 
   void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
+    // Build canonicalized tuple for deduplication
+    canonicalized_tuple_.clear();
+    for (auto const &slot : state_.slots) {
+      canonicalized_tuple_.push_back(egraph_->find(slot));
+    }
+
+    // Check if this tuple has already been yielded
+    if (!state_.try_yield_dedup(canonicalized_tuple_)) {
+      // Duplicate tuple, skip
+      if constexpr (kTracingEnabled) {
+        tracer_->on_check_fail(state_.pc, "duplicate yield");
+      }
+      state_.bound.reset();
+      return;
+    }
+
     ++stats_.yields;
     if constexpr (kTracingEnabled) {
       tracer_->on_yield(state_.slots);
@@ -529,6 +545,7 @@ class VMExecutorVerify {
   std::vector<EClassId> all_eclasses_buffer_;     // Buffer for IterAllEClasses
   std::vector<EClassId> candidates_buffer_;       // Buffer for automatic candidate lookup
   std::vector<ENodeId> filtered_parents_buffer_;  // Buffer for IterParentsSym filtering
+  std::vector<EClassId> canonicalized_tuple_;     // Buffer for yield-time deduplication
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -899,6 +916,19 @@ class VMExecutorClean {
   }
 
   void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
+    // Build canonicalized tuple for deduplication
+    canonicalized_tuple_.clear();
+    for (auto const &slot : state_.slots) {
+      canonicalized_tuple_.push_back(egraph_->find(slot));
+    }
+
+    // Check if this tuple has already been yielded
+    if (!state_.try_yield_dedup(canonicalized_tuple_)) {
+      // Duplicate tuple, skip
+      state_.bound.reset();
+      return;
+    }
+
     ++stats_.yields;
     results.push_back(ctx.arena().intern(state_.slots));
     // Clear bound flags to allow finding different variable bindings in subsequent matches
@@ -914,6 +944,7 @@ class VMExecutorClean {
   VMStats stats_;
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
+  std::vector<EClassId> canonicalized_tuple_;  // Buffer for yield-time deduplication
 };
 
 }  // namespace memgraph::planner::core::vm

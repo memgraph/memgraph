@@ -469,6 +469,7 @@ class PatternCompiler {
       code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack));
     } else {
       seen_vars_.insert(var);
+      // No backtrack target needed - deduplication happens at yield time
       code_.push_back(Instruction::bind_slot(slot, eclass_reg));
     }
   }

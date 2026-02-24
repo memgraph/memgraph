@@ -17,7 +17,11 @@ import memgraph.planner.core.eids;
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <functional>
 #include <span>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include <boost/container/small_vector.hpp>
 
@@ -99,6 +103,17 @@ struct IterState {
   [[nodiscard]] auto current_eclass() const -> EClassId { return eclasses_span[current_idx]; }
 };
 
+/// Hash function for prefix vectors (used in deduplication)
+struct PrefixHash {
+  auto operator()(std::vector<EClassId> const &v) const -> std::size_t {
+    std::size_t h = 0;
+    for (auto id : v) {
+      h ^= std::hash<EClassId>{}(id) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    }
+    return h;
+  }
+};
+
 /// VM execution state
 struct VMState {
   // E-class registers (result of navigation)
@@ -113,6 +128,12 @@ struct VMState {
   // Which slots are bound (for BindOrCheck)
   // Use std::bitset for O(1) operations with no dynamic allocation
   std::bitset<256> bound;
+
+  // Per-slot seen sets for deduplication.
+  // seen_per_slot[i] is a map from prefix (slots 0..i-1) to set of seen values at slot i.
+  // This allows efficient per-level deduplication without storing full tuples.
+  // For slot 0, the prefix is empty, so it's just a simple set.
+  std::vector<std::unordered_map<std::vector<EClassId>, std::unordered_set<EClassId>, PrefixHash>> seen_per_slot;
 
   // Program counter
   std::size_t pc{0};
@@ -142,6 +163,12 @@ struct VMState {
       iter_by_reg[i].reset();
     }
     iter_order.clear();
+
+    // Reset per-slot seen maps for deduplication
+    seen_per_slot.resize(num_slots);
+    for (auto &seen_map : seen_per_slot) {
+      seen_map.clear();
+    }
   }
 
   /// Start an e-node iteration on a register (uses span)
@@ -195,6 +222,27 @@ struct VMState {
   void bind(std::size_t slot, EClassId eclass) {
     slots[slot] = eclass;
     bound.set(slot);
+  }
+
+  /// Try to yield with deduplication.
+  /// Returns false if this binding tuple has already been yielded.
+  /// Returns true if this is a new unique tuple.
+  /// The canonicalized_slots parameter should contain find()-canonicalized e-class IDs.
+  [[nodiscard]] auto try_yield_dedup(std::vector<EClassId> const &canonicalized_slots) -> bool {
+    if (canonicalized_slots.empty()) {
+      return true;  // No variables, always yield (single match)
+    }
+
+    // Build the prefix (all slots except the last)
+    std::vector<EClassId> prefix(canonicalized_slots.begin(), canonicalized_slots.end() - 1);
+
+    // Check if the last slot's value is new given this prefix
+    auto last_slot_idx = canonicalized_slots.size() - 1;
+    auto &seen_set = seen_per_slot[last_slot_idx][prefix];
+    auto last_value = canonicalized_slots.back();
+
+    // Try to insert - returns false if already present
+    return seen_set.insert(last_value).second;
   }
 
   /// Check if slot is bound
