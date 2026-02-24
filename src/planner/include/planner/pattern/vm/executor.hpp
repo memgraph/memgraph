@@ -192,6 +192,7 @@ class VMExecutorVerify {
     }
 
   op_NextEClass:
+    // TOOD: can we have a better macro that will NEXT_OR_JUMP
     if (exec_next_eclass(code_[state_.pc])) {
       NEXT();
     } else {
@@ -270,21 +271,31 @@ class VMExecutorVerify {
 #undef JUMP
   }
 
+  // TODO: is passing by value faster?
+  //       except for op as we no longer need that
   void exec_load_child(Instruction const &instr) {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
+    // TODO: maybe we want to split this up, for performance we might want to load the enode.children() as a span
+    //       LoadChildren, vs LoadChild
     state_.eclass_regs[instr.dst] = egraph_->find(enode.children()[instr.arg]);
   }
 
+  // TODO: can we have consistent documentation (docstring link?) between implmentation and the instruction description
   void exec_get_enode_eclass(Instruction const &instr) {
+    // TODO: document as we do any fetch/manipulation/store
+    //       generic names like src/dst/arg/target need to be tanslated to what they actually mean for "this" op
     auto enode_id = state_.enode_regs[instr.src];
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
   [[nodiscard]] auto exec_iter_enodes(Instruction const &instr) -> bool {
-    ++stats_.iter_enode_calls;
+    ++stats_.iter_enode_calls;  // TODO: is this overkill, the normal user will not need this, can me make it compile
+                                // time choice (for developer investigations)
+                                //       kTracingEnabled could be made general so that all diagnostics are "dev mode"
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto nodes = eclass.nodes();
+    // TODO: again split? store a span?
 
     if constexpr (kTracingEnabled) {
       tracer_->on_iter_start(state_.pc, nodes.size());
