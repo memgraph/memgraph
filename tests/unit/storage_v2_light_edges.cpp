@@ -1628,13 +1628,14 @@ TEST(LightEdgesStress, ConcurrentCrudWithIndices) {
             total_deletes.fetch_add(1);
           }
         } else {
-          // UPDATE property on an existing edge
+          // UPDATE property on an existing STRESS_ET edge
           auto acc = store->Access(WRITE);
           int from_idx = vertex_dist(rng);
           auto vf = acc->FindVertex(vertex_gids[from_idx], View::NEW);
           if (!vf) continue;
 
-          auto out = vf->OutEdges(View::NEW);
+          auto et = acc->NameToEdgeType("STRESS_ET");
+          auto out = vf->OutEdges(View::NEW, {et});
           if (!out.has_value() || out->edges.empty()) continue;
 
           auto edge = out->edges[0];
