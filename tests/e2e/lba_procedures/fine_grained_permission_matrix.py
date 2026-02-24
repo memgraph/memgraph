@@ -14,12 +14,12 @@ Tests fine-grained permission requirements for each operation.
 
 For each operation, we test:
 1. With all required permissions = PASS
-2. With NOTHING (explicit deny) = FAIL
+2. With DENY * (explicit deny all) = FAIL
 3. Missing each required permission individually = FAIL
 
-Memgraph 3.8 permissions:
-- Labels: CREATE, READ, UPDATE, DELETE
-- Edge types: CREATE, READ, UPDATE, DELETE
+Memgraph 3.9 permissions:
+- Labels: CREATE, READ, SET_PROPERTY, SET_LABEL, REMOVE_LABEL, DELETE, DELETE_EDGE
+- Edge types: CREATE, READ, SET_PROPERTY, DELETE
 """
 
 import sys
@@ -46,8 +46,8 @@ def reset_permissions(admin_cursor):
 def grant_label_permissions(admin_cursor, permissions):
     if not permissions:
         return
-    if "NOTHING" in permissions:
-        execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
+    if "DENY" in permissions:
+        execute_and_fetch_all(admin_cursor, "DENY * ON NODES CONTAINING LABELS * TO user;")
     else:
         perms = ", ".join(permissions)
         execute_and_fetch_all(admin_cursor, f"GRANT {perms} ON NODES CONTAINING LABELS * TO user;")
@@ -56,8 +56,8 @@ def grant_label_permissions(admin_cursor, permissions):
 def grant_edge_permissions(admin_cursor, permissions):
     if not permissions:
         return
-    if "NOTHING" in permissions:
-        execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON EDGES OF TYPE * TO user;")
+    if "DENY" in permissions:
+        execute_and_fetch_all(admin_cursor, "DENY * ON EDGES OF TYPE * TO user;")
     else:
         perms = ", ".join(permissions)
         execute_and_fetch_all(admin_cursor, f"GRANT {perms} ON EDGES OF TYPE * TO user;")
@@ -65,8 +65,6 @@ def grant_edge_permissions(admin_cursor, permissions):
 
 class TestCreateVertex:
     """CREATE (:Label) requires CREATE on label."""
-
-    REQUIRED_LABEL = {"CREATE"}
 
     def test_with_required_permissions(self):
         admin = get_admin_cursor()
@@ -76,10 +74,10 @@ class TestCreateVertex:
         user = get_user_cursor()
         execute_and_fetch_all(user, "CREATE (:Target)")
 
-    def test_with_nothing_fails(self):
+    def test_with_deny_fails(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
         with pytest.raises(DatabaseError):
@@ -108,11 +106,11 @@ class TestMatchVertex:
         result = execute_and_fetch_all(user, "MATCH (n:Target) RETURN n")
         assert len(result) == 1
 
-    def test_with_nothing_returns_empty(self):
+    def test_with_deny_returns_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Target)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
         result = execute_and_fetch_all(user, "MATCH (n:Target) RETURN n")
@@ -141,14 +139,14 @@ class TestSetVertexProperty:
         user = get_user_cursor()
         execute_and_fetch_all(user, "MATCH (n:Target) SET n.prop = 1")
 
-    def test_with_nothing_fails(self):
+    def test_with_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Target)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
-        # With NOTHING, MATCH returns empty, so SET does nothing (no error)
+        # With DENY, MATCH returns empty, so SET does nothing (no error)
         execute_and_fetch_all(user, "MATCH (n:Target) SET n.prop = 1")
 
     def test_without_update_fails(self):
@@ -174,14 +172,14 @@ class TestDeleteVertex:
         user = get_user_cursor()
         execute_and_fetch_all(user, "MATCH (n:Target) DELETE n")
 
-    def test_with_nothing_fails(self):
+    def test_with_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Target)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
-        # With NOTHING, MATCH returns empty, so DELETE does nothing (no error)
+        # With DENY, MATCH returns empty, so DELETE does nothing (no error)
         execute_and_fetch_all(user, "MATCH (n:Target) DELETE n")
 
     def test_without_delete_fails(self):
@@ -202,22 +200,21 @@ class TestSetLabel:
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Existing)")
-        # Grant READ + UPDATE on :Existing, CREATE on :NewLabel
         execute_and_fetch_all(admin, "GRANT READ, UPDATE ON NODES CONTAINING LABELS :Existing TO user;")
         execute_and_fetch_all(admin, "GRANT CREATE ON NODES CONTAINING LABELS :NewLabel TO user;")
 
         user = get_user_cursor()
         execute_and_fetch_all(user, "MATCH (n:Existing) SET n:NewLabel")
 
-    def test_with_nothing_on_existing_fails(self):
+    def test_with_deny_on_existing_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Existing)")
-        execute_and_fetch_all(admin, "GRANT NOTHING ON NODES CONTAINING LABELS :Existing TO user;")
+        execute_and_fetch_all(admin, "DENY * ON NODES CONTAINING LABELS :Existing TO user;")
         execute_and_fetch_all(admin, "GRANT CREATE ON NODES CONTAINING LABELS :NewLabel TO user;")
 
         user = get_user_cursor()
-        # With NOTHING on existing label, MATCH returns empty, so SET does nothing (no error)
+        # With DENY on existing label, MATCH returns empty, so SET does nothing (no error)
         execute_and_fetch_all(user, "MATCH (n:Existing) SET n:NewLabel")
 
     def test_without_update_on_existing_fails(self):
@@ -255,14 +252,14 @@ class TestRemoveLabel:
         user = get_user_cursor()
         execute_and_fetch_all(user, "MATCH (n:Target) REMOVE n:Target")
 
-    def test_with_nothing_fails(self):
+    def test_with_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Target)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
-        # With NOTHING, MATCH returns empty, so REMOVE does nothing (no error)
+        # With DENY, MATCH returns empty, so REMOVE does nothing (no error)
         execute_and_fetch_all(user, "MATCH (n:Target) REMOVE n:Target")
 
     def test_without_update_fails(self):
@@ -299,23 +296,23 @@ class TestCreateEdge:
         user = get_user_cursor()
         execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
 
-    def test_with_label_nothing_fails(self):
+    def test_with_label_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
         grant_edge_permissions(admin, {"CREATE"})
 
         user = get_user_cursor()
-        # With NOTHING on labels, MATCH returns empty, so no edge created (no error)
+        # With DENY on labels, MATCH returns empty, so no edge created (no error)
         execute_and_fetch_all(user, "MATCH (a:Source), (b:Dest) CREATE (a)-[:Target]->(b)")
 
-    def test_with_edge_nothing_fails(self):
+    def test_with_edge_deny_fails(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source), (:Dest)")
         grant_label_permissions(admin, {"READ"})
-        grant_edge_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
         with pytest.raises(DatabaseError):
@@ -347,23 +344,23 @@ class TestMatchEdge:
         result = execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) RETURN r")
         assert len(result) == 1
 
-    def test_with_label_nothing_returns_empty(self):
+    def test_with_label_deny_returns_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
         grant_edge_permissions(admin, {"READ"})
 
         user = get_user_cursor()
         result = execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) RETURN r")
         assert len(result) == 0
 
-    def test_with_edge_nothing_returns_empty(self):
+    def test_with_edge_deny_returns_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
         grant_label_permissions(admin, {"READ"})
-        grant_edge_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
         result = execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) RETURN r")
@@ -394,26 +391,26 @@ class TestSetEdgeProperty:
         user = get_user_cursor()
         execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) SET r.prop = 1")
 
-    def test_with_label_nothing_fails(self):
+    def test_with_label_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
         grant_edge_permissions(admin, {"READ", "UPDATE"})
 
         user = get_user_cursor()
-        # With NOTHING on labels, MATCH returns empty, so SET does nothing (no error)
+        # With DENY on labels, MATCH returns empty, so SET does nothing (no error)
         execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) SET r.prop = 1")
 
-    def test_with_edge_nothing_fails(self):
+    def test_with_edge_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
         grant_label_permissions(admin, {"READ"})
-        grant_edge_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
-        # With NOTHING on edge, MATCH returns empty, so SET does nothing (no error)
+        # With DENY on edge, MATCH returns empty, so SET does nothing (no error)
         execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) SET r.prop = 1")
 
     def test_without_edge_update_fails(self):
@@ -441,26 +438,26 @@ class TestDeleteEdge:
         user = get_user_cursor()
         execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
 
-    def test_with_label_nothing_fails(self):
+    def test_with_label_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
-        grant_label_permissions(admin, {"NOTHING"})
+        grant_label_permissions(admin, {"DENY"})
         grant_edge_permissions(admin, {"READ", "DELETE"})
 
         user = get_user_cursor()
-        # With NOTHING on labels, MATCH returns empty, so DELETE does nothing (no error)
+        # With DENY on labels, MATCH returns empty, so DELETE does nothing (no error)
         execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
 
-    def test_with_edge_nothing_fails(self):
+    def test_with_edge_deny_succeeds_empty(self):
         admin = get_admin_cursor()
         reset_permissions(admin)
         execute_and_fetch_all(admin, "CREATE (:Source)-[:Target]->(:Dest)")
         grant_label_permissions(admin, {"READ", "UPDATE"})
-        grant_edge_permissions(admin, {"NOTHING"})
+        grant_edge_permissions(admin, {"DENY"})
 
         user = get_user_cursor()
-        # With NOTHING on edge, MATCH returns empty, so DELETE does nothing (no error)
+        # With DENY on edge, MATCH returns empty, so DELETE does nothing (no error)
         execute_and_fetch_all(user, "MATCH (:Source)-[r:Target]->(:Dest) DELETE r")
 
     def test_without_label_update_fails(self):
