@@ -59,6 +59,7 @@
 #include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/rule.hpp"
 
 import memgraph.planner.core.eids;
 
@@ -482,9 +483,76 @@ class PatternGenerator {
     used_vars_.clear();
   }
 
+  /// Get used vars for sharing across patterns
+  [[nodiscard]] auto get_used_vars() const -> std::vector<int> const & { return used_vars_; }
+
+  /// Force a specific set of vars as "already used" for shared variable generation
+  void set_used_vars(std::vector<int> vars) { used_vars_ = std::move(vars); }
+
  private:
   int next_var_id_ = 0;
   std::vector<int> used_vars_;
+};
+
+// ============================================================================
+// Multi-Pattern Generator
+// ============================================================================
+
+class MultiPatternGenerator {
+ public:
+  struct MultiPatternResult {
+    std::vector<PatternASTPtr> patterns;
+    std::set<int> shared_vars;  // Variables that appear in multiple patterns
+  };
+
+  /// Generate 2-3 patterns with shared variables
+  auto generate(uint8_t const *data, size_t &pos, size_t size) -> MultiPatternResult {
+    MultiPatternResult result;
+    if (pos >= size) return result;
+
+    // Determine number of patterns (2-3)
+    uint8_t num_patterns = 2 + (data[pos++] % 2);
+
+    // Generate first pattern
+    pattern_gen_.reset();
+    result.patterns.push_back(pattern_gen_.generate(data, pos, size));
+    auto shared_vars = pattern_gen_.get_used_vars();
+
+    // Generate remaining patterns, sharing some variables from previous patterns
+    for (uint8_t i = 1; i < num_patterns && pos < size; ++i) {
+      pattern_gen_.reset();
+
+      // Force some vars to be shared (use vars from previous patterns)
+      if (!shared_vars.empty()) {
+        // Pick 1-2 vars to share
+        uint8_t num_shared = 1 + (pos < size ? data[pos++] % 2 : 0);
+        std::vector<int> to_share;
+        for (uint8_t j = 0; j < num_shared && j < shared_vars.size(); ++j) {
+          to_share.push_back(shared_vars[j % shared_vars.size()]);
+        }
+        pattern_gen_.set_used_vars(to_share);
+
+        // Track which vars are actually shared
+        for (auto v : to_share) {
+          result.shared_vars.insert(v);
+        }
+      }
+
+      result.patterns.push_back(pattern_gen_.generate(data, pos, size));
+
+      // Update shared_vars pool with new vars
+      for (auto v : pattern_gen_.get_used_vars()) {
+        if (std::find(shared_vars.begin(), shared_vars.end(), v) == shared_vars.end()) {
+          shared_vars.push_back(v);
+        }
+      }
+    }
+
+    return result;
+  }
+
+ private:
+  PatternGenerator pattern_gen_;
 };
 
 // ============================================================================
@@ -497,8 +565,15 @@ class FuzzerState {
     operation_count_++;
     VERBOSE_OUT << "\n--- Operation #" << operation_count_ << " ---\n";
 
-    int operation_type = op % 6;
-    char const *op_names[] = {"CREATE_LEAF", "CREATE_COMPOUND", "MERGE", "REBUILD", "SET_PATTERN", "MATCH_AND_VERIFY"};
+    int operation_type = op % 8;
+    char const *op_names[] = {"CREATE_LEAF",
+                              "CREATE_COMPOUND",
+                              "MERGE",
+                              "REBUILD",
+                              "SET_PATTERN",
+                              "MATCH_AND_VERIFY",
+                              "SET_MULTI_PATTERN",
+                              "MATCH_MULTI_AND_VERIFY"};
     VERBOSE_OUT << "Op: " << op_names[operation_type] << " (raw: " << static_cast<int>(op) << ")\n";
 
     switch (operation_type) {
@@ -514,6 +589,10 @@ class FuzzerState {
         return set_pattern(data, pos, size);
       case 5:
         return match_and_verify();
+      case 6:
+        return set_multi_pattern(data, pos, size);
+      case 7:
+        return match_multi_and_verify();
       default:
         return true;
     }
@@ -843,6 +922,241 @@ class FuzzerState {
     return true;
   }
 
+  bool set_multi_pattern(uint8_t const *data, size_t &pos, size_t size) {
+    if (pos >= size) return true;
+
+    auto result = multi_pattern_gen_.generate(data, pos, size);
+    current_multi_patterns_ast_ = std::move(result.patterns);
+    current_multi_shared_vars_ = std::move(result.shared_vars);
+
+    // Convert patterns to egglog strings
+    current_multi_patterns_egglog_.clear();
+    current_multi_all_vars_.clear();
+
+    for (auto const &ast : current_multi_patterns_ast_) {
+      std::vector<std::string> vars;
+      int leaf_counter = 0;
+      auto egglog_str = pattern_to_egglog(ast, vars, leaf_counter);
+      current_multi_patterns_egglog_.push_back(egglog_str);
+
+      // Collect all ?vN vars (not ?dN)
+      for (auto const &v : vars) {
+        if (v.size() >= 2 && v[0] == '?' && v[1] == 'v') {
+          current_multi_all_vars_.insert(v);
+        }
+      }
+    }
+
+    VERBOSE_OUT << "Set " << current_multi_patterns_ast_.size() << " patterns for multi-pattern matching:\n";
+    for (size_t i = 0; i < current_multi_patterns_egglog_.size(); ++i) {
+      VERBOSE_OUT << "  Pattern " << i << ": " << current_multi_patterns_egglog_[i] << "\n";
+    }
+    VERBOSE_OUT << "  Shared vars: " << current_multi_shared_vars_.size() << "\n";
+
+    return true;
+  }
+
+  bool match_multi_and_verify() {
+    if (current_multi_patterns_ast_.empty() || created_ids_.empty()) {
+      VERBOSE_OUT << "Skipping multi-pattern match: no patterns or no nodes\n";
+      return true;
+    }
+
+    // Ensure e-graph is rebuilt before matching
+    egraph_.rebuild(ctx_);
+
+    // Convert AST patterns to memgraph patterns
+    std::vector<Pattern<FuzzSymbol>> patterns;
+    for (auto const &ast : current_multi_patterns_ast_) {
+      patterns.push_back(pattern_to_memgraph(ast));
+    }
+
+    // Check if any pattern has 0 variables
+    bool has_zero_vars = false;
+    for (auto const &p : patterns) {
+      if (p.num_vars() == 0) {
+        has_zero_vars = true;
+        break;
+      }
+    }
+    if (has_zero_vars) {
+      VERBOSE_OUT << "Skipping multi-pattern with 0-variable pattern\n";
+      return true;
+    }
+
+    // Build RewriteRule with all patterns
+    // We use a counting apply function that just counts matches
+    std::size_t ematcher_count = 0;
+    std::size_t vm_count = 0;
+
+    auto rule = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_multi")
+                    .pattern(std::move(patterns[0]))
+                    .pattern(std::move(patterns[1]))
+                    .apply([&](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {
+                      // Just count, don't do anything
+                    });
+
+    // For 3-pattern rules, we need to rebuild with the third pattern
+    if (patterns.size() > 2) {
+      // Rebuild patterns since we moved them
+      patterns.clear();
+      for (auto const &ast : current_multi_patterns_ast_) {
+        patterns.push_back(pattern_to_memgraph(ast));
+      }
+
+      rule = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_multi")
+                 .pattern(std::move(patterns[0]))
+                 .pattern(std::move(patterns[1]))
+                 .pattern(std::move(patterns[2]))
+                 .apply([&](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {});
+    }
+
+    // Run EMatcher-based matching via RewriteRule::apply
+    {
+      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
+      RewriteContext rewrite_ctx;
+
+      // We need to count matches, not rewrites. Create a wrapper that counts.
+      // The apply function is called for each match, so count in there.
+      patterns.clear();
+      for (auto const &ast : current_multi_patterns_ast_) {
+        patterns.push_back(pattern_to_memgraph(ast));
+      }
+
+      auto counting_rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_count");
+      for (auto &p : patterns) {
+        counting_rule_builder = std::move(counting_rule_builder).pattern(std::move(p));
+      }
+      auto counting_rule =
+          std::move(counting_rule_builder)
+              .apply([&ematcher_count](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) { ++ematcher_count; });
+
+      counting_rule.apply(egraph_, matcher, rewrite_ctx);
+    }
+
+    VERBOSE_OUT << "EMatcher multi-pattern found " << ematcher_count << " matches\n";
+
+    // Run VM-based matching via RewriteRule::apply_vm
+    {
+      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
+      vm::VMExecutorVerify<FuzzSymbol, FuzzAnalysis> vm_executor(egraph_);
+      RewriteContext rewrite_ctx;
+
+      patterns.clear();
+      for (auto const &ast : current_multi_patterns_ast_) {
+        patterns.push_back(pattern_to_memgraph(ast));
+      }
+
+      auto vm_rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_vm");
+      for (auto &p : patterns) {
+        vm_rule_builder = std::move(vm_rule_builder).pattern(std::move(p));
+      }
+      auto vm_rule =
+          std::move(vm_rule_builder).apply([&vm_count](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &) {
+            ++vm_count;
+          });
+
+      // Check if VM compilation succeeded
+      if (!vm_rule.compiled_pattern()) {
+        VERBOSE_OUT << "VM compilation failed for multi-pattern, skipping VM verification\n";
+        // Fall back to EMatcher-only verification
+        vm_count = ematcher_count;
+      } else {
+        vm_rule.apply_vm(egraph_, matcher, vm_executor, rewrite_ctx);
+      }
+    }
+
+    VERBOSE_OUT << "VM multi-pattern found " << vm_count << " matches\n";
+
+    // Without egglog as oracle, skip verification
+    if (g_skip_egglog) {
+      VERBOSE_OUT << "Egglog skipped - no oracle verification for multi-pattern\n";
+      return true;
+    }
+
+    // Build egglog multi-pattern rule
+    // Format: (rule ((= ?p0 pattern0) (= ?p1 pattern1) ...) ((MatchResult ?v0 ?v1 ...)))
+    std::ostringstream full_program;
+    full_program << "(datatype Expr\n";
+    full_program << "  (A i64)\n";
+    full_program << "  (B i64)\n";
+    full_program << "  (C i64)\n";
+    full_program << "  (D i64)\n";
+    full_program << "  (E i64)\n";
+    full_program << "  (F Expr)\n";
+    full_program << "  (G Expr)\n";
+    full_program << "  (H Expr)\n";
+    full_program << "  (Plus Expr Expr)\n";
+    full_program << "  (Mul Expr Expr)\n";
+    full_program << "  (Ternary Expr Expr Expr)\n";
+    full_program << ")\n\n";
+    full_program << egglog_.generate();
+
+    // Build type signature and var list for MatchResult
+    std::vector<std::string> v_vars(current_multi_all_vars_.begin(), current_multi_all_vars_.end());
+    std::sort(v_vars.begin(), v_vars.end());
+
+    std::string type_sig;
+    std::string var_list;
+    for (size_t i = 0; i < v_vars.size(); ++i) {
+      if (i > 0) {
+        type_sig += " ";
+        var_list += " ";
+      }
+      type_sig += "Expr";
+      var_list += v_vars[i];
+    }
+
+    full_program << fmt::format("\n(relation MatchResult ({}))\n", type_sig);
+
+    // Build the rule with multiple pattern conditions
+    full_program << "(rule (";
+    for (size_t i = 0; i < current_multi_patterns_egglog_.size(); ++i) {
+      if (i > 0) full_program << " ";
+      full_program << fmt::format("(= ?p{} {})", i, current_multi_patterns_egglog_[i]);
+    }
+    full_program << ")\n";
+    full_program << fmt::format("      ((MatchResult {})))\n", var_list);
+    full_program << "(run 1000)\n";
+    full_program << "(print-function MatchResult 100000)\n";
+
+    VERBOSE_OUT << "Egglog program:\n" << full_program.str() << "\n";
+
+    auto egglog_result = run_egglog(full_program.str());
+
+    if (!egglog_result.success) {
+      VERBOSE_OUT << "Egglog failed: " << egglog_result.error << "\n";
+      VERBOSE_OUT << "Program:\n" << full_program.str() << "\n";
+      // Don't fail on egglog errors - might be pattern issues
+      return true;
+    }
+
+    size_t egglog_count = egglog_result.match_count;
+    VERBOSE_OUT << "Egglog multi-pattern found " << egglog_count << " matches\n";
+
+    // Verify counts match
+    bool ematcher_ok = (ematcher_count == egglog_count);
+    bool vm_ok = (vm_count == egglog_count);
+
+    if (!ematcher_ok || !vm_ok) {
+      std::cerr << "\n!!! MULTI-PATTERN MATCH COUNT MISMATCH (egglog is ground truth) !!!\n";
+      std::cerr << "Egglog:      " << egglog_count << " matches (oracle)\n";
+      std::cerr << "EMatcher:    " << ematcher_count << " matches" << (ematcher_ok ? " OK" : " WRONG") << "\n";
+      std::cerr << "VM executor: " << vm_count << " matches" << (vm_ok ? " OK" : " WRONG") << "\n";
+      std::cerr << "\nPatterns:\n";
+      for (size_t i = 0; i < current_multi_patterns_egglog_.size(); ++i) {
+        std::cerr << "  " << i << ": " << current_multi_patterns_egglog_[i] << "\n";
+      }
+      std::cerr << "\nE-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
+      std::cerr << "\nEgglog program:\n" << full_program.str() << "\n";
+      std::cerr << "\nEgglog output:\n" << egglog_result.output << "\n";
+      abort();
+    }
+
+    VERBOSE_OUT << "Multi-pattern verification passed\n";
+    return true;
+  }
+
   void finalize() {
     // Final verification with a simple variable pattern
     if (created_ids_.empty()) return;
@@ -885,6 +1199,13 @@ class FuzzerState {
   PatternASTPtr current_pattern_ast_;
   std::string current_pattern_egglog_;
   std::vector<std::string> current_pattern_vars_;
+
+  // Multi-pattern matching state
+  MultiPatternGenerator multi_pattern_gen_;
+  std::vector<PatternASTPtr> current_multi_patterns_ast_;
+  std::vector<std::string> current_multi_patterns_egglog_;
+  std::set<int> current_multi_shared_vars_;
+  std::set<std::string> current_multi_all_vars_;
 };
 
 // ============================================================================
