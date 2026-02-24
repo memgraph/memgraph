@@ -391,8 +391,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(),
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS "
-            ":Label1 MATCHING ANY");
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE, MODIFY LABELS ON NODES "
+            "CONTAINING LABELS :Label1 MATCHING ANY");
 
   ASSERT_TRUE(result[1].IsString());
   ASSERT_EQ(result[1].ValueString(), "GRANT");
@@ -451,7 +451,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(),
-            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON ALL LABELS");
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE, MODIFY LABELS ON ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
   ASSERT_EQ(result[1].ValueString(), "GRANT");
@@ -1578,8 +1578,8 @@ TEST_F(AuthQueryHandlerFixture,
   for (const auto &privilege : privileges_db1) {
     const auto &privilege_name = privilege[0].ValueString();
     if (privilege_name ==
-        "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Person "
-        "MATCHING ANY") {
+        "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE, MODIFY LABELS ON NODES CONTAINING "
+        "LABELS :Person MATCHING ANY") {
       found_label_person = true;
       ASSERT_EQ(privilege[1].ValueString(), "GRANT");
       ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
