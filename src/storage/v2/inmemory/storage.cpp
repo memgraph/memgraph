@@ -763,11 +763,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       if (delta) {
         delta->prev.Set(&*it);
       }
-      if (config_.enable_edges_metadata) {
-        edge_metadata_acc = mem_storage->edges_metadata_.access();
-        auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
-        MG_ASSERT(inserted, "The edge must be inserted here!");
-      }
+    }
+    if (config_.enable_edges_metadata) {
+      edge_metadata_acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
 
@@ -910,11 +910,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       if (delta) {
         delta->prev.Set(&*it);
       }
-      if (config_.enable_edges_metadata) {
-        edge_metadata_acc = mem_storage->edges_metadata_.access();
-        auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
-        MG_ASSERT(inserted, "The edge must be inserted here!");
-      }
+    }
+    if (config_.enable_edges_metadata) {
+      edge_metadata_acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = edge_metadata_acc->insert(EdgeMetadata(gid, from->vertex_));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
 
