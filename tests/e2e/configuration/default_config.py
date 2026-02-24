@@ -152,8 +152,8 @@ startup_config_dict = {
         "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
     ),
     "storage_light_edge": (
-        "false",
-        "false",
+        "true",
+        "true",
         "When true, edges live only in vertex adjacency lists without the global edge skip list.",
     ),
     "storage_property_store_compression_enabled": (

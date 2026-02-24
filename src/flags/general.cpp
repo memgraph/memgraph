@@ -133,7 +133,7 @@ DEFINE_bool(storage_enable_edges_metadata, false,
             "certain queries.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_light_edge, false,
+DEFINE_bool(storage_light_edge, true,
             "When true (and properties on edges enabled), edges live only in "
             "vertex adjacency lists without the global edge skip list. "
             "Reduces memory overhead per edge but disables edge indices.");
