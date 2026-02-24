@@ -32,7 +32,7 @@ customWorkloads:
   tests:
     - name: publications-import-workload
       memgraph_args: []
-      script: "docker_ha/workloads/publications_import/workload.py"
+      script: "eks_ha/workloads/publications_import/workload.py"
       timeout_min: 120  # Extended timeout for large dataset import
       env:
         - AWS_ACCESS_KEY_ID
