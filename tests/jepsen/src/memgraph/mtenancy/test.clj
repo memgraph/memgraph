@@ -20,6 +20,7 @@
 (def pokec-medium-expected-num-nodes 100000)
 (def pokec-medium-expected-num-edges 1768515) ; one-directional edges
 
+
 (defn random-coord
   "Get random leader."
   [nodes]
@@ -108,7 +109,7 @@
     (let [bolt-conn (:bolt-conn this)
           node (:node this)]
       (case (:f op)
-        :get-num-nodes (if (mutils/data-instance? node)
+        :get-num-nodes (if (utils/data-instance? node)
                          (try
                            (let
                             [num-nodes
@@ -128,7 +129,7 @@
                              (assoc op :type :fail :value (str e))))
                          (assoc op :type :info :value "Not data instance."))
 
-        :get-num-edges (if (mutils/data-instance? node)
+        :get-num-edges (if (utils/data-instance? node)
                          (try
                            (let
                             [num-edges
@@ -137,7 +138,7 @@
                                          #_{:clj-kondo/ignore [:unresolved-symbol]}
                                          (utils/with-db-session bolt-conn session-config session
                                            (let [db-num-edges (->> #_{:clj-kondo/ignore [:unresolved-var]}
-                                                               (mgquery/get-num-edges session) first :c)]
+                                                               (mgquery/get-num-knows-edges session) first :c)]
                                              (conj acc-edges db-num-edges)))))
 
                                      [] (mutils/get-all-dbs num-tenants))]
@@ -150,7 +151,7 @@
                          (assoc op :type :info :value "Not data instance."))
 
 ; Show instances should be run only on coordinators/
-        :show-instances-read (if (mutils/coord-instance? node)
+        :show-instances-read (if (utils/coord-instance? node)
                                (try
                                  #_{:clj-kondo/ignore [:unresolved-symbol]}
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
@@ -165,7 +166,7 @@
                                    (assoc op :type :fail :value (str e))))
                                (assoc op :type :info :value "Not coordinator"))
 
-        :update-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+        :update-nodes (if (and (utils/data-instance? node) (is-main? bolt-conn))
                         (try
                           (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))
                                 random-start-node (rand-int pokec-medium-expected-num-nodes)]
@@ -205,7 +206,7 @@
 
                         (assoc op :type :info :value "Not main data instance."))
 
-        :create-ttl-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+        :create-ttl-edges (if (and (utils/data-instance? node) (is-main? bolt-conn))
                             (try
                               (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))
                                     random-start-node (rand-int pokec-medium-expected-num-nodes)]
@@ -245,7 +246,7 @@
 
                             (assoc op :type :info :value "Not main data instance."))
 
-        :delete-ttl-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+        :delete-ttl-edges (if (and (utils/data-instance? node) (is-main? bolt-conn))
                             (try
                               (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))]
                                 #_{:clj-kondo/ignore [:unresolved-symbol]}
@@ -314,10 +315,77 @@
 
           (assoc op :type :info :value "Not first leader"))
 
+        :add-nodes (if (utils/coord-instance? node)
+                     (try
+                       (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))]
+                         #_{:clj-kondo/ignore [:unresolved-symbol]}
+                         (utils/with-session bolt-conn session
+                           (let [instances (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                                   (mgquery/get-all-instances session))
+                                 current-leader (utils/get-current-leader instances)]
+                             (if (= current-leader node)
+                               (let [bolt-routing-conn (utils/open-bolt-routing node)
+                                     max-idx (atom nil)]
+                                 (try
+                                   ; Routing with MT connection
+                                   (utils/with-db-session bolt-routing-conn session-config session
+                                     (let [local-idx (->> #_{:clj-kondo/ignore [:unresolved-var]}
+                                                      (mgquery/add-nodes session {:batchSize (utils/batch-size)})
+                                                          (map :id)
+                                                          (reduce conj [])
+                                                          first)]
+                                       (reset! max-idx local-idx)
+                                       (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
+                                   (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                     (utils/process-service-unavailable-exc op node))
+                                   (catch Exception e
+                                     (cond
+                                       (utils/txn-timeout? e)
+                                       (assoc op :type :info :value {:str "Txn timeout occurred."})
+
+                                       (utils/server-no-longer-available e)
+                                       (assoc op :type :info :value {:str "Server no longer available."})
+
+                                       (utils/no-write-server e)
+                                       (assoc op :type :info :value {:str "Failed to obtain connection towards write server."})
+
+                                       (utils/strict-sync-replica-down? e)
+                                       (assoc op :type :ok :value {:str "STRICT_SYNC replica is down."})
+
+                                       (utils/sync-replica-down? e)
+                                       (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
+
+                                       (utils/main-became-replica? e)
+                                       (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
+
+                                       (utils/main-unwriteable? e)
+                                       (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
+
+                                       (utils/unique-constraint-violated? e)
+                                       (assoc op :type :ok :value {:str "Unique constraint was violated."})
+
+                                       (utils/cannot-get-shared-access? e)
+                                       (assoc op :type :ok :value {:str "Cannot get shared access storage."})
+
+                                       (or (utils/query-forbidden-on-replica? e)
+                                           (utils/query-forbidden-on-main? e))
+                                       (assoc op :type :info :value (str e))
+
+                                       :else
+                                       (assoc op :type :fail :value (str e))))
+                                   (finally
+                                     (dbclient/disconnect bolt-routing-conn))))  ; ✅ Always disconnect
+                               (assoc op :type :info :value "This coordinator is not the current leader.")))))
+                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                         (utils/process-service-unavailable-exc op node))
+                       (catch Exception e
+                         (assoc op :type :fail :value (str e))))
+                     (assoc op :type :info :value "Not coordinator instance."))
+
         ; Here we create all databases, import nodes on and edges on each DB so the same client (worker thread) could execute all of these operations
         ; Otherwise, we could get into a situation in which edges get imported before nodes because client responsible for edges gets scheduled before the
         ; clients responsible for nodes
-        :create-databases (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+        :create-databases (if (and (utils/data-instance? node) (is-main? bolt-conn))
                             (if (compare-and-set! databases-created? false true)
                               (try
                                 #_{:clj-kondo/ignore [:unresolved-symbol]}
@@ -417,6 +485,7 @@
                                   (filter #(= :get-num-nodes (:f %)))
                                   (map :value))
 
+
             ok-get-num-edges (->> history
                                   (filter #(= :ok (:type %)))
                                   (filter #(= :get-num-edges (:f %)))
@@ -451,6 +520,11 @@
                               (filter #(= "n3" (:node %)))
                               first
                               (:num-edges))
+
+            failed-add-nodes (->> history
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :add-nodes (:f %)))
+                                  (map :value))
 
             failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
@@ -521,6 +595,7 @@
                                      (empty? partial-coordinators)
                                      (empty? more-than-one-main)
                                      (empty? partial-instances)
+                                     (empty? failed-add-nodes)
                                      (empty? failed-setup-cluster)
                                      (empty? failed-create-databases)
                                      (empty? failed-show-instances)
@@ -542,6 +617,7 @@
                             :n2-all-edges? (every? #(= % pokec-medium-expected-num-edges) n2-num-edges)
                             :n3-all-nodes? (every? #(= % pokec-medium-expected-num-nodes) n3-num-nodes)
                             :n3-all-edges? (every? #(= % pokec-medium-expected-num-edges) n3-num-edges)
+                            :empty-failed-add-nodes? (empty? failed-add-nodes) ; There shouldn't be any failed add-nodes operations.
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-create-databases? (empty? failed-create-databases) ; There shouldn't be any failed create-databases operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
@@ -560,6 +636,7 @@
                      {:key :n2-not-all-edges :condition (not (:n2-all-edges? initial-result)) :value n2-num-edges}
                      {:key :n3-not-all-nodes :condition (not (:n3-all-nodes? initial-result)) :value n3-num-nodes}
                      {:key :n3-not-all-edges :condition (not (:n3-all-edges? initial-result)) :value n3-num-edges}
+                     {:key :failed-add-nodes :condition (not (:empty-failed-add-nodes? initial-result)) :value failed-add-nodes}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-create-databases :condition (not (:empty-failed-create-databases? initial-result)) :value failed-create-databases}
                      {:key :failed-get-num-nodes :condition (not (:empty-failed-get-num-nodes? initial-result)) :value failed-get-num-nodes}
@@ -616,6 +693,11 @@
   [_ _]
   {:type :invoke :f :get-num-edges :value nil})
 
+(defn add-nodes
+  "Invoke add-nodes op."
+  [_ _]
+  {:type :invoke :f :add-nodes :value nil})
+
 (defn client-generator
   "Client generator."
   []
@@ -626,7 +708,7 @@
     (gen/once create-databases)
     (gen/sleep 5)
     (gen/delay 2
-               (gen/mix [show-instances-reads update-nodes create-ttl-edges delete-ttl-edges])))))
+               (gen/mix [show-instances-reads update-nodes create-ttl-edges delete-ttl-edges add-nodes])))))
 
 (defn final-client-generator
   "Final client generator."
