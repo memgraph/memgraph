@@ -441,7 +441,9 @@ class Interpreter final {
   void Abort();
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
-  std::optional<uint64_t> current_transaction_;
+  // Atomic so ShowTransactions can safely read it without CAS protection for non-ACTIVE states.
+  // 0 means "no active transaction". Valid IDs start at kInterpreterTransactionInitialId (1 << 63).
+  std::atomic<uint64_t> current_transaction_{0};
 
   void ResetUser();
 

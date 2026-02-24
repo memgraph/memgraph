@@ -6003,9 +6003,11 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
     }
 
     // For ACTIVE transactions, use CAS to block commit/abort while we read interpreter fields.
-    // For other states (STARTED_COMMITTING, STARTED_ROLLBACK, TERMINATED), the owning thread
-    // does not modify shared fields (current_transaction_, metadata_, etc.) until transitioning
-    // to IDLE, so direct reads are safe.
+    // For other states (STARTED_COMMITTING, STARTED_ROLLBACK, TERMINATED):
+    //   - current_transaction_ is atomic, so always safe to read.
+    //   - transaction_queries_ is SpinLock-protected, so always safe to read via GetQueries().
+    //   - metadata_ is non-atomic and may be concurrently written during STARTED_ROLLBACK,
+    //     so we only read it under CAS protection (need_restore == true).
     bool need_restore = false;
     if (status == TransactionStatus::ACTIVE) {
       if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
@@ -6049,9 +6051,10 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
            TypedValue(std::to_string(transaction_id.value())),
            TypedValue(typed_queries),
            TypedValue(TransactionStatusToString(status))});
-      // Handle user-defined metadata
+      // Handle user-defined metadata — only safe to read under CAS protection (ACTIVE state).
+      // For non-ACTIVE states, metadata_ may be concurrently modified (e.g. during abort).
       std::map<std::string, TypedValue> metadata_tv;
-      if (interpreter->metadata_) {
+      if (need_restore && interpreter->metadata_) {
         for (const auto &md : *(interpreter->metadata_)) {
           metadata_tv.emplace(md.first, TypedValue(md.second));
         }
@@ -8021,7 +8024,11 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
 
 }  // namespace
 
-std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
+std::optional<uint64_t> Interpreter::GetTransactionId() const {
+  auto id = current_transaction_.load(std::memory_order_acquire);
+  if (id == 0) return std::nullopt;
+  return id;
+}
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
@@ -8365,8 +8372,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 
     SetupInterpreterTransaction(extras);
-    LogQueryMessage(
-        fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
+    LogQueryMessage(fmt::format("Query [{}] associated with transaction [{}]",
+                                parsed_query.query_string,
+                                current_transaction_.load(std::memory_order_relaxed)));
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -8815,9 +8823,10 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-  current_transaction_ = interpreter_context_->id_handler.next();
+  auto tx_id = interpreter_context_->id_handler.next();
+  current_transaction_.store(tx_id, std::memory_order_release);
   if (query_logger_) {
-    query_logger_->SetTransactionId(std::to_string(*current_transaction_));
+    query_logger_->SetTransactionId(std::to_string(tx_id));
   }
   metadata_ = GenOptional(extras.metadata_pv);
 }
@@ -8866,10 +8875,10 @@ void Interpreter::Abort() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  // Reset current_transaction_ and metadata_ before transitioning to IDLE so that
-  // ShowTransactions can safely read them while status is STARTED_ROLLBACK.
+  // current_transaction_ is atomic — safe to reset at any point.
+  // metadata_ is non-atomic but ShowTransactions skips it for non-CAS states, so no concurrent reader.
   utils::OnScopeExit clean_status([this]() {
-    current_transaction_.reset();
+    current_transaction_.store(0, std::memory_order_release);
     metadata_ = std::nullopt;
     transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
   });
@@ -9040,7 +9049,7 @@ void Interpreter::Commit() {
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) {
-      current_transaction_.reset();
+      current_transaction_.store(0, std::memory_order_release);
       return;
     }
 
@@ -9049,9 +9058,7 @@ void Interpreter::Commit() {
     // Clean transaction status on exit
     utils::OnScopeExit clean_status([this]() {
       system_transaction_.reset();
-      // Reset transaction info before transitioning to IDLE so that
-      // ShowTransactions does not observe partially-cleared state.
-      current_transaction_.reset();
+      current_transaction_.store(0, std::memory_order_release);
       // System transactions are not terminable
       // Durability has happened at time of PULL
       // Commit is doing replication and timestamp update
@@ -9108,10 +9115,9 @@ void Interpreter::Commit() {
   }
 
   // Clean transaction status if something went wrong.
-  // Reset current_transaction_ before transitioning to IDLE so that ShowTransactions
-  // can safely read it while status is STARTED_COMMITTING (it won't be concurrently modified).
+  // current_transaction_ is atomic — safe to reset at any point.
   utils::OnScopeExit clean_status([this]() {
-    current_transaction_.reset();
+    current_transaction_.store(0, std::memory_order_release);
     transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
   });
 
