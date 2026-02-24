@@ -391,9 +391,9 @@ class PatternCompiler {
     auto parent_reg = alloc_reg();
     auto sym_idx = get_symbol_index(sym.sym);
 
-    // Iterate parents with this symbol
+    // Iterate parents with this symbol (span-based, uses filtered iter)
     auto loop_pos = emit_iter_loop(Instruction::iter_parents_sym(parent_reg, shared_reg, sym_idx, backtrack),
-                                   Instruction::next_parent(parent_reg, backtrack));
+                                   Instruction::next_parent_filtered(parent_reg, backtrack));
 
     // Check arity
     code_.push_back(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
