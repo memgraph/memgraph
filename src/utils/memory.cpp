@@ -558,4 +558,27 @@ template <typename P>
 bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
   return this == &other;
 }
+
+SingleSizeThreadSafePoolResource::SingleSizeThreadSafePoolResource(std::size_t block_size, std::size_t blocks_per_chunk,
+                                                                   std::pmr::memory_resource *chunk_memory)
+    : block_size_(block_size), pool_(block_size, blocks_per_chunk, chunk_memory) {}
+
+SingleSizeThreadSafePoolResource::~SingleSizeThreadSafePoolResource() = default;
+
+void *SingleSizeThreadSafePoolResource::do_allocate(size_t bytes, size_t alignment) {
+  auto const effective = std::max({bytes, alignment, std::size_t{1}});
+  if (effective > block_size_) {
+    throw BadAlloc("SingleSizeThreadSafePoolResource: requested size exceeds block size");
+  }
+  return pool_.Allocate();
+}
+
+void SingleSizeThreadSafePoolResource::do_deallocate(void *p, size_t /*bytes*/, size_t /*alignment*/) {
+  pool_.Deallocate(p);
+}
+
+bool SingleSizeThreadSafePoolResource::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
+  return this == &other;
+}
+
 }  // namespace memgraph::utils
