@@ -194,10 +194,25 @@ class PatternCompiler {
   }
 
   void build_slot_map(std::span<Pattern<Symbol> const *> patterns) {
-    for (auto const *pattern : patterns) {
-      for (auto const &[var, _] : pattern->var_slots()) {
-        if (!slot_map_.contains(var)) {
-          slot_map_[var] = slot_map_.size();
+    // For single patterns, use the pattern's existing slot assignments directly
+    // to ensure consistency with EMatcher's variable ordering.
+    // For multi-pattern joins, we need to merge slot maps carefully.
+    if (patterns.size() == 1) {
+      for (auto const &[var, slot] : patterns[0]->var_slots()) {
+        slot_map_[var] = slot;
+      }
+    } else {
+      // Multi-pattern: assign slots sequentially, but respect each pattern's
+      // internal ordering by iterating in slot order
+      for (auto const *pattern : patterns) {
+        // Collect vars sorted by their slot index to ensure deterministic order
+        std::vector<std::pair<PatternVar, uint8_t>> vars(pattern->var_slots().begin(), pattern->var_slots().end());
+        std::sort(vars.begin(), vars.end(), [](auto const &a, auto const &b) { return a.second < b.second; });
+
+        for (auto const &[var, _] : vars) {
+          if (!slot_map_.contains(var)) {
+            slot_map_[var] = slot_map_.size();
+          }
         }
       }
     }
