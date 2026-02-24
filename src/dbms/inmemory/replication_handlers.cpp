@@ -1381,15 +1381,14 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
             if (data.from_gid.has_value()) {
+              // Faster path: use to vertex and edge type from WAL delta.
               // Newer versions store to_gid and edge_type when needed, so we can use the faster path via FindEdge.
-              if (data.to_gid.has_value() && data.edge_type.has_value()) {
-                if (*data.to_gid == storage::kInvalidGid || data.edge_type->empty()) {
-                  // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
-                  // edge type in case the edge was created in this transaction. We should either be using the cached
-                  // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
-                  // type.
-                  throw utils::BasicException("Invalid to vertex or edge type when setting edge property.");
-                }
+              // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
+              // edge type in case the edge was created in this transaction. We should either be using the cached
+              // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
+              // type.
+              if (data.to_gid.has_value() && data.edge_type.has_value() && *data.to_gid != storage::kInvalidGid &&
+                  !data.edge_type->empty()) {
                 auto to_vertex = transaction->FindVertex(*data.to_gid, View::NEW);
                 if (!to_vertex)
                   throw utils::BasicException("Failed to find to vertex {} when setting edge property.",
@@ -1411,6 +1410,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                     found_edge->edge_, found_edge->edge_type_, found_edge->from_vertex_, found_edge->to_vertex_};
               }
 
+              // Fallback path: resolve edge via vertex_acc / FindEdge (legacy replication).
               auto vertex_acc = storage->vertices_.access();
               auto from_vertex = vertex_acc.find(data.from_gid);
               if (from_vertex == vertex_acc.end())

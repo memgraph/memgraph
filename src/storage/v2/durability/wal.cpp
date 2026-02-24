@@ -1190,15 +1190,12 @@ std::optional<RecoveryInfo> LoadWal(
             const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
               if (data.from_gid.has_value()) {
                 // Faster path: use to vertex and edge type from WAL delta.
-                if (data.to_gid.has_value() && data.edge_type.has_value()) {
-                  // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
-                  // edge type in case the edge was created in this transaction. We should either be using the cached
-                  // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
-                  // type.
-                  if (*data.to_gid == kInvalidGid || data.edge_type->empty()) {
-                    throw RecoveryFailure("Invalid to vertex or edge type! Current ldt is: {}",
-                                          ret->last_durable_timestamp);
-                  }
+                // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
+                // edge type in case the edge was created in this transaction. We should either be using the cached
+                // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
+                // type.
+                if (data.to_gid.has_value() && data.edge_type.has_value() && *data.to_gid != kInvalidGid &&
+                    !data.edge_type->empty()) {
                   const auto to_vertex = vertex_acc.find(*data.to_gid);
                   if (to_vertex == vertex_acc.end())
                     throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}",
@@ -1210,6 +1207,7 @@ std::optional<RecoveryInfo> LoadWal(
                   const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(*data.edge_type));
                   return std::tuple{EdgeRef{&*edge}, edge_type_id, &*from_vertex, &*to_vertex};
                 }
+                // Slow path: resolve edge via vertex_acc / FindEdge.
                 const auto from_vertex = vertex_acc.find(data.from_gid);
                 if (from_vertex == vertex_acc.end())
                   throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
