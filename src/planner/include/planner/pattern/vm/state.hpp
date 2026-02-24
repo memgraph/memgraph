@@ -219,7 +219,7 @@ struct VMState {
   /// Returns false if this binding tuple has already been yielded.
   /// Returns true if this is a new unique tuple.
   /// The canonicalized_slots parameter should contain find()-canonicalized e-class IDs.
-  [[nodiscard]] auto try_yield_dedup(std::vector<EClassId> const &canonicalized_slots) -> bool {
+  [[nodiscard]] auto try_yield_dedup(std::span<EClassId const> canonicalized_slots) -> bool {
     if (canonicalized_slots.empty()) {
       return true;  // No variables, always yield (single match)
     }

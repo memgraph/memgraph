@@ -288,24 +288,18 @@ class VMExecutorVerify {
 #undef JUMP
   }
 
-  // TODO: is passing by value faster?
-  //       except for op as we no longer need that
-  void exec_load_child(Instruction const &instr) {
+  // Instruction is 6 bytes - pass by value for efficiency (fits in register)
+  void exec_load_child(Instruction instr) {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
-    // TODO: maybe we want to split this up, for performance we might want to load the enode.children() as a span
-    //       LoadChildren, vs LoadChild
     state_.eclass_regs[instr.dst] = egraph_->find(enode.children()[instr.arg]);
   }
 
-  // TODO: can we have consistent documentation (docstring link?) between implmentation and the instruction description
-  void exec_get_enode_eclass(Instruction const &instr) {
-    // TODO: document as we do any fetch/manipulation/store
-    //       generic names like src/dst/arg/target need to be tanslated to what they actually mean for "this" op
+  void exec_get_enode_eclass(Instruction instr) {
     auto enode_id = state_.enode_regs[instr.src];
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool {
     if constexpr (kTracingEnabled) {
       ++stats_.iter_enode_calls;
     }
@@ -327,7 +321,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction instr) -> bool {
     auto &iter = state_.get_enodes_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -344,7 +338,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
     // Use cached all-eclasses buffer if available, otherwise rebuild
     if (!all_eclasses_cached_) {
       all_eclasses_buffer_.clear();
@@ -362,7 +356,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction instr) -> bool {
     auto &iter = state_.get_eclasses_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -373,7 +367,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_parents(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_iter_parents(Instruction instr) -> bool {
     if constexpr (kTracingEnabled) {
       ++stats_.iter_parent_calls;
     }
@@ -395,7 +389,7 @@ class VMExecutorVerify {
   }
 
   /// Filter parents by symbol and iterate (verify mode)
-  [[nodiscard]] auto exec_iter_parents_sym(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_iter_parents_sym(Instruction instr) -> bool {
     if constexpr (kTracingEnabled) {
       ++stats_.iter_parent_calls;
     }
@@ -430,7 +424,7 @@ class VMExecutorVerify {
   }
 
   /// Advance index-based parent iteration (for IterParents)
-  [[nodiscard]] auto exec_next_parent(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_next_parent(Instruction instr) -> bool {
     auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -452,7 +446,7 @@ class VMExecutorVerify {
   }
 
   /// Advance span-based filtered parent iteration (for IterParentsSym)
-  [[nodiscard]] auto exec_next_parent_filtered(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_next_parent_filtered(Instruction instr) -> bool {
     auto &iter = state_.get_filtered_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -468,7 +462,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_check_symbol(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_check_symbol(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.symbol() != symbols_[instr.arg]) {
       if constexpr (kTracingEnabled) {
@@ -483,7 +477,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_check_arity(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_check_arity(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.arity() != instr.arg) {
       if constexpr (kTracingEnabled) {
@@ -494,14 +488,14 @@ class VMExecutorVerify {
     return true;
   }
 
-  void exec_bind_slot(Instruction const &instr) {
+  void exec_bind_slot(Instruction instr) {
     state_.bind(instr.arg, state_.eclass_regs[instr.src]);
     if constexpr (kTracingEnabled) {
       tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
     }
   }
 
-  [[nodiscard]] auto exec_check_slot(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_check_slot(Instruction instr) -> bool {
     auto expected = egraph_->find(state_.slots[instr.arg]);
     auto actual = egraph_->find(state_.eclass_regs[instr.src]);
     if (expected != actual) {
@@ -517,7 +511,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_bind_or_check(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_bind_or_check(Instruction instr) -> bool {
     if (!state_.is_bound(instr.arg)) {
       state_.bind(instr.arg, state_.eclass_regs[instr.src]);
       if constexpr (kTracingEnabled) {
@@ -561,11 +555,11 @@ class VMExecutorVerify {
   VMStats stats_;
   Tracer null_tracer_;
   Tracer *tracer_;
-  std::vector<EClassId> all_eclasses_buffer_;     // Buffer for IterAllEClasses
-  std::vector<EClassId> candidates_buffer_;       // Buffer for automatic candidate lookup
-  std::vector<ENodeId> filtered_parents_buffer_;  // Buffer for IterParentsSym filtering
-  std::vector<EClassId> canonicalized_tuple_;     // Buffer for yield-time deduplication
-  bool all_eclasses_cached_ = false;              // Whether all_eclasses_buffer_ is valid
+  std::vector<EClassId> all_eclasses_buffer_;                            // Buffer for IterAllEClasses
+  std::vector<EClassId> candidates_buffer_;                              // Buffer for automatic candidate lookup
+  boost::container::small_vector<ENodeId, 16> filtered_parents_buffer_;  // Buffer for IterParentsSym filtering
+  boost::container::small_vector<EClassId, 8> canonicalized_tuple_;      // Buffer for yield-time deduplication
+  bool all_eclasses_cached_ = false;                                     // Whether all_eclasses_buffer_ is valid
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -774,17 +768,17 @@ class VMExecutorClean {
 #undef JUMP
   }
 
-  void exec_load_child(Instruction const &instr) {
+  void exec_load_child(Instruction instr) {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     state_.eclass_regs[instr.dst] = egraph_->find(enode.children()[instr.arg]);
   }
 
-  void exec_get_enode_eclass(Instruction const &instr) {
+  void exec_get_enode_eclass(Instruction instr) {
     auto enode_id = state_.enode_regs[instr.src];
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool {
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto nodes = eclass.nodes();
@@ -798,7 +792,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction instr) -> bool {
     auto &iter = state_.get_enodes_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -808,7 +802,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
     // Use cached all-eclasses buffer if available, otherwise rebuild
     if (!all_eclasses_cached_) {
       all_eclasses_buffer_.clear();
@@ -826,7 +820,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction const &instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction instr) -> bool {
     auto &iter = state_.get_eclasses_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -836,7 +830,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_parents(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_iter_parents(Instruction instr) -> bool {
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto const &parents = eclass.parents();
@@ -850,7 +844,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_parents_sym(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_iter_parents_sym(Instruction instr) -> bool {
     auto eclass_id = state_.eclass_regs[instr.src];
     auto sym = symbols_[instr.arg];
 
@@ -867,7 +861,7 @@ class VMExecutorClean {
   }
 
   /// Advance index-based parent iteration (for IterParents)
-  [[nodiscard]] auto exec_next_parent(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_next_parent(Instruction instr) -> bool {
     auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -884,7 +878,7 @@ class VMExecutorClean {
   }
 
   /// Advance span-based filtered parent iteration (for IterParentsSym)
-  [[nodiscard]] auto exec_next_parent_filtered(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_next_parent_filtered(Instruction instr) -> bool {
     auto &iter = state_.get_filtered_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -895,25 +889,25 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_check_symbol(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_check_symbol(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     return enode.symbol() == symbols_[instr.arg];
   }
 
-  [[nodiscard]] auto exec_check_arity(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_check_arity(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     return enode.arity() == instr.arg;
   }
 
-  void exec_bind_slot(Instruction const &instr) { state_.bind(instr.arg, state_.eclass_regs[instr.src]); }
+  void exec_bind_slot(Instruction instr) { state_.bind(instr.arg, state_.eclass_regs[instr.src]); }
 
-  [[nodiscard]] auto exec_check_slot(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_check_slot(Instruction instr) -> bool {
     auto expected = egraph_->find(state_.slots[instr.arg]);
     auto actual = egraph_->find(state_.eclass_regs[instr.src]);
     return expected == actual;
   }
 
-  [[nodiscard]] auto exec_bind_or_check(Instruction const &instr) -> bool {
+  [[nodiscard]] auto exec_bind_or_check(Instruction instr) -> bool {
     if (!state_.is_bound(instr.arg)) {
       state_.bind(instr.arg, state_.eclass_regs[instr.src]);
       return true;
@@ -947,10 +941,10 @@ class VMExecutorClean {
   std::span<ENodeId const> filtered_parents_;  // Current filtered parent list
   VMState state_;
   VMStats stats_;
-  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
-  std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
-  std::vector<EClassId> canonicalized_tuple_;  // Buffer for yield-time deduplication
-  bool all_eclasses_cached_ = false;           // Whether all_eclasses_buffer_ is valid
+  std::vector<EClassId> all_eclasses_buffer_;                        // Buffer for IterAllEClasses
+  std::vector<EClassId> candidates_buffer_;                          // Buffer for automatic candidate lookup
+  boost::container::small_vector<EClassId, 8> canonicalized_tuple_;  // Buffer for yield-time deduplication
+  bool all_eclasses_cached_ = false;                                 // Whether all_eclasses_buffer_ is valid
 };
 
 }  // namespace memgraph::planner::core::vm
