@@ -667,7 +667,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
           &storage->ttl_,
-          snapshot_observer_info);
+          snapshot_observer_info,
+          storage->light_edge_pool_.get());
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);
@@ -1339,18 +1340,28 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                                    memgraph::storage::Vertex *>>
               edge_info;
 
-          // Slow path: resolve edge via edge_acc / FindEdge (WAL or legacy replication).
-          auto edge = edge_acc.find(data.gid);
-          if (edge == edge_acc.end()) {
-            throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
+          // Slow path: resolve edge pointer.
+          storage::Edge *edge_raw = nullptr;
+          if (storage->config_.salient.items.storage_light_edge) {
+            auto found_edge = storage->FindEdge(data.gid);
+            if (!found_edge) {
+              throw utils::BasicException("Failed to find light edge {} when setting property.", edge_gid);
+            }
+            edge_raw = std::get<0>(*found_edge).ptr;
+          } else {
+            auto edge_it = edge_acc.find(data.gid);
+            if (edge_it == edge_acc.end()) {
+              throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
+            }
+            edge_raw = &*edge_it;
           }
           {
             bool is_visible = true;
             Delta *local_delta = nullptr;
             {
-              auto guard = std::shared_lock{edge->lock};
-              is_visible = !edge->deleted();
-              local_delta = edge->delta();
+              auto guard = std::shared_lock{edge_raw->lock};
+              is_visible = !edge_raw->deleted();
+              local_delta = edge_raw->delta();
             }
             ApplyDeltasForRead(
                 &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
@@ -1417,9 +1428,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                 throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
                                             data.from_gid->AsUint());
 
-              auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
-                return std::get<2>(in) == raw_edge_ref;
-              });
+              auto found_edge =
+                  r::find_if(from_vertex->out_edges, [edge_raw](auto &in) { return std::get<2>(in).ptr == edge_raw; });
               if (found_edge == from_vertex->out_edges.end()) {
                 throw utils::BasicException(
                     "Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid, from_vertex->gid.AsUint());
@@ -1427,7 +1437,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               const auto &[edge_type, vertex_to, edge_ref] = *found_edge;
               return std::tuple{edge_ref, edge_type, &*from_vertex, vertex_to};
             }
-            auto found_edge = storage->FindEdge(edge->gid);
+            auto found_edge = storage->FindEdge(edge_raw->gid);
             if (!found_edge) {
               constexpr auto src_loc{std::source_location()};
               throw utils::BasicException(
