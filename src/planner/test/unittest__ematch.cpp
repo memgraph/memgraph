@@ -13,6 +13,7 @@
 
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/rule.hpp"
 #include "test_ematcher_fixture.hpp"
 #include "test_patterns.hpp"
 
@@ -662,6 +663,125 @@ TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
   // Currently fails: EMatcher produces 2, VM produces 1 (VM is correct)
   EXPECT_EQ(matches.size(), vm_matches.size()) << "EMatcher and VM should produce same number of matches. "
                                                << "EMatcher: " << matches.size() << ", VM: " << vm_matches.size();
+}
+
+// ============================================================================
+// Multi-Pattern Matching Tests
+// ============================================================================
+
+TEST_F(EMatcherTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
+  // Regression test for VM multi-pattern matching bug found by fuzzer.
+  //
+  // Bug: In VMExecutorVerify, IterParentsSym was falling back to
+  // exec_iter_parents() which iterates ALL parents without filtering by symbol.
+  // Since the compiler doesn't emit CheckSymbol after IterParentsSym (assumes
+  // the instruction filters), wrong parents could slip through and produce
+  // spurious matches.
+  //
+  // Reproducer from fuzzer (crash-43736aae77a61652d5e1db4fabcfc47e26e548ca):
+  //   E-graph: A(4), F(A(4))   <- one leaf, one unary
+  //   Pattern 0: F(?v0)        <- matches F(A(4)), binds ?v0 = A class
+  //   Pattern 1: F2(?v0)       <- should match F2 parents of ?v0 (none exist)
+  //
+  //   Bug: VM found 1 match (wrong), EMatcher found 0 (correct)
+  //   VM was iterating F parent instead of F2 parents, and since F's child
+  //   equals ?v0, the CheckSlot passed spuriously.
+
+  // Setup: A(4), F(A(4))
+  auto a = leaf(Op::A, 4);
+  auto f_node = node(Op::F, a);
+  rebuild_egraph();
+  rebuild_index();
+
+  // Multi-pattern: F(?v0) and F2(?v0)
+  // F2 doesn't exist in graph, so this should produce 0 matches
+  auto pattern1 = TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt);
+  auto pattern2 = TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt);
+
+  // Count matches via RewriteRule
+  std::size_t ematcher_count = 0;
+  std::size_t vm_count = 0;
+
+  // EMatcher-based multi-pattern matching
+  {
+    auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_ematcher")
+                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
+                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
+                    .apply([&ematcher_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++ematcher_count; });
+
+    RewriteContext rewrite_ctx;
+    rule.apply(egraph, ematcher, rewrite_ctx);
+  }
+
+  // VM-based multi-pattern matching
+  {
+    auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_vm")
+                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
+                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
+                    .apply([&vm_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++vm_count; });
+
+    ASSERT_TRUE(rule.compiled_pattern().has_value()) << "Multi-pattern should compile for VM";
+
+    RewriteContext rewrite_ctx;
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    rule.apply_vm(egraph, ematcher, vm_executor, rewrite_ctx);
+  }
+
+  // Both should produce 0 matches (no F2 nodes in the graph)
+  EXPECT_EQ(ematcher_count, 0u) << "EMatcher should find 0 multi-pattern matches";
+  EXPECT_EQ(vm_count, 0u) << "VM should find 0 multi-pattern matches (was finding 1 before fix)";
+  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should produce same number of matches";
+}
+
+TEST_F(EMatcherTest, MultiPatternMatchWithSharedVariable) {
+  // Test that multi-pattern matching correctly finds matches when both patterns
+  // can be satisfied with a shared variable.
+  //
+  //   E-graph: A(1), F(A(1)), F2(A(1))
+  //   Pattern 0: F(?v0)   <- matches F(A(1)), binds ?v0 = A class
+  //   Pattern 1: F2(?v0)  <- matches F2(A(1)), checks ?v0 = A class
+  //
+  //   Should produce 1 match where ?v0 = A class
+
+  // Setup: A(1), F(A(1)), F2(A(1))
+  auto a = leaf(Op::A, 1);
+  node(Op::F, a);
+  node(Op::F2, a);
+  rebuild_egraph();
+  rebuild_index();
+
+  std::size_t ematcher_count = 0;
+  std::size_t vm_count = 0;
+
+  // EMatcher-based multi-pattern matching
+  {
+    auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_ematcher")
+                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
+                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
+                    .apply([&ematcher_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++ematcher_count; });
+
+    RewriteContext rewrite_ctx;
+    rule.apply(egraph, ematcher, rewrite_ctx);
+  }
+
+  // VM-based multi-pattern matching
+  {
+    auto rule = RewriteRule<Op, NoAnalysis>::Builder("test_vm")
+                    .pattern(TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt))
+                    .pattern(TestPattern::build(Op::F2, {Var{kVarX}}, std::nullopt))
+                    .apply([&vm_count](RuleContext<Op, NoAnalysis> &, Match const &) { ++vm_count; });
+
+    ASSERT_TRUE(rule.compiled_pattern().has_value()) << "Multi-pattern should compile for VM";
+
+    RewriteContext rewrite_ctx;
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    rule.apply_vm(egraph, ematcher, vm_executor, rewrite_ctx);
+  }
+
+  // Both should produce 1 match
+  EXPECT_EQ(ematcher_count, 1u) << "EMatcher should find 1 multi-pattern match";
+  EXPECT_EQ(vm_count, 1u) << "VM should find 1 multi-pattern match";
+  EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should produce same number of matches";
 }
 
 }  // namespace memgraph::planner::core

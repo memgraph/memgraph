@@ -207,8 +207,8 @@ class VMExecutorVerify {
     }
 
   op_IterParentsSym:
-    // In verify mode, fall back to regular parent iteration
-    if (exec_iter_parents(code_[state_.pc])) {
+    // In verify mode, filter parents by symbol
+    if (exec_iter_parents_sym(code_[state_.pc])) {
       NEXT();
     } else {
       JUMP(code_[state_.pc].target);
@@ -387,6 +387,37 @@ class VMExecutorVerify {
     return true;
   }
 
+  /// Filter parents by symbol and iterate (verify mode)
+  [[nodiscard]] auto exec_iter_parents_sym(Instruction const &instr) -> bool {
+    ++stats_.iter_parent_calls;
+    auto eclass_id = state_.eclass_regs[instr.src];
+    auto target_symbol = symbols_[instr.arg];
+    auto const &eclass = egraph_->eclass(eclass_id);
+    auto const &parents = eclass.parents();
+
+    // Filter parents to only those with matching symbol
+    filtered_parents_buffer_.clear();
+    for (auto parent_id : parents) {
+      auto const &enode = egraph_->get_enode(parent_id);
+      if (enode.symbol() == target_symbol) {
+        filtered_parents_buffer_.push_back(parent_id);
+      }
+    }
+
+    if constexpr (kTracingEnabled) {
+      tracer_->on_iter_start(state_.pc, filtered_parents_buffer_.size());
+    }
+
+    if (filtered_parents_buffer_.empty()) {
+      return false;
+    }
+
+    state_.start_filtered_parent_iter(instr.dst, filtered_parents_buffer_);
+    state_.enode_regs[instr.dst] = filtered_parents_buffer_[0];
+    ++stats_.parent_symbol_hits;
+    return true;
+  }
+
   [[nodiscard]] auto exec_next_parent(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
@@ -495,8 +526,9 @@ class VMExecutorVerify {
   VMStats stats_;
   Tracer null_tracer_;
   Tracer *tracer_;
-  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
-  std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
+  std::vector<EClassId> all_eclasses_buffer_;     // Buffer for IterAllEClasses
+  std::vector<EClassId> candidates_buffer_;       // Buffer for automatic candidate lookup
+  std::vector<ENodeId> filtered_parents_buffer_;  // Buffer for IterParentsSym filtering
 };
 
 /// VM executor for pattern matching - "clean" mode
