@@ -4112,6 +4112,20 @@ EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr) {
 }
 
 EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
+  if (config_.salient.items.storage_light_edge) {
+    // Light edges: not in skip list, scan vertex out_edges by GID
+    auto vertices_acc = vertices_.access();
+    for (auto &from_vertex : vertices_acc) {
+      std::shared_lock const guard{from_vertex.lock};
+      for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex.out_edges) {
+        if (edge_ref.ptr->gid == gid) {
+          return std::tuple(edge_ref, edge_type, &from_vertex, to_vertex);
+        }
+      }
+    }
+    return std::nullopt;
+  }
+
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(gid);
   if (edge_it == edge_acc.end()) {
@@ -4134,6 +4148,23 @@ EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
 }
 
 EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
+  if (config_.salient.items.storage_light_edge) {
+    // Light edges: not in skip list, scan from_vertex's out_edges by GID
+    auto vertices_acc = vertices_.access();
+    auto vertex_it = vertices_acc.find(from_vertex_gid);
+    if (vertex_it == vertices_acc.end()) {
+      throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
+    }
+    auto *from_vertex = &(*vertex_it);
+    std::shared_lock const guard{from_vertex->lock};
+    for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+      if (edge_ref.ptr->gid == edge_gid) {
+        return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
+      }
+    }
+    return std::nullopt;
+  }
+
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {
