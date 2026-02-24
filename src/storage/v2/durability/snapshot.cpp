@@ -10591,7 +10591,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     }
 
     // Sort by GID for deterministic, recoverable output
-    std::sort(collected.begin(), collected.end(), [](auto &a, auto &b) { return a.gid < b.gid; });
+    std::ranges::sort(collected, [](auto &a, auto &b) { return a.gid < b.gid; });
 
     offset_edges = snapshot.GetPosition();
     uint64_t items_in_batch = 0;
@@ -10609,13 +10609,13 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       ++edges_count;
       ++items_in_batch;
       if (items_in_batch == storage->config_.durability.items_per_batch) {
-        edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_batch});
+        edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
         batch_start_offset = snapshot.GetPosition();
         items_in_batch = 0;
       }
     }
     if (items_in_batch > 0) {
-      edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_batch});
+      edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
     }
   };
 
