@@ -104,7 +104,7 @@ def test_can_add_vertex_label_when_given_create(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT CREATE ON NODES CONTAINING LABELS :new_create_delete_label, READ, UPDATE ON NODES CONTAINING LABELS: create_delete_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :new_create_delete_label, READ, SET LABEL ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -125,7 +125,8 @@ def test_can_not_add_vertex_label_when_given_update(switch):
     reset_create_delete_permissions(admin_cursor)
 
     execute_and_fetch_all(
-        admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS :new_create_delete_label, :create_delete_label TO user;"
+        admin_cursor,
+        "GRANT SET PROPERTY ON NODES CONTAINING LABELS :new_create_delete_label, :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -198,7 +199,7 @@ def test_can_remove_vertex_label_when_given_global_delete(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_not_remove_vertex_label_when_given_update(switch):
+def test_can_not_remove_vertex_label_when_given_set_property(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
@@ -207,7 +208,7 @@ def test_can_not_remove_vertex_label_when_given_update(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON NODES CONTAINING LABELS :create_delete_label, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
+        "GRANT READ, SET PROPERTY ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -219,16 +220,14 @@ def test_can_not_remove_vertex_label_when_given_update(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_not_remove_vertex_label_when_given_global_update(switch):
+def test_can_not_remove_vertex_label_when_given_global_set_property(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(
-        admin_cursor, "GRANT READ ON NODES CONTAINING LABELS *, UPDATE ON NODES CONTAINING LABELS * TO user;"
-    )
+    execute_and_fetch_all(admin_cursor, "GRANT READ, SET PROPERTY ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
