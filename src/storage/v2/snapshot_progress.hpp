@@ -36,7 +36,7 @@ struct SnapshotProgress {
     phase.store(p, std::memory_order_release);
   }
 
-  void IncrementDone() { items_done.fetch_add(1, std::memory_order_relaxed); }
+  void IncrementDone(uint64_t n = 1) { items_done.fetch_add(n, std::memory_order_relaxed); }
 
   void Reset() {
     phase.store(Phase::IDLE, std::memory_order_release);
@@ -70,6 +70,41 @@ struct SnapshotProgressSnapshot {
   uint64_t items_done;
   uint64_t items_total;
   uint64_t start_time_us;
+};
+
+/// RAII helper that batches progress increments into a local counter,
+/// flushing to the atomic every `kBatchSize` items. Destructor flushes
+/// any remaining count, so the final total is always accurate.
+class BatchedProgressCounter {
+ public:
+  static constexpr uint64_t kBatchSize = 64;
+
+  explicit BatchedProgressCounter(SnapshotProgress *progress) : progress_(progress) {}
+
+  ~BatchedProgressCounter() { Flush(); }
+
+  BatchedProgressCounter(const BatchedProgressCounter &) = delete;
+  BatchedProgressCounter &operator=(const BatchedProgressCounter &) = delete;
+  BatchedProgressCounter(BatchedProgressCounter &&) = delete;
+  BatchedProgressCounter &operator=(BatchedProgressCounter &&) = delete;
+
+  void Increment() {
+    ++local_count_;
+    if (local_count_ >= kBatchSize) {
+      Flush();
+    }
+  }
+
+  void Flush() {
+    if (progress_ && local_count_ > 0) {
+      progress_->IncrementDone(local_count_);
+      local_count_ = 0;
+    }
+  }
+
+ private:
+  SnapshotProgress *progress_;
+  uint64_t local_count_{0};
 };
 
 }  // namespace memgraph::storage

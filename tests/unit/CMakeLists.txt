@@ -839,6 +839,11 @@ add_unit_test(snapshot_rpc_progress
     LINK_TARGETS mg-rpc rpc_messages
 )
 
+add_unit_test(snapshot_progress
+    SOURCES snapshot_progress.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
     LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages

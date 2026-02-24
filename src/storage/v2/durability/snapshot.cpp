@@ -10271,6 +10271,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     if (start_gid >= end_gid) return {};
 
     auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    BatchedProgressCounter progress_counter(progress);
     auto res = SnapshotPartialRes{.snapshot_path = edges_snapshot.GetPath()};
     auto items_in_current_batch{0UL};
     auto batch_start_offset = edges_snapshot.GetPosition();
@@ -10352,7 +10353,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
 
       ++res.count;
-      if (progress) progress->IncrementDone();
+      progress_counter.Increment();
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
         res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
@@ -10360,6 +10361,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
         items_in_current_batch = 0;
       }
     }
+    progress_counter.Flush();
     res.snapshot_size = edges_snapshot.GetSize();
 
     if (items_in_current_batch > 0) {
@@ -10376,6 +10378,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
     if (start_gid >= end_gid) return {};
 
     auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    BatchedProgressCounter progress_counter(progress);
     auto res = SnapshotPartialRes{.snapshot_path = vertex_snapshot.GetPath()};
     auto items_in_current_batch = 0UL;
     auto batch_start_offset = vertex_snapshot.GetPosition();
@@ -10466,7 +10469,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       }
 
       ++res.count;
-      if (progress) progress->IncrementDone();
+      progress_counter.Increment();
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
         res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
@@ -10474,6 +10477,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
         items_in_current_batch = 0;
       }
     }
+    progress_counter.Flush();
 
     if (items_in_current_batch > 0) {
       // This needs to be updated
