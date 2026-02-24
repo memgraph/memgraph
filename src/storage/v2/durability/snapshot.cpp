@@ -10484,31 +10484,117 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   std::vector<BatchInfo> edge_batch_infos;
   std::vector<BatchInfo> vertex_batch_infos;
 
+  // LIGHT EDGES: collect edges from vertex adjacency lists via MVCC instead of the
+  // edges_ skip list. Uses VertexAccessor::OutEdges(View::OLD) so that edges deleted
+  // by uncommitted concurrent transactions are still correctly included (delta undo
+  // restores them to the adjacency list for the snapshot's view).
+  auto write_light_edges_section = [&]() {
+    struct CollectedEdge {
+      uint64_t gid;
+      std::map<PropertyId, PropertyValue> props;
+    };
+    std::vector<CollectedEdge> collected;
+
+    auto vacc = vertices->access();
+    auto const unused_edge_gid = storage->edge_id_.load(std::memory_order_acquire);
+
+    for (auto &vertex : vacc) {
+      if (snapshot_aborted()) return;
+      auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
+      if (!va) continue;
+      auto maybe_out = va->OutEdges(View::OLD);
+      if (!maybe_out.has_value()) continue;
+      for (auto &ea : maybe_out->edges) {
+        auto gid = ea.GidPropertiesOnEdges().AsUint();
+        if (gid >= unused_edge_gid) continue;
+        auto maybe_props = ea.Properties(View::OLD);
+        MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
+        collected.push_back({gid, std::move(*maybe_props)});
+      }
+    }
+
+    // Sort by GID for deterministic, recoverable output
+    std::sort(collected.begin(), collected.end(), [](auto &a, auto &b) { return a.gid < b.gid; });
+
+    offset_edges = snapshot.GetPosition();
+    uint64_t items_in_batch = 0;
+    auto batch_start_offset = snapshot.GetPosition();
+
+    for (auto &entry : collected) {
+      if (snapshot_aborted()) return;
+      snapshot.WriteMarker(Marker::SECTION_EDGE);
+      snapshot.WriteUint(entry.gid);
+      snapshot.WriteUint(entry.props.size());
+      for (auto const &[pid, val] : entry.props) {
+        write_mapping(pid);
+        snapshot.WriteExternalPropertyValue(ToExternalPropertyValue(val, storage->name_id_mapper_.get()));
+      }
+      ++edges_count;
+      ++items_in_batch;
+      if (items_in_batch == storage->config_.durability.items_per_batch) {
+        edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_batch});
+        batch_start_offset = snapshot.GetPosition();
+        items_in_batch = 0;
+      }
+    }
+    if (items_in_batch > 0) {
+      edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_batch});
+    }
+  };
+
+  bool const light_edges = storage->config_.salient.items.storage_light_edge;
+
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
-    auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
-    MultiThreadedWorkflow(edge_ptr,
-                          vertices,
-                          partial_edge_handler,
-                          partial_vertex_handler,
-                          storage->config_.durability.items_per_batch,
-                          offset_edges,
-                          offset_vertices,
-                          snapshot,
-                          edges_count,
-                          vertices_count,
-                          edge_batch_infos,
-                          vertex_batch_infos,
-                          used_ids,
-                          storage->config_.durability.snapshot_thread_count,
-                          snapshot_aborted);
+    if (light_edges) {
+      // Write light edges single-threaded (edges must precede vertices in the file),
+      // then run the parallel workflow for vertices only.
+      write_light_edges_section();
+      if (snapshot_aborted()) return std::nullopt;
+      MultiThreadedWorkflow(static_cast<utils::SkipList<Edge> *>(nullptr),
+                            vertices,
+                            partial_edge_handler,
+                            partial_vertex_handler,
+                            storage->config_.durability.items_per_batch,
+                            offset_edges,
+                            offset_vertices,
+                            snapshot,
+                            edges_count,
+                            vertices_count,
+                            edge_batch_infos,
+                            vertex_batch_infos,
+                            used_ids,
+                            storage->config_.durability.snapshot_thread_count,
+                            snapshot_aborted);
+    } else {
+      auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
+      MultiThreadedWorkflow(edge_ptr,
+                            vertices,
+                            partial_edge_handler,
+                            partial_vertex_handler,
+                            storage->config_.durability.items_per_batch,
+                            offset_edges,
+                            offset_vertices,
+                            snapshot,
+                            edges_count,
+                            vertices_count,
+                            edge_batch_infos,
+                            vertex_batch_infos,
+                            used_ids,
+                            storage->config_.durability.snapshot_thread_count,
+                            snapshot_aborted);
+    }
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
-      offset_edges = snapshot.GetPosition();  // Global edge offset
-      // Handle edges
-      const auto res = partial_edge_handler(0, kEnd, snapshot);
-      edges_count = res.count;
-      edge_batch_infos = res.batch_info;
-      used_ids.insert(res.used_ids.begin(), res.used_ids.end());
+      if (light_edges) {
+        write_light_edges_section();
+      } else {
+        offset_edges = snapshot.GetPosition();  // Global edge offset
+        // Handle edges
+        const auto res = partial_edge_handler(0, kEnd, snapshot);
+        edges_count = res.count;
+        edge_batch_infos = res.batch_info;
+        used_ids.insert(res.used_ids.begin(), res.used_ids.end());
+      }
     }
     if (snapshot_aborted()) {
       return std::nullopt;
