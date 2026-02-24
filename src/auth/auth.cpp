@@ -403,6 +403,7 @@ void MigrateVersions(kvstore::KVStore &store) {
     // - `global_permission` is split into `global_grants`/`global_denies`
     // - permissions array entries gain a `denied` field
     // - For labels: UPDATE (bit 1) expands to SET_PROPERTY | SET_LABEL | REMOVE_LABEL | DELETE_EDGE
+    // - For labels: CREATE gains SET_LABEL, DELETE gains REMOVE_LABEL
     // - For edge types: UPDATE (bit 1) becomes SET_PROPERTY (bit 1), which is the
     //   same bit so no migration needed.
     // - NOTHING becomes a DENY ALL
@@ -412,13 +413,23 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     constexpr uint64_t kUpdate = 2;  // Old UPDATE bit, no longer exists in enum
 
-    // For labels: UPDATE -> SET_PROPERTY | SET_LABEL | REMOVE_LABEL | DELETE_EDGE
+    // For labels:
+    // - UPDATE -> SET_PROPERTY | SET_LABEL | REMOVE_LABEL | DELETE_EDGE
+    // - CREATE -> CREATE | SET_LABEL
+    // - DELETE -> DELETE | REMOVE_LABEL
     auto const migrate_label_permissions = [&](uint64_t const v3_perm) -> uint64_t {
-      if (v3_perm & kUpdate) {
-        return (v3_perm & ~kUpdate) | to_uint(SET_PROPERTY) | to_uint(SET_LABEL) | to_uint(REMOVE_LABEL) |
-               to_uint(DELETE_EDGE);
+      uint64_t result = v3_perm;
+      if (result & kUpdate) {
+        result = (result & ~kUpdate) | to_uint(SET_PROPERTY) | to_uint(SET_LABEL) | to_uint(REMOVE_LABEL) |
+                 to_uint(DELETE_EDGE);
       }
-      return v3_perm;
+      if (result & to_uint(CREATE)) {
+        result |= to_uint(SET_LABEL);
+      }
+      if (result & to_uint(DELETE)) {
+        result |= to_uint(REMOVE_LABEL);
+      }
+      return result;
     };
 
     auto const migrate_entity = [&](auto const &prefix) {
