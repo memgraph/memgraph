@@ -444,6 +444,12 @@ int main(int argc, char **argv) {
       .salient.storage_mode = memgraph::flags::ParseStorageMode(),
       .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
       .track_label_counts = FLAGS_telemetry_enabled};
+  if (db_config.salient.items.storage_light_edge) {
+    if (!db_config.salient.items.properties_on_edges) {
+      spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
+      db_config.salient.items.properties_on_edges = true;
+    }
+  }
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
     LOG_FATAL(
         "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "
@@ -453,12 +459,6 @@ int main(int argc, char **argv) {
     spdlog::warn(
         "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
         "extra metadata on edges, enable properties on edges as well.");
-  }
-  if (db_config.salient.items.storage_light_edge) {
-    if (!db_config.salient.items.properties_on_edges) {
-      spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
-      db_config.salient.items.properties_on_edges = true;
-    }
   }
   spdlog::info("config recover on startup {}, flags {}",
                db_config.durability.recover_on_startup,

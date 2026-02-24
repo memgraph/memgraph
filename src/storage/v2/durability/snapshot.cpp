@@ -735,6 +735,10 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
         // LIGHT EDGES: pool-allocate Edge instead of skip list insert
         void *mem = light_edge_pool->allocate(sizeof(Edge), alignof(Edge));
         edge_ptr = new (mem) Edge(Gid::FromUint(*gid), nullptr);
+        // Track immediately so cleanup can deallocate if property recovery throws
+        if (light_edge_output) {
+          light_edge_output->emplace_back(*gid, edge_ptr);
+        }
       } else {
         auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
         if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
@@ -756,10 +760,6 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
         props.InitProperties(std::move(read_properties));
-      }
-
-      if (light_edge_output) {
-        light_edge_output->emplace_back(*gid, edge_ptr);
       }
     } else {
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
@@ -9077,6 +9077,9 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
   // LIGHT EDGES: sorted GID->Edge* map built during edge recovery, used during connectivity recovery.
   std::vector<std::pair<uint64_t, Edge *>> all_light_edges;
+  // Declared at outer scope so the cleanup lambda can free edges that were allocated
+  // during parallel recovery but not yet merged into all_light_edges.
+  std::vector<std::vector<std::pair<uint64_t, Edge *>>> per_batch_light_edges;
 
   bool success = false;
   auto const cleanup = utils::OnScopeExit([&] {
@@ -9093,6 +9096,14 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           light_edge_pool->deallocate(edge_ptr, sizeof(Edge), alignof(Edge));
         }
         all_light_edges.clear();
+        // Also free edges from per-batch vectors not yet merged into all_light_edges
+        for (auto &batch_vec : per_batch_light_edges) {
+          for (auto &[gid, edge_ptr] : batch_vec) {
+            edge_ptr->~Edge();
+            light_edge_pool->deallocate(edge_ptr, sizeof(Edge), alignof(Edge));
+          }
+        }
+        per_batch_light_edges.clear();
       }
     }
   });
@@ -9256,7 +9267,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
       if (light_edge_pool) {
         // LIGHT EDGES: pool-allocate edges and build per-batch GID->Edge* vectors.
-        std::vector<std::vector<std::pair<uint64_t, Edge *>>> per_batch_light_edges(edge_batches.size());
+        per_batch_light_edges.resize(edge_batches.size());
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
             [path,
@@ -9285,6 +9296,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                  std::make_move_iterator(batch_vec.begin()),
                                  std::make_move_iterator(batch_vec.end()));
         }
+        per_batch_light_edges.clear();  // entries moved; clear to avoid double-free in cleanup
       } else {
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
