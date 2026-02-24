@@ -583,6 +583,11 @@ class BaseRunner(ABC):
     def clean_db(self):
         pass
 
+    def free_memory(self):
+        """Execute FREE MEMORY on the running database to release jemalloc-held pages.
+        Override for vendor-specific implementation."""
+        pass
+
     def get_database_port(self):
         return self._bolt_port
 
@@ -692,6 +697,23 @@ class Memgraph(BaseRunner):
             self.dump_rss(workload)
         ret, usage = self._cleanup()
         return usage
+
+    def free_memory(self):
+        if self._proc_mg is None:
+            return
+        from neo4j import GraphDatabase
+
+        driver = GraphDatabase.driver(f"bolt://127.0.0.1:{self._bolt_port}", auth=("", ""))
+        with driver.session() as session:
+            session.run("FREE MEMORY").consume()
+        driver.close()
+        # Reset VmHWM (peak RSS) to current VmRSS so that _get_usage() captures
+        # steady-state memory instead of the transient snapshot-loading peak.
+        try:
+            with open(f"/proc/{self._proc_mg.pid}/clear_refs", "w") as f:
+                f.write("5")
+        except (PermissionError, OSError):
+            pass
 
     def clean_db(self):
         if self._proc_mg is not None:
