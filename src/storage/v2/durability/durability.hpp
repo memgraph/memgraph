@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <memory_resource>
 #include <optional>
 #include <string>
 
@@ -149,7 +150,8 @@ struct Recovery {
       uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
       std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
-      memgraph::storage::DescriptionStore *description_store);
+      memgraph::storage::DescriptionStore *description_store,
+      std::pmr::memory_resource *light_edge_pool = nullptr);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

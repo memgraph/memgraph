@@ -536,7 +536,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
-    memgraph::storage::DescriptionStore *description_store) {
+    memgraph::storage::DescriptionStore *description_store, std::pmr::memory_resource *light_edge_pool) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info(
       "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
@@ -586,7 +586,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                           enum_store,
                                           schema_info,
                                           ttl,
-                                          description_store);
+                                          description_store,
+                                          std::nullopt,
+                                          light_edge_pool);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
