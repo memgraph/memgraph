@@ -124,76 +124,150 @@ class VMExecutorVerify {
   static constexpr bool kTracingEnabled = !std::is_same_v<Tracer, NullTracer>;
 
   void run_until_halt(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    while (state_.pc < code_.size()) {
-      auto const &instr = code_[state_.pc];
-      if constexpr (kTracingEnabled) {
-        tracer_->on_instruction(state_.pc, instr);
-      }
-      ++stats_.instructions_executed;
-      jumped_ = false;
+    // Dispatch table - must match VMOp enum order exactly
+    static constexpr void *dispatch_table[] = {
+        &&op_LoadChild,
+        &&op_GetENodeEClass,
+        &&op_IterENodes,
+        &&op_NextENode,
+        &&op_IterAllEClasses,
+        &&op_NextEClass,
+        &&op_IterParents,
+        &&op_IterParentsSym,
+        &&op_NextParent,
+        &&op_CheckSymbol,
+        &&op_CheckArity,
+        &&op_BindSlot,
+        &&op_CheckSlot,
+        &&op_BindOrCheck,
+        &&op_Jump,
+        &&op_Yield,
+        &&op_Halt,
+    };
 
-      switch (instr.op) {
-        case VMOp::LoadChild:
-          exec_load_child(instr);
-          break;
-        case VMOp::GetENodeEClass:
-          exec_get_enode_eclass(instr);
-          break;
-        case VMOp::IterENodes:
-          exec_iter_enodes(instr);
-          break;
-        case VMOp::NextENode:
-          exec_next_enode(instr);
-          break;
-        case VMOp::IterAllEClasses:
-          exec_iter_all_eclasses(instr);
-          break;
-        case VMOp::NextEClass:
-          exec_next_eclass(instr);
-          break;
-        case VMOp::IterParents:
-          exec_iter_parents(instr);
-          break;
-        case VMOp::IterParentsSym:
-          // In verify mode, fall back to regular parent iteration
-          // The bytecode should include CheckSymbol after this
-          exec_iter_parents(instr);
-          break;
-        case VMOp::NextParent:
-          exec_next_parent(instr);
-          break;
-        case VMOp::CheckSymbol:
-          exec_check_symbol(instr);
-          break;
-        case VMOp::CheckArity:
-          exec_check_arity(instr);
-          break;
-        case VMOp::BindSlot:
-          exec_bind_slot(instr);
-          break;
-        case VMOp::CheckSlot:
-          exec_check_slot(instr);
-          break;
-        case VMOp::BindOrCheck:
-          exec_bind_or_check(instr);
-          break;
-        case VMOp::Jump:
-          state_.pc = instr.target;
-          jumped_ = true;
-          break;
-        case VMOp::Yield:
-          exec_yield(ctx, results);
-          break;
-        case VMOp::Halt:
-          if constexpr (kTracingEnabled) {
-            tracer_->on_halt(stats_.instructions_executed);
-          }
-          return;
-      }
-      if (!jumped_) {
-        ++state_.pc;
-      }
+    // clang-format off
+#define DISPATCH()                                                      \
+  do {                                                                  \
+    if (state_.pc >= code_.size()) return;                              \
+    if constexpr (kTracingEnabled) {                                    \
+      tracer_->on_instruction(state_.pc, code_[state_.pc]);             \
+    }                                                                   \
+    ++stats_.instructions_executed;                                     \
+    goto *dispatch_table[static_cast<uint8_t>(code_[state_.pc].op)];    \
+  } while (0)
+
+#define NEXT() do { ++state_.pc; DISPATCH(); } while (0)
+#define JUMP(target) do { state_.pc = (target); DISPATCH(); } while (0)
+    // clang-format on
+
+    DISPATCH();
+
+  op_LoadChild:
+    exec_load_child(code_[state_.pc]);
+    NEXT();
+
+  op_GetENodeEClass:
+    exec_get_enode_eclass(code_[state_.pc]);
+    NEXT();
+
+  op_IterENodes:
+    if (exec_iter_enodes(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
     }
+
+  op_NextENode:
+    if (exec_next_enode(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_IterAllEClasses:
+    if (exec_iter_all_eclasses(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_NextEClass:
+    if (exec_next_eclass(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_IterParents:
+    if (exec_iter_parents(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_IterParentsSym:
+    // In verify mode, fall back to regular parent iteration
+    if (exec_iter_parents(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_NextParent:
+    if (exec_next_parent(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_CheckSymbol:
+    if (exec_check_symbol(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_CheckArity:
+    if (exec_check_arity(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_BindSlot:
+    exec_bind_slot(code_[state_.pc]);
+    NEXT();
+
+  op_CheckSlot:
+    if (exec_check_slot(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_BindOrCheck:
+    if (exec_bind_or_check(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_Jump:
+    JUMP(code_[state_.pc].target);
+
+  op_Yield:
+    exec_yield(ctx, results);
+    NEXT();
+
+  op_Halt:
+    if constexpr (kTracingEnabled) {
+      tracer_->on_halt(stats_.instructions_executed);
+    }
+    return;
+
+#undef DISPATCH
+#undef NEXT
+#undef JUMP
   }
 
   void exec_load_child(Instruction const &instr) {
@@ -206,7 +280,7 @@ class VMExecutorVerify {
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  void exec_iter_enodes(Instruction const &instr) {
+  [[nodiscard]] auto exec_iter_enodes(Instruction const &instr) -> bool {
     ++stats_.iter_enode_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
@@ -217,28 +291,22 @@ class VMExecutorVerify {
     }
 
     if (nodes.empty()) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
-    // Store span directly in register-indexed state
     state_.start_enode_iter(instr.dst, nodes);
     state_.enode_regs[instr.dst] = nodes[0];
+    return true;
   }
 
-  void exec_next_enode(Instruction const &instr) {
-    // O(1) lookup by register
+  [[nodiscard]] auto exec_next_enode(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::ENodes) {
-      // No active iteration for this register
       if constexpr (kTracingEnabled) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     iter.advance();
@@ -246,59 +314,50 @@ class VMExecutorVerify {
       if constexpr (kTracingEnabled) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
-      // Deactivate this and all nested iterations
       state_.deactivate_iter_and_nested(instr.dst);
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     if constexpr (kTracingEnabled) {
       tracer_->on_iter_advance(state_.pc, iter.remaining());
     }
-    // Direct access to cached span - no e-graph lookup needed
     state_.enode_regs[instr.dst] = iter.current();
+    return true;
   }
 
-  void exec_iter_all_eclasses(Instruction const &instr) {
-    // Build list of all canonical e-classes
+  [[nodiscard]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
     all_eclasses_buffer_.clear();
     for (auto const &[id, _] : egraph_->canonical_classes()) {
       all_eclasses_buffer_.push_back(id);
     }
 
     if (all_eclasses_buffer_.empty()) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
-    // Store span in register-indexed state
     state_.start_all_eclasses_iter(instr.dst, all_eclasses_buffer_);
     state_.eclass_regs[instr.dst] = all_eclasses_buffer_[0];
+    return true;
   }
 
-  void exec_next_eclass(Instruction const &instr) {
+  [[nodiscard]] auto exec_next_eclass(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::AllEClasses) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     iter.advance();
     if (iter.exhausted()) {
       state_.deactivate_iter_and_nested(instr.dst);
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     state_.eclass_regs[instr.dst] = iter.current_eclass();
+    return true;
   }
 
-  void exec_iter_parents(Instruction const &instr) {
+  [[nodiscard]] auto exec_iter_parents(Instruction const &instr) -> bool {
     ++stats_.iter_parent_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
@@ -309,28 +368,22 @@ class VMExecutorVerify {
     }
 
     if (parents.empty()) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
-    // Store e-class ID for index-based parent lookup
     state_.start_parent_iter(instr.dst, eclass_id, parents.size());
     state_.enode_regs[instr.dst] = *parents.begin();
+    return true;
   }
 
-  void exec_next_parent(Instruction const &instr) {
-    // O(1) lookup by register
+  [[nodiscard]] auto exec_next_parent(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::Parents && iter.kind != IterState::Kind::ParentsFiltered) {
-      // No active parent iteration for this register
       if constexpr (kTracingEnabled) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     iter.advance();
@@ -338,53 +391,48 @@ class VMExecutorVerify {
       if constexpr (kTracingEnabled) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
-      // Deactivate this and all nested iterations
       state_.deactivate_iter_and_nested(instr.dst);
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     if constexpr (kTracingEnabled) {
       tracer_->on_iter_advance(state_.pc, iter.remaining());
     }
 
-    // For filtered parents, use span; for regular parents, use index lookup
     if (iter.kind == IterState::Kind::ParentsFiltered) {
       state_.enode_regs[instr.dst] = iter.nodes_span[iter.current_idx];
     } else {
-      // Index-based lookup - need to iterate through the set
       auto const &eclass = egraph_->eclass(iter.parent_eclass);
       auto const &parents = eclass.parents();
       auto pit = parents.begin();
       std::advance(pit, static_cast<std::ptrdiff_t>(iter.current_idx));
       state_.enode_regs[instr.dst] = *pit;
     }
+    return true;
   }
 
-  void exec_check_symbol(Instruction const &instr) {
+  [[nodiscard]] auto exec_check_symbol(Instruction const &instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.symbol() != symbols_[instr.arg]) {
       ++stats_.parent_symbol_misses;
       if constexpr (kTracingEnabled) {
         tracer_->on_check_fail(state_.pc, "symbol mismatch");
       }
-      state_.pc = instr.target;
-      jumped_ = true;
-    } else {
-      ++stats_.parent_symbol_hits;
+      return false;
     }
+    ++stats_.parent_symbol_hits;
+    return true;
   }
 
-  void exec_check_arity(Instruction const &instr) {
+  [[nodiscard]] auto exec_check_arity(Instruction const &instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.arity() != instr.arg) {
       if constexpr (kTracingEnabled) {
         tracer_->on_check_fail(state_.pc, "arity mismatch");
       }
-      state_.pc = instr.target;
-      jumped_ = true;
+      return false;
     }
+    return true;
   }
 
   void exec_bind_slot(Instruction const &instr) {
@@ -394,7 +442,7 @@ class VMExecutorVerify {
     }
   }
 
-  void exec_check_slot(Instruction const &instr) {
+  [[nodiscard]] auto exec_check_slot(Instruction const &instr) -> bool {
     auto expected = egraph_->find(state_.slots[instr.arg]);
     auto actual = egraph_->find(state_.eclass_regs[instr.src]);
     if (expected != actual) {
@@ -402,22 +450,21 @@ class VMExecutorVerify {
       if constexpr (kTracingEnabled) {
         tracer_->on_check_fail(state_.pc, "slot mismatch");
       }
-      state_.pc = instr.target;
-      jumped_ = true;
-    } else {
-      ++stats_.check_slot_hits;
+      return false;
     }
+    ++stats_.check_slot_hits;
+    return true;
   }
 
-  void exec_bind_or_check(Instruction const &instr) {
+  [[nodiscard]] auto exec_bind_or_check(Instruction const &instr) -> bool {
     if (!state_.is_bound(instr.arg)) {
       state_.bind(instr.arg, state_.eclass_regs[instr.src]);
       if constexpr (kTracingEnabled) {
         tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
       }
-    } else {
-      exec_check_slot(instr);
+      return true;
     }
+    return exec_check_slot(instr);
   }
 
   void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
@@ -437,7 +484,6 @@ class VMExecutorVerify {
   VMStats stats_;
   Tracer null_tracer_;
   Tracer *tracer_;
-  bool jumped_{false};
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
 };
@@ -497,69 +543,143 @@ class VMExecutorClean {
 
  private:
   void run_until_halt(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    while (state_.pc < code_.size()) {
-      auto const &instr = code_[state_.pc];
-      ++stats_.instructions_executed;
-      jumped_ = false;
+    // Dispatch table - must match VMOp enum order exactly
+    static constexpr void *dispatch_table[] = {
+        &&op_LoadChild,
+        &&op_GetENodeEClass,
+        &&op_IterENodes,
+        &&op_NextENode,
+        &&op_IterAllEClasses,
+        &&op_NextEClass,
+        &&op_IterParents,
+        &&op_IterParentsSym,
+        &&op_NextParent,
+        &&op_CheckSymbol,
+        &&op_CheckArity,
+        &&op_BindSlot,
+        &&op_CheckSlot,
+        &&op_BindOrCheck,
+        &&op_Jump,
+        &&op_Yield,
+        &&op_Halt,
+    };
 
-      switch (instr.op) {
-        case VMOp::LoadChild:
-          exec_load_child(instr);
-          break;
-        case VMOp::GetENodeEClass:
-          exec_get_enode_eclass(instr);
-          break;
-        case VMOp::IterENodes:
-          exec_iter_enodes(instr);
-          break;
-        case VMOp::NextENode:
-          exec_next_enode(instr);
-          break;
-        case VMOp::IterAllEClasses:
-          exec_iter_all_eclasses(instr);
-          break;
-        case VMOp::NextEClass:
-          exec_next_eclass(instr);
-          break;
-        case VMOp::IterParents:
-          exec_iter_parents(instr);
-          break;
-        case VMOp::IterParentsSym:
-          // Use the symbol index for direct lookup
-          exec_iter_parents_sym(instr);
-          break;
-        case VMOp::NextParent:
-          exec_next_parent(instr);
-          break;
-        case VMOp::CheckSymbol:
-          exec_check_symbol(instr);
-          break;
-        case VMOp::CheckArity:
-          exec_check_arity(instr);
-          break;
-        case VMOp::BindSlot:
-          exec_bind_slot(instr);
-          break;
-        case VMOp::CheckSlot:
-          exec_check_slot(instr);
-          break;
-        case VMOp::BindOrCheck:
-          exec_bind_or_check(instr);
-          break;
-        case VMOp::Jump:
-          state_.pc = instr.target;
-          jumped_ = true;
-          break;
-        case VMOp::Yield:
-          exec_yield(ctx, results);
-          break;
-        case VMOp::Halt:
-          return;
-      }
-      if (!jumped_) {
-        ++state_.pc;
-      }
+    // clang-format off
+#define DISPATCH()                                                      \
+  do {                                                                  \
+    if (state_.pc >= code_.size()) return;                              \
+    ++stats_.instructions_executed;                                     \
+    goto *dispatch_table[static_cast<uint8_t>(code_[state_.pc].op)];    \
+  } while (0)
+
+#define NEXT() do { ++state_.pc; DISPATCH(); } while (0)
+#define JUMP(target) do { state_.pc = (target); DISPATCH(); } while (0)
+    // clang-format on
+
+    DISPATCH();
+
+  op_LoadChild:
+    exec_load_child(code_[state_.pc]);
+    NEXT();
+
+  op_GetENodeEClass:
+    exec_get_enode_eclass(code_[state_.pc]);
+    NEXT();
+
+  op_IterENodes:
+    if (exec_iter_enodes(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
     }
+
+  op_NextENode:
+    if (exec_next_enode(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_IterAllEClasses:
+    if (exec_iter_all_eclasses(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_NextEClass:
+    if (exec_next_eclass(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_IterParents:
+    if (exec_iter_parents(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_IterParentsSym:
+    if (exec_iter_parents_sym(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_NextParent:
+    if (exec_next_parent(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_CheckSymbol:
+    if (exec_check_symbol(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_CheckArity:
+    if (exec_check_arity(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_BindSlot:
+    exec_bind_slot(code_[state_.pc]);
+    NEXT();
+
+  op_CheckSlot:
+    if (exec_check_slot(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_BindOrCheck:
+    if (exec_bind_or_check(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
+
+  op_Jump:
+    JUMP(code_[state_.pc].target);
+
+  op_Yield:
+    exec_yield(ctx, results);
+    NEXT();
+
+  op_Halt:
+    return;
+
+#undef DISPATCH
+#undef NEXT
+#undef JUMP
   }
 
   void exec_load_child(Instruction const &instr) {
@@ -572,191 +692,167 @@ class VMExecutorClean {
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  void exec_iter_enodes(Instruction const &instr) {
+  [[nodiscard]] auto exec_iter_enodes(Instruction const &instr) -> bool {
     ++stats_.iter_enode_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto nodes = eclass.nodes();
 
     if (nodes.empty()) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     state_.start_enode_iter(instr.dst, nodes);
     state_.enode_regs[instr.dst] = nodes[0];
+    return true;
   }
 
-  void exec_next_enode(Instruction const &instr) {
-    // O(1) lookup by register
+  [[nodiscard]] auto exec_next_enode(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::ENodes) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     iter.advance();
     if (iter.exhausted()) {
       state_.deactivate_iter_and_nested(instr.dst);
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     state_.enode_regs[instr.dst] = iter.current();
+    return true;
   }
 
-  void exec_iter_all_eclasses(Instruction const &instr) {
-    // Build list of all canonical e-classes
+  [[nodiscard]] auto exec_iter_all_eclasses(Instruction const &instr) -> bool {
     all_eclasses_buffer_.clear();
     for (auto const &[id, _] : egraph_->canonical_classes()) {
       all_eclasses_buffer_.push_back(id);
     }
 
     if (all_eclasses_buffer_.empty()) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     state_.start_all_eclasses_iter(instr.dst, all_eclasses_buffer_);
     state_.eclass_regs[instr.dst] = all_eclasses_buffer_[0];
+    return true;
   }
 
-  void exec_next_eclass(Instruction const &instr) {
+  [[nodiscard]] auto exec_next_eclass(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::AllEClasses) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     iter.advance();
     if (iter.exhausted()) {
       state_.deactivate_iter_and_nested(instr.dst);
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     state_.eclass_regs[instr.dst] = iter.current_eclass();
+    return true;
   }
 
-  void exec_iter_parents(Instruction const &instr) {
+  [[nodiscard]] auto exec_iter_parents(Instruction const &instr) -> bool {
     ++stats_.iter_parent_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto const &parents = eclass.parents();
 
     if (parents.empty()) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
-    // Store e-class ID for index-based parent lookup
     state_.start_parent_iter(instr.dst, eclass_id, parents.size());
     state_.enode_regs[instr.dst] = *parents.begin();
+    return true;
   }
 
-  void exec_iter_parents_sym(Instruction const &instr) {
+  [[nodiscard]] auto exec_iter_parents_sym(Instruction const &instr) -> bool {
     ++stats_.iter_parent_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto sym = symbols_[instr.arg];
 
-    // Use the symbol index for O(1) lookup
     auto parents = parent_index_->parents_with_symbol(eclass_id, sym);
 
     if (parents.empty()) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
-    // Store the filtered parents for iteration (span into index, valid until rebuild)
     filtered_parents_ = parents;
     state_.start_filtered_parent_iter(instr.dst, parents);
     state_.enode_regs[instr.dst] = parents[0];
 
-    // Track that all these parents match the symbol
     stats_.parent_symbol_hits += parents.size();
+    return true;
   }
 
-  void exec_next_parent(Instruction const &instr) {
-    // O(1) lookup by register
+  [[nodiscard]] auto exec_next_parent(Instruction const &instr) -> bool {
     auto &iter = state_.get_iter(instr.dst);
 
     if (iter.kind != IterState::Kind::Parents && iter.kind != IterState::Kind::ParentsFiltered) {
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
     iter.advance();
     if (iter.exhausted()) {
       state_.deactivate_iter_and_nested(instr.dst);
       filtered_parents_ = {};
-      state_.pc = instr.target;
-      jumped_ = true;
-      return;
+      return false;
     }
 
-    // For filtered parents, use span; for regular parents, use index lookup
     if (iter.kind == IterState::Kind::ParentsFiltered) {
       state_.enode_regs[instr.dst] = iter.current();
     } else {
-      // Index-based lookup - need to iterate through the set
       auto const &eclass = egraph_->eclass(iter.parent_eclass);
       auto const &parents = eclass.parents();
       auto pit = parents.begin();
       std::advance(pit, static_cast<std::ptrdiff_t>(iter.current_idx));
       state_.enode_regs[instr.dst] = *pit;
     }
+    return true;
   }
 
-  void exec_check_symbol(Instruction const &instr) {
+  [[nodiscard]] auto exec_check_symbol(Instruction const &instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.symbol() != symbols_[instr.arg]) {
       ++stats_.parent_symbol_misses;
-      state_.pc = instr.target;
-      jumped_ = true;
-    } else {
-      ++stats_.parent_symbol_hits;
+      return false;
     }
+    ++stats_.parent_symbol_hits;
+    return true;
   }
 
-  void exec_check_arity(Instruction const &instr) {
+  [[nodiscard]] auto exec_check_arity(Instruction const &instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.arity() != instr.arg) {
-      state_.pc = instr.target;
-      jumped_ = true;
+      return false;
     }
+    return true;
   }
 
   void exec_bind_slot(Instruction const &instr) { state_.bind(instr.arg, state_.eclass_regs[instr.src]); }
 
-  void exec_check_slot(Instruction const &instr) {
+  [[nodiscard]] auto exec_check_slot(Instruction const &instr) -> bool {
     auto expected = egraph_->find(state_.slots[instr.arg]);
     auto actual = egraph_->find(state_.eclass_regs[instr.src]);
     if (expected != actual) {
       ++stats_.check_slot_misses;
-      state_.pc = instr.target;
-      jumped_ = true;
-    } else {
-      ++stats_.check_slot_hits;
+      return false;
     }
+    ++stats_.check_slot_hits;
+    return true;
   }
 
-  void exec_bind_or_check(Instruction const &instr) {
+  [[nodiscard]] auto exec_bind_or_check(Instruction const &instr) -> bool {
     if (!state_.is_bound(instr.arg)) {
       state_.bind(instr.arg, state_.eclass_regs[instr.src]);
-    } else {
-      exec_check_slot(instr);
+      return true;
     }
+    return exec_check_slot(instr);
   }
 
   void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
@@ -773,7 +869,6 @@ class VMExecutorClean {
   std::span<ENodeId const> filtered_parents_;  // Current filtered parent list
   VMState state_;
   VMStats stats_;
-  bool jumped_{false};
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
 };
