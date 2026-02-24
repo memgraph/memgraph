@@ -9492,8 +9492,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!scalar_kind) throw RecoveryFailure("Couldn't read vector index scalar kind!");
 
         VectorIndexSpec spec{.index_name = std::move(*index_name),
-                             .label_id = LabelId::FromUint(*label),
-                             .property = PropertyId::FromUint(*property),
+                             .label_id = get_label_from_id(*label),
+                             .property = get_property_from_id(*property),
                              .metric_kind = MetricFromName(*metric),
                              .dimension = static_cast<uint16_t>(*dimension),
                              .resize_coefficient = static_cast<uint16_t>(*resize_coefficient),

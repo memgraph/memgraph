@@ -3476,8 +3476,27 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // Handle MVCC deltas
   if (!transaction_.deltas.empty()) {
     append_deltas([&](const Delta &delta, auto *parent, uint64_t durability_commit_timestamp_arg) {
-      mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
-      replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+      if constexpr (std::is_same_v<decltype(parent), Edge *>) {
+        // Connect the edge to the in-vertex and edge type for faster lookup.
+        // NOTE: Invalid values will be sent in case the edge was created in this transaction.
+        // In that case, we will cache the edge accessor in WalEdgeCreate, so no need for the overhead.
+        auto edge_set_property_info = transaction_.GetEdgeSetPropertyInfo(static_cast<Edge *>(parent)->gid);
+        mem_storage->wal_file_->AppendDelta(delta,
+                                            parent,
+                                            durability_commit_timestamp_arg,
+                                            mem_storage,
+                                            edge_set_property_info.in_vertex_gid,
+                                            edge_set_property_info.edge_type_id);
+        replicating_txn.AppendDelta(delta,
+                                    parent,
+                                    durability_commit_timestamp_arg,
+                                    mem_storage,
+                                    edge_set_property_info.in_vertex_gid,
+                                    edge_set_property_info.edge_type_id);
+      } else {
+        mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+        replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg, mem_storage);
+      }
       // We send in progress msg every 10s. RPC timeout on main is configured with 30s
       if (timer.Elapsed<std::chrono::seconds>() >= delta_cb_timeout) {
         timer.ResetStartTime();

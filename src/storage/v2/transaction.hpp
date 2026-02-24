@@ -14,6 +14,8 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <unordered_map>
+#include <vector>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -148,6 +150,21 @@ struct Transaction {
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
+  struct EdgeSetPropertyInfo {
+    Gid in_vertex_gid = kInvalidGid;
+    EdgeTypeId edge_type_id = kInvalidEdgeTypeId;
+  };
+
+  void RecordEdgeSetPropertyInfo(Gid edge_gid, Gid in_vertex_gid, EdgeTypeId edge_type_id) {
+    edge_set_property_info_[edge_gid] = EdgeSetPropertyInfo{in_vertex_gid, edge_type_id};
+  }
+
+  EdgeSetPropertyInfo GetEdgeSetPropertyInfo(Gid edge_gid) const {
+    auto it = edge_set_property_info_.find(edge_gid);
+    if (it == edge_set_property_info_.end()) return {};
+    return it->second;
+  }
+
   void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
     point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
     manyDeltasCache.Invalidate(vertex, label);
@@ -195,6 +212,7 @@ struct Transaction {
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage
   ModifiedEdgesMap modified_edges_{};
+  std::unordered_map<Gid, EdgeSetPropertyInfo> edge_set_property_info_{};
   rocksdb::Transaction *disk_transaction_{};
   /// Main storage
   std::optional<utils::SkipList<Vertex>> vertices_{};
