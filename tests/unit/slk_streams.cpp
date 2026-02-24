@@ -886,3 +886,147 @@ TEST(CheckStreamStatus, SegmentLargerThanAvailable) {
   auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
   ASSERT_EQ(res.status, memgraph::slk::StreamStatus::PARTIAL);
 }
+
+// Tests for the fix: when transitioning between files (remaining_file_size is set)
+// and TCP splits the data such that kFileSegmentMask arrives without sufficient
+// file metadata, CheckStreamStatus should return PARTIAL instead of NEW_FILE.
+
+TEST(CheckStreamStatus, FileTransitionMaskOnly) {
+  // Buffer: [file1 remaining data (100 bytes)][kFileSegmentMask] — no metadata after mask
+  constexpr uint64_t kRemainingFileSize = 100;
+  std::vector<uint8_t> buffer(kRemainingFileSize + sizeof(memgraph::slk::SegmentSize));
+
+  auto file_data = GetRandomData(kRemainingFileSize);
+  memcpy(buffer.data(), file_data.data(), kRemainingFileSize);
+
+  memgraph::slk::SegmentSize mask = memgraph::slk::kFileSegmentMask;
+  memcpy(buffer.data() + kRemainingFileSize, &mask, sizeof(mask));
+
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size(), kRemainingFileSize);
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::PARTIAL);
+}
+
+TEST(CheckStreamStatus, FileTransitionPartialStringPrefix) {
+  // Buffer: [file1 data (100 bytes)][kFileSegmentMask][5 bytes] — not enough for string marker + length
+  constexpr uint64_t kRemainingFileSize = 100;
+  constexpr size_t kPartialBytes = 5;
+  std::vector<uint8_t> buffer(kRemainingFileSize + sizeof(memgraph::slk::SegmentSize) + kPartialBytes);
+
+  auto file_data = GetRandomData(kRemainingFileSize);
+  memcpy(buffer.data(), file_data.data(), kRemainingFileSize);
+
+  memgraph::slk::SegmentSize mask = memgraph::slk::kFileSegmentMask;
+  memcpy(buffer.data() + kRemainingFileSize, &mask, sizeof(mask));
+
+  auto partial = GetRandomData(kPartialBytes);
+  memcpy(buffer.data() + kRemainingFileSize + sizeof(mask), partial.data(), kPartialBytes);
+
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size(), kRemainingFileSize);
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::PARTIAL);
+}
+
+TEST(CheckStreamStatus, FileTransitionPartialStringData) {
+  // Buffer has the string prefix but the string data is truncated
+  // Format after mask: [marker(1)][str_len=50(8)][10 bytes of string data] — need 50
+  constexpr uint64_t kRemainingFileSize = 100;
+  constexpr uint64_t kStringLength = 50;
+  constexpr size_t kPartialStringBytes = 10;
+
+  size_t const metadata_present = 1 + sizeof(uint64_t) + kPartialStringBytes;
+  std::vector<uint8_t> buffer(kRemainingFileSize + sizeof(memgraph::slk::SegmentSize) + metadata_present);
+
+  auto file_data = GetRandomData(kRemainingFileSize);
+  memcpy(buffer.data(), file_data.data(), kRemainingFileSize);
+
+  size_t offset = kRemainingFileSize;
+  memgraph::slk::SegmentSize mask = memgraph::slk::kFileSegmentMask;
+  memcpy(buffer.data() + offset, &mask, sizeof(mask));
+  offset += sizeof(mask);
+
+  // String marker byte
+  uint8_t const marker = 0x10;
+  memcpy(buffer.data() + offset, &marker, 1);
+  offset += 1;
+
+  // String length
+  memcpy(buffer.data() + offset, &kStringLength, sizeof(kStringLength));
+  offset += sizeof(kStringLength);
+
+  // Partial string data
+  auto str_data = GetRandomData(kPartialStringBytes);
+  memcpy(buffer.data() + offset, str_data.data(), kPartialStringBytes);
+
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size(), kRemainingFileSize);
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::PARTIAL);
+}
+
+TEST(CheckStreamStatus, FileTransitionSufficientMetadata) {
+  // Buffer has enough data after the mask for full file metadata
+  // Format after mask: [marker(1)][str_len=20(8)][20 bytes string][marker(1)][uint64(8)] + some file data
+  constexpr uint64_t kRemainingFileSize = 100;
+  constexpr uint64_t kStringLength = 20;
+
+  size_t const metadata_size = 1 + sizeof(uint64_t) + kStringLength + 1 + sizeof(uint64_t);
+  size_t const extra_file_data = 50;  // some file data beyond the metadata
+  std::vector<uint8_t> buffer(kRemainingFileSize + sizeof(memgraph::slk::SegmentSize) + metadata_size +
+                              extra_file_data);
+
+  auto file_data = GetRandomData(kRemainingFileSize);
+  memcpy(buffer.data(), file_data.data(), kRemainingFileSize);
+
+  size_t offset = kRemainingFileSize;
+  memgraph::slk::SegmentSize mask = memgraph::slk::kFileSegmentMask;
+  memcpy(buffer.data() + offset, &mask, sizeof(mask));
+  offset += sizeof(mask);
+
+  // String marker
+  uint8_t const str_marker = 0x10;
+  memcpy(buffer.data() + offset, &str_marker, 1);
+  offset += 1;
+
+  // String length + data
+  memcpy(buffer.data() + offset, &kStringLength, sizeof(kStringLength));
+  offset += sizeof(kStringLength);
+  auto str_data = GetRandomData(kStringLength);
+  memcpy(buffer.data() + offset, str_data.data(), kStringLength);
+  offset += kStringLength;
+
+  // Uint marker + value
+  uint8_t const uint_marker = 0x20;
+  memcpy(buffer.data() + offset, &uint_marker, 1);
+  offset += 1;
+  uint64_t const file_size = 12345;
+  memcpy(buffer.data() + offset, &file_size, sizeof(file_size));
+  offset += sizeof(file_size);
+
+  // Extra file data
+  auto extra = GetRandomData(extra_file_data);
+  memcpy(buffer.data() + offset, extra.data(), extra_file_data);
+
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size(), kRemainingFileSize);
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::NEW_FILE);
+  ASSERT_EQ(res.pos, kRemainingFileSize + sizeof(memgraph::slk::SegmentSize));
+}
+
+TEST(CheckStreamStatus, FirstFileMaskNotAffectedByCheck) {
+  // The metadata check should NOT apply when remaining_file_size is not set (first file case).
+  // This verifies backward compatibility with WholeFileInSegment-style buffers.
+  std::vector<uint8_t> buffer;
+  memgraph::slk::Builder builder(
+      [&buffer](const uint8_t *data, size_t size, bool have_more) -> memgraph::slk::BuilderWriteFunction::result_type {
+        for (size_t i = 0; i < size; ++i) {
+          buffer.push_back(data[i]);
+        }
+        return {};
+      });
+
+  auto const input = GetRandomData(5);
+  builder.PrepareForFileSending();
+  ASSERT_TRUE(builder.SaveFileBuffer(input.data(), input.size()).has_value());
+  ASSERT_TRUE(builder.Finalize().has_value());
+
+  // Without remaining_file_size, the mask check is not applied — should still return NEW_FILE
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::NEW_FILE);
+  ASSERT_EQ(res.pos, sizeof(memgraph::slk::SegmentSize));
+}
