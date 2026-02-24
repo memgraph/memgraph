@@ -160,8 +160,8 @@ class VMExecutorVerify {
     if (state_.pc >= code_.size()) return;                              \
     if constexpr (kTracingEnabled) {                                    \
       tracer_->on_instruction(state_.pc, code_[state_.pc]);             \
+      ++stats_.instructions_executed;                                   \
     }                                                                   \
-    ++stats_.instructions_executed;                                     \
     goto *dispatch_table[static_cast<uint8_t>(code_[state_.pc].op)];    \
   } while (0)
 
@@ -298,9 +298,9 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction const &instr) -> bool {
-    ++stats_.iter_enode_calls;  // TODO: is this overkill, the normal user will not need this, can me make it compile
-                                // time choice (for developer investigations)
-                                //       kTracingEnabled could be made general so that all diagnostics are "dev mode"
+    if constexpr (kTracingEnabled) {
+      ++stats_.iter_enode_calls;
+    }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto nodes = eclass.nodes();
@@ -381,7 +381,9 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] auto exec_iter_parents(Instruction const &instr) -> bool {
-    ++stats_.iter_parent_calls;
+    if constexpr (kTracingEnabled) {
+      ++stats_.iter_parent_calls;
+    }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto const &parents = eclass.parents();
@@ -401,7 +403,9 @@ class VMExecutorVerify {
 
   /// Filter parents by symbol and iterate (verify mode)
   [[nodiscard]] auto exec_iter_parents_sym(Instruction const &instr) -> bool {
-    ++stats_.iter_parent_calls;
+    if constexpr (kTracingEnabled) {
+      ++stats_.iter_parent_calls;
+    }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto target_symbol = symbols_[instr.arg];
     auto const &eclass = egraph_->eclass(eclass_id);
@@ -426,7 +430,9 @@ class VMExecutorVerify {
 
     state_.start_filtered_parent_iter(instr.dst, filtered_parents_buffer_);
     state_.enode_regs[instr.dst] = filtered_parents_buffer_[0];
-    ++stats_.parent_symbol_hits;
+    if constexpr (kTracingEnabled) {
+      ++stats_.parent_symbol_hits;
+    }
     return true;
   }
 
@@ -468,13 +474,15 @@ class VMExecutorVerify {
   [[nodiscard]] auto exec_check_symbol(Instruction const &instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.symbol() != symbols_[instr.arg]) {
-      ++stats_.parent_symbol_misses;
       if constexpr (kTracingEnabled) {
+        ++stats_.parent_symbol_misses;
         tracer_->on_check_fail(state_.pc, "symbol mismatch");
       }
       return false;
     }
-    ++stats_.parent_symbol_hits;
+    if constexpr (kTracingEnabled) {
+      ++stats_.parent_symbol_hits;
+    }
     return true;
   }
 
@@ -500,13 +508,15 @@ class VMExecutorVerify {
     auto expected = egraph_->find(state_.slots[instr.arg]);
     auto actual = egraph_->find(state_.eclass_regs[instr.src]);
     if (expected != actual) {
-      ++stats_.check_slot_misses;
       if constexpr (kTracingEnabled) {
+        ++stats_.check_slot_misses;
         tracer_->on_check_fail(state_.pc, "slot mismatch");
       }
       return false;
     }
-    ++stats_.check_slot_hits;
+    if constexpr (kTracingEnabled) {
+      ++stats_.check_slot_hits;
+    }
     return true;
   }
 
@@ -538,8 +548,8 @@ class VMExecutorVerify {
       return;
     }
 
-    ++stats_.yields;
     if constexpr (kTracingEnabled) {
+      ++stats_.yields;
       tracer_->on_yield(state_.slots);
     }
     results.push_back(ctx.arena().intern(state_.slots));
@@ -650,7 +660,6 @@ class VMExecutorClean {
 #define DISPATCH()                                                      \
   do {                                                                  \
     if (state_.pc >= code_.size()) return;                              \
-    ++stats_.instructions_executed;                                     \
     goto *dispatch_table[static_cast<uint8_t>(code_[state_.pc].op)];    \
   } while (0)
 
@@ -775,7 +784,6 @@ class VMExecutorClean {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction const &instr) -> bool {
-    ++stats_.iter_enode_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto nodes = eclass.nodes();
@@ -842,7 +850,6 @@ class VMExecutorClean {
   }
 
   [[nodiscard]] auto exec_iter_parents(Instruction const &instr) -> bool {
-    ++stats_.iter_parent_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto const &parents = eclass.parents();
@@ -857,7 +864,6 @@ class VMExecutorClean {
   }
 
   [[nodiscard]] auto exec_iter_parents_sym(Instruction const &instr) -> bool {
-    ++stats_.iter_parent_calls;
     auto eclass_id = state_.eclass_regs[instr.src];
     auto sym = symbols_[instr.arg];
 
@@ -870,8 +876,6 @@ class VMExecutorClean {
     filtered_parents_ = parents;
     state_.start_filtered_parent_iter(instr.dst, parents);
     state_.enode_regs[instr.dst] = parents[0];
-
-    stats_.parent_symbol_hits += parents.size();
     return true;
   }
 
@@ -903,20 +907,12 @@ class VMExecutorClean {
 
   [[nodiscard]] auto exec_check_symbol(Instruction const &instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
-    if (enode.symbol() != symbols_[instr.arg]) {
-      ++stats_.parent_symbol_misses;
-      return false;
-    }
-    ++stats_.parent_symbol_hits;
-    return true;
+    return enode.symbol() == symbols_[instr.arg];
   }
 
   [[nodiscard]] auto exec_check_arity(Instruction const &instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
-    if (enode.arity() != instr.arg) {
-      return false;
-    }
-    return true;
+    return enode.arity() == instr.arg;
   }
 
   void exec_bind_slot(Instruction const &instr) { state_.bind(instr.arg, state_.eclass_regs[instr.src]); }
@@ -924,12 +920,7 @@ class VMExecutorClean {
   [[nodiscard]] auto exec_check_slot(Instruction const &instr) -> bool {
     auto expected = egraph_->find(state_.slots[instr.arg]);
     auto actual = egraph_->find(state_.eclass_regs[instr.src]);
-    if (expected != actual) {
-      ++stats_.check_slot_misses;
-      return false;
-    }
-    ++stats_.check_slot_hits;
-    return true;
+    return expected == actual;
   }
 
   [[nodiscard]] auto exec_bind_or_check(Instruction const &instr) -> bool {
@@ -954,7 +945,6 @@ class VMExecutorClean {
       return;
     }
 
-    ++stats_.yields;
     results.push_back(ctx.arena().intern(state_.slots));
     // Clear bound flags to allow finding different variable bindings in subsequent matches
     state_.bound.reset();
