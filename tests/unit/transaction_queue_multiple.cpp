@@ -137,6 +137,10 @@ TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
 
     auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream.GetResults().size(), NUM_INTERPRETERS + 1);
+    // All transactions should be "running" at this point
+    for (const auto &row : show_stream.GetResults()) {
+      EXPECT_EQ(row[3].ValueString(), "running");
+    }
     // Choose random transaction to kill
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -154,6 +158,14 @@ TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
     // test here show transactions — the terminated transaction is now visible with "terminating" status
     auto show_stream_after_kill = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream_after_kill.GetResults().size(), NUM_INTERPRETERS + 1);
+    // Verify the terminated transaction shows as "terminating" and others as "running"
+    for (const auto &row : show_stream_after_kill.GetResults()) {
+      if (row[1].ValueString() == run_trans_id) {
+        EXPECT_EQ(row[3].ValueString(), "terminating");
+      } else {
+        EXPECT_EQ(row[3].ValueString(), "running");
+      }
+    }
     // wait to finish for threads
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
       running_threads[i].join();

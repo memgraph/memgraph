@@ -191,6 +191,11 @@ add_unit_test(transaction_queue_multiple
     LINK_TARGETS mg-communication mg-query mg-glue
 )
 
+add_unit_test(transaction_queue_stress
+    SOURCES transaction_queue_stress.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue
+)
+
 
 # Test query functions
 add_unit_test(query_function_mgp_module
