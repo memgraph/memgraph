@@ -1,8 +1,6 @@
 memgraph:
   deployment:
     externally_managed: true
-  args: []
-  env: {}  # License and S3 credentials passed via environment variables from workflow
 
 cluster:
   coordinators:
