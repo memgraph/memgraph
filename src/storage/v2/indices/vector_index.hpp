@@ -259,6 +259,11 @@ class VectorIndex {
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name, NameIdMapper *name_id_mapper) const;
 
+  /// @brief Returns the total memory usage reported by usearch's memory_usage() across all indices.
+  /// This is O(n) per index (iterates all nodes) so should only be used for diagnostics.
+  /// Includes both mmap-allocated and jemalloc-allocated memory within usearch.
+  std::size_t TotalMemoryUsage() const;
+
   /// @brief Checks if any vector index exists.
   /// @return true if no vector indices exist, false otherwise.
   bool Empty() const;

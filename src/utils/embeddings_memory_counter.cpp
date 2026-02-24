@@ -18,18 +18,47 @@ namespace memgraph::utils {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EmbeddingsMemoryCounter embeddings_memory_counter{};
 
-bool EmbeddingsMemoryCounter::CanAllocate(int64_t bytes) const {
-  const auto current_embeddings = amount_.load(std::memory_order_relaxed);
-  const auto emb_limit = embeddings_limit_.load(std::memory_order_relaxed);
+int64_t EmbeddingsMemoryCounter::PredictArenaTotalMmap(int64_t data_bytes, int64_t head_size) {
+  if (data_bytes <= 0) return 0;
 
-  if (emb_limit > 0 && current_embeddings + bytes > emb_limit) {
+  // Models usearch memory_mapping_allocator_gt: min_capacity=4MiB, multiplier=2.
+  // First arena = min_capacity * multiplier = 8 MiB. Each subsequent doubles.
+  // Usable space per arena = capacity - head_size (header stores prev-pointer + capacity).
+  constexpr int64_t kMinCapacity = 4 * 1024 * 1024;
+  int64_t total_mmap = 0;
+  int64_t filled = 0;
+  int64_t arena_cap = kMinCapacity * 2;
+
+  while (filled < data_bytes) {
+    total_mmap += arena_cap;
+    filled += arena_cap - head_size;
+    arena_cap *= 2;
+  }
+
+  return total_mmap;
+}
+
+int64_t EmbeddingsMemoryCounter::Amount() const {
+  const auto hnsw = hnsw_data_.load(std::memory_order_relaxed);
+  const auto vec = vec_data_.load(std::memory_order_relaxed);
+  return PredictArenaTotalMmap(hnsw, kHnswArenaHeadSize) + PredictArenaTotalMmap(vec, kVecArenaHeadSize);
+}
+
+bool EmbeddingsMemoryCounter::CanAllocate(int64_t hnsw_bytes, int64_t vec_bytes) const {
+  const auto hnsw = hnsw_data_.load(std::memory_order_relaxed);
+  const auto vec = vec_data_.load(std::memory_order_relaxed);
+  const auto predicted_after = PredictArenaTotalMmap(hnsw + hnsw_bytes, kHnswArenaHeadSize) +
+                               PredictArenaTotalMmap(vec + vec_bytes, kVecArenaHeadSize);
+
+  const auto emb_limit = embeddings_limit_.load(std::memory_order_relaxed);
+  if (emb_limit > 0 && predicted_after > emb_limit) {
     return false;
   }
 
   const auto ovr_limit = overall_limit_.load(std::memory_order_relaxed);
   if (ovr_limit > 0) {
     const auto tracked_memory = total_memory_tracker.Amount();
-    if (tracked_memory + current_embeddings + bytes > ovr_limit) {
+    if (tracked_memory + predicted_after > ovr_limit) {
       return false;
     }
   }

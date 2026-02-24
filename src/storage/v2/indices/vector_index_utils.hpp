@@ -315,6 +315,66 @@ inline std::size_t GetVectorIndexThreadCount() {
                   static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
 }
 
+/// Per-vector mmap memory estimate split by allocator.
+/// Needed because each usearch index has two independent arena allocator chains
+/// (HNSW tape and vector tape) with different doubling progressions.
+struct VectorMmapEstimate {
+  int64_t hnsw_bytes;  // HNSW graph tape (alignment=64)
+  int64_t vec_bytes;   // raw vector data tape (alignment=8)
+
+  int64_t total() const { return hnsw_bytes + vec_bytes; }
+};
+
+/// @brief Estimates the mmap-allocated memory cost per vector in a usearch index,
+///        split into HNSW tape and vector tape components.
+///
+/// Usearch uses two separate mmap-backed arena allocators (memory_mapping_allocator_gt):
+///   1. tape_allocator     (alignment=64) — stores HNSW graph nodes (key + level + neighbor lists)
+///   2. vectors_tape_alloc (alignment=8)  — stores raw vector data (e.g. 128 floats)
+///
+/// Both bypass jemalloc (they call mmap directly), so total_memory_tracker doesn't see them.
+/// This function estimates the per-vector cost in those two allocators.
+///
+/// Usearch also uses a third allocator (aligned_allocator_gt) for the nodes pointer array
+/// and thread contexts. That one goes through aligned_alloc -> jemalloc, so it IS already
+/// tracked by total_memory_tracker. We intentionally exclude it to avoid double-counting.
+///
+/// The HNSW node size depends on the node's random level:
+///   node_bytes(level) = node_head + neighbors_base_bytes + neighbors_bytes * level
+/// Most nodes are level 0 (~94% for connectivity=16). Rather than tracking the actual level
+/// per node (which we can't observe at insert time), we use the expected average:
+///   E[level] = 1 / (connectivity - 1)   (geometric distribution)
+///
+/// Arena alignment waste is included by rounding up to the allocator's alignment boundary,
+/// matching what memory_mapping_allocator_gt::allocate() does internally.
+///
+/// Arena overhead (reserved tail, headers) is NOT included here — it is modeled separately
+/// by EmbeddingsMemoryCounter::PredictArenaTotalMmap() using the cumulative per-allocator totals.
+template <typename Index>
+VectorMmapEstimate EstimatePerVectorMmapBytes(const Index &index) {
+  // All three come from private usearch types/typedefs that aren't exposed by index_dense_gt.
+  // See: index_dense_gt::tape_allocator_t          = memory_mapping_allocator_gt<64>
+  //      index_dense_gt::vectors_tape_allocator_t   = memory_mapping_allocator_gt<8>
+  //      index_gt::level_t                          = int16_t
+  static constexpr std::size_t kHnswAlignment = 64;
+  static constexpr std::size_t kVecAlignment = 8;
+  static constexpr std::size_t kLevelTSize = sizeof(int16_t);
+
+  // --- Vector data (stored in vectors_tape_allocator, mmap, alignment=8) ---
+  const auto raw_vec_bytes = index.bytes_per_vector();
+  const auto aligned_vec_bytes = ((raw_vec_bytes + kVecAlignment - 1) / kVecAlignment) * kVecAlignment;
+
+  // --- HNSW graph node (stored in tape_allocator, mmap, alignment=64) ---
+  const auto node_head = sizeof(typename Index::vector_key_t) + kLevelTSize;
+  const auto raw_node_bytes_l0 = node_head + index.neighbors_base_bytes();
+  const auto connectivity = index.connectivity();
+  const auto avg_higher_level_bytes = connectivity > 1 ? index.neighbors_bytes() / (connectivity - 1) : 0;
+  const auto raw_node_bytes_avg = raw_node_bytes_l0 + avg_higher_level_bytes;
+  const auto aligned_node_bytes = ((raw_node_bytes_avg + kHnswAlignment - 1) / kHnswAlignment) * kHnswAlignment;
+
+  return {.hnsw_bytes = static_cast<int64_t>(aligned_node_bytes), .vec_bytes = static_cast<int64_t>(aligned_vec_bytes)};
+}
+
 /// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
 /// If vector is empty, only removes the entry (if it exists) and returns.
 /// Automatically resizes the index if full during add.
@@ -338,22 +398,22 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
   auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
   {
     auto locked_index = mg_index.MutableSharedLock();
-    const auto bytes_per_vec = static_cast<int64_t>(locked_index->bytes_per_vector());
+    const auto est = EstimatePerVectorMmapBytes(*locked_index);
 
     const bool had_existing = locked_index->contains(key);
     if (had_existing) {
       locked_index->remove(key);
-      utils::embeddings_memory_counter.Sub(bytes_per_vec);
+      utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
     }
     if (vector.empty()) return;
 
-    if (!utils::embeddings_memory_counter.CanAllocate(bytes_per_vec)) {
+    if (!utils::embeddings_memory_counter.CanAllocate(est.hnsw_bytes, est.vec_bytes)) {
       throw query::VectorSearchException("Embeddings memory limit exceeded.");
     }
 
     auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
     if (!result.error) {
-      utils::embeddings_memory_counter.Add(bytes_per_vec);
+      utils::embeddings_memory_counter.Add(est.hnsw_bytes, est.vec_bytes);
       return;
     }
     if (locked_index->size() >= locked_index->capacity()) {
@@ -372,8 +432,8 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
     }
     auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
     if (!result.error) {
-      const auto bytes_per_vec = static_cast<int64_t>(exclusively_locked_index->bytes_per_vector());
-      utils::embeddings_memory_counter.Add(bytes_per_vec);
+      const auto est = EstimatePerVectorMmapBytes(*exclusively_locked_index);
+      utils::embeddings_memory_counter.Add(est.hnsw_bytes, est.vec_bytes);
     }
   }
 }

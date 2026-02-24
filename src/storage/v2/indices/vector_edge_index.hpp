@@ -114,6 +114,10 @@ class VectorEdgeIndex {
   void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                            PropertyId property, const PropertyValue &value);
 
+  /// @brief Returns the total memory usage reported by usearch's memory_usage() across all edge indices.
+  /// O(n) per index -- use for diagnostics only.
+  std::size_t TotalMemoryUsage() const;
+
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorEdgeIndexInfo objects representing the indexes.
   std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const;

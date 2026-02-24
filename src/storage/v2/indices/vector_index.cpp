@@ -192,7 +192,7 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   auto locked_index = mg_index.MutableSharedLock();
 
   const auto index_size = locked_index->size();
-  const auto bytes_per_vec = static_cast<int64_t>(locked_index->bytes_per_vector());
+  const auto est = EstimatePerVectorMmapBytes(*locked_index);
 
   const auto dimension = locked_index->dimensions();
   std::vector<double> vector(dimension);
@@ -210,7 +210,8 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     }
   }
 
-  utils::embeddings_memory_counter.Sub(static_cast<int64_t>(index_size) * bytes_per_vec);
+  utils::embeddings_memory_counter.Sub(static_cast<int64_t>(index_size) * est.hnsw_bytes,
+                                       static_cast<int64_t>(index_size) * est.vec_bytes);
 
   pimpl->index_by_id_.erase(it);
   return true;
@@ -219,9 +220,9 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
 void VectorIndex::Clear() {
   for (const auto &[_, index_item] : pimpl->index_by_id_) {
     auto locked_index = index_item.mg_index.ReadLock();
-    const auto bytes =
-        static_cast<int64_t>(locked_index->size()) * static_cast<int64_t>(locked_index->bytes_per_vector());
-    utils::embeddings_memory_counter.Sub(bytes);
+    const auto est = EstimatePerVectorMmapBytes(*locked_index);
+    const auto count = static_cast<int64_t>(locked_index->size());
+    utils::embeddings_memory_counter.Sub(count * est.hnsw_bytes, count * est.vec_bytes);
   }
   pimpl->index_by_id_.clear();
 }
@@ -286,7 +287,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       });
       if (locked_index->contains(vertex)) {
         locked_index->remove(vertex);
-        utils::embeddings_memory_counter.Sub(static_cast<int64_t>(locked_index->bytes_per_vector()));
+        const auto est = EstimatePerVectorMmapBytes(*locked_index);
+        utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
       }
       vertex->properties.SetProperty(property_id, property_value_to_set);
     }
@@ -465,11 +467,11 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index_size);
     locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
 
-    const auto bytes_per_vec = static_cast<int64_t>(locked_index->bytes_per_vector());
+    const auto est = EstimatePerVectorMmapBytes(*locked_index);
     auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
     for (const auto &vertex : deleted) {
       locked_index->remove(vertex);
-      utils::embeddings_memory_counter.Sub(bytes_per_vec);
+      utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
     }
   }
 }
@@ -480,6 +482,15 @@ bool VectorIndex::IndexExists(std::string_view index_name, NameIdMapper *name_id
 }
 
 bool VectorIndex::Empty() const { return pimpl->index_by_id_.empty(); }
+
+std::size_t VectorIndex::TotalMemoryUsage() const {
+  std::size_t total = 0;
+  for (const auto &[_, index_item] : pimpl->index_by_id_) {
+    auto locked_index = index_item.mg_index.ReadLock();
+    total += locked_index->memory_usage();
+  }
+  return total;
+}
 
 utils::small_vector<uint64_t> VectorIndex::GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) const {
   utils::small_vector<uint64_t> result;

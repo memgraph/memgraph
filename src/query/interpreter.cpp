@@ -98,6 +98,7 @@
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/fmt.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -6488,6 +6489,12 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("embeddings_memory"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_counter.Amount())))},
+            {TypedValue("embeddings_memory_data"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_counter.DataAmount())))},
+            {TypedValue("embeddings_memory_actual"),
+             TypedValue(
+                 utils::GetReadableSize(static_cast<double>(storage->indices_.vector_index_.TotalMemoryUsage() +
+                                                            storage->indices_.vector_edge_index_.TotalMemoryUsage())))},
             {TypedValue("embeddings_memory_limit"),
              TypedValue(
                  utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_counter.EmbeddingsLimit())))},
