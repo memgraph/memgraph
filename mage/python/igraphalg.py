@@ -200,6 +200,28 @@ def get_shortest_path(
     return mgp.Record(path=graph.get_shortest_path(source=source, target=target, weights=weights))
 
 
+@mgp.read_proc
+def betweenness_centrality(
+    ctx: mgp.ProcCtx,
+    directed: bool = True,
+    cutoff: int = -1,
+    weights: mgp.Nullable[str] = None,
+    sources: mgp.Nullable[mgp.List[mgp.Vertex]] = None,
+    targets: mgp.Nullable[mgp.List[mgp.Vertex]] = None,
+) -> mgp.Record(node=mgp.Vertex, betweenness=float):
+    graph = MemgraphIgraph(ctx=ctx, directed=directed)
+    igraph_sources = [graph.id_mappings[v.id] for v in sources] if sources else None
+    igraph_targets = [graph.id_mappings[v.id] for v in targets] if targets else None
+    results = graph.betweenness_centrality(
+        directed=directed,
+        cutoff=cutoff,
+        weights=weights,
+        sources=igraph_sources,
+        targets=igraph_targets,
+    )
+    return [mgp.Record(node=node, betweenness=score) for node, score in results]
+
+
 def dfs(node: mgp.Vertex, visited: Dict[int, bool], stack: Dict[int, bool]) -> bool:
     """Depth-first-search algorithm with modification.
 

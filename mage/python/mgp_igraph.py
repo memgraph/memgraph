@@ -118,6 +118,24 @@ class MemgraphIgraph(igraph.Graph):
 
         return self._convert_vertex_ids_to_mgp_vertices(path)
 
+    def betweenness_centrality(
+        self,
+        directed: bool,
+        cutoff: int,
+        weights: str,
+        sources: List[int] = None,
+        targets: List[int] = None,
+    ) -> List[Tuple[mgp.Vertex, float]]:
+        cutoff_value = None if cutoff < 0 else cutoff
+        betweenness_values = super().betweenness(
+            directed=directed,
+            cutoff=cutoff_value,
+            weights=weights if weights else None,
+            sources=sources,
+            targets=targets,
+        )
+        return [(self.get_vertex_by_id(node_id), score) for node_id, score in enumerate(betweenness_values)]
+
     def get_vertex_by_id(self, id: int) -> mgp.Vertex:
         return self.ctx_graph.get_vertex_by_id(self.reverse_id_mappings[id])
 
