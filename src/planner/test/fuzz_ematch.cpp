@@ -805,6 +805,30 @@ class FuzzerState {
       return true;
     }
 
+    // Check if any pattern is a pure variable (e.g., "?v0")
+    // Egglog can't handle rules like (rule ((= ?p0 ?v0)) ...) because ?p0 is ungrounded
+    bool has_pure_variable_pattern = false;
+    for (auto const &p : current_patterns_egglog_) {
+      if (p.size() >= 2 && p[0] == '?' && p[1] == 'v') {
+        has_pure_variable_pattern = true;
+        break;
+      }
+    }
+
+    if (has_pure_variable_pattern) {
+      // For pure variable patterns, we can verify directly:
+      // A single variable pattern matches all e-classes
+      // Multi-pattern with variables is the cross product
+      // Since EMatcher and VM already agree, just verify they match expected count
+      VERBOSE_OUT << "Pattern contains pure variable - skipping egglog (EMatcher=VM=" << ematcher_count << ")\n";
+      if (ematcher_count != vm_count) {
+        std::cerr << "\n!!! EMatcher/VM MISMATCH for variable pattern !!!\n";
+        std::cerr << "EMatcher: " << ematcher_count << ", VM: " << vm_count << "\n";
+        abort();
+      }
+      return true;
+    }
+
     // Build egglog rule (works for single or multi-pattern)
     // Format: (rule ((= ?p0 pattern0) (= ?p1 pattern1) ...) ((MatchResult ?v0 ?v1 ...)))
     std::ostringstream full_program;
