@@ -702,7 +702,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             enum_store,
                             schema_info,
                             find_edge,
-                            ttl);
+                            ttl,
+                            light_edge_pool);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
