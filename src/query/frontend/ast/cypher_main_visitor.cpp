@@ -1587,9 +1587,16 @@ antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::Tran
   return transaction_queue_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext * /*ctx*/) {
+antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext *ctx) {
   auto *transaction_shower = storage_->Create<TransactionQueueQuery>();
   transaction_shower->action_ = TransactionQueueQuery::Action::SHOW_TRANSACTIONS;
+  if (auto *status_list = ctx->transactionStatusList()) {
+    for (auto *status_ctx : status_list->transactionStatus()) {
+      auto text = status_ctx->getText();
+      std::transform(text.begin(), text.end(), text.begin(), ::tolower);
+      transaction_shower->status_filter_.push_back(std::move(text));
+    }
+  }
   return transaction_shower;
 }
 

@@ -345,3 +345,77 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
   EXPECT_EQ(header[3], "status");
   EXPECT_EQ(header[4], "metadata");
 }
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowRunningTransactionsFilter) {
+  // SHOW RUNNING TRANSACTIONS should show only running transactions (same as unfiltered here)
+  auto show_stream = this->main_interpreter.Interpret("SHOW RUNNING TRANSACTIONS");
+  ASSERT_EQ(show_stream.GetResults().size(), 1U);
+  EXPECT_EQ(show_stream.GetResults()[0][3].ValueString(), "running");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsExcludesNonMatching) {
+  // Start a transaction in another interpreter
+  std::atomic<bool> started{false};
+  std::jthread running_thread = std::jthread(
+      [this, &started](std::stop_token st, int) {
+        this->running_interpreter.Interpret("BEGIN");
+        started.store(true, std::memory_order_release);
+      },
+      0);
+
+  while (!started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+
+  // Both are running — SHOW RUNNING TRANSACTIONS should see both
+  auto show_running = this->main_interpreter.Interpret("SHOW RUNNING TRANSACTIONS");
+  ASSERT_EQ(show_running.GetResults().size(), 2U);
+
+  // SHOW COMMITTING TRANSACTIONS should see none (nothing is committing)
+  auto show_committing = this->main_interpreter.Interpret("SHOW COMMITTING TRANSACTIONS");
+  ASSERT_EQ(show_committing.GetResults().size(), 0U);
+
+  // SHOW TERMINATING TRANSACTIONS should also see none
+  auto show_terminating = this->main_interpreter.Interpret("SHOW TERMINATING TRANSACTIONS");
+  ASSERT_EQ(show_terminating.GetResults().size(), 0U);
+
+  // SHOW RUNNING, COMMITTING TRANSACTIONS should still see both running ones
+  auto show_multi = this->main_interpreter.Interpret("SHOW RUNNING, COMMITTING TRANSACTIONS");
+  ASSERT_EQ(show_multi.GetResults().size(), 2U);
+
+  running_thread.request_stop();
+  running_thread.join();
+  this->running_interpreter.Abort();
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsWithTerminated) {
+  // Start a transaction on the running interpreter
+  this->running_interpreter.Interpret("BEGIN");
+  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
+
+  // Manually set the status to TERMINATED to simulate a terminated transaction
+  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::TERMINATED,
+                                                                  std::memory_order_release);
+
+  // SHOW TERMINATING TRANSACTIONS should see only the terminated one
+  auto show_terminating = this->main_interpreter.Interpret("SHOW TERMINATING TRANSACTIONS");
+  ASSERT_EQ(show_terminating.GetResults().size(), 1U);
+  EXPECT_EQ(show_terminating.GetResults()[0][3].ValueString(), "terminating");
+
+  // SHOW RUNNING TRANSACTIONS should see only the main interpreter (running SHOW itself)
+  auto show_running = this->main_interpreter.Interpret("SHOW RUNNING TRANSACTIONS");
+  ASSERT_EQ(show_running.GetResults().size(), 1U);
+  EXPECT_EQ(show_running.GetResults()[0][3].ValueString(), "running");
+
+  // SHOW RUNNING, TERMINATING TRANSACTIONS should see both
+  auto show_multi = this->main_interpreter.Interpret("SHOW RUNNING, TERMINATING TRANSACTIONS");
+  ASSERT_EQ(show_multi.GetResults().size(), 2U);
+
+  // SHOW COMMITTING TRANSACTIONS should see none of the above
+  auto show_committing = this->main_interpreter.Interpret("SHOW COMMITTING TRANSACTIONS");
+  ASSERT_EQ(show_committing.GetResults().size(), 0U);
+
+  // Restore to IDLE so the test can clean up
+  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
+                                                                  std::memory_order_release);
+}

@@ -3927,11 +3927,13 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   memgraph::query::TransactionQueueQuery::Action action_;
   std::vector<Expression *> transaction_id_list_;
+  std::vector<std::string> status_filter_;  // empty = show all statuses
 
   TransactionQueueQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<TransactionQueueQuery>();
     object->action_ = action_;
     object->transaction_id_list_ = transaction_id_list_;
+    object->status_filter_ = status_filter_;
     return object;
   }
 };

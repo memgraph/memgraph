@@ -6077,7 +6077,10 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker);
       };
       callback.header = {"username", "transaction_id", "query", "status", "metadata"};
-      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions)] {
+      auto status_filter = transaction_query->status_filter_;
+      callback.fn = [interpreter_context,
+                     show_transactions = std::move(show_transactions),
+                     status_filter = std::move(status_filter)] {
         auto results = interpreter_context->interpreters.WithLock(show_transactions);
         // Append synthetic rows for running snapshots (background/periodic/exit)
         if (interpreter_context->dbms_handler) {
@@ -6104,6 +6107,15 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                TypedValue(std::vector<TypedValue>{TypedValue("CREATE SNAPSHOT")}),
                                TypedValue("running"),
                                TypedValue(metadata)});
+          });
+        }
+        // Apply status filter if specified (e.g. SHOW RUNNING, COMMITTING TRANSACTIONS)
+        if (!status_filter.empty()) {
+          std::erase_if(results, [&status_filter](const auto &row) {
+            auto const &status = row[3].ValueString();
+            return std::none_of(status_filter.begin(), status_filter.end(), [&status](const auto &f) {
+              return f == std::string_view{status};
+            });
           });
         }
         return results;

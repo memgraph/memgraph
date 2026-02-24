@@ -21,6 +21,7 @@ import Cypher ;
 
 /* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
+                      | ABORTING
                       | ACTIVE
                       | ADD
                       | AFTER
@@ -44,6 +45,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CLUSTER
                       | COMMIT
                       | COMMITTED
+                      | COMMITTING
                       | CONFIG
                       | CONFIGS
                       | CONSTRAINTS
@@ -167,6 +169,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | ROWS
+                      | RUNNING
                       | SCHEMA
                       | SECURITY
                       | SERVER
@@ -191,6 +194,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STRING
                       | SYNC
                       | TERMINATE
+                      | TERMINATING
                       | TEXT
                       | TIMEOUT
                       | TO
@@ -416,7 +420,11 @@ transactionQueueQuery : showTransactions
                       | terminateTransactions
                       ;
 
-showTransactions : SHOW TRANSACTIONS ;
+showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
+
+transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
+
+transactionStatus : RUNNING | COMMITTING | ABORTING | TERMINATING ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
