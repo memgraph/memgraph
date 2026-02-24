@@ -117,7 +117,8 @@ class PatternCompiler {
     }
     code_.push_back(Instruction::halt());
 
-    return CompiledPattern<Symbol>(std::move(code_), slot_map_.size(), next_reg_, std::move(symbols_), entry_symbol);
+    return CompiledPattern<Symbol>(
+        std::move(code_), slot_map_.size(), next_eclass_reg_, next_enode_reg_, std::move(symbols_), entry_symbol);
   }
 
   void reset() {
@@ -126,7 +127,8 @@ class PatternCompiler {
     seen_vars_.clear();
     var_to_reg_.clear();
     slot_map_.clear();
-    next_reg_ = 1;
+    next_eclass_reg_ = 1;  // eclass_regs[0] is reserved for input e-class
+    next_enode_reg_ = 0;
   }
 
   // ============================================================================
@@ -267,7 +269,7 @@ class PatternCompiler {
   auto emit_symbol_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, SymbolWithChildren<Symbol> const &sym,
                         uint8_t eclass_reg, uint16_t backtrack) -> uint16_t {
     auto sym_idx = get_symbol_index(sym.sym);
-    auto enode_reg = alloc_reg();
+    auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
 
     // Emit iteration loop
     auto loop_pos = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack),
@@ -293,7 +295,7 @@ class PatternCompiler {
     // (not the parent's loop), so that we try all combinations of nested e-nodes
     uint16_t innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
-      auto child_reg = alloc_reg();
+      auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
       code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
       innermost = emit_node(pattern, sym.children[i], child_reg, innermost);
     }
@@ -335,7 +337,7 @@ class PatternCompiler {
   }
 
   auto emit_joined_variable_root(Pattern<Symbol> const &pattern, uint16_t backtrack) -> uint16_t {
-    auto eclass_reg = alloc_reg();
+    auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
     auto loop_pos = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
                                    Instruction::next_eclass(eclass_reg, backtrack));
 
@@ -353,8 +355,8 @@ class PatternCompiler {
 
   auto emit_joined_cartesian(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym, uint16_t backtrack)
       -> uint16_t {
-    auto eclass_reg = alloc_reg();
-    auto enode_reg = alloc_reg();
+    auto eclass_reg = alloc_eclass_reg();  // IterAllEClasses produces e-class
+    auto enode_reg = alloc_enode_reg();    // IterENodes produces e-node
 
     // Outer loop: all e-classes
     auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
@@ -372,7 +374,7 @@ class PatternCompiler {
     // Process children
     uint16_t innermost = enode_loop;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
-      auto child_reg = alloc_reg();
+      auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
       code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
       innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
     }
@@ -388,7 +390,7 @@ class PatternCompiler {
   auto emit_joined_with_parent_traversal(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
                                          PatternVar shared_var, std::size_t shared_idx, uint8_t shared_reg,
                                          uint16_t backtrack) -> uint16_t {
-    auto parent_reg = alloc_reg();
+    auto parent_reg = alloc_enode_reg();  // IterParentsSym produces e-node
     auto sym_idx = get_symbol_index(sym.sym);
 
     // Iterate parents with this symbol (span-based, uses filtered iter)
@@ -401,7 +403,7 @@ class PatternCompiler {
     // Process children
     uint16_t innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
-      auto child_reg = alloc_reg();
+      auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
       code_.push_back(Instruction::load_child(child_reg, parent_reg, static_cast<uint8_t>(i)));
 
       if (i == shared_idx) {
@@ -414,7 +416,7 @@ class PatternCompiler {
 
     // Bind root if needed
     if (auto binding = pattern.binding_for(pattern.root())) {
-      auto eclass_reg = alloc_reg();
+      auto eclass_reg = alloc_eclass_reg();  // GetENodeEClass produces e-class
       code_.push_back(Instruction::get_enode_eclass(eclass_reg, parent_reg));
       code_.push_back(Instruction::bind_slot(get_slot(*binding), eclass_reg));
     }
@@ -437,7 +439,7 @@ class PatternCompiler {
             var_to_reg_[n] = eclass_reg;
           } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
             auto sym_idx = get_symbol_index(n.sym);
-            auto enode_reg = alloc_reg();
+            auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
 
             auto loop_pos = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, backtrack),
                                            Instruction::next_enode(enode_reg, backtrack));
@@ -455,7 +457,7 @@ class PatternCompiler {
             } else {
               innermost = loop_pos;
               for (std::size_t i = 0; i < n.children.size(); ++i) {
-                auto child_reg = alloc_reg();
+                auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
                 code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
                 innermost = emit_joined_child(pattern, n.children[i], child_reg, innermost);
               }
@@ -524,10 +526,16 @@ class PatternCompiler {
     return static_cast<uint8_t>(symbols_.size() - 1);
   }
 
-  auto alloc_reg() -> uint8_t {
+  /// Allocate an e-class register (for LoadChild, GetENodeEClass, IterAllEClasses destinations)
+  auto alloc_eclass_reg() -> uint8_t {
     // Register indices are uint8_t in instructions, so max 256 registers
-    // This is effectively unlimited for practical patterns (supports ~125 nesting levels)
-    return next_reg_++;
+    return next_eclass_reg_++;
+  }
+
+  /// Allocate an e-node register (for IterENodes, IterParents, IterParentsSym destinations)
+  auto alloc_enode_reg() -> uint8_t {
+    // Register indices are uint8_t in instructions, so max 256 registers
+    return next_enode_reg_++;
   }
 
   static constexpr uint16_t kHaltPlaceholder = 0xFFFF;
@@ -536,8 +544,9 @@ class PatternCompiler {
   std::vector<Symbol> symbols_;
   boost::unordered_flat_set<PatternVar> seen_vars_;
   boost::unordered_flat_map<PatternVar, std::size_t> slot_map_;
-  boost::unordered_flat_map<PatternVar, uint8_t> var_to_reg_;
-  uint8_t next_reg_{1};
+  boost::unordered_flat_map<PatternVar, uint8_t> var_to_reg_;  // Maps vars to eclass registers
+  uint8_t next_eclass_reg_{1};                                 // eclass_regs[0] reserved for input
+  uint8_t next_enode_reg_{0};
 };
 
 // Keep old name as alias for backward compatibility in tests

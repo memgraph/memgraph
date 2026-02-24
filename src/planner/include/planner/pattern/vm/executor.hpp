@@ -34,11 +34,12 @@ namespace memgraph::planner::core::vm {
 template <typename Symbol>
 class CompiledPattern {
  public:
-  CompiledPattern(std::vector<Instruction> code, std::size_t num_slots, std::size_t num_registers,
-                  std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol)
+  CompiledPattern(std::vector<Instruction> code, std::size_t num_slots, std::size_t num_eclass_regs,
+                  std::size_t num_enode_regs, std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol)
       : code_(std::move(code)),
         num_slots_(num_slots),
-        num_registers_(num_registers),
+        num_eclass_regs_(num_eclass_regs),
+        num_enode_regs_(num_enode_regs),
         symbols_(std::move(symbols)),
         entry_symbol_(std::move(entry_symbol)) {}
 
@@ -46,7 +47,9 @@ class CompiledPattern {
 
   [[nodiscard]] auto num_slots() const -> std::size_t { return num_slots_; }
 
-  [[nodiscard]] auto num_registers() const -> std::size_t { return num_registers_; }
+  [[nodiscard]] auto num_eclass_regs() const -> std::size_t { return num_eclass_regs_; }
+
+  [[nodiscard]] auto num_enode_regs() const -> std::size_t { return num_enode_regs_; }
 
   [[nodiscard]] auto symbols() const -> std::span<Symbol const> { return symbols_; }
 
@@ -55,7 +58,8 @@ class CompiledPattern {
  private:
   std::vector<Instruction> code_;
   std::size_t num_slots_;
-  std::size_t num_registers_;
+  std::size_t num_eclass_regs_;         // Registers holding e-class IDs
+  std::size_t num_enode_regs_;          // Registers holding e-node IDs (and iteration state)
   std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol/IterParentsSym
   std::optional<Symbol> entry_symbol_;  // For index-based candidate lookup
 };
@@ -80,7 +84,7 @@ class VMExecutorVerify {
   /// Execute compiled pattern, collecting matches
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
-    state_.reset(pattern.num_slots(), pattern.num_registers());
+    state_.reset(pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs());
     stats_.reset();
     code_ = pattern.code();
     symbols_ = pattern.symbols();
@@ -580,7 +584,7 @@ class VMExecutorClean {
 
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
-    state_.reset(pattern.num_slots(), pattern.num_registers());
+    state_.reset(pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs());
     stats_.reset();
     code_ = pattern.code();
     symbols_ = pattern.symbols();

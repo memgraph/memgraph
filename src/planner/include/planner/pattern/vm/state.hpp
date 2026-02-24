@@ -133,18 +133,20 @@ struct VMState {
   std::vector<AllEClassesIter> eclasses_iters;      // All e-classes iterations (span-based)
 
   /// Initialize state for execution with given number of slots and registers
-  void reset(std::size_t num_slots, std::size_t num_registers) {
+  void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs) {
     slots.assign(num_slots, EClassId{});
     bound.reset();
     pc = 0;
-    // Resize register arrays if needed
-    if (eclass_regs.size() < num_registers) {
-      eclass_regs.resize(num_registers);
-      enode_regs.resize(num_registers);
-      enodes_iters.resize(num_registers);
-      parents_iters.resize(num_registers);
-      filtered_iters.resize(num_registers);
-      eclasses_iters.resize(num_registers);
+    // Resize register arrays if needed (separate sizes for each type)
+    if (eclass_regs.size() < num_eclass_regs) {
+      eclass_regs.resize(num_eclass_regs);
+      eclasses_iters.resize(num_eclass_regs);  // E-class iteration state (IterAllEClasses)
+    }
+    if (enode_regs.size() < num_enode_regs) {
+      enode_regs.resize(num_enode_regs);
+      enodes_iters.resize(num_enode_regs);    // E-node iteration state (IterENodes)
+      parents_iters.resize(num_enode_regs);   // Parent iteration state (index-based, IterParents)
+      filtered_iters.resize(num_enode_regs);  // Filtered parent iteration state (span-based, IterParentsSym)
     }
     // No need to reset iteration states - exhausted() is the inactive indicator,
     // and start_*_iter() overwrites with fresh state when re-entering loops

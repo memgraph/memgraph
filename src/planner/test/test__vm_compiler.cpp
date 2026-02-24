@@ -488,7 +488,9 @@ TEST_F(VMExecutionTest, DeepPatternCompiles) {
 
   // Should compile successfully with dynamic registers
   ASSERT_TRUE(compiled.has_value()) << "Deep patterns should compile with dynamic registers";
-  EXPECT_GE(compiled->num_registers(), kPatternDepth) << "Should allocate enough registers";
+  // Deep patterns need ~depth eclass registers (LoadChild) and ~depth enode registers (IterENodes)
+  EXPECT_GE(compiled->num_eclass_regs() + compiled->num_enode_regs(), kPatternDepth)
+      << "Should allocate enough registers";
 }
 
 // ============================================================================
