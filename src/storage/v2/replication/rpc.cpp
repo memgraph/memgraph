@@ -253,6 +253,7 @@ void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *
   memgraph::slk::Save(std::to_underlying(self.storage_mode), builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
   memgraph::slk::Save(self.items.enable_schema_metadata, builder);
+  memgraph::slk::Save(self.items.storage_light_edge, builder);
 }
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
@@ -267,6 +268,7 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
+  memgraph::slk::Load(&self->items.storage_light_edge, reader);
 }
 
 }  // namespace slk

@@ -46,6 +46,7 @@ struct SalientConfig {
     bool enable_schema_info{false};
     bool enable_label_index_auto_creation{false};
     bool enable_edge_type_index_auto_creation{false};
+    bool storage_light_edge{false};
     bool delta_on_identical_property_update{true};
     bool property_store_compression_enabled{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
