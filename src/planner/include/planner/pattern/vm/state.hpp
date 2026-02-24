@@ -233,17 +233,20 @@ struct VMState {
       return true;  // No variables, always yield (single match)
     }
 
-    // Build the prefix (all slots except the last)
-    std::vector<EClassId> prefix(canonicalized_slots.begin(), canonicalized_slots.end() - 1);
+    // Build the prefix (all slots except the last) - reuse buffer
+    prefix_buffer_.assign(canonicalized_slots.begin(), canonicalized_slots.end() - 1);
 
     // Check if the last slot's value is new given this prefix
     auto last_slot_idx = canonicalized_slots.size() - 1;
-    auto &seen_set = seen_per_slot[last_slot_idx][prefix];
+    auto &seen_set = seen_per_slot[last_slot_idx][prefix_buffer_];
     auto last_value = canonicalized_slots.back();
 
     // Try to insert - returns false if already present
     return seen_set.insert(last_value).second;
   }
+
+  // Reusable buffer for prefix construction in try_yield_dedup
+  std::vector<EClassId> prefix_buffer_;
 
   /// Check if slot is bound
   [[nodiscard]] auto is_bound(std::size_t slot) const -> bool { return bound.test(slot); }

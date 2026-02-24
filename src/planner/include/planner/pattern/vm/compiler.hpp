@@ -305,6 +305,13 @@ class PatternCompiler {
   // ============================================================================
 
   auto emit_joined_pattern(Pattern<Symbol> const &pattern, uint16_t anchor_backtrack) -> uint16_t {
+    // Optimization: skip pure variable patterns that introduce no new bindings
+    // e.g., in "?v0 JOIN ?v0", the second ?v0 is redundant
+    // But "F(?v0) JOIN F2(?v0)" still needs to verify F2 exists
+    if (is_redundant_joined_pattern(pattern)) {
+      return anchor_backtrack;
+    }
+
     auto const &root_node = pattern[pattern.root()];
     auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node);
 
@@ -477,6 +484,31 @@ class PatternCompiler {
   // ============================================================================
   // Helpers
   // ============================================================================
+
+  /// Check if a pattern is redundant in a JOIN context.
+  /// Returns true only if the pattern is a pure variable root (no symbol structure)
+  /// AND that variable is already bound.
+  ///
+  /// For example, in "F(?v0) JOIN ?v0", the second pattern is redundant.
+  /// But in "F(?v0) JOIN F2(?v0)", we still need to verify F2 nodes exist.
+  [[nodiscard]] auto is_redundant_joined_pattern(Pattern<Symbol> const &pattern) const -> bool {
+    // Only skip if the pattern is just a single variable or wildcard at the root
+    // (no symbol structure to verify)
+    auto const &root_node = pattern[pattern.root()];
+
+    // Check if root is a symbol - if so, we need to verify it exists
+    if (std::holds_alternative<SymbolWithChildren<Symbol>>(root_node)) {
+      return false;  // Has symbol structure, must verify
+    }
+
+    // Root is a variable or wildcard - check if all variables are already bound
+    for (auto const &[var, _] : pattern.var_slots()) {
+      if (!seen_vars_.contains(var)) {
+        return false;  // This variable is new
+      }
+    }
+    return true;  // Pure variable/wildcard with all variables already bound
+  }
 
   auto get_slot(PatternVar var) const -> uint8_t {
     auto it = slot_map_.find(var);
