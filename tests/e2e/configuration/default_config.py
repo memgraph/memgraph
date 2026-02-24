@@ -161,6 +161,11 @@ startup_config_dict = {
         "mid",
         "Compression level for storing properties. Allowed values: low, mid, high.",
     ),
+    "storage_floating_point_resolution_bits": (
+        "64",
+        "64",
+        "Max bits for floating-point property storage (16, 32, or 64). Smaller values save space but reduce precision (32=float, 16=half).",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
