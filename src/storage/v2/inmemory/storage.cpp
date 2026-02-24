@@ -371,7 +371,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
         [this](Gid edge_gid) { return FindEdge(edge_gid); },
         name(),
-        &ttl_);
+        &ttl_,
+        light_edge_pool_.get());
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -3832,7 +3833,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
                                           config_,
                                           &enum_store_,
                                           config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-                                          &ttl_);
+                                          &ttl_,
+                                          std::nullopt,
+                                          light_edge_pool_.get());
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point

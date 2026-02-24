@@ -82,7 +82,8 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
                                memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                               std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                               std::pmr::memory_resource *light_edge_pool = nullptr);
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 

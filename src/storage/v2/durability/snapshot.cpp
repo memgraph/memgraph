@@ -686,7 +686,9 @@ template <typename TFunc>
 void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &edges, const uint64_t from_offset,
                       const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
                       NameIdMapper *name_id_mapper,
-                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                      std::pmr::memory_resource *light_edge_pool = nullptr,
+                      std::vector<std::pair<uint64_t, Edge *>> *light_edge_output = nullptr) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
 
@@ -728,14 +730,22 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
     last_edge_gid = *gid;
 
     if (items.properties_on_edges) {
-      auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
-      if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+      Edge *edge_ptr = nullptr;
+      if (light_edge_pool) {
+        // LIGHT EDGES: pool-allocate Edge instead of skip list insert
+        void *mem = light_edge_pool->allocate(sizeof(Edge), alignof(Edge));
+        edge_ptr = new (mem) Edge(Gid::FromUint(*gid), nullptr);
+      } else {
+        auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
+        if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+        edge_ptr = &*it;
+      }
 
       // Recover properties.
       {
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Couldn't read the size of edge properties!");
-        auto &props = it->properties;
+        auto &props = edge_ptr->properties;
         read_properties.clear();
         read_properties.reserve(*props_size);
         for (uint64_t j = 0; j < *props_size; ++j) {
@@ -746,6 +756,10 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
         props.InitProperties(std::move(read_properties));
+      }
+
+      if (light_edge_output) {
+        light_edge_output->emplace_back(*gid, edge_ptr);
       }
     } else {
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
@@ -897,8 +911,8 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
     const std::filesystem::path &path, utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
     utils::SkipList<EdgeMetadata> &edges_metadata, SharedSchemaTracking *schema_info, const uint64_t from_offset,
     const uint64_t vertices_count, const SalientConfig::Items items, const bool snapshot_has_edges,
-    TEdgeTypeFromIdFunc get_edge_type_from_id,
-    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+    TEdgeTypeFromIdFunc get_edge_type_from_id, std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+    const std::vector<std::pair<uint64_t, Edge *>> *light_edge_map = nullptr) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset))
@@ -1007,7 +1021,15 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           // The snapshot contains the individiual edges only if it was created with a config where properties are
           // allowed on edges. That means the snapshots that were created without edge properties will only contain the
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
-          if (snapshot_has_edges) {
+          if (light_edge_map) {
+            auto it = std::lower_bound(
+                light_edge_map->begin(), light_edge_map->end(), *edge_gid, [](const auto &p, uint64_t gid) {
+                  return p.first < gid;
+                });
+            if (it == light_edge_map->end() || it->first != *edge_gid)
+              throw RecoveryFailure("Couldn't find light edge!");
+            edge_ref = EdgeRef(it->second);
+          } else if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
             edge_ref = EdgeRef(&*edge);
@@ -1045,7 +1067,15 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           // The snapshot contains the individual edges only if it was created with a config where properties are
           // allowed on edges. That means the snapshots that were created without edge properties will only contain the
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
-          if (snapshot_has_edges) {
+          if (light_edge_map) {
+            auto it = std::lower_bound(
+                light_edge_map->begin(), light_edge_map->end(), *edge_gid, [](const auto &p, uint64_t gid) {
+                  return p.first < gid;
+                });
+            if (it == light_edge_map->end() || it->first != *edge_gid)
+              throw RecoveryFailure("Couldn't find light edge!");
+            edge_ref = EdgeRef(it->second);
+          } else if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Couldn't find edge in the loaded edges!");
             edge_ref = EdgeRef(&*edge);
@@ -9038,11 +9068,15 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                              NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                              Config const &config, EnumStore *enum_store,
                                              SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
-                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                             std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                             std::pmr::memory_resource *light_edge_pool = nullptr) {
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
+
+  // LIGHT EDGES: sorted GID->Edge* map built during edge recovery, used during connectivity recovery.
+  std::vector<std::pair<uint64_t, Edge *>> all_light_edges;
 
   bool success = false;
   auto const cleanup = utils::OnScopeExit([&] {
@@ -9052,6 +9086,14 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       edges_metadata->clear();
       epoch_history->clear();
       enum_store->clear();
+      // Free light edge allocations on failure
+      if (light_edge_pool) {
+        for (auto &[gid, edge_ptr] : all_light_edges) {
+          edge_ptr->~Edge();
+          light_edge_pool->deallocate(edge_ptr, sizeof(Edge), alignof(Edge));
+        }
+        all_light_edges.clear();
+      }
     }
   });
 
@@ -9212,7 +9254,38 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
+      if (light_edge_pool) {
+        // LIGHT EDGES: pool-allocate edges and build per-batch GID->Edge* vectors.
+        std::vector<std::vector<std::pair<uint64_t, Edge *>>> per_batch_light_edges(edge_batches.size());
+        RecoverOnMultipleThreads(
+            config.durability.recovery_thread_count,
+            [path,
+             edges,
+             items = config.salient.items,
+             &get_property_from_id,
+             &snapshot_info,
+             name_id_mapper,
+             light_edge_pool,
+             &per_batch_light_edges](const size_t batch_index, const BatchInfo &batch) {
+              LoadPartialEdges(path,
+                               *edges,
+                               batch.offset,
+                               batch.count,
+                               items,
+                               get_property_from_id,
+                               name_id_mapper,
+                               snapshot_info,
+                               light_edge_pool,
+                               &per_batch_light_edges[batch_index]);
+            },
+            edge_batches);
+        // Merge per-batch vectors (already in GID order since batches are non-overlapping GID ranges).
+        for (auto &batch_vec : per_batch_light_edges) {
+          all_light_edges.insert(all_light_edges.end(),
+                                 std::make_move_iterator(batch_vec.begin()),
+                                 std::make_move_iterator(batch_vec.end()));
+        }
+      } else {
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
             [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
@@ -9234,6 +9307,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     std::atomic<uint64_t> highest_edge_gid{0};
 
     {
+      const auto *light_edge_map_ptr = light_edge_pool ? &all_light_edges : nullptr;
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -9247,7 +9321,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
            &get_edge_type_from_id,
            &highest_edge_gid,
            &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info,
+           light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
@@ -9258,7 +9333,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                                         items,
                                                         snapshot_has_edges,
                                                         get_edge_type_from_id,
-                                                        snapshot_info);
+                                                        snapshot_info,
+                                                        light_edge_map_ptr);
             edge_count->fetch_add(result.edge_count);
             atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -9271,7 +9347,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     recovery_info.next_edge_id = highest_edge_gid + 1;
     recovery_info.next_vertex_id = last_vertex_gid + 1;
   }
-
   // Recover indices.
   {
     spdlog::info("Recovering metadata of indices.");
@@ -9834,7 +9909,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
                                memgraph::storage::ttl::TTL *ttl,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                               std::optional<SnapshotObserverInfo> const &snapshot_info,
+                               std::pmr::memory_resource *light_edge_pool) {
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
@@ -10053,7 +10129,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                         enum_store,
                                         schema_info,
                                         ttl,
-                                        snapshot_info);
+                                        snapshot_info,
+                                        light_edge_pool);
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported
