@@ -5971,21 +5971,62 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
 }
 }  // namespace
 
+auto TransactionStatusToString(TransactionStatus status) -> char const * {
+  switch (status) {
+    case TransactionStatus::IDLE:
+      return "idle";
+    case TransactionStatus::ACTIVE:
+      return "running";
+    case TransactionStatus::VERIFYING:
+      return "running";
+    case TransactionStatus::TERMINATED:
+      return "terminating";
+    case TransactionStatus::STARTED_COMMITTING:
+      return "committing";
+    case TransactionStatus::STARTED_ROLLBACK:
+      return "aborting";
+  }
+  return "unknown";
+}
+
 template <typename Func>
 auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
                       Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+    TransactionStatus status = interpreter->transaction_status_.load(std::memory_order_acquire);
+
+    // Skip idle interpreters (no active transaction) and interpreters being verified by another SHOW/TERMINATE
+    if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
       continue;
     }
-    utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+
+    // For ACTIVE transactions, use CAS to block commit/abort while we read interpreter fields.
+    // For other states (STARTED_COMMITTING, STARTED_ROLLBACK, TERMINATED), the owning thread
+    // does not modify shared fields (current_transaction_, metadata_, etc.) until transitioning
+    // to IDLE, so direct reads are safe.
+    bool need_restore = false;
+    if (status == TransactionStatus::ACTIVE) {
+      if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
+        // Status changed between load and CAS — re-evaluate
+        if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
+          continue;
+        }
+        // Status changed to a non-ACTIVE state (committing/aborting/terminated) — fall through to read it
+      } else {
+        need_restore = true;
+        // For display purposes, show CAS'd ACTIVE transactions as "running"
+        status = TransactionStatus::ACTIVE;
+      }
+    }
+
+    utils::OnScopeExit clean_status([interpreter, need_restore]() {
+      if (need_restore) {
+        interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+      }
     });
+
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
 
     auto get_interpreter_db_name = [&]() -> std::string {
@@ -6006,7 +6047,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                           ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
                           : ""),
            TypedValue(std::to_string(transaction_id.value())),
-           TypedValue(typed_queries)});
+           TypedValue(typed_queries),
+           TypedValue(TransactionStatusToString(status))});
       // Handle user-defined metadata
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
@@ -6036,7 +6078,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                 privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker);
       };
-      callback.header = {"username", "transaction_id", "query", "metadata"};
+      callback.header = {"username", "transaction_id", "query", "status", "metadata"};
       callback.fn = [interpreter_context, show_transactions = std::move(show_transactions)] {
         // Multiple simultaneous SHOW TRANSACTIONS aren't allowed
         return interpreter_context->interpreters.WithLock(show_transactions);
@@ -8824,14 +8866,17 @@ void Interpreter::Abort() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  // Reset current_transaction_ and metadata_ before transitioning to IDLE so that
+  // ShowTransactions can safely read them while status is STARTED_ROLLBACK.
+  utils::OnScopeExit clean_status([this]() {
+    current_transaction_.reset();
+    metadata_ = std::nullopt;
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
-  metadata_ = std::nullopt;
   current_timeout_timer_.reset();
-  current_transaction_.reset();
 
   if (decrement) {
     // Decrement only if the transaction was active when we started to Abort
@@ -8992,16 +9037,21 @@ void Interpreter::Commit() {
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
-  current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
-    if (!system_transaction_) return;
+    if (!system_transaction_) {
+      current_transaction_.reset();
+      return;
+    }
 
     // TODO Distinguish between data and system transaction state
     // Think about updating the status to a struct with bitfield
     // Clean transaction status on exit
     utils::OnScopeExit clean_status([this]() {
       system_transaction_.reset();
+      // Reset transaction info before transitioning to IDLE so that
+      // ShowTransactions does not observe partially-cleared state.
+      current_transaction_.reset();
       // System transactions are not terminable
       // Durability has happened at time of PULL
       // Commit is doing replication and timestamp update
@@ -9057,9 +9107,13 @@ void Interpreter::Commit() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  // Clean transaction status if something went wrong
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  // Clean transaction status if something went wrong.
+  // Reset current_transaction_ before transitioning to IDLE so that ShowTransactions
+  // can safely read it while status is STARTED_COMMITTING (it won't be concurrently modified).
+  utils::OnScopeExit clean_status([this]() {
+    current_transaction_.reset();
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
   auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();

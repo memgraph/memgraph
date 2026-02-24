@@ -69,7 +69,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
       return {{"result_name"}, {}};
     }
     if (query_ == kQueryShowTx) {
-      return {{"username", "transaction_id", "query", "metadata"}, {}};
+      return {{"username", "transaction_id", "query", "status", "metadata"}, {}};
     }
     throw ClientError("client sent invalid query");
   }

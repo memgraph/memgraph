@@ -19,6 +19,7 @@
 
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
+#include "query/context.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
@@ -104,9 +105,11 @@ TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
     EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
     ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
     EXPECT_EQ(show_stream.GetResults()[0][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+    EXPECT_EQ(show_stream.GetResults()[0][3].ValueString(), "running");
     // Also anonymous user executing
     EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
     ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
+    EXPECT_EQ(show_stream.GetResults()[1][3].ValueString(), "running");
     // Kill the other transaction
     std::string run_trans_id = show_stream.GetResults()[1][1].ValueString();
     std::string esc_run_trans_id = "'" + run_trans_id + "'";
@@ -115,14 +118,84 @@ TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
     ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
     EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
     ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
-    // check the number of transactions now
+    // After TERMINATE, the transaction should show as "terminating"
     auto show_stream_after_killing = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
-    ASSERT_EQ(show_stream_after_killing.GetResults().size(), 1U);
+    // The terminated transaction is now visible with "terminating" status
+    // It shows 2 results: the SHOW TRANSACTIONS itself + the terminated one
+    ASSERT_EQ(show_stream_after_killing.GetResults().size(), 2U);
+    // Find the terminated transaction by its transaction_id
+    for (const auto &row : show_stream_after_killing.GetResults()) {
+      if (row[1].ValueString() == run_trans_id) {
+        EXPECT_EQ(row[3].ValueString(), "terminating");
+      } else {
+        EXPECT_EQ(row[3].ValueString(), "running");
+      }
+    }
+    // finish thread
+    running_thread.request_stop();
+    running_thread.join();
+    // After the thread finishes, abort the terminated interpreter so it cleans up
+    this->running_interpreter.Abort();
+    // After abort completes, the terminated transaction should no longer show
+    auto show_stream_final = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+    ASSERT_EQ(show_stream_final.GetResults().size(), 1U);
     // test the state of the database
     auto results_stream = this->main_interpreter.Interpret("MATCH (n) RETURN n");
     ASSERT_EQ(results_stream.GetResults().size(), 1U);  // from the main interpreter
     this->main_interpreter.Interpret("MATCH (n) DETACH DELETE n");
-    // finish thread
-    running_thread.request_stop();
   }
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusCommitting) {
+  // Start a transaction on the running interpreter
+  this->running_interpreter.Interpret("BEGIN");
+  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
+
+  // Manually set the status to STARTED_COMMITTING to simulate a committing transaction
+  this->running_interpreter.interpreter.transaction_status_.store(
+      memgraph::query::TransactionStatus::STARTED_COMMITTING, std::memory_order_release);
+
+  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  ASSERT_EQ(show_stream.GetResults().size(), 2U);
+
+  // Find the committing transaction
+  bool found_committing = false;
+  for (const auto &row : show_stream.GetResults()) {
+    if (row[3].ValueString() == "committing") {
+      found_committing = true;
+      ASSERT_TRUE(row[1].IsString());  // transaction_id is present
+    }
+  }
+  EXPECT_TRUE(found_committing);
+
+  // Restore to IDLE so the test can clean up without hitting assertion failures
+  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
+                                                                  std::memory_order_release);
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusAborting) {
+  // Start a transaction on the running interpreter
+  this->running_interpreter.Interpret("BEGIN");
+  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
+
+  // Manually set the status to STARTED_ROLLBACK to simulate an aborting transaction
+  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::STARTED_ROLLBACK,
+                                                                  std::memory_order_release);
+
+  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  ASSERT_EQ(show_stream.GetResults().size(), 2U);
+
+  // Find the aborting transaction
+  bool found_aborting = false;
+  for (const auto &row : show_stream.GetResults()) {
+    if (row[3].ValueString() == "aborting") {
+      found_aborting = true;
+      ASSERT_TRUE(row[1].IsString());  // transaction_id is present
+    }
+  }
+  EXPECT_TRUE(found_aborting);
+
+  // Restore to IDLE so the test can clean up without hitting assertion failures
+  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
+                                                                  std::memory_order_release);
 }
