@@ -42,11 +42,11 @@ namespace memgraph::storage {
 namespace {
 inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property, auto &&index_accessor,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  if (from_vertex.deleted) {
+  if (from_vertex.deleted()) {
     return;
   }
   for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex.out_edges) {
-    if (to_vertex->deleted) {
+    if (to_vertex->deleted()) {
       continue;
     }
     auto value = edge_ref.ptr->properties.GetProperty(property);
@@ -70,12 +70,12 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
 
   {
     auto guard = std::shared_lock{from_vertex.lock};
-    deleted = from_vertex.deleted;
-    delta = from_vertex.delta;
+    deleted = from_vertex.deleted();
+    delta = from_vertex.delta();
     edges = from_vertex.out_edges;
 
     // If vertex has non-sequential deltas, hold lock while applying them
-    if (!from_vertex.has_uncommitted_non_sequential_deltas) {
+    if (!from_vertex.has_uncommitted_non_sequential_deltas()) {
       guard.unlock();
     }
 
@@ -102,7 +102,7 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
       auto guard = std::shared_lock{edge_ref.ptr->lock};
       exists = true;
       deleted = false;
-      delta = edge_ref.ptr->delta;
+      delta = edge_ref.ptr->delta();
       property_value = edge_ref.ptr->properties.GetProperty(property);
     }
 

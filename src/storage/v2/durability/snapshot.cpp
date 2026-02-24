@@ -9890,6 +9890,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    config);
     }
     case 18U:
+      [[fallthrough]];
     case 19U: {
       return LoadSnapshotVersion18or19(snapshot,
                                        path,
@@ -9904,6 +9905,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                        enum_store);
     }
     case 20U:
+      [[fallthrough]];
     case 21U: {
       return LoadSnapshotVersion20or21(snapshot,
                                        path,
@@ -9918,6 +9920,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                        enum_store);
     }
     case 22U:
+      [[fallthrough]];
     case 23U: {
       // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
       return LoadSnapshotVersion22or23(snapshot,
@@ -9976,6 +9979,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    snapshot_info);
     }
     case 27U:
+      [[fallthrough]];
     case 28U: {
       return LoadSnapshotVersion27or28(snapshot,
                                        path,
@@ -10034,7 +10038,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    ttl,
                                    snapshot_info);
     }
-    case 32U: {
+    case 32U:
+      [[fallthrough]];
+    case 33U: {
       return LoadCurrentVersionSnapshot(snapshot,
                                         path,
                                         vertices,
@@ -10294,8 +10300,8 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
       Delta *delta = nullptr;
       {
         auto guard = std::shared_lock{edge.lock};
-        is_visible = !edge.deleted;
-        delta = edge.delta;
+        is_visible = !edge.deleted();
+        delta = edge.delta();
       }
       ApplyDeltasForRead(transaction, delta, View::OLD, [&is_visible](const Delta &delta) {
         switch (delta.action) {

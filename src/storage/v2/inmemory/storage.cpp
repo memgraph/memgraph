@@ -173,7 +173,7 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
 
 bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_transaction_id) {
   DMG_ASSERT(vertex->lock.is_locked(), "HasUncommittedNonSequentialDeltas must be called with vertex lock held");
-  Delta *delta = vertex->delta;
+  Delta *delta = vertex->delta();
   while (delta != nullptr) {
     auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
 
@@ -215,9 +215,9 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
         break;
       case PreviousPtr::Type::VERTEX: {
         auto &vertex = *prev.vertex;
-        vertex.delta = nullptr;
-        vertex.has_uncommitted_non_sequential_deltas = false;
-        if (vertex.deleted) {
+        vertex.SetDelta(nullptr);
+        vertex.set_has_uncommitted_non_sequential_deltas(false);
+        if (vertex.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
           current_deleted_vertices.push_back(vertex.gid);
         }
@@ -225,8 +225,8 @@ void UnlinkAndRemoveDeltas(delta_container &deltas, uint64_t transaction_id, std
       }
       case PreviousPtr::Type::EDGE: {
         auto &edge = *prev.edge;
-        edge.delta = nullptr;
-        if (edge.deleted) {
+        edge.SetDelta(nullptr);
+        if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
           current_deleted_edges.push_back(edge.gid);
         }
@@ -379,7 +379,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     if (config_.track_label_counts) {
       auto label_counts_acc = label_counts_.Lock();
       for (auto const &vertex : vertices_.access()) {
-        if (vertex.deleted) continue;
+        if (vertex.deleted()) continue;
         for (auto const label : vertex.labels) {
           ++(*label_counts_acc)[label];
         }
@@ -480,6 +480,14 @@ InMemoryStorage::~InMemoryStorage() {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
+
+  // On destruction, we want to stop snapshot creation unless snapshot_on_exit is set to true.
+  // If snapshot on exit is set to true then create_snapshot_handler() will just skip snapshot creation because it
+  // will figure out that there are no changes.
+  if (!config_.durability.snapshot_on_exit) {
+    abort_snapshot_.store(true, std::memory_order_release);
+  }
+
   snapshot_runner_.Stop();
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
     create_snapshot_handler();
@@ -675,7 +683,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (from_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
   DeltaChainState const from_state =
       ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
 
@@ -684,7 +692,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   if (to_vertex != from_vertex) {
     WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+    if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
   }
 
@@ -800,7 +808,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   auto const from_result = PrepareForNonSequentialWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (from_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
   DeltaChainState const from_state =
       ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
 
@@ -808,7 +816,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (to_vertex != from_vertex) {
     WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+    if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
   }
 
@@ -1142,9 +1150,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
     for (Vertex *vertex : vertices_to_check) {
       auto guard = std::unique_lock{vertex->lock};
-      if (vertex->has_uncommitted_non_sequential_deltas) {
-        vertex->has_uncommitted_non_sequential_deltas =
-            HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id);
+      if (vertex->has_uncommitted_non_sequential_deltas()) {
+        vertex->set_has_uncommitted_non_sequential_deltas(
+            HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id));
       }
     }
   }
@@ -1346,7 +1354,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         case PreviousPtr::Type::EDGE: {
           auto *edge = prev.edge;
           auto guard = std::lock_guard{edge->lock};
-          Delta *current = edge->delta;
+          Delta *current = edge->delta();
           while (current != nullptr &&
                  current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_.transaction_id) {
             switch (current->action) {
@@ -1396,12 +1404,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
-                edge->deleted = true;
+                edge->SetDeleted(true);
                 my_deleted_edges.push_back(edge->gid);
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
-                edge->deleted = false;
+                edge->SetDeleted(false);
                 break;
               }
               case Delta::Action::REMOVE_LABEL:
@@ -1416,7 +1424,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             }
             current = current->next.load(std::memory_order_acquire);
           }
-          edge->delta = current;
+          edge->SetDelta(current);
           if (current != nullptr) {
             current->prev.Set(edge);
           }
@@ -1523,7 +1531,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           }
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
-            vertex->deleted = true;
+            vertex->SetDeleted(true);
             my_deleted_vertices.push_back(vertex->gid);
 
             for (auto const label : vertex->labels) {
@@ -1532,7 +1540,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             break;
           }
           case Delta::Action::RECREATE_OBJECT: {
-            vertex->deleted = false;
+            vertex->SetDeleted(false);
             for (auto const label : vertex->labels) {
               storage_->UpdateLabelCount(label, 1);
             }
@@ -1561,7 +1569,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
 
       if (delta_chunk_attached_to_vertex) {
-        vertex->delta = current;
+        vertex->SetDelta(current);
         if (current) {
           current->prev.Set(vertex);
         }
@@ -1581,9 +1589,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // NOTE TO COLIN: as we snip out aborted chunks of interleaved NonSeq, we may hit this many times
       //                it would do upto full walks of remaining delta chain
       //                maybe another justification for a sinlge lock + pass (caching wont help the walks)
-      if (vertex->has_uncommitted_non_sequential_deltas) {
-        vertex->has_uncommitted_non_sequential_deltas =
-            HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id);
+      if (vertex->has_uncommitted_non_sequential_deltas()) {
+        vertex->set_has_uncommitted_non_sequential_deltas(
+            HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id));
       }
     };
 
@@ -1597,7 +1605,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto guard = std::unique_lock{vertex->lock};
 
           // Check if we're still at the head - another tx may have prepended
-          bool const we_own_head = vertex->delta == &delta;
+          bool const we_own_head = vertex->delta() == &delta;
           process_vertex_deltas(vertex, &delta, we_own_head);
 
           break;
@@ -1610,7 +1618,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             Vertex *vertex = delta_vertex_cache.GetVertexFromDelta(&delta);
             auto guard = std::unique_lock{vertex->lock};
             // Check if we're still at the head - another tx may have prepended
-            bool const we_own_head = vertex->delta == &delta;
+            bool const we_own_head = vertex->delta() == &delta;
             process_vertex_deltas(vertex, &delta, we_own_head);
           }
           break;
@@ -2741,15 +2749,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           case PreviousPtr::Type::VERTEX: {
             Vertex *vertex = prev.vertex;
             auto vertex_guard = std::unique_lock{vertex->lock};
-            if (vertex->delta != &delta) {
+            if (vertex->delta() != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
               continue;
             }
-            vertex->delta = nullptr;
-            vertex->has_uncommitted_non_sequential_deltas = false;
+            vertex->SetDelta(nullptr);
+            vertex->set_has_uncommitted_non_sequential_deltas(false);
 
-            if (vertex->deleted) {
+            if (vertex->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
             }
@@ -2758,13 +2766,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           case PreviousPtr::Type::EDGE: {
             Edge *edge = prev.edge;
             auto edge_guard = std::unique_lock{edge->lock};
-            if (edge->delta != &delta) {
+            if (edge->delta() != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
               continue;
             }
-            edge->delta = nullptr;
-            if (edge->deleted) {
+            edge->SetDelta(nullptr);
+            if (edge->deleted()) {
               DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
             }
@@ -2944,7 +2952,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto vertex_acc = vertices_.access();
     for (auto &vertex : vertex_acc) {
       // a deleted vertex which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
-      if (vertex.delta == nullptr && vertex.deleted) {
+      if (vertex.delta() == nullptr && vertex.deleted()) {
         vertex_acc.remove(vertex);
       }
     }
@@ -2956,7 +2964,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto &edge : edge_acc) {
       // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
-      if (edge.delta == nullptr && edge.deleted) {
+      if (edge.delta() == nullptr && edge.deleted()) {
         edge_acc.remove(edge);
         edge_metadata_acc.remove(edge.gid);
       }
@@ -3531,16 +3539,16 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   auto const &epochHistory = repl_storage_state_.history;
   auto const &storage_uuid = uuid();
 
+  SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    auto current_digest = SnapshotDigest{.epoch_ = epoch,
-                                         .history_ = epochHistory,
-                                         .storage_uuid_ = storage_uuid,
-                                         .last_durable_ts_ = *transaction->last_durable_ts_};
+    current_digest = SnapshotDigest{.epoch_ = epoch,
+                                    .history_ = epochHistory,
+                                    .storage_uuid_ = storage_uuid,
+                                    .last_durable_ts_ = *transaction->last_durable_ts_};
 
     if (!force && last_snapshot_digest_ == current_digest)
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
-    last_snapshot_digest_ = std::move(current_digest);
   }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
@@ -3557,6 +3565,12 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &abort_snapshot_);
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
+  }
+
+  // Update digest only after the file has been created. Only in transaction because digests are used only in
+  // transactional mode
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    last_snapshot_digest_ = std::move(current_digest);
   }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,

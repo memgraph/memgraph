@@ -93,10 +93,9 @@ class InMemoryReplicationHandlers {
       memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
       uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static LoadWalStatus LoadWal(
-      memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-      std::filesystem::path const &wal_path, storage::InMemoryStorage *storage, slk::Builder *res_builder,
-      uint32_t start_batch_counter = 0);
+  static LoadWalStatus LoadWal(uint64_t deltas_batch_progress_size, std::filesystem::path const &wal_path,
+                               storage::InMemoryStorage *storage, slk::Builder *res_builder,
+                               uint32_t start_batch_counter = 0);
 
   static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
 
