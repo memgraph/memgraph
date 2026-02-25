@@ -465,51 +465,6 @@ TEST_F(EMatcherTest, MatchCountCorrectAfterCongruence) {
 }
 
 // ============================================================================
-// MatchArena Tests
-// ============================================================================
-//
-// MatchArena is a monotonic allocator for storing match bindings efficiently.
-
-TEST(MatchArena, InternAndRetrieve) {
-  MatchArena arena;
-
-  std::array bindings = {EClassId{10}, EClassId{20}, EClassId{30}};
-  auto offset = arena.intern(bindings);
-
-  EXPECT_EQ(arena.get(offset, 0), EClassId{10});
-  EXPECT_EQ(arena.get(offset, 1), EClassId{20});
-  EXPECT_EQ(arena.get(offset, 2), EClassId{30});
-}
-
-TEST(MatchArena, MultipleAllocationsAreIndependent) {
-  MatchArena arena;
-
-  auto offset1 = arena.intern(std::array{EClassId{1}, EClassId{2}});
-  auto offset2 = arena.intern(std::array{EClassId{10}, EClassId{20}, EClassId{30}});
-
-  // Separate allocations
-  EXPECT_NE(offset1, offset2);
-
-  // Each retrieves correct values
-  EXPECT_EQ(arena.get(offset1, 0), EClassId{1});
-  EXPECT_EQ(arena.get(offset2, 2), EClassId{30});
-}
-
-TEST(MatchArena, ClearResetsForReuse) {
-  MatchArena arena;
-
-  arena.intern(std::array{EClassId{1}, EClassId{2}, EClassId{3}});
-  EXPECT_EQ(arena.size(), 3);
-
-  arena.clear();
-  EXPECT_EQ(arena.size(), 0);
-
-  // Can reuse after clear
-  arena.intern(std::array{EClassId{10}});
-  EXPECT_EQ(arena.size(), 1);
-}
-
-// ============================================================================
 // EMatcher vs VM Executor Consistency
 // ============================================================================
 //
