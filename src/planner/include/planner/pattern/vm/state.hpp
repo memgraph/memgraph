@@ -36,6 +36,7 @@ static constexpr std::size_t kDefaultRegisters = 16;
 
 /// Iterating e-nodes in an e-class (span-based, advances via subspan)
 /// Empty span = inactive/exhausted
+// TODO: ENodesIter, ParentsFilteredIter, AllEClassesIter are very simular, why not template + alias?
 struct ENodesIter {
   std::span<ENodeId const> nodes;
 
@@ -108,6 +109,7 @@ struct VMState {
 
   // Which slots are bound (for BindOrCheck)
   // Use std::bitset for O(1) operations with no dynamic allocation
+  // TODO: why arbitary 256?
   std::bitset<256> bound;
 
   // Per-slot seen sets for deduplication.
@@ -134,16 +136,23 @@ struct VMState {
 
   /// Initialize state for execution with given number of slots and registers
   void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs) {
-    slots.assign(num_slots, EClassId{});
+    slots.assign(num_slots, EClassId{});  // TODO: why EClassId{} if bound will be cleared
     bound.reset();
     pc = 0;
     // Resize register arrays if needed (separate sizes for each type)
+    // TODO: why not a separate count per register kind? Are these correleated (each eclass_regs paired with
+    // eclasses_iters)
     if (eclass_regs.size() < num_eclass_regs) {
       eclass_regs.resize(num_eclass_regs);
       eclasses_iters.resize(num_eclass_regs);  // E-class iteration state (IterAllEClasses)
     }
+    // TODO: why not a separate count per register kind? Are these correleated (each enode_regs paired with enodes_iters
+    // and parents_iters and parents_iters)
+    //       each instruction op will hardcode which registers they will be dealing with, hence their src and dst are
+    //       related to the actual typed registers
     if (enode_regs.size() < num_enode_regs) {
       enode_regs.resize(num_enode_regs);
+      // TODO: _iters are just another kind of register dealing with particular iterations types
       enodes_iters.resize(num_enode_regs);    // E-node iteration state (IterENodes)
       parents_iters.resize(num_enode_regs);   // Parent iteration state (index-based, IterParents)
       filtered_iters.resize(num_enode_regs);  // Filtered parent iteration state (span-based, IterParentsSym)
@@ -201,15 +210,18 @@ struct VMState {
   /// If the slot value changes, clears the seen sets for all later slots
   /// (since their prefix has changed).
   void bind(std::size_t slot, EClassId eclass) {
-    if (slots[slot] != eclass) {
+    if (slots[slot] !=
+        eclass) {  // TODO: only correct if slot was bound right? We need to ensure clear of seen_per_slot is correct
       // Slot value changed - clear seen sets for dependent slots
       // Only iterate up to max_seen_slot_ to avoid unnecessary work
+      // TODO: calulate iterators rather than indices
       auto end = std::min(max_seen_slot_ + 1, seen_per_slot.size());
       for (std::size_t i = slot + 1; i < end; ++i) {
-        if (!seen_per_slot[i].empty()) {
+        if (!seen_per_slot[i].empty()) {  // TODO: do we need to ask this? clear would be fast if empty
           seen_per_slot[i].clear();
         }
       }
+      max_seen_slot_ = end;  // TODO: is this logically correct?
       slots[slot] = eclass;
     }
     bound.set(slot);
@@ -220,7 +232,7 @@ struct VMState {
   /// Returns true if this is a new unique tuple.
   /// The canonicalized_slots parameter should contain find()-canonicalized e-class IDs.
   [[nodiscard]] auto try_yield_dedup(std::span<EClassId const> canonicalized_slots) -> bool {
-    if (canonicalized_slots.empty()) {
+    if (canonicalized_slots.empty()) [[unlikely]] {
       return true;  // No variables, always yield (single match)
     }
 
@@ -230,6 +242,9 @@ struct VMState {
     auto last_value = canonicalized_slots.back();
 
     // Track highest slot used for optimization in bind()
+    // TODO: I think max_seen_slot_ is incorrect
+    //       1) the insertion order of symbols (I'm not sure they are in order 0,1,....n-1) This depends on the order
+    //       slots are bound (dictated by the instruction compiler) 2) this should be on bind, not as late as yeild
     if (last_slot_idx > max_seen_slot_) {
       max_seen_slot_ = last_slot_idx;
     }

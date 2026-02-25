@@ -52,6 +52,8 @@ class PatternCompiler {
  public:
   /// Compile a single pattern into bytecode.
   /// @return Compiled bytecode or nullopt if pattern exceeds register limit
+  // TODO: deprecate, we should be using  auto compile(std::span<Pattern<Symbol> const> patterns) or a variadic template
+  // version
   auto compile(Pattern<Symbol> const &pattern) -> std::optional<CompiledPattern<Symbol>> {
     std::array<Pattern<Symbol> const *, 1> arr = {&pattern};
     return compile_patterns(arr);
@@ -62,10 +64,9 @@ class PatternCompiler {
   /// @return Compiled bytecode or nullopt if patterns exceed register limit
   auto compile(std::span<Pattern<Symbol> const> patterns) -> std::optional<CompiledPattern<Symbol>> {
     if (patterns.empty()) return std::nullopt;
-    if (patterns.size() == 1) return compile(patterns[0]);
 
     // Build array of pointers for compile_patterns
-    std::vector<Pattern<Symbol> const *> ptrs;
+    std::vector<Pattern<Symbol> const *> ptrs;  // TODO: why ptrs?
     ptrs.reserve(patterns.size());
     for (auto const &p : patterns) ptrs.push_back(&p);
     return compile_patterns(ptrs);
