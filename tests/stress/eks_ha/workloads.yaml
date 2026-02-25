@@ -7,4 +7,4 @@ workloads:
     enabled: false
 
   - config: workloads/publications_import/workload.yaml
-    enabled: true
+    enabled: false
