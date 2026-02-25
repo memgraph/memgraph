@@ -197,4 +197,58 @@ TEST_F(VMCompilerTest, BinarySymbolPattern) {
   EXPECT_GE(bind_slot_count, 2) << "Expected at least 2 BindSlotDedup instructions for two variables";
 }
 
+TEST_F(VMCompilerTest, DeepNestedJoinUsesParentChain) {
+  // Pattern 1: Neg(?x) - shallow pattern that binds ?x
+  // Pattern 2: Neg(Neg(Neg(Neg(?x)))) - deep nested pattern with shared ?x at bottom
+  //
+  // The compiler should use parent chain traversal instead of Cartesian product.
+  // This is critical for O(n) vs O(n^2) performance.
+
+  // Build patterns
+  auto pattern1 = TestPattern::build(Op::Neg, {Var{kVarX}});
+  auto pattern2 = TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Sym(Op::Neg, Var{kVarX})))});
+
+  std::array patterns = {pattern1, pattern2};
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  auto code = compiled->code();
+  auto bytecode = disassemble<Op>(code, compiled->symbols());
+
+  // Count key instructions to verify parent chain traversal is used
+  int iter_parents_count = 0;
+  int check_eclass_eq_count = 0;
+  int iter_all_eclasses_count = 0;
+
+  for (auto const &instr : code) {
+    switch (instr.op) {
+      case VMOp::IterParents:
+        ++iter_parents_count;
+        break;
+      case VMOp::CheckEClassEq:
+        ++check_eclass_eq_count;
+        break;
+      case VMOp::IterAllEClasses:
+        ++iter_all_eclasses_count;
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Parent chain traversal should use IterParents (4 levels deep = 4 IterParents)
+  EXPECT_EQ(iter_parents_count, 4) << "Expected 4 IterParents for 4-level deep nested pattern\nBytecode:\n" << bytecode;
+
+  // Each parent traversal needs to verify the child matches the expected e-class
+  EXPECT_EQ(check_eclass_eq_count, 4) << "Expected 4 CheckEClassEq to verify parent-child relationships\nBytecode:\n"
+                                      << bytecode;
+
+  // Should NOT use IterAllEClasses (Cartesian product) for the second pattern
+  EXPECT_EQ(iter_all_eclasses_count, 0)
+      << "Should not use IterAllEClasses (Cartesian product) for deep nested join\nBytecode:\n"
+      << bytecode;
+}
+
 }  // namespace memgraph::planner::core
