@@ -54,7 +54,7 @@ class ParentSymbolIndex {
       }
     }
 
-    stats_.full_rebuilds++;
+    ++stats_.full_rebuilds;
   }
 
   /// Incremental update after e-graph rebuild
@@ -64,17 +64,21 @@ class ParentSymbolIndex {
       auto canonical_id = egraph_->find(eclass_id);
 
       // Remove old index entry if it exists
+      // TODO: can we have a better control over this. Can we maintain and present the set of obsolete eclasses
+      // (non-canonical after merge)
+      //      vs those that need to be rebuilt?
       index_.erase(eclass_id);
       if (eclass_id != canonical_id) {
-        index_.erase(canonical_id);
+        index_.erase(canonical_id);  // TODO: why erase + rebuild can we do an inplace update?
       }
 
       // Rebuild for this e-class
-      if (egraph_->has_class(canonical_id)) {
+      if (egraph_->has_class(canonical_id)) {  // TODO: this is canonical so should be true
         auto const &eclass = egraph_->eclass(canonical_id);
         auto &eclass_index = index_[canonical_id];
-        eclass_index.clear();
+        eclass_index.clear();  // TODO: why? we already erased it
 
+        // TODO: this is duplicate from rebuild()
         for (auto parent_enode_id : eclass.parents()) {
           auto const &parent_enode = egraph_->get_enode(parent_enode_id);
           eclass_index[parent_enode.symbol()].push_back(parent_enode_id);
@@ -82,7 +86,7 @@ class ParentSymbolIndex {
       }
     }
 
-    stats_.incremental_updates++;
+    ++stats_.incremental_updates;
   }
 
   /// Get parents of an e-class with a specific symbol
@@ -103,6 +107,7 @@ class ParentSymbolIndex {
   }
 
   /// Check if an e-class has any parents with a specific symbol
+  // TODO: why do we need this? It would be cleaner and more performant just to fetch the span
   [[nodiscard]] auto has_parents_with_symbol(EClassId eclass_id, Symbol sym) const -> bool {
     return !parents_with_symbol(eclass_id, sym).empty();
   }
@@ -113,6 +118,7 @@ class ParentSymbolIndex {
     std::size_t incremental_updates{0};
   };
 
+  // TODO: Do we really need stats here?
   [[nodiscard]] auto stats() const -> Stats const & { return stats_; }
 
  private:

@@ -333,6 +333,9 @@ class RewriteRule {
     if (join_ctx.right.empty()) return 0;
 
     // All patterns (single or multi) produce single-stride matches via unified fused compilation
+    // TODO: we want RuleContext to also handle any updates we will need in the VMExecutor
+    //      for example: all_eclasses_buffer_ we shouldn't need to do a fresh rebuild every execute, it should be
+    //      maintained via incremental updates
     RuleContext rule_ctx(egraph, ctx.new_eclasses);
     apply_fn_(rule_ctx, join_ctx.right, 1, compiled_var_locations_, arena);
     return rule_ctx.rewrites();

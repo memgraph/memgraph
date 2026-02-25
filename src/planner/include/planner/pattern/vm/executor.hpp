@@ -60,7 +60,7 @@ class CompiledPattern {
   std::size_t num_slots_;
   std::size_t num_eclass_regs_;         // Registers holding e-class IDs
   std::size_t num_enode_regs_;          // Registers holding e-node IDs (and iteration state)
-  std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol/IterParentsSym
+  std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol/IterParentsSym //TODO: are these deduplicated?
   std::optional<Symbol> entry_symbol_;  // For index-based candidate lookup
 };
 
@@ -68,6 +68,7 @@ class CompiledPattern {
 ///
 /// This executor always verifies child consistency when traversing parents.
 /// Safe but slower - does not require a clean parent index.
+// TODO: better name than VMExecutorVerify (why Verify?)
 template <typename Symbol, typename Analysis, typename Tracer = NullTracer>
 class VMExecutorVerify {
  public:
@@ -85,19 +86,20 @@ class VMExecutorVerify {
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
     state_.reset(pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs());
-    stats_.reset();
+    stats_.reset();  // TODO: no need for stats if not in a developer mode
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
-    // Pre-cache all e-classes for IterAllEClasses (avoids rebuilding on each call)
+    // TODO: Do we know the pattern will require all_eclasses? If not then we do not need to do this
+    //  Pre-cache all e-classes for IterAllEClasses (avoids rebuilding on each call)
     all_eclasses_buffer_.clear();
     for (auto const &[id, _] : egraph_->canonical_classes()) {
       all_eclasses_buffer_.push_back(id);
     }
-    all_eclasses_cached_ = true;
+    all_eclasses_cached_ = true;  // TODO: does this flag need to exist? During matching nobody can violate this
 
     for (auto candidate : candidates) {
-      auto canonical = egraph_->find(candidate);
+      auto canonical = egraph_->find(candidate);  // TODO: is it not already canonical?
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
       state_.bound.reset();
@@ -120,6 +122,7 @@ class VMExecutorVerify {
       matcher.all_candidates(candidates_buffer_);
     }
 
+    // TODO: can be do better than copying into a candidates_buffer_?
     execute(pattern, candidates_buffer_, ctx, results);
   }
 
@@ -130,6 +133,7 @@ class VMExecutorVerify {
 
  private:
   // Compile-time constant for whether tracing is enabled
+  // TODO: I rather think about stats + Trace as developer mode
   static constexpr bool kTracingEnabled = !std::is_same_v<Tracer, NullTracer>;
 
   void run_until_halt(EMatchContext &ctx, std::vector<PatternMatch> &results) {
@@ -158,7 +162,7 @@ class VMExecutorVerify {
     // clang-format off
 #define DISPATCH()                                                      \
   do {                                                                  \
-    if (state_.pc >= code_.size()) return;                              \
+    if (state_.pc >= code_.size()) return; /*DMG_ASSERT*/               \
     if constexpr (kTracingEnabled) {                                    \
       tracer_->on_instruction(state_.pc, code_[state_.pc]);             \
       ++stats_.instructions_executed;                                   \
@@ -202,7 +206,7 @@ class VMExecutorVerify {
     }
 
   op_NextEClass:
-    // TOOD: can we have a better macro that will NEXT_OR_JUMP
+    // TODO: can we have a better macro that will NEXT_OR_JUMP
     if (exec_next_eclass(code_[state_.pc])) {
       NEXT();
     } else {
@@ -257,6 +261,7 @@ class VMExecutorVerify {
     NEXT();
 
   op_CheckSlot:
+    // TODO: is CheckSlot ever emitted, or do we always use BindOrCheck
     if (exec_check_slot(code_[state_.pc])) {
       NEXT();
     } else {
@@ -291,6 +296,8 @@ class VMExecutorVerify {
   // Instruction is 6 bytes - pass by value for efficiency (fits in register)
   void exec_load_child(Instruction instr) {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
+    // TODO: would it be better to LOAD CHILDREN as on instruction, and LOAD CHILD as another, this would reduce
+    // get_enode calls
     state_.eclass_regs[instr.dst] = egraph_->find(enode.children()[instr.arg]);
   }
 
@@ -299,14 +306,13 @@ class VMExecutorVerify {
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
+  // TODO: all these exec_* should have [[gnu::always_inline]]
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool {
     if constexpr (kTracingEnabled) {
       ++stats_.iter_enode_calls;
     }
     auto eclass_id = state_.eclass_regs[instr.src];
-    auto const &eclass = egraph_->eclass(eclass_id);
-    auto nodes = eclass.nodes();
-    // TODO: again split? store a span?
+    auto nodes = egraph_->eclass(eclass_id).nodes();
 
     if constexpr (kTracingEnabled) {
       tracer_->on_iter_start(state_.pc, nodes.size());
@@ -340,14 +346,15 @@ class VMExecutorVerify {
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
     // Use cached all-eclasses buffer if available, otherwise rebuild
-    if (!all_eclasses_cached_) {
+    if (!all_eclasses_cached_) {  // TODO: during run_until_halt this should always be !all_eclasses_cached_ == false
       all_eclasses_buffer_.clear();
       for (auto const &[id, _] : egraph_->canonical_classes()) {
         all_eclasses_buffer_.push_back(id);
       }
+      all_eclasses_cached_ = true;
     }
 
-    if (all_eclasses_buffer_.empty()) {
+    if (all_eclasses_buffer_.empty()) [[unlikely]] {
       return false;
     }
 
@@ -357,6 +364,8 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction instr) -> bool {
+    // TODO: This is a common pattern for all iterators, can we have a common helper?
+    //       get iter X, advance, exhausted, set X with current
     auto &iter = state_.get_eclasses_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -372,8 +381,7 @@ class VMExecutorVerify {
       ++stats_.iter_parent_calls;
     }
     auto eclass_id = state_.eclass_regs[instr.src];
-    auto const &eclass = egraph_->eclass(eclass_id);
-    auto const &parents = eclass.parents();
+    auto const &parents = egraph_->eclass(eclass_id).parents();
 
     if constexpr (kTracingEnabled) {
       tracer_->on_iter_start(state_.pc, parents.size());
@@ -395,10 +403,11 @@ class VMExecutorVerify {
     }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto target_symbol = symbols_[instr.arg];
-    auto const &eclass = egraph_->eclass(eclass_id);
-    auto const &parents = eclass.parents();
+    auto const &parents = egraph_->eclass(eclass_id).parents();
 
     // Filter parents to only those with matching symbol
+    // TODO: is this safe, one filtered_parents_buffer_ that multiple IterParentsSym might be pointing at
+    //       might be worth just doing normal IterParents + CheckSymbol
     filtered_parents_buffer_.clear();
     for (auto parent_id : parents) {
       auto const &enode = egraph_->get_enode(parent_id);
@@ -411,7 +420,7 @@ class VMExecutorVerify {
       tracer_->on_iter_start(state_.pc, filtered_parents_buffer_.size());
     }
 
-    if (filtered_parents_buffer_.empty()) {
+    if (filtered_parents_buffer_.empty()) [[unlikely]] {
       return false;
     }
 
@@ -437,9 +446,7 @@ class VMExecutorVerify {
       tracer_->on_iter_advance(state_.pc, iter.remaining());
     }
     // Index-based iteration requires looking up the e-class again
-    auto const &eclass = egraph_->eclass(iter.eclass);
-    auto const &parent_set = eclass.parents();
-    auto pit = parent_set.begin();
+    auto pit = egraph_->eclass(iter.eclass).parents().begin();
     std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
     state_.enode_regs[instr.dst] = *pit;
     return true;
@@ -489,6 +496,7 @@ class VMExecutorVerify {
   }
 
   void exec_bind_slot(Instruction instr) {
+    // TODO: dedup should be able to be done on bind, not on yield
     state_.bind(instr.arg, state_.eclass_regs[instr.src]);
     if constexpr (kTracingEnabled) {
       tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
@@ -514,6 +522,7 @@ class VMExecutorVerify {
 
   [[nodiscard]] auto exec_bind_or_check(Instruction instr) -> bool {
     if (!state_.is_bound(instr.arg)) {
+      // TODO: dedup should be able to be done on bind, not on yield
       state_.bind(instr.arg, state_.eclass_regs[instr.src]);
       if constexpr (kTracingEnabled) {
         tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
@@ -533,6 +542,7 @@ class VMExecutorVerify {
       if constexpr (kTracingEnabled) {
         tracer_->on_check_fail(state_.pc, "duplicate yield");
       }
+      // TODO: why reset the whole bind? Are we not backtracking unbinding parts of a match?
       state_.bound.reset();
       return;
     }
@@ -543,6 +553,7 @@ class VMExecutorVerify {
     }
     results.push_back(ctx.arena().intern(state_.slots));
     // Clear bound flags to allow finding different variable bindings in subsequent matches
+    // TODO: why reset the whole bind? Are we not backtracking unbinding parts of a match?
     state_.bound.reset();
   }
 
@@ -551,7 +562,7 @@ class VMExecutorVerify {
   std::span<Symbol const> symbols_;
   VMState state_;
   VMStats stats_;
-  Tracer null_tracer_;
+  Tracer null_tracer_;  // TODO: can we have a static NullTracer rather than per instance Tracer?
   Tracer *tracer_;
   std::vector<EClassId> all_eclasses_buffer_;                            // Buffer for IterAllEClasses
   std::vector<EClassId> candidates_buffer_;                              // Buffer for automatic candidate lookup
@@ -564,6 +575,8 @@ class VMExecutorVerify {
 /// This executor uses ParentSymbolIndex for efficient parent traversal.
 /// Requires the index to be kept clean (rebuilt after e-graph modifications).
 /// Faster but requires index maintenance.
+// TODO: why two VMExecutor? VMExecutorVerify, VMExecutorClean we should only have one CORRECT version, we will make
+// incrementatl improvements to performace without damaging correctness
 template <typename Symbol, typename Analysis>
 class VMExecutorClean {
  public:
@@ -784,6 +797,7 @@ class VMExecutorClean {
       return false;
     }
 
+    // TODO: do we need two distinct destinations, so that we are not wasting space in the underlying registers?
     state_.start_enode_iter(instr.dst, nodes);
     state_.enode_regs[instr.dst] = nodes[0];
     return true;
@@ -836,6 +850,7 @@ class VMExecutorClean {
       return false;
     }
 
+    // TODO: can we pass in a range type (even if its hardcoded for unordered_flat_set?
     state_.start_parent_iter(instr.dst, eclass_id, parents.size());
     state_.enode_regs[instr.dst] = *parents.begin();
     return true;
@@ -851,7 +866,7 @@ class VMExecutorClean {
       return false;
     }
 
-    filtered_parents_ = parents;
+    filtered_parents_ = parents;  // TODO: why cached locally as the "current" filtered parents?
     state_.start_filtered_parent_iter(instr.dst, parents);
     state_.enode_regs[instr.dst] = parents[0];
     return true;
@@ -915,14 +930,11 @@ class VMExecutorClean {
     // Slots already contain canonical IDs - no need to re-canonicalize
 
     // Check if this tuple has already been yielded
-    if (!state_.try_yield_dedup(state_.slots)) {
-      // Duplicate tuple, skip
-      state_.bound.reset();
-      return;
+    if (state_.try_yield_dedup(state_.slots)) {
+      results.push_back(ctx.arena().intern(state_.slots));
     }
-
-    results.push_back(ctx.arena().intern(state_.slots));
     // Clear bound flags to allow finding different variable bindings in subsequent matches
+    // TODO: is this right? we should backtrack, we do not need to unbind all variables right?
     state_.bound.reset();
   }
 
