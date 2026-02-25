@@ -3309,6 +3309,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         auto prev = delta->prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::DELTA) break;
+        if (prev.delta->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp) break;
         delta = prev.delta;
       }
     };
