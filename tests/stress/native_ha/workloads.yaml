@@ -4,6 +4,6 @@
 
 workloads:
   - config: workloads/show_replicas_deadlock/workload.yaml
-    enabled: false
-  - config: workloads/concurrent_ha_edge_writes/workload.yaml
     enabled: true
+  - config: workloads/concurrent_ha_edge_writes/workload.yaml
+    enabled: false
