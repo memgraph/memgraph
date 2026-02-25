@@ -975,19 +975,32 @@ void PyCollectGarbage() {
 }
 
 void RegisterPyThread() {
-  // Pre-register this thread with the Python interpreter by acquiring and
-  // releasing the GIL. This creates a Python thread state for this thread,
-  // which will be reused in subsequent PyGILState_Ensure() calls.
+  // Create a *persistent* Python thread state for this thread.
   //
-  // This prevents the "PyGILState_Ensure: Couldn't create thread-state for new thread"
-  // error that can occur when many threads simultaneously try to acquire the GIL
-  // for the first time during parallel execution.
+  // PyGILState_Ensure() is called WITHOUT a matching PyGILState_Release() so
+  // that gilstate_counter is left at 1 (instead of dropping to 0).  When
+  // subsequent EnsureGIL() / CallPython* calls later do a matched
+  // Ensure+Release pair, the counter oscillates between 1 and 2 — it never
+  // reaches 0, so PyGILState_Release() never calls PyThreadState_DeleteCurrent().
+  //
+  // Why this matters (Python 3.12+): func_dealloc() unconditionally calls
+  // handle_func_event() which calls _PyInterpreterState_GET().  Inside
+  // PyThreadState_DeleteCurrent() the thread-local tstate pointer is cleared
+  // *before* owned Python objects are released, so any function object freed
+  // during that cleanup crashes with a NULL tstate (segfault at 0x10).
+  //
+  // Safe to call multiple times on the same thread: each extra call increments
+  // gilstate_counter by one more, making the state even less likely to be
+  // deleted — no ill effect.
+  //
+  // Cleanup: not needed here because these threads live until program exit and
+  // Py_Finalize() cleans up all thread states.
   if (!Py_IsInitialized()) {
     return;
   }
 
-  auto gil = py::EnsureGIL();
-  // Thread state is now cached for this thread - nothing else needed
+  PyGILState_Ensure();   // creates/finds state, gilstate_counter becomes 1, acquires GIL
+  PyEval_SaveThread();   // releases GIL; gilstate_counter stays at 1, state persists
 }
 
 namespace {

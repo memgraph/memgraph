@@ -84,11 +84,14 @@ void PyCollectGarbage();
 
 /// Register the current thread with the Python interpreter.
 ///
-/// This function should be called once per thread (e.g., at worker thread startup)
-/// to pre-initialize Python thread state. This prevents issues when many threads
-/// simultaneously try to acquire the GIL for the first time during parallel execution.
+/// Creates a persistent Python thread state for the calling thread by leaving
+/// gilstate_counter at 1 after returning. This ensures that subsequent paired
+/// PyGILState_Ensure / PyGILState_Release calls (via EnsureGIL) never drop the
+/// counter to 0, so PyThreadState_DeleteCurrent() is never triggered mid-call.
 ///
-/// The function is safe to call if Python is not initialized - it will simply return.
+/// Must be called once per worker thread at startup (before any Python code runs
+/// on that thread). Safe to call multiple times and safe to call when Python is
+/// not yet initialized (returns immediately).
 void RegisterPyThread();
 
 }  // namespace memgraph::query::procedure
