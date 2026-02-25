@@ -23,14 +23,14 @@ namespace memgraph::slk {
 void Save(const memgraph::parameters::ParameterInfo &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.name, builder);
   memgraph::slk::Save(self.value, builder);
-  memgraph::slk::Save(self.scope, builder);
+  memgraph::slk::Save(self.scope_context, builder);
 }
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 void Load(memgraph::parameters::ParameterInfo *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->name, reader);
   memgraph::slk::Load(&self->value, reader);
-  memgraph::slk::Load(&self->scope, reader);
+  memgraph::slk::Load(&self->scope_context, reader);
 }
 
 // Serialize code for SystemRecoveryReqV1

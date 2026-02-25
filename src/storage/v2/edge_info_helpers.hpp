@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,8 @@ inline bool IsEdgeVisible(Edge *edge, const Transaction *transaction, View view)
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge->lock};
-    deleted = edge->deleted;
-    delta = edge->delta;
+    deleted = edge->deleted();
+    delta = edge->delta();
   }
   ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
@@ -50,6 +50,20 @@ inline bool IsEdgeVisible(Edge *edge, const Transaction *transaction, View view)
     }
   });
   return exists && !deleted;
+}
+
+/// Returns true if the edge was created in the transaction with the given commit timestamp
+/// (i.e. the edge's delta chain contains RECREATE_OBJECT from that transaction).
+/// If there is no delta, or all deltas are from before this tx, the edge was created before → returns false.
+inline bool EdgeWasCreatedThisTransaction(Edge *edge, uint64_t current_commit_timestamp) {
+  for (Delta *delta = edge->delta(); delta != nullptr; delta = delta->next.load(std::memory_order_acquire)) {
+    const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+    if (ts != current_commit_timestamp) break;
+    if (delta->action == Delta::Action::DELETE_OBJECT) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace memgraph::storage

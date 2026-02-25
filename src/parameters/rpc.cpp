@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "parameters/parameters_rpc.hpp"
+#include "parameters/rpc.hpp"
 
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
@@ -70,7 +70,7 @@ void Save(const memgraph::storage::replication::SetParameterReq &self, memgraph:
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.parameter.name, builder);
   memgraph::slk::Save(self.parameter.value, builder);
-  memgraph::slk::Save(self.parameter.scope, builder);
+  memgraph::slk::Save(self.parameter.scope_context, builder);
 }
 
 void Load(memgraph::storage::replication::SetParameterReq *self, memgraph::slk::Reader *reader) {
@@ -79,7 +79,7 @@ void Load(memgraph::storage::replication::SetParameterReq *self, memgraph::slk::
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->parameter.name, reader);
   memgraph::slk::Load(&self->parameter.value, reader);
-  memgraph::slk::Load(&self->parameter.scope, reader);
+  memgraph::slk::Load(&self->parameter.scope_context, reader);
 }
 
 void Save(const memgraph::storage::replication::SetParameterRes &self, memgraph::slk::Builder *builder) {
@@ -95,7 +95,7 @@ void Save(const memgraph::storage::replication::UnsetParameterReq &self, memgrap
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.name, builder);
-  memgraph::slk::Save(self.scope, builder);
+  memgraph::slk::Save(self.scope_context, builder);
 }
 
 void Load(memgraph::storage::replication::UnsetParameterReq *self, memgraph::slk::Reader *reader) {
@@ -103,7 +103,7 @@ void Load(memgraph::storage::replication::UnsetParameterReq *self, memgraph::slk
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->name, reader);
-  memgraph::slk::Load(&self->scope, reader);
+  memgraph::slk::Load(&self->scope_context, reader);
 }
 
 void Save(const memgraph::storage::replication::UnsetParameterRes &self, memgraph::slk::Builder *builder) {

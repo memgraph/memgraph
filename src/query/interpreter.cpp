@@ -2757,9 +2757,13 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = query_parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-
-  constexpr auto kParamScope = parameters::ParameterScope::GLOBAL;
-
+  const auto scope = std::invoke([&]() -> std::string {
+    if (parameter_query->is_global_scope_) return std::string{parameters::kGlobalScope};
+    if (!interpreter->current_db_.db_acc_) {
+      throw QueryRuntimeException("No current database for parameter scope.");
+    }
+    return std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+  });
   Callback callback;
   switch (parameter_query->action_) {
     case ParameterQuery::Action::SET_PARAMETER: {
@@ -2780,15 +2784,19 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
       callback.fn = [parameter_name = parameter_query->parameter_name_,
                      value_str,
                      parameters = interpreter_context->parameters,
-                     interpreter]() {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
-        }
+                     interpreter,
+                     scope]() {
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        if (!parameters->SetParameter(parameter_name, value_str, kParamScope, &*interpreter->system_transaction_)) {
-          throw QueryRuntimeException("Failed to set parameter '{}'", parameter_name);
+        auto res = parameters->SetParameter(parameter_name, value_str, scope, &*interpreter->system_transaction_);
+        switch (res) {
+          case parameters::SetParameterResult::Success:
+            break;
+          case parameters::SetParameterResult::StorageError:
+            throw QueryRuntimeException("Failed to set parameter '{}' (storage error).", parameter_name);
+          default:
+            std::unreachable();
         }
-        spdlog::info("Set parameter '{}' with value '{}'", parameter_name, value_str);
+        spdlog::info("Set parameter '{}' with value '{}' (scope: {})", parameter_name, value_str, scope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -2796,32 +2804,30 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
     case ParameterQuery::Action::UNSET_PARAMETER: {
       callback.fn = [parameter_name = parameter_query->parameter_name_,
                      parameters = interpreter_context->parameters,
-                     interpreter]() {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
-        }
+                     interpreter,
+                     scope]() {
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
-        if (!parameters->UnsetParameter(parameter_name, kParamScope, &*interpreter->system_transaction_)) {
+        if (!parameters->UnsetParameter(parameter_name, scope, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Parameter '{}' does not exist", parameter_name);
         }
-        spdlog::info("Unset parameter '{}'", parameter_name);
+        spdlog::info("Unset parameter '{}' (scope: {})", parameter_name, scope);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }
     case ParameterQuery::Action::SHOW_PARAMETERS: {
       callback.header = {"name", "value", "scope"};
-      callback.fn = [parameters = interpreter_context->parameters]() {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
-        }
-        auto all_params = parameters->GetAllParameters(parameters::ParameterScope::GLOBAL);
+      callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
+        std::string db_uuid;
+        if (interpreter->current_db_.db_acc_) db_uuid = std::string{interpreter->current_db_.db_acc_->get()->uuid()};
+        auto all_params = parameters->GetParameters(db_uuid);
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_params.size());
         for (const auto &param : all_params) {
-          results.emplace_back(std::vector<TypedValue>{TypedValue(param.name),
-                                                       TypedValue(param.value),
-                                                       TypedValue(parameters::ParameterScopeToString(param.scope))});
+          results.emplace_back(std::vector<TypedValue>{
+              TypedValue(param.name),
+              TypedValue(param.value),
+              TypedValue(param.scope_context == parameters::kGlobalScope ? "global" : "database")});
         }
         return results;
       };
@@ -2829,9 +2835,6 @@ Callback HandleParameterQuery(ParameterQuery *parameter_query, const Parameters 
     }
     case ParameterQuery::Action::DELETE_ALL_PARAMETERS: {
       callback.fn = [parameters = interpreter_context->parameters, interpreter]() {
-        if (!parameters) {
-          throw QueryRuntimeException("Parameters are not available");
-        }
         MG_ASSERT(interpreter->system_transaction_, "System transaction is not available");
         if (!parameters->DeleteAllParameters(&*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Failed to delete all parameters");
@@ -3439,6 +3442,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
                                               interpreter_context->config.query,
+                                              std::string{current_db.db_acc_->get()->uuid()},
                                               interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
@@ -3532,6 +3536,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                               parsed_query.user_parameters,
                                               &interpreter_context->ast_cache,
                                               interpreter_context->config.query,
+                                              std::string{current_db.db_acc_->get()->uuid()},
                                               interpreter_context->parameters);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
@@ -5233,7 +5238,8 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                                   interpreter_context->config.query,
                                   std::move(owner),
                                   db_name,
-                                  privilege_context);
+                                  privilege_context,
+                                  interpreter_context->parameters);
         memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
         return {};
       }};
@@ -8079,10 +8085,13 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
+    std::string database_uuid;
+    if (current_db_.db_acc_) database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
     ParsedQuery parsed_query = ParseQuery(query_string,
                                           params_getter(nullptr),
                                           &interpreter_context_->ast_cache,
                                           interpreter_context_->config.query,
+                                          database_uuid,
                                           interpreter_context_->parameters);
     auto parsing_time = parsing_timer.Elapsed().count();
     LogQueryMessage("Query parsing ended.");
@@ -8408,8 +8417,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.db_acc_) {
       // fix parameters, enums requires storage to map to correct enum value
       parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
-      parsed_query.parameters = PrepareQueryParameters(
-          parsed_query.stripped_query, parsed_query.user_parameters, interpreter_context_->parameters);
+      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query,
+                                                       parsed_query.user_parameters,
+                                                       interpreter_context_->parameters,
+                                                       std::string{current_db_.db_acc_->get()->uuid()});
     }
 
 #ifdef MG_ENTERPRISE

@@ -11,24 +11,23 @@
 
 #pragma once
 
-#include <optional>
-#include <string>
-#include <vector>
-
 #include "kvstore/kvstore.hpp"
 #include "system/state.hpp"
 #include "system/transaction.hpp"
 
 namespace memgraph::parameters {
 
-enum class ParameterScope : uint8_t { GLOBAL };
+inline constexpr std::string_view kGlobalScope = "global";
 
-std::string_view ParameterScopeToString(ParameterScope scope);
+enum class SetParameterResult : std::uint8_t {
+  Success,
+  StorageError,
+};
 
 struct ParameterInfo {
   std::string name;
   std::string value;
-  ParameterScope scope;
+  std::string scope_context;
 };
 
 /**
@@ -43,27 +42,34 @@ struct Parameters {
 
   /**
    * @brief Set a parameter with a given name, value, and scope.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  bool SetParameter(std::string_view name, std::string_view value, ParameterScope scope = ParameterScope::GLOBAL,
-                    system::Transaction *txn = nullptr);
+  SetParameterResult SetParameter(std::string_view name, std::string_view value, std::string_view scope,
+                                  system::Transaction *txn = nullptr);
 
   /**
    * @brief Get a parameter with a given name and scope.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
    */
-  std::optional<std::string> GetParameter(std::string_view name, ParameterScope scope = ParameterScope::GLOBAL) const;
+  std::optional<std::string> GetParameter(std::string_view name, std::string_view scope) const;
 
   /**
    * @brief Delete a parameter with a given name and scope.
+   * @param scope kGlobalScope for global; database UUID for database-scoped.
    * @param txn If non-null, the change is recorded in the transaction for replication/recovery.
    */
-  bool UnsetParameter(std::string_view name, ParameterScope scope = ParameterScope::GLOBAL,
-                      system::Transaction *txn = nullptr);
+  bool UnsetParameter(std::string_view name, std::string_view scope, system::Transaction *txn = nullptr);
 
   /**
-   * @brief Get all parameters with a given scope.
+   * @brief Get all global parameters.
    */
-  std::vector<ParameterInfo> GetAllParameters(ParameterScope scope) const;
+  std::vector<ParameterInfo> GetGlobalParameters() const;
+
+  /**
+   * @brief Get all parameters for a given database.
+   */
+  std::vector<ParameterInfo> GetParameters(std::string_view database_uuid) const;
 
   /**
    * @brief Return the number of parameters for a given scope.

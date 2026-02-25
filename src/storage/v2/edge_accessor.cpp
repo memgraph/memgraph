@@ -14,6 +14,7 @@
 #include <ranges>
 #include <tuple>
 
+#include "flags/general.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
@@ -32,6 +33,22 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+namespace {
+void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config &config, Edge *edge,
+                                          Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type_id,
+                                          PropertyId property, const PropertyValue &old_value) {
+  CreateAndLinkDelta(transaction, edge, Delta::SetPropertyTag(), from_vertex, property, old_value);
+  // No need to record the edge set property info if the edge was created in this transaction
+  // The edge set property info is only used to speed up the edge search, during recovery/replication.
+  if (config.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL &&
+      transaction->commit_info &&
+      !EdgeWasCreatedThisTransaction(edge, transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
+    transaction->RecordEdgeSetPropertyInfo(edge->gid, to_vertex->gid, edge_type_id);
+  }
+}
+}  // namespace
+
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
                                                  View view, bool for_deleted) {
@@ -46,7 +63,7 @@ bool EdgeAccessor::IsDeleted() const {
   if (!storage_->config_.salient.items.properties_on_edges) {
     return false;
   }
-  return edge_.ptr->deleted;
+  return edge_.ptr->deleted();
 }
 
 bool EdgeAccessor::IsVisible(const View view) const {
@@ -60,10 +77,10 @@ bool EdgeAccessor::IsVisible(const View view) const {
       // Initialize deleted by checking if out edges contain edge_
       attached = std::ranges::any_of(from_vertex_->out_edges,
                                      [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; });
-      delta = from_vertex_->delta;
+      delta = from_vertex_->delta();
 
       // If vertex has non-sequential deltas, hold lock while applying them
-      if (!from_vertex_->has_uncommitted_non_sequential_deltas) {
+      if (!from_vertex_->has_uncommitted_non_sequential_deltas()) {
         guard.unlock();
       }
 
@@ -100,8 +117,8 @@ bool EdgeAccessor::IsVisible(const View view) const {
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{edge_.ptr->lock};
-      deleted = edge_.ptr->deleted;
-      delta = edge_.ptr->delta;
+      deleted = edge_.ptr->deleted();
+      delta = edge_.ptr->delta();
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
       switch (delta.action) {
@@ -142,11 +159,11 @@ VertexAccessor EdgeAccessor::FromVertex() const { return VertexAccessor{from_ver
 VertexAccessor EdgeAccessor::ToVertex() const { return VertexAccessor{to_vertex_, storage_, transaction_}; }
 
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
-  return VertexAccessor{from_vertex_, storage_, transaction_, for_deleted_ && from_vertex_->deleted};
+  return VertexAccessor{from_vertex_, storage_, transaction_, for_deleted_ && from_vertex_->deleted()};
 }
 
 VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
-  return VertexAccessor{to_vertex_, storage_, transaction_, for_deleted_ && to_vertex_->deleted};
+  return VertexAccessor{to_vertex_, storage_, transaction_, for_deleted_ && to_vertex_->deleted()};
 }
 
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
@@ -163,7 +180,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
@@ -179,7 +196,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
     DMG_ASSERT(from_vertex_, "Missing from vertex!");
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
+    CreateAndLinkDeltaForEdgeSetProperty(
+        transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, *current_value);
     edge_.ptr->properties.SetProperty(property, value);
     storage_->indices_.UpdateOnSetProperty(
         edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
@@ -216,13 +234,14 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
   utils::AtomicMemoryBlock([this, &properties, &schema_acc]() {
     for (const auto &[property, value] : properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
+      CreateAndLinkDeltaForEdgeSetProperty(
+          transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -257,7 +276,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
@@ -267,7 +286,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
+      CreateAndLinkDeltaForEdgeSetProperty(
+          transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -301,7 +321,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
-  if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if (edge_.ptr->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   using ReturnType = decltype(edge_.ptr->properties.Properties());
   std::optional<ReturnType> properties;
@@ -309,8 +329,14 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
-      CreateAndLinkDelta(
-          transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first, property.second);
+      CreateAndLinkDeltaForEdgeSetProperty(transaction_,
+                                           storage_->config_,
+                                           edge_.ptr,
+                                           from_vertex_,
+                                           to_vertex_,
+                                           edge_type_,
+                                           property.first,
+                                           property.second);
       storage_->indices_.UpdateOnSetProperty(
           edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_, edge_.ptr, *transaction_);
       if (schema_acc) {
@@ -341,9 +367,9 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
+    deleted = edge_.ptr->deleted();
     value.emplace(edge_.ptr->properties.GetProperty(property));
-    delta = edge_.ptr->delta;
+    delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
@@ -380,7 +406,7 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   if (!storage_->config_.salient.items.properties_on_edges) return 0;
 
   auto guard = std::shared_lock{edge_.ptr->lock};
-  Delta *delta = edge_.ptr->delta;
+  Delta *delta = edge_.ptr->delta();
   if (!delta) {
     return edge_.ptr->properties.PropertySize(property);
   }
@@ -405,9 +431,9 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
+    deleted = edge_.ptr->deleted();
     properties = edge_.ptr->properties.Properties();
-    delta = edge_.ptr->delta;
+    delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
     switch (delta.action) {
@@ -458,12 +484,12 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
+    deleted = edge_.ptr->deleted();
     auto property_paths = properties |
                           rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
                           r::to<std::vector<storage::PropertyPath>>();
     property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
-    delta = edge_.ptr->delta;
+    delta = edge_.ptr->delta();
   }
   auto properties_map =
       rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {

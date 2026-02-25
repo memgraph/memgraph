@@ -139,7 +139,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::unique_ptr<ActiveCons
   validator.add(label, constraint);
 
   for (auto const &vertex : vertices) {
-    if (vertex.deleted) continue;
+    if (vertex.deleted()) continue;
     if (!std::ranges::contains(vertex.labels, label)) continue;
 
     auto violation = vertex.properties.PropertiesMatchTypes(validator);

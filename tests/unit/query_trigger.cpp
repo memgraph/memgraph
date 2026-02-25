@@ -1049,8 +1049,12 @@ TYPED_TEST(TriggerStoreTest, Restore) {
 
   const auto reset_store = [&] {
     store.emplace(this->testing_directory);
-    store->RestoreTriggers(
-        &this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{}, &this->auth_checker, "memgraph");
+    store->RestoreTriggers(&this->ast_cache,
+                           &*this->dba,
+                           memgraph::query::InterpreterConfig::Query{},
+                           &this->auth_checker,
+                           "memgraph",
+                           nullptr);
   };
 
   reset_store();
@@ -1079,7 +1083,8 @@ TYPED_TEST(TriggerStoreTest, Restore) {
       memgraph::query::InterpreterConfig::Query{},
       this->auth_checker.GenQueryUser(std::nullopt, {}),
       memgraph::dbms::kDefaultDB,
-      memgraph::query::TriggerPrivilegeContext::DEFINER);
+      memgraph::query::TriggerPrivilegeContext::DEFINER,
+      nullptr);
   store->AddTrigger(
       trigger_name_after,
       trigger_statement,
@@ -1091,7 +1096,8 @@ TYPED_TEST(TriggerStoreTest, Restore) {
       memgraph::query::InterpreterConfig::Query{},
       this->auth_checker.GenQueryUser(owner, {}),
       memgraph::dbms::kDefaultDB,
-      memgraph::query::TriggerPrivilegeContext::DEFINER);
+      memgraph::query::TriggerPrivilegeContext::DEFINER,
+      nullptr);
 
   const auto check_triggers = [&] {
     ASSERT_EQ(store->GetTriggerInfo().size(), 2);
@@ -1150,7 +1156,8 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
                                 memgraph::query::InterpreterConfig::Query{},
                                 this->auth_checker.GenQueryUser(std::nullopt, {}),
                                 memgraph::dbms::kDefaultDB,
-                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+                                memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                nullptr),
                memgraph::utils::BasicException);
   ASSERT_THROW(store.AddTrigger("trigger",
                                 "RETURN createdEdges",
@@ -1162,7 +1169,8 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
                                 memgraph::query::InterpreterConfig::Query{},
                                 this->auth_checker.GenQueryUser(std::nullopt, {}),
                                 memgraph::dbms::kDefaultDB,
-                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+                                memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                nullptr),
                memgraph::utils::BasicException);
 
   ASSERT_THROW(store.AddTrigger("trigger",
@@ -1175,7 +1183,8 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
                                 memgraph::query::InterpreterConfig::Query{},
                                 this->auth_checker.GenQueryUser(std::nullopt, {}),
                                 memgraph::dbms::kDefaultDB,
-                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+                                memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                nullptr),
                memgraph::utils::BasicException);
 
   ASSERT_NO_THROW(store.AddTrigger(
@@ -1189,7 +1198,8 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
       memgraph::query::InterpreterConfig::Query{},
       this->auth_checker.GenQueryUser(std::nullopt, {}),
       memgraph::dbms::kDefaultDB,
-      memgraph::query::TriggerPrivilegeContext::DEFINER));
+      memgraph::query::TriggerPrivilegeContext::DEFINER,
+      nullptr));
 
   // Inserting with the same name
   ASSERT_THROW(store.AddTrigger("trigger",
@@ -1202,7 +1212,8 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
                                 memgraph::query::InterpreterConfig::Query{},
                                 this->auth_checker.GenQueryUser(std::nullopt, {}),
                                 memgraph::dbms::kDefaultDB,
-                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+                                memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                nullptr),
                memgraph::utils::BasicException);
   ASSERT_THROW(store.AddTrigger("trigger",
                                 "RETURN 1",
@@ -1214,7 +1225,8 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
                                 memgraph::query::InterpreterConfig::Query{},
                                 this->auth_checker.GenQueryUser(std::nullopt, {}),
                                 memgraph::dbms::kDefaultDB,
-                                memgraph::query::TriggerPrivilegeContext::DEFINER),
+                                memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                nullptr),
                memgraph::utils::BasicException);
 
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
@@ -1238,7 +1250,8 @@ TYPED_TEST(TriggerStoreTest, DropTrigger) {
                    memgraph::query::InterpreterConfig::Query{},
                    this->auth_checker.GenQueryUser(std::nullopt, {}),
                    memgraph::dbms::kDefaultDB,
-                   memgraph::query::TriggerPrivilegeContext::DEFINER);
+                   memgraph::query::TriggerPrivilegeContext::DEFINER,
+                   nullptr);
 
   ASSERT_THROW(store.DropTrigger("Unknown"), memgraph::utils::BasicException);
   ASSERT_NO_THROW(store.DropTrigger(trigger_name));
@@ -1259,7 +1272,8 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
                    memgraph::query::InterpreterConfig::Query{},
                    this->auth_checker.GenQueryUser(std::nullopt, {}),
                    memgraph::dbms::kDefaultDB,
-                   memgraph::query::TriggerPrivilegeContext::DEFINER);
+                   memgraph::query::TriggerPrivilegeContext::DEFINER,
+                   nullptr);
   expected_info.push_back({"trigger",
                            "RETURN 1",
                            memgraph::query::TriggerEventType::VERTEX_CREATE,
@@ -1290,7 +1304,8 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
                    memgraph::query::InterpreterConfig::Query{},
                    this->auth_checker.GenQueryUser(std::nullopt, {}),
                    memgraph::dbms::kDefaultDB,
-                   memgraph::query::TriggerPrivilegeContext::DEFINER);
+                   memgraph::query::TriggerPrivilegeContext::DEFINER,
+                   nullptr);
   expected_info.push_back({"edge_update_trigger",
                            "RETURN 1",
                            memgraph::query::TriggerEventType::EDGE_UPDATE,
@@ -1415,7 +1430,8 @@ TYPED_TEST(TriggerStoreTest, AnyTriggerAllKeywords) {
                                        memgraph::query::InterpreterConfig::Query{},
                                        this->auth_checker.GenQueryUser(std::nullopt, {}),
                                        memgraph::dbms::kDefaultDB,
-                                       memgraph::query::TriggerPrivilegeContext::DEFINER));
+                                       memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                       nullptr));
       store.DropTrigger(trigger_name);
     }
   }
@@ -1622,7 +1638,8 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                     memgraph::query::InterpreterConfig::Query{},
                                     mock_user_ptr,
                                     memgraph::dbms::kDefaultDB,
-                                    memgraph::query::TriggerPrivilegeContext::DEFINER));
+                                    memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                    nullptr));
 
   EXPECT_CALL(mock_userless,
               IsAuthorized(ElementsAre(Privilege::CREATE),
@@ -1639,7 +1656,8 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                     memgraph::query::InterpreterConfig::Query{},
                                     mock_userless_ptr,
                                     memgraph::dbms::kDefaultDB,
-                                    memgraph::query::TriggerPrivilegeContext::DEFINER));
+                                    memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                    nullptr));
 
   EXPECT_CALL(mock_user,
               IsAuthorized(ElementsAre(Privilege::MATCH),
@@ -1656,7 +1674,8 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                  memgraph::query::InterpreterConfig::Query{},
                                  mock_user_ptr,
                                  memgraph::dbms::kDefaultDB,
-                                 memgraph::query::TriggerPrivilegeContext::DEFINER),
+                                 memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                 nullptr),
                memgraph::utils::BasicException);
 
   // Restore
@@ -1681,7 +1700,8 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
                                          &*this->dba,
                                          memgraph::query::InterpreterConfig::Query{},
                                          &mock_checker,
-                                         memgraph::dbms::kDefaultDB));
+                                         memgraph::dbms::kDefaultDB,
+                                         nullptr));
 
   const auto triggers = store->GetTriggerInfo();
   ASSERT_EQ(triggers.size(), 1);

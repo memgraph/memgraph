@@ -21,38 +21,43 @@
 
 namespace memgraph::storage {
 
-#define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv)                           \
-  class name final {                                                                  \
-   private:                                                                           \
-    explicit name(type_store id) : id_{id} {}                                         \
-                                                                                      \
-   public:                                                                            \
-    /* Default constructor to allow serialization or preallocation. */                \
-    name() = default;                                                                 \
-                                                                                      \
-    static name FromUint(type_store id) { return name{id}; }                          \
-    static name FromInt(type_conv id) { return name{std::bit_cast<type_store>(id)}; } \
-    type_store AsUint() const { return id_; }                                         \
-    type_conv AsInt() const { return std::bit_cast<type_conv>(id_); }                 \
-    static name FromString(std::string_view id);                                      \
-    std::string ToString() const;                                                     \
-    friend bool operator==(const name &, const name &) = default;                     \
-    friend bool operator<(const name &, const name &) = default;                      \
-    friend std::strong_ordering operator<=>(const name &, const name &) = default;    \
-    friend std::ostream &operator<<(std::ostream &os, const name &id) {               \
-      os << id.ToString();                                                            \
-      return os;                                                                      \
-    }                                                                                 \
-                                                                                      \
-   private:                                                                           \
-    type_store id_;                                                                   \
-  };                                                                                  \
+#define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv)                                     \
+  class name final {                                                                            \
+   private:                                                                                     \
+    constexpr explicit name(type_store id) : id_{id} {}                                         \
+                                                                                                \
+   public:                                                                                      \
+    /* Default constructor to allow serialization or preallocation. */                          \
+    name() = default;                                                                           \
+                                                                                                \
+    constexpr static name FromUint(type_store id) { return name{id}; }                          \
+    constexpr static name FromInt(type_conv id) { return name{std::bit_cast<type_store>(id)}; } \
+    type_store AsUint() const { return id_; }                                                   \
+    type_conv AsInt() const { return std::bit_cast<type_conv>(id_); }                           \
+    static name FromString(std::string_view id);                                                \
+    std::string ToString() const;                                                               \
+    friend bool operator==(const name &, const name &) = default;                               \
+    friend bool operator<(const name &, const name &) = default;                                \
+    friend std::strong_ordering operator<=>(const name &, const name &) = default;              \
+    friend std::ostream &operator<<(std::ostream &os, const name &id) {                         \
+      os << id.ToString();                                                                      \
+      return os;                                                                                \
+    }                                                                                           \
+                                                                                                \
+   private:                                                                                     \
+    type_store id_;                                                                             \
+  };                                                                                            \
   static_assert(std::is_trivially_copyable_v<name>, "storage::" #name " must be trivially copyable!");
 
 STORAGE_DEFINE_ID_TYPE(Gid, uint64_t, int64_t);
 STORAGE_DEFINE_ID_TYPE(LabelId, uint32_t, int32_t);
 STORAGE_DEFINE_ID_TYPE(PropertyId, uint32_t, int32_t);
 STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t);
+
+constexpr Gid kInvalidGid = Gid::FromUint(-1);
+constexpr LabelId kInvalidLabelId = LabelId::FromUint(-1);
+constexpr PropertyId kInvalidPropertyId = PropertyId::FromUint(-1);
+constexpr EdgeTypeId kInvalidEdgeTypeId = EdgeTypeId::FromUint(-1);
 
 #undef STORAGE_DEFINE_ID_TYPE
 

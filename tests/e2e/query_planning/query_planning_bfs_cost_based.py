@@ -82,6 +82,10 @@ def test_bfs_cost_based_selection(memgraph):
         "CREATE (a)-[:NEXT]->(b);"
     )
 
+    # plan cache invalidation
+    memgraph.execute("DROP INDEX ON :Node(id);")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+
     # create nodes with a different label so ScanAll isn't considered cheaper than ScanAllByLabelProperties
     memgraph.execute("UNWIND range(1, 100) AS id CREATE (n:Node1 {id: id});")
 

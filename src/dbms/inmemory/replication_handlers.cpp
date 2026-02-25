@@ -30,6 +30,9 @@
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
+#include <unordered_map>
+
+import memgraph.utils.fnv;
 
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
@@ -381,6 +384,29 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
     dbms::DbmsHandler *dbms_handler, utils::UUID const &current_main_uuid, uint64_t const request_version,
     slk::Reader *req_reader, slk::Builder *res_builder) {
+  // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
+  // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
+  // take the read lock on repl state, main promotion will start after committing is finished.
+  // If I am unable to take the read lock, then something else of a higher priority is running and I should commit
+  // later.
+  auto const maybe_locked_repl_state =
+      std::invoke([&repl_state]() -> std::optional<decltype(repl_state.TryReadLock())> {
+        try {
+          return repl_state.TryReadLock();
+        } catch (utils::TryLockException const &) {
+          spdlog::info("Failed to take repl state read lock, cannot commit");
+          return std::nullopt;
+        }
+      });
+
+  if (!maybe_locked_repl_state.has_value()) {
+    const storage::replication::PrepareCommitRes res{false};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
+
   storage::replication::PrepareCommitReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -440,11 +466,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
-
-  auto const deltas_batch_progress_size = std::invoke([&repl_state]() -> uint64_t {
-    auto const locked_repl_state = repl_state.ReadLock();
-    return locked_repl_state->GetDeltasBatchProgressSize();
-  });
 
   auto deltas_res = ReadAndApplyDeltasSingleTxn(storage,
                                                 &decoder,
@@ -732,6 +753,29 @@ void InMemoryReplicationHandlers::WalFilesHandler(
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
     utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
+  // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
+  // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
+  // take the read lock on repl state, main promotion will start after loading WAL files is finished.
+  // If I am unable to take the read lock, then something else of a higher priority is running and I should apply WAL
+  // files later
+  auto const maybe_locked_repl_state =
+      std::invoke([&repl_state]() -> std::optional<decltype(repl_state.TryReadLock())> {
+        try {
+          return repl_state.TryReadLock();
+        } catch (utils::TryLockException const &) {
+          spdlog::info("Failed to take repl state read lock, cannot apply WAL files");
+          return std::nullopt;
+        }
+      });
+
+  if (!maybe_locked_repl_state.has_value()) {
+    const storage::replication::WalFilesRes res{std::nullopt, 0};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
+
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -798,7 +842,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   uint64_t num_committed_txns{0};
   for (auto i = 0UL; i < wal_file_number; ++i) {
     const auto [success, current_batch_counter, num_txns_committed] =
-        LoadWal(repl_state, active_files[i], storage, res_builder, local_batch_counter);
+        LoadWal(deltas_batch_progress_size, active_files[i], storage, res_builder, local_batch_counter);
 
     if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
@@ -833,6 +877,29 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
     rpc::FileReplicationHandler const &file_replication_handler, dbms::DbmsHandler *dbms_handler,
     utils::UUID const &current_main_uuid, uint64_t const request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
+  // It is important to take repl state lock immediately at the start of the handler. In that way it cannot happen that
+  // a main promotion starts executing while this handler is executing. In this way we have a guarantee: If I am able to
+  // take the read lock on repl state, main promotion will start after loading the current WAL is finished.
+  // If I am unable to take the read lock, then something else of a higher priority is running and I should apply this
+  // WAL file later
+  auto const maybe_locked_repl_state =
+      std::invoke([&repl_state]() -> std::optional<decltype(repl_state.TryReadLock())> {
+        try {
+          return repl_state.TryReadLock();
+        } catch (utils::TryLockException const &) {
+          spdlog::info("Failed to take repl state read lock, cannot apply current WAL file");
+          return std::nullopt;
+        }
+      });
+
+  if (!maybe_locked_repl_state.has_value()) {
+    const storage::replication::CurrentWalRes res{std::nullopt, 0};
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  auto const deltas_batch_progress_size = (*maybe_locked_repl_state)->GetDeltasBatchProgressSize();
+
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -891,7 +958,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
   // When loading a single WAL file, we don't care about saving number of deltas
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
-  auto const load_wal_res = LoadWal(repl_state, active_files[0], storage, res_builder);
+  auto const load_wal_res = LoadWal(deltas_batch_progress_size, active_files[0], storage, res_builder);
   if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
@@ -920,9 +987,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
 InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
-    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
-    std::filesystem::path const &wal_path, storage::InMemoryStorage *storage, slk::Builder *res_builder,
-    uint32_t const start_batch_counter) {
+    uint64_t const deltas_batch_progress_size, std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
+    slk::Builder *res_builder, uint32_t const start_batch_counter) {
   spdlog::trace("Received WAL saved to {}", wal_path);
 
   std::optional<storage::durability::WalInfo> maybe_wal_info;
@@ -977,11 +1043,6 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   }
 
   wal_decoder.SetPosition(wal_info.offset_deltas);
-
-  auto const deltas_batch_progress_size = std::invoke([&repl_state]() -> uint64_t {
-    auto const locked_repl_state = repl_state.ReadLock();
-    return locked_repl_state->GetDeltasBatchProgressSize();
-  });
 
   uint32_t local_batch_counter = start_batch_counter;
   uint64_t num_txns_committed{0};
@@ -1084,6 +1145,22 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   spdlog::trace("Current durable commit timestamp: {}", current_durable_commit_timestamp);
 
   uint64_t prev_printed_timestamp = 0;
+
+  // Cache (edge_gid, delta_timestamp, edge_type) -> EdgeAccessor. Filled on EdgeCreate or on first SET_PROPERTY
+  // resolution; reused for subsequent SET_PROPERTY.
+  struct EdgeSetPropertyCacheKey {
+    uint64_t edge_gid{};
+    uint64_t delta_timestamp{};
+    bool operator==(const EdgeSetPropertyCacheKey &o) const = default;
+  };
+
+  struct EdgeSetPropertyCacheKeyHash {
+    size_t operator()(const EdgeSetPropertyCacheKey &k) const {
+      return utils::HashCombine<uint64_t, uint64_t>{}(k.edge_gid, k.delta_timestamp);
+    }
+  };
+
+  std::unordered_map<EdgeSetPropertyCacheKey, EdgeAccessor, EdgeSetPropertyCacheKeyHash> edge_set_property_cache;
 
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == deltas_batch_progress_size) {
@@ -1190,12 +1267,16 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!to_vertex) {
             throw utils::BasicException("Failed to find vertex {} when adding edge {}.", to_vertex_gid, edge_gid);
           }
-          auto edge = transaction->CreateEdgeEx(
+          auto edge_result = transaction->CreateEdgeEx(
               &*from_vertex, &*to_vertex, transaction->NameToEdgeType(data.edge_type), data.gid);
-          if (!edge) {
+          if (!edge_result) {
             throw utils::BasicException(
                 "Failed to add edge {} between vertices {} and {}.", edge_gid, from_vertex_gid, to_vertex_gid);
           }
+          // Pre-fill cache for subsequent SET_PROPERTY on this edge in the same transaction.
+          auto &edge = *edge_result;
+          EdgeSetPropertyCacheKey key{.edge_gid = edge_gid, .delta_timestamp = delta_timestamp};
+          edge_set_property_cache.emplace(key, edge);
         },
         [&](WalEdgeDelete const &data) {
           auto const edge_gid = data.gid.AsUint();
@@ -1228,30 +1309,48 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         },
         [&](WalEdgeSetProperty const &data) {
           auto const edge_gid = data.gid.AsUint();
-          spdlog::trace("   Delta {}. Edge {} set property", current_delta_idx, edge_gid);
+          spdlog::trace("   Delta {}. Edge {} set property (from_gid={} to_gid={})",
+                        current_delta_idx,
+                        edge_gid,
+                        data.from_gid.has_value() ? static_cast<int64_t>(data.from_gid->AsUint()) : -1,
+                        data.to_gid.has_value() ? static_cast<int64_t>(data.to_gid->AsUint()) : -1);
           if (!storage->config_.salient.items.properties_on_edges)
             throw utils::BasicException(
                 "Can't set properties on edges because properties on edges "
                 "are disabled!");
 
           auto *transaction = get_replication_accessor(delta_timestamp);
+          EdgeSetPropertyCacheKey const cache_key{.edge_gid = edge_gid, .delta_timestamp = delta_timestamp};
 
-          // The following block of code effectively implements `FindEdge` and
-          // yields an accessor that is only valid for managing the edge's
-          // properties.
+          // Fast path: use cached edge accessor.
+          auto it = edge_set_property_cache.find(cache_key);
+          if (it != edge_set_property_cache.end()) {
+            auto ret =
+                it->second.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
+            if (!ret) {
+              throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
+            }
+            return;
+          }
+
+          std::optional<std::tuple<EdgeRef,
+                                   memgraph::storage::EdgeTypeId,
+                                   memgraph::storage::Vertex *,
+                                   memgraph::storage::Vertex *>>
+              edge_info;
+
+          // Slow path: resolve edge via edge_acc / FindEdge (WAL or legacy replication).
           auto edge = edge_acc.find(data.gid);
           if (edge == edge_acc.end()) {
             throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
           }
-          // The edge visibility check must be done here manually because we
-          // don't allow direct access to the edges through the public API.
           {
             bool is_visible = true;
             Delta *local_delta = nullptr;
             {
               auto guard = std::shared_lock{edge->lock};
-              is_visible = !edge->deleted;
-              local_delta = edge->delta;
+              is_visible = !edge->deleted();
+              local_delta = edge->delta();
             }
             ApplyDeltasForRead(
                 &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
@@ -1280,19 +1379,43 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             }
           }
 
-          // Here we create an edge accessor that we will use to get the
-          // properties of the edge. The accessor is created with an invalid
-          // type and invalid from/to pointers because we don't know them
-          // here, but that isn't an issue because we won't use that part of
-          // the API here.
-
           auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
             if (data.from_gid.has_value()) {
+              // Faster path: use to vertex and edge type from WAL delta.
+              // Newer versions store to_gid and edge_type when needed, so we can use the faster path via FindEdge.
+              // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
+              // edge type in case the edge was created in this transaction. We should either be using the cached
+              // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
+              // type.
+              if (data.to_gid.has_value() && data.edge_type.has_value() && *data.to_gid != storage::kInvalidGid &&
+                  !data.edge_type->empty()) {
+                auto to_vertex = transaction->FindVertex(*data.to_gid, View::NEW);
+                if (!to_vertex)
+                  throw utils::BasicException("Failed to find to vertex {} when setting edge property.",
+                                              data.to_gid->AsUint());
+
+                auto from_vertex = transaction->FindVertex(*data.from_gid, View::NEW);
+                if (!from_vertex)
+                  throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
+                                              data.from_gid->AsUint());
+
+                auto const edge_type_id = transaction->NameToEdgeType(*data.edge_type);
+                auto found_edge = transaction->FindEdge(data.gid, View::NEW, edge_type_id, &*from_vertex, &*to_vertex);
+                if (!found_edge) {
+                  constexpr auto src_loc{std::source_location()};
+                  throw utils::BasicException(
+                      "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
+                }
+                return std::tuple{
+                    found_edge->edge_, found_edge->edge_type_, found_edge->from_vertex_, found_edge->to_vertex_};
+              }
+
+              // Fallback path: resolve edge via vertex_acc / FindEdge (legacy replication).
               auto vertex_acc = storage->vertices_.access();
               auto from_vertex = vertex_acc.find(data.from_gid);
               if (from_vertex == vertex_acc.end())
                 throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
-                                            from_vertex->gid.AsUint());
+                                            data.from_gid->AsUint());
 
               auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
                 return std::get<2>(in) == raw_edge_ref;
@@ -1304,7 +1427,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               const auto &[edge_type, vertex_to, edge_ref] = *found_edge;
               return std::tuple{edge_ref, edge_type, &*from_vertex, vertex_to};
             }
-            // fallback if from_gid not available
             auto found_edge = storage->FindEdge(edge->gid);
             if (!found_edge) {
               constexpr auto src_loc{std::source_location()};
@@ -1314,8 +1436,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
             return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
           });
+          edge_info.emplace(edge_ref, edge_type, from_vertex, vertex_to);
 
-          auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
+          auto const &[er, et, fv, tv] = *edge_info;
+          EdgeAccessor ea{er, et, fv, tv, storage, &transaction->GetTransaction()};
+          edge_set_property_cache.emplace(cache_key, ea);  // Fast edge accessor lookup cache
           auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (!ret) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);

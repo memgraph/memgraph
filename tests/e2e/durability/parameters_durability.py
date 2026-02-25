@@ -65,5 +65,26 @@ def test_parameters_recovered_with_recovery(test_name):
     interactive_mg_runner.kill_all()
 
 
+def test_global_and_database_parameters_recovered_with_recovery(test_name):
+    """Global and database-scoped parameters are both recovered after restart with recovery."""
+    data_dir = get_data_path(FILE, test_name)
+    interactive_mg_runner.start(instances(data_dir), "no_recovery")
+    conn = connect(host="localhost", port=7687)
+    cursor = conn.cursor()
+    execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER global_p="g";')
+    execute_and_fetch_all(cursor, 'SET PARAMETER db_p="d";')  # current database (default)
+    interactive_mg_runner.kill_all()
+
+    interactive_mg_runner.start(instances(data_dir), "recovery")
+    conn = connect(host="localhost", port=7687)
+    cursor = conn.cursor()
+    rows = execute_and_fetch_all(cursor, "SHOW PARAMETERS;")
+    assert len(rows) == 2
+    by_name = {r[0]: (r[1], r[2]) for r in rows}  # name -> (value, scope)
+    assert by_name["global_p"] == ('"g"', "global")
+    assert by_name["db_p"] == ('"d"', "database")
+    interactive_mg_runner.kill_all()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
