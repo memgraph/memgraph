@@ -5,6 +5,7 @@ add_unit_test(planner
         unittest__egraph.cpp
         unittest__extractor.cpp
         unittest__pattern.cpp
+        unittest__match_arena.cpp
         unittest__ematch.cpp
         unittest__rewrite.cpp
         unittest__join_order.cpp

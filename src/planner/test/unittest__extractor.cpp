@@ -35,7 +35,7 @@ auto Add(EGraph &egraph, EClassId left, EClassId right) {
   return egraph.emplace(symbol::ADD, {left, right});
 }
 
-TEST(Extractor, Thing) {
+TEST(Extractor, BasicLeafExtraction) {
   struct CostModel {
     using CostResult = double;
 

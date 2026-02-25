@@ -155,7 +155,7 @@ TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuildSelfReference) {
   EXPECT_EQ(egraph.num_classes(), 1);
 }
 
-TEST(EGraphEClassAccess, GetEClassByID) {
+TEST(EGraphBasicOperations, GetEClassByID) {
   EGraph<Op, NoAnalysis> egraph;
 
   auto [info, info_node, ins] = egraph.emplace(Op::Test);
@@ -169,7 +169,7 @@ TEST(EGraphEClassAccess, GetEClassByID) {
   EXPECT_EQ(repr.symbol(), Op::Test);
 }
 
-TEST(EGraphClearAndReserve, ClearEmptiesTheGraph) {
+TEST(EGraphBasicOperations, ClearEmptiesTheGraph) {
   EGraph<Op, NoAnalysis> egraph;
 
   egraph.emplace(Op::A);
@@ -355,7 +355,7 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
   }
 }
 
-TEST(EGraphCongruenceClosureBug, InfinateSelfReference) {
+TEST(EGraphCongruenceClosureBug, InfiniteSelfReference) {
   EGraph<Op, NoAnalysis> egraph;
   ProcessingContext<Op> ctx;
 
