@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Correctness tests for VM executor modes (Verify vs Clean) and EMatcher vs VM comparison.
-// Performance benchmarks have been moved to src/planner/bench/bench_vm.cpp.
+// Correctness tests comparing EMatcher (recursive) vs VM executor (bytecode).
+// Both implementations should produce identical match results.
 
 #include <random>
 
@@ -18,7 +18,6 @@
 
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
-#include "planner/pattern/vm/parent_index.hpp"
 #include "test_egraph_fixture.hpp"
 #include "test_patterns.hpp"
 
@@ -26,154 +25,6 @@ namespace memgraph::planner::core {
 
 using namespace test;
 using namespace vm;
-
-// ============================================================================
-// VM Mode Comparison Fixture
-// ============================================================================
-
-class VMModesComparison : public EGraphTestBase {
- protected:
-  EMatchContext ctx;
-  std::vector<PatternMatch> verify_results;
-  std::vector<PatternMatch> clean_results;
-
-  /// Run both executors and verify they produce the same number of matches
-  void verify_modes_match(CompiledPattern<Op> const &pattern, std::span<EClassId const> candidates) {
-    // Build parent index for clean mode
-    ParentSymbolIndex<Op, NoAnalysis> parent_index(egraph);
-    parent_index.rebuild();
-
-    VMExecutorVerify<Op, NoAnalysis> verify_executor(egraph);
-    VMExecutorClean<Op, NoAnalysis> clean_executor(egraph, parent_index);
-
-    verify_results.clear();
-    verify_executor.execute(pattern, candidates, ctx, verify_results);
-
-    clean_results.clear();
-    clean_executor.execute(pattern, candidates, ctx, clean_results);
-
-    // Both modes should produce the same number of matches
-    EXPECT_EQ(verify_results.size(), clean_results.size());
-  }
-
-  auto get_all_candidates() -> std::vector<EClassId> {
-    std::vector<EClassId> candidates;
-    for (auto id : egraph.canonical_class_ids()) {
-      candidates.push_back(id);
-    }
-    return candidates;
-  }
-};
-
-// ============================================================================
-// Test: Verify vs Clean mode produce same results
-// ============================================================================
-
-TEST_F(VMModesComparison, ParentTraversalSelectivity) {
-  // Create an e-graph with many nodes sharing common children.
-  // Both modes should find the same matches.
-  constexpr std::size_t kNumLeaves = 100;
-  constexpr std::size_t kParentsPerLeaf = 20;
-
-  std::vector<EClassId> leaves;
-  leaves.reserve(kNumLeaves);
-
-  for (std::size_t i = 0; i < kNumLeaves; ++i) {
-    leaves.push_back(leaf(Op::Const, static_cast<uint64_t>(i)));
-  }
-
-  std::mt19937 rng(42);
-  std::uniform_int_distribution<int> sym_dist(0, 3);
-  std::array<Op, 4> symbols = {Op::Add, Op::Mul, Op::Neg, Op::F};
-
-  for (auto leaf_id : leaves) {
-    for (std::size_t p = 0; p < kParentsPerLeaf; ++p) {
-      auto sym = symbols[sym_dist(rng)];
-      if (sym == Op::Neg) {
-        node(Op::Neg, leaf_id);
-      } else {
-        auto other_leaf = leaves[rng() % leaves.size()];
-        node(sym, leaf_id, other_leaf);
-      }
-    }
-  }
-
-  rebuild_egraph();
-
-  PatternCompiler<Op> compiler;
-  auto pattern = compiler.compile(TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot));
-  auto candidates = get_all_candidates();
-
-  verify_modes_match(*pattern, candidates);
-}
-
-TEST_F(VMModesComparison, DeepPatternMatching) {
-  // Chains of Neg nodes - both modes should match identically.
-  constexpr std::size_t kNumChains = 100;
-  constexpr std::size_t kChainDepth = 10;
-
-  for (std::size_t i = 0; i < kNumChains; ++i) {
-    auto current = leaf(Op::Const, static_cast<uint64_t>(i));
-    for (std::size_t d = 0; d < kChainDepth; ++d) {
-      current = node(Op::Neg, current);
-    }
-  }
-
-  rebuild_egraph();
-
-  PatternCompiler<Op> compiler;
-  auto pattern = compiler.compile(TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Var{kVarX}))}, kTestRoot));
-  auto candidates = get_all_candidates();
-
-  verify_modes_match(*pattern, candidates);
-}
-
-TEST_F(VMModesComparison, SelfReferentialEClass) {
-  // Self-referential e-class via merge.
-  // Setup: n0 = Const(64), n1 = F(n0), n2 = F(n1), merge(n1, n2)
-  // Results in EC1 = {F(n0), F(EC1)}
-
-  auto n0 = leaf(Op::B, 64);
-  auto n1 = node(Op::F, n0);
-  auto n2 = node(Op::F, n1);
-
-  merge(n1, n2);
-  rebuild_egraph();
-
-  PatternCompiler<Op> compiler;
-  auto pattern = compiler.compile(TestPattern::build(Op::F, {Sym(Op::F, Var{kVarX})}, kTestRoot));
-  auto candidates = get_all_candidates();
-
-  verify_modes_match(*pattern, candidates);
-
-  // Should find at least 2 matches due to self-reference
-  EXPECT_GE(verify_results.size(), 2);
-}
-
-TEST_F(VMModesComparison, HighParentCount) {
-  // Hub node with many parents of different types.
-  constexpr std::size_t kFParents = 1000;
-  constexpr std::size_t kNegParents = 100;
-
-  auto hub = leaf(Op::Const, 0);
-
-  for (std::size_t i = 0; i < kFParents; ++i) {
-    auto other = leaf(Op::Const, i + 1);
-    node(Op::F, hub, other);
-  }
-
-  for (std::size_t i = 0; i < kNegParents; ++i) {
-    node(Op::Neg, hub);
-  }
-
-  rebuild_egraph();
-
-  PatternCompiler<Op> compiler;
-  auto pattern = compiler.compile(TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot));
-  auto candidates = get_all_candidates();
-
-  verify_modes_match(*pattern, candidates);
-}
 
 // ============================================================================
 // EMatcher vs VM Comparison Fixture
@@ -201,7 +52,7 @@ class EMatcherVsVMComparison : public EGraphTestBase {
       ematcher.all_candidates(candidates);
     }
 
-    VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    VMExecutor<Op, NoAnalysis> vm_executor(egraph);
 
     ematcher_results.clear();
     ematcher.match_into(pattern, ctx, ematcher_results);
