@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Docker image to use
-MEMGRAPH_IMAGE="${MEMGRAPH_IMAGE:-memgraph/memgraph-mage:latest}"
+MEMGRAPH_IMAGE="${MEMGRAPH_IMAGE:-memgraph/memgraph-mage:3.8.0}"
 
 # Container name prefix
 CONTAINER_PREFIX="memgraph_stress"

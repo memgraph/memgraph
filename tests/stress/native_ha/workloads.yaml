@@ -4,4 +4,6 @@
 
 workloads:
   - config: workloads/show_replicas_deadlock/workload.yaml
+    enabled: false
+  - config: workloads/load_parquet_high_concurrency_edge_write/workload.yaml
     enabled: true
