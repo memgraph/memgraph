@@ -307,8 +307,16 @@ install_memgraph_ha() {
     # Build helm install command with values file
     local helm_cmd="helm install $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE"
 
-    # Override image tag if MEMGRAPH_IMAGE_TAG is set
-    if [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
+    # Override full image (repo:tag) if MEMGRAPH_IMAGE is set
+    if [[ -n "${MEMGRAPH_IMAGE:-}" ]]; then
+        local img_repo="${MEMGRAPH_IMAGE%:*}"
+        local img_tag="${MEMGRAPH_IMAGE##*:}"
+        if [[ "$img_repo" == "$img_tag" ]]; then
+            img_tag="latest"
+        fi
+        helm_cmd+=" --set image.repository=$img_repo --set image.tag=$img_tag"
+        log_info "Using image: $img_repo:$img_tag"
+    elif [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
         helm_cmd+=" --set image.tag=$MEMGRAPH_IMAGE_TAG"
         log_info "Using image tag: $MEMGRAPH_IMAGE_TAG"
     fi
@@ -446,6 +454,9 @@ UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': '${data1_ext}:7687'};
         log_error "Failed to update bolt_server configs"
         return 1
     fi
+
+    log_info "Memgraph version on MAIN instance:"
+    kubectl exec -i memgraph-data-0-0 -- mgconsole --host 127.0.0.1 --port 7687 <<< "SHOW VERSION;" || true
 
     log_info "HA cluster setup completed!"
 }
@@ -652,8 +663,15 @@ upgrade_memgraph() {
     # Build helm upgrade command with values file
     local helm_cmd="helm upgrade $HELM_RELEASE_NAME $HELM_CHART_PATH -f $HELM_VALUES_FILE"
 
-    # Override image tag if MEMGRAPH_IMAGE_TAG is set
-    if [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
+    # Override full image (repo:tag) if MEMGRAPH_IMAGE is set
+    if [[ -n "${MEMGRAPH_IMAGE:-}" ]]; then
+        local img_repo="${MEMGRAPH_IMAGE%:*}"
+        local img_tag="${MEMGRAPH_IMAGE##*:}"
+        if [[ "$img_repo" == "$img_tag" ]]; then
+            img_tag="latest"
+        fi
+        helm_cmd+=" --set image.repository=$img_repo --set image.tag=$img_tag"
+    elif [[ -n "${MEMGRAPH_IMAGE_TAG:-}" ]]; then
         helm_cmd+=" --set image.tag=$MEMGRAPH_IMAGE_TAG"
     fi
 
