@@ -10,6 +10,7 @@ add_unit_test(planner
         unittest__join_order.cpp
         test__vm_compiler.cpp
         benchmark__vm_matching.cpp
+        benchmark__egglog.cpp
     LINK_TARGETS mg::planner
 )
 
