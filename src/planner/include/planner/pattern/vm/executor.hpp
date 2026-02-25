@@ -35,13 +35,26 @@ template <typename Symbol>
 class CompiledPattern {
  public:
   CompiledPattern(std::vector<Instruction> code, std::size_t num_slots, std::size_t num_eclass_regs,
-                  std::size_t num_enode_regs, std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol)
+                  std::size_t num_enode_regs, std::vector<Symbol> symbols, std::optional<Symbol> entry_symbol,
+                  std::vector<uint8_t> binding_order)
       : code_(std::move(code)),
         num_slots_(num_slots),
         num_eclass_regs_(num_eclass_regs),
         num_enode_regs_(num_enode_regs),
         symbols_(std::move(symbols)),
-        entry_symbol_(std::move(entry_symbol)) {}
+        entry_symbol_(std::move(entry_symbol)),
+        binding_order_(std::move(binding_order)) {
+    // Precompute slots_bound_after for each slot (used by deduplication)
+    // slots_bound_after[i] contains the slots that are bound AFTER slot i in binding order
+    slots_bound_after_.resize(num_slots_);
+    for (std::size_t order_idx = 0; order_idx < binding_order_.size(); ++order_idx) {
+      auto slot = binding_order_[order_idx];
+      // All slots after this one in binding order should be cleared when this slot changes
+      for (std::size_t j = order_idx + 1; j < binding_order_.size(); ++j) {
+        slots_bound_after_[slot].push_back(binding_order_[j]);
+      }
+    }
+  }
 
   [[nodiscard]] auto code() const -> std::span<Instruction const> { return code_; }
 
@@ -55,13 +68,29 @@ class CompiledPattern {
 
   [[nodiscard]] auto entry_symbol() const -> std::optional<Symbol> const & { return entry_symbol_; }
 
+  /// The order in which slots are bound during pattern matching.
+  /// For pattern A(?x, B(?y, ?z)) compiled as B-first, this might be [1, 2, 0]
+  /// meaning ?y (slot 1) is bound first, then ?z (slot 2), then ?x (slot 0).
+  [[nodiscard]] auto binding_order() const -> std::span<uint8_t const> { return binding_order_; }
+
+  /// For each slot, the list of slots that are bound AFTER it in binding order.
+  /// Used by deduplication: when slot i changes, clear seen_per_slot[j] for each j in slots_bound_after[i].
+  [[nodiscard]] auto slots_bound_after(std::size_t slot) const -> std::span<uint8_t const> {
+    return slots_bound_after_[slot];
+  }
+
+  /// The last slot in binding order - this is where deduplication checks/inserts.
+  [[nodiscard]] auto last_bound_slot() const -> uint8_t { return binding_order_.empty() ? 0 : binding_order_.back(); }
+
  private:
   std::vector<Instruction> code_;
   std::size_t num_slots_;
-  std::size_t num_eclass_regs_;         // Registers holding e-class IDs
-  std::size_t num_enode_regs_;          // Registers holding e-node IDs (and iteration state)
-  std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol //TODO: are these deduplicated?
-  std::optional<Symbol> entry_symbol_;  // For index-based candidate lookup
+  std::size_t num_eclass_regs_;                          // Registers holding e-class IDs
+  std::size_t num_enode_regs_;                           // Registers holding e-node IDs (and iteration state)
+  std::vector<Symbol> symbols_;                          // Symbol table for CheckSymbol //TODO: are these deduplicated?
+  std::optional<Symbol> entry_symbol_;                   // For index-based candidate lookup
+  std::vector<uint8_t> binding_order_;                   // Order in which slots are bound during matching
+  std::vector<std::vector<uint8_t>> slots_bound_after_;  // Precomputed: slots to clear when slot i changes
 };
 
 /// VM executor for pattern matching - "verify" mode
@@ -85,7 +114,12 @@ class VMExecutorVerify {
   /// Execute compiled pattern, collecting matches
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
-    state_.reset(pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs());
+    state_.reset(
+        pattern.num_slots(),
+        pattern.num_eclass_regs(),
+        pattern.num_enode_regs(),
+        [&pattern](std::size_t slot) { return pattern.slots_bound_after(slot); },
+        pattern.last_bound_slot());
     stats_.reset();  // TODO: no need for stats if not in a developer mode
     code_ = pattern.code();
     symbols_ = pattern.symbols();
@@ -517,7 +551,12 @@ class VMExecutorClean {
 
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
-    state_.reset(pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs());
+    state_.reset(
+        pattern.num_slots(),
+        pattern.num_eclass_regs(),
+        pattern.num_enode_regs(),
+        [&pattern](std::size_t slot) { return pattern.slots_bound_after(slot); },
+        pattern.last_bound_slot());
     stats_.reset();
     code_ = pattern.code();
     symbols_ = pattern.symbols();
