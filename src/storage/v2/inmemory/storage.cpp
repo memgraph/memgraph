@@ -3293,11 +3293,10 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
     auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
+      auto const *const current_commit_info = delta->commit_info;
       while (true) {
         auto *older = delta->next.load(std::memory_order_acquire);
-        if (older == nullptr ||
-            older->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp)
-          break;
+        if (older == nullptr || older->commit_info != current_commit_info) break;
         delta = older;
       }
       while (true) {
@@ -3309,7 +3308,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         auto prev = delta->prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::DELTA) break;
-        if (prev.delta->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp) break;
+        if (prev.delta->commit_info != current_commit_info) break;
         delta = prev.delta;
       }
     };
