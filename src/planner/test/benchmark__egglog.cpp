@@ -492,6 +492,7 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
   std::size_t ematcher_end_to_end_rows = 0;
   std::size_t vm_end_to_end_rows = 0;
 
+  ctx.clear();
   auto const ematcher_start = Clock::now();
   for (std::size_t it = 0; it < iterations; ++it) {
     for (std::size_t i = 0; i < queries.size(); ++i) {
@@ -503,6 +504,7 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
   }
   auto const ematcher_time = std::chrono::duration_cast<DurationMs>(Clock::now() - ematcher_start);
 
+  ctx.clear();
   auto const vm_start = Clock::now();
   for (std::size_t it = 0; it < iterations; ++it) {
     for (std::size_t i = 0; i < queries.size(); ++i) {
@@ -522,6 +524,7 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
   }
   auto const vm_time = std::chrono::duration_cast<DurationMs>(Clock::now() - vm_start);
 
+  ctx.clear();
   std::size_t vm_exec_only_rows = 0;
   auto const vm_exec_only_start = Clock::now();
   for (std::size_t it = 0; it < iterations; ++it) {
@@ -613,7 +616,8 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
   std::cout << "Egglog total:   " << egglog_query_only_time.count()
             << " ms (baseline-subtracted), rows=" << egglog_total_rows << "\n";
   std::cout << "Speedup (EMatcher/VM): " << (ematcher_time / vm_time) << "x\n";
-  std::cout << "Speedup (Egglog/VM):   " << (egglog_query_only_time / vm_time) << "x\n";
+  std::cout << "Speedup (Egglog/VM):   " << (egglog_query_only_time / vm_exec_only_time)
+            << "x\n";  // exec-only: CLI has no compilation step
   std::cout << "\n-- End-to-end mode (build + query) --\n";
   std::cout << "EMatcher total: " << ematcher_end_to_end_time.count() << " ms, rows=" << ematcher_end_to_end_rows
             << "\n";
