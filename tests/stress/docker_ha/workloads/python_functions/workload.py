@@ -9,6 +9,8 @@ import sys
 import threading
 import time
 
+import neo4j
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 from common import (
@@ -54,23 +56,19 @@ CREATE (:Node {{uid: i, name: 'node_' + toString(i)}});"""
 def ancestors_worker(worker_id: int) -> dict:
     total_workers = NUM_ANCESTORS_WORKERS + NUM_DATE_FORMAT_WORKERS
 
-    edge_query = f"""
+    query = f"""
 MATCH (a:Node), (b:Node)
 WHERE a.uid < b.uid
   AND (a.uid + b.uid) % {total_workers} = {worker_id}
-MERGE (a)-[:RELATED_TO]->(b);"""
-
-    ancestors_query = """
-MATCH (n:Node)
-WITH n LIMIT 10
-CALL nxalg.ancestors(n)
+MERGE (a)-[:RELATED_TO]->(b)
+WITH a LIMIT 10
+CALL nxalg.ancestors(a)
 YIELD ancestors
 RETURN ancestors;"""
 
     t0 = time.time()
     for iteration in range(NUM_ITERATIONS):
-        execute_query(COORDINATOR, edge_query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
-        execute_and_fetch(COORDINATOR, ancestors_query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.READ)
+        execute_and_fetch(COORDINATOR, query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
         if (iteration + 1) % 10 == 0:
             print(f"  [ancestors-{worker_id}] {iteration + 1}/{NUM_ITERATIONS}")
     elapsed = time.time() - t0
@@ -82,20 +80,19 @@ def date_format_worker(worker_id: int) -> dict:
     total_workers = NUM_ANCESTORS_WORKERS + NUM_DATE_FORMAT_WORKERS
     global_id = NUM_ANCESTORS_WORKERS + worker_id
 
-    edge_query = f"""
+    query = f"""
 MATCH (a:Node), (b:Node)
 WHERE a.uid < b.uid
   AND (a.uid + b.uid) % {total_workers} = {global_id}
-MERGE (a)-[:RELATED_TO]->(b);"""
-
-    date_query = """
+MERGE (a)-[:RELATED_TO]->(b)
+WITH a LIMIT 1
 CALL date.format(74976, "h", "%Y/%m/%d %H:%M:%S %Z", "Mexico/BajaNorte")
-YIELD formatted RETURN formatted;"""
+YIELD formatted
+RETURN formatted;"""
 
     t0 = time.time()
     for iteration in range(NUM_ITERATIONS):
-        execute_query(COORDINATOR, edge_query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
-        execute_and_fetch(COORDINATOR, date_query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.READ)
+        execute_and_fetch(COORDINATOR, query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
         if (iteration + 1) % 10 == 0:
             print(f"  [date_format-{worker_id}] {iteration + 1}/{NUM_ITERATIONS}")
     elapsed = time.time() - t0
@@ -149,15 +146,23 @@ def storage_info_worker(stop_event: threading.Event) -> None:
 def replicas_worker(stop_event: threading.Event) -> None:
     while not stop_event.is_set():
         try:
+            instances = execute_and_fetch(COORDINATOR, "SHOW INSTANCES;")
+            if instances:
+                down = [inst["name"] for inst in instances if inst.get("health", "").lower() != "up"]
+                if down:
+                    print(f"\nFATAL: Instance(s) DOWN: {', '.join(down)}")
+                    os._exit(1)
+                print(f"\n[INSTANCES @ {time.strftime('%H:%M:%S')}] All {len(instances)} instances up")
+
             results = execute_and_fetch(COORDINATOR, "SHOW REPLICAS;", protocol=Protocol.BOLT_ROUTING)
             if results:
                 headers = list(results[0].keys())
-                print(f"\n[SHOW REPLICAS @ {time.strftime('%H:%M:%S')}]")
+                print(f"[SHOW REPLICAS @ {time.strftime('%H:%M:%S')}]")
                 print("  " + ",".join(headers))
                 for replica in results:
                     print("  " + ",".join(str(replica[h]) for h in headers))
         except Exception as e:
-            print(f"\n[SHOW REPLICAS ERROR] {e}")
+            print(f"\n[SHOW REPLICAS/INSTANCES ERROR] {e}")
 
         stop_event.wait(SHOW_REPLICAS_INTERVAL_SECONDS)
 
@@ -189,6 +194,7 @@ def main():
     print("=" * 60)
     print("MAGE Function Stress Workload")
     print("=" * 60)
+    print(f"Neo4j driver version: {neo4j.__version__}")
     print(f"Nodes: {NUM_NODES}")
     print(f"Ancestors workers: {NUM_ANCESTORS_WORKERS}")
     print(f"Date format workers: {NUM_DATE_FORMAT_WORKERS}")

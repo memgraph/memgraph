@@ -1,7 +1,7 @@
 memgraph:
   deployment:
     externally_managed: false
-  args: []
+  args: ["--log-level=WARNING"]
   env: {}
 
 cluster:

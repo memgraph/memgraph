@@ -9,7 +9,6 @@ from enum import Enum
 from typing import Any, Callable, Iterable, TypeVar
 
 from neo4j import GraphDatabase
-from neo4j.exceptions import ClientError, DatabaseError
 
 
 class Protocol(Enum):
@@ -183,10 +182,11 @@ def _run_query(
                     return session.execute_read(lambda tx: result_handler(tx.run(query, params or {})))
             else:
                 return result_handler(session.run(query, params or {}))
-    except (ClientError, DatabaseError) as e:
+    except Exception as e:
         if SYNC_REPLICA_ERROR in str(e):
             return None
-        raise
+        print(f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value})")
+        os._exit(1)
 
 
 def execute_query(
