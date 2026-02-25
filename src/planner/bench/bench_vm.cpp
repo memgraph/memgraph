@@ -12,12 +12,10 @@
 #include "bench_common.hpp"
 
 #include <array>
-#include <memory>
 #include <optional>
 
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
-#include "planner/pattern/vm/parent_index.hpp"
 
 using namespace memgraph::planner::bench;
 using namespace memgraph::planner::bench::ranges;
@@ -72,7 +70,7 @@ class VMSimplePatternFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMSimplePatternFixture, Match)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -117,7 +115,7 @@ class VMDeepPatternFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMDeepPatternFixture, Match)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -163,7 +161,7 @@ class VMSameVariableFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMSameVariableFixture, Match)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -208,7 +206,7 @@ class VMMergedEGraphFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMMergedEGraphFixture, Match)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -253,7 +251,7 @@ class VMSelectivePatternFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(VMSelectivePatternFixture, Match)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   if (context_mode_ == kReusedCtx) {
     for (auto _ : state) {
       match_context_.clear();
@@ -384,7 +382,7 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
 };
 
 BENCHMARK_DEFINE_F(BindIdentVMFusedFixture, ParentTraversal)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -416,7 +414,6 @@ class VMHighParentFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
   std::vector<EClassId> candidates_;
-  std::unique_ptr<ParentSymbolIndex<Op, NoAnalysis>> parent_index_;
   int64_t parents_f_ = 0;
   int64_t parents_neg_ = 0;
 
@@ -426,13 +423,11 @@ class VMHighParentFixture : public VMFixtureBase {
     SetupGraph([this](TestEGraph &g) { BuildHighParentHub(g, parents_f_, parents_neg_); });
     pattern_ = compiler_.compile(PatternNeg());
     candidates_ = GetAllCandidates();
-    parent_index_ = std::make_unique<ParentSymbolIndex<Op, NoAnalysis>>(egraph_);
-    parent_index_->rebuild();
   }
 };
 
-BENCHMARK_DEFINE_F(VMHighParentFixture, VerifyMode)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+BENCHMARK_DEFINE_F(VMHighParentFixture, Match)(benchmark::State &state) {
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -442,28 +437,10 @@ BENCHMARK_DEFINE_F(VMHighParentFixture, VerifyMode)(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * parents_neg_);
 }
 
-BENCHMARK_DEFINE_F(VMHighParentFixture, CleanMode)(benchmark::State &state) {
-  VMExecutorClean<Op, NoAnalysis> executor(egraph_, *parent_index_);
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    executor.execute(*pattern_, candidates_, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.SetItemsProcessed(state.iterations() * parents_neg_);
-}
-
-BENCHMARK_REGISTER_F(VMHighParentFixture, VerifyMode)
+BENCHMARK_REGISTER_F(VMHighParentFixture, Match)
     ->Args({1000, 100})   // 1000 F parents, 100 Neg parents
     ->Args({5000, 100})   // 5000 F parents, 100 Neg parents
     ->Args({10000, 100})  // 10000 F parents, 100 Neg parents
-    ->ArgNames({"F_parents", "Neg_parents"})
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_REGISTER_F(VMHighParentFixture, CleanMode)
-    ->Args({1000, 100})
-    ->Args({5000, 100})
-    ->Args({10000, 100})
     ->ArgNames({"F_parents", "Neg_parents"})
     ->Unit(benchmark::kMicrosecond);
 
@@ -480,19 +457,16 @@ class VMSelfRefFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
   std::vector<EClassId> candidates_;
-  std::unique_ptr<ParentSymbolIndex<Op, NoAnalysis>> parent_index_;
 
   void SetUp(const benchmark::State &) override {
     SetupGraph([](TestEGraph &g) { BuildSelfReferential(g, 42); });
     pattern_ = compiler_.compile(PatternNestedF());
     candidates_ = GetAllCandidates();
-    parent_index_ = std::make_unique<ParentSymbolIndex<Op, NoAnalysis>>(egraph_);
-    parent_index_->rebuild();
   }
 };
 
-BENCHMARK_DEFINE_F(VMSelfRefFixture, VerifyMode)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+BENCHMARK_DEFINE_F(VMSelfRefFixture, Match)(benchmark::State &state) {
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -502,19 +476,7 @@ BENCHMARK_DEFINE_F(VMSelfRefFixture, VerifyMode)(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_DEFINE_F(VMSelfRefFixture, CleanMode)(benchmark::State &state) {
-  VMExecutorClean<Op, NoAnalysis> executor(egraph_, *parent_index_);
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    executor.execute(*pattern_, candidates_, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.SetItemsProcessed(state.iterations());
-}
-
-BENCHMARK_REGISTER_F(VMSelfRefFixture, VerifyMode)->Unit(benchmark::kNanosecond);
-BENCHMARK_REGISTER_F(VMSelfRefFixture, CleanMode)->Unit(benchmark::kNanosecond);
+BENCHMARK_REGISTER_F(VMSelfRefFixture, Match)->Unit(benchmark::kNanosecond);
 
 // ============================================================================
 // Parent Diversity: Many nodes with diverse parent symbols
@@ -528,7 +490,6 @@ class VMParentDiversityFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
   std::vector<EClassId> candidates_;
-  std::unique_ptr<ParentSymbolIndex<Op, NoAnalysis>> parent_index_;
   int64_t num_leaves_ = 0;
   int64_t parents_per_leaf_ = 0;
 
@@ -538,13 +499,11 @@ class VMParentDiversityFixture : public VMFixtureBase {
     SetupGraph([this](TestEGraph &g) { BuildParentDiversity(g, num_leaves_, parents_per_leaf_, 42); });
     pattern_ = compiler_.compile(PatternNeg());
     candidates_ = GetAllCandidates();
-    parent_index_ = std::make_unique<ParentSymbolIndex<Op, NoAnalysis>>(egraph_);
-    parent_index_->rebuild();
   }
 };
 
-BENCHMARK_DEFINE_F(VMParentDiversityFixture, VerifyMode)(benchmark::State &state) {
-  VMExecutorVerify<Op, NoAnalysis> executor(egraph_);
+BENCHMARK_DEFINE_F(VMParentDiversityFixture, Match)(benchmark::State &state) {
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
@@ -554,27 +513,9 @@ BENCHMARK_DEFINE_F(VMParentDiversityFixture, VerifyMode)(benchmark::State &state
   state.SetItemsProcessed(state.iterations());
 }
 
-BENCHMARK_DEFINE_F(VMParentDiversityFixture, CleanMode)(benchmark::State &state) {
-  VMExecutorClean<Op, NoAnalysis> executor(egraph_, *parent_index_);
-  for (auto _ : state) {
-    match_context_.clear();
-    matches_.clear();
-    executor.execute(*pattern_, candidates_, match_context_, matches_);
-    benchmark::DoNotOptimize(matches_);
-  }
-  state.SetItemsProcessed(state.iterations());
-}
-
-BENCHMARK_REGISTER_F(VMParentDiversityFixture, VerifyMode)
+BENCHMARK_REGISTER_F(VMParentDiversityFixture, Match)
     ->Args({100, 20})  // 100 leaves, 20 parents each
     ->Args({500, 20})  // 500 leaves, 20 parents each
     ->Args({100, 50})  // 100 leaves, 50 parents each
-    ->ArgNames({"leaves", "parents_per"})
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_REGISTER_F(VMParentDiversityFixture, CleanMode)
-    ->Args({100, 20})
-    ->Args({500, 20})
-    ->Args({100, 50})
     ->ArgNames({"leaves", "parents_per"})
     ->Unit(benchmark::kMicrosecond);
