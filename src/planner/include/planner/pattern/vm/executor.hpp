@@ -209,6 +209,8 @@ class VMExecutor {
 
 #define NEXT() do { ++state_.pc; DISPATCH(); } while (0)
 #define JUMP(target) do { state_.pc = (target); DISPATCH(); } while (0)
+#define NEXT_OR_JUMP(condition) \
+  do { if (condition) { NEXT(); } else { JUMP(code_[state_.pc].target); } } while (0)
     // clang-format on
 
     DISPATCH();
@@ -222,75 +224,34 @@ class VMExecutor {
     NEXT();
 
   op_IterENodes:
-    if (exec_iter_enodes(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_iter_enodes(code_[state_.pc]));
 
   op_NextENode:
-    if (exec_next_enode(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_next_enode(code_[state_.pc]));
 
   op_IterAllEClasses:
-    if (exec_iter_all_eclasses(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_iter_all_eclasses(code_[state_.pc]));
 
   op_NextEClass:
-    // TODO: can we have a better macro that will NEXT_OR_JUMP
-    if (exec_next_eclass(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_next_eclass(code_[state_.pc]));
 
   op_IterParents:
-    if (exec_iter_parents(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_iter_parents(code_[state_.pc]));
 
   op_NextParent:
-    if (exec_next_parent(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_next_parent(code_[state_.pc]));
 
   op_CheckSymbol:
-    if (exec_check_symbol(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_check_symbol(code_[state_.pc]));
 
   op_CheckArity:
-    if (exec_check_arity(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_check_arity(code_[state_.pc]));
 
   op_BindSlotDedup:
-    if (exec_bind_slot_dedup(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_bind_slot_dedup(code_[state_.pc]));
 
   op_CheckSlot:
-    if (exec_check_slot(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
+    NEXT_OR_JUMP(exec_check_slot(code_[state_.pc]));
 
   op_MarkSeen:
     exec_mark_seen(code_[state_.pc]);
@@ -312,6 +273,7 @@ class VMExecutor {
 #undef DISPATCH
 #undef NEXT
 #undef JUMP
+#undef NEXT_OR_JUMP
   }
 
   // Instruction is 6 bytes - pass by value for efficiency (fits in register)
@@ -343,8 +305,9 @@ class VMExecutor {
     return true;
   }
 
-  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction instr) -> bool {
-    auto &iter = state_.get_enodes_iter(instr.dst);
+  /// Common helper for advancing span-based iterators (ENodesIter, AllEClassesIter)
+  template <typename Iter, typename IdType>
+  [[nodiscard]] [[gnu::always_inline]] auto advance_span_iter(Iter &iter, IdType &out_reg) -> bool {
     iter.advance();
     if (iter.exhausted()) {
       if constexpr (DevMode) {
@@ -352,12 +315,15 @@ class VMExecutor {
       }
       return false;
     }
-
     if constexpr (DevMode) {
       collector_.on_iter_advance(state_.pc, iter.remaining());
     }
-    state_.enode_regs[instr.dst] = iter.current();
+    out_reg = iter.current();
     return true;
+  }
+
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_enode(Instruction instr) -> bool {
+    return advance_span_iter(state_.get_enodes_iter(instr.dst), state_.enode_regs[instr.dst]);
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
@@ -372,16 +338,7 @@ class VMExecutor {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_eclass(Instruction instr) -> bool {
-    // TODO: This is a common pattern for all iterators, can we have a common helper?
-    //       get iter X, advance, exhausted, set X with current
-    auto &iter = state_.get_eclasses_iter(instr.dst);
-    iter.advance();
-    if (iter.exhausted()) {
-      return false;
-    }
-
-    state_.eclass_regs[instr.dst] = iter.current();
-    return true;
+    return advance_span_iter(state_.get_eclasses_iter(instr.dst), state_.eclass_regs[instr.dst]);
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool {
