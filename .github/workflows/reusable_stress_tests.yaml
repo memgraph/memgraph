@@ -262,7 +262,7 @@ jobs:
   stress_test_eks_ha:
     name: "Stress Tests EKS HA"
     if: ${{ inputs.deployment == 'eks_ha' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 180
     steps:
       - name: Set up repository
@@ -276,6 +276,52 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Determine Input Type
+        if: ${{ inputs.memgraph_image != '' }}
+        run: |
+          read image_type image_value < <(python3 tools/ci/issu_image_type.py "$INPUT_IMAGE")
+          echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
+          echo "IMAGE_VALUE=${image_value}" >> $GITHUB_ENV
+
+      - name: Load Image (Docker)
+        if: ${{ env.IMAGE_TYPE == 'docker' }}
+        run: |
+          echo "MEMGRAPH_IMAGE=${{ env.IMAGE_VALUE }}" >> $GITHUB_ENV
+
+      - name: Load Image (URL) and push to ECR
+        if: ${{ env.IMAGE_TYPE == 'url' }}
+        run: |
+          curl -L "${{ env.IMAGE_VALUE }}" > memgraph.tar.gz
+          load_output=$(docker load -i memgraph.tar.gz)
+
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          if [[ -z "$repo_tag" ]]; then
+            repo_tag=$(echo "$load_output" | awk -F': ' '/Loaded image:/ {print $2}' | head -n1)
+          fi
+
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          AWS_REGION="${{ secrets.EKS_AWS_REGION || 'eu-west-1' }}"
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          ECR_REPO="memgraph/stress-test"
+          ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:stress-$(date +%s)"
+
+          aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" 2>/dev/null \
+            || aws ecr create-repository --repository-name "$ECR_REPO" --region "$AWS_REGION"
+
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+          docker tag "$repo_tag" "$ECR_IMAGE"
+          docker push "$ECR_IMAGE"
+
+          echo "MEMGRAPH_IMAGE=${ECR_IMAGE}" >> $GITHUB_ENV
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -286,12 +332,15 @@ jobs:
           EKS_TOOLS="${{ runner.temp }}/eks-tools"
           mkdir -p "$EKS_TOOLS"
 
-          curl -Lo "$EKS_TOOLS/kubectl" "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          K8S_ARCH="${{ inputs.arch == 'arm' && 'arm64' || 'amd64' }}"
+          EKSCTL_ARCH="${{ inputs.arch == 'arm' && 'arm64' || 'amd64' }}"
+
+          curl -Lo "$EKS_TOOLS/kubectl" "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/${K8S_ARCH}/kubectl"
           chmod +x "$EKS_TOOLS/kubectl"
 
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | HELM_INSTALL_DIR="$EKS_TOOLS" USE_SUDO=false bash
 
-          curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz" | tar -xz -C "$EKS_TOOLS"
+          curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_${EKSCTL_ARCH}.tar.gz" | tar -xz -C "$EKS_TOOLS"
 
           echo "$EKS_TOOLS" >> $GITHUB_PATH
 
@@ -302,6 +351,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-eks-ha
         env:
+          MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
 
