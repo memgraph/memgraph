@@ -288,6 +288,10 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src) << ", @" << instr.target;
         break;
 
+      case VMOp::CheckEClassEq:
+        ss << " r" << static_cast<int>(instr.dst) << ", r" << static_cast<int>(instr.src) << ", @" << instr.target;
+        break;
+
       case VMOp::MarkSeen:
         ss << " slot[" << static_cast<int>(instr.arg) << "]";
         break;

@@ -191,6 +191,7 @@ class VMExecutor {
         &&op_CheckArity,
         &&op_BindSlotDedup,
         &&op_CheckSlot,
+        &&op_CheckEClassEq,
         &&op_MarkSeen,
         &&op_Jump,
         &&op_Yield,
@@ -256,6 +257,9 @@ class VMExecutor {
 
   op_CheckSlot:
     NEXT_OR_JUMP(exec_check_slot(instr));
+
+  op_CheckEClassEq:
+    NEXT_OR_JUMP(exec_check_eclass_eq(instr));
 
   op_MarkSeen:
     exec_mark_seen(instr);
@@ -433,6 +437,11 @@ class VMExecutor {
       collector_.on_check_slot_hit();
     }
     return true;
+  }
+
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_eclass_eq(Instruction instr) -> bool {
+    // Compare two e-class registers directly (both already canonical)
+    return state_.eclass_regs[instr.dst] == state_.eclass_regs[instr.src];
   }
 
   [[gnu::always_inline]] void exec_yield(Instruction instr, EMatchContext &ctx, std::vector<PatternMatch> &results) {

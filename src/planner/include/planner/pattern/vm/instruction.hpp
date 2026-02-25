@@ -60,6 +60,8 @@ enum class VMOp : uint8_t {
   BindSlotDedup,
   /// Check consistency: if find(slots[arg]) != find(regs[src]), jump to target
   CheckSlot,
+  /// Check two e-class registers are equal: if regs[dst] != regs[src], jump to target
+  CheckEClassEq,
   /// Mark slot as seen (exhausted) for deduplication: seen[arg].insert(slots[arg])
   /// Used when an iteration exhausts to mark the controlling slot as fully explored.
   MarkSeen,
@@ -130,6 +132,10 @@ struct Instruction {
     return {VMOp::CheckSlot, 0, src, slot_idx, on_mismatch};
   }
 
+  static constexpr auto check_eclass_eq(uint8_t dst, uint8_t src, uint16_t on_mismatch) -> Instruction {
+    return {VMOp::CheckEClassEq, dst, src, 0, on_mismatch};
+  }
+
   static constexpr auto mark_seen(uint8_t slot_idx) -> Instruction { return {VMOp::MarkSeen, 0, 0, slot_idx, 0}; }
 
   static constexpr auto jmp(uint16_t target) -> Instruction { return {VMOp::Jump, 0, 0, 0, target}; }
@@ -173,6 +179,8 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
       return "BindSlotDedup";
     case VMOp::CheckSlot:
       return "CheckSlot";
+    case VMOp::CheckEClassEq:
+      return "CheckEClassEq";
     case VMOp::MarkSeen:
       return "MarkSeen";
     case VMOp::Jump:
