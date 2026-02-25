@@ -519,3 +519,50 @@ BENCHMARK_REGISTER_F(VMParentDiversityFixture, Match)
     ->Args({100, 50})  // 100 leaves, 50 parents each
     ->ArgNames({"leaves", "parents_per"})
     ->Unit(benchmark::kMicrosecond);
+
+// ============================================================================
+// Nested Join Pattern: (F ?v0) JOIN (F (F (F (F ?v0))))
+// ============================================================================
+//
+// This pattern was identified by fuzzer as a VM bottleneck case (only 2-5x
+// speedup vs EMatcher, compared to 10-30x for simpler patterns).
+//
+// Measures: Performance of deep nested patterns with shared variables.
+// Why it's slow: Pattern 2 needs 4x LoadChild + CheckSymbol ops, and the
+//   shared variable forces join across patterns with deep backtracking.
+
+class VMNestedJoinFixture : public VMFixtureBase {
+ protected:
+  std::optional<CompiledPattern<Op>> pattern_;
+  std::vector<EClassId> candidates_;
+  int64_t num_leaves_ = 0;
+
+  void SetUp(const benchmark::State &state) override {
+    num_leaves_ = state.range(0);
+    SetupGraph([this](TestEGraph &g) { BuildNestedJoinGraph(g, num_leaves_); });
+
+    // Compile the two-pattern join: (F ?v0) JOIN (F (F (F (F ?v0))))
+    std::array patterns = {PatternShallowF(), PatternDeepNestedF()};
+    pattern_ = compiler_.compile(patterns);
+    candidates_ = GetAllCandidates();
+  }
+};
+
+BENCHMARK_DEFINE_F(VMNestedJoinFixture, Match)(benchmark::State &state) {
+  VMExecutor<Op, NoAnalysis> executor(egraph_);
+  for (auto _ : state) {
+    match_context_.clear();
+    matches_.clear();
+    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    benchmark::DoNotOptimize(matches_);
+  }
+  state.SetItemsProcessed(state.iterations() * num_leaves_);
+}
+
+BENCHMARK_REGISTER_F(VMNestedJoinFixture, Match)
+    ->Args({10})   // 10 leaves = 10 matches
+    ->Args({50})   // 50 leaves = 50 matches
+    ->Args({100})  // 100 leaves = 100 matches
+    ->Args({500})  // 500 leaves = 500 matches
+    ->ArgNames({"leaves"})
+    ->Unit(benchmark::kMicrosecond);
