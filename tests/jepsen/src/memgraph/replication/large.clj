@@ -75,7 +75,7 @@
                     (utils/process-service-unavailable-exc op (:node this)))
                   (catch Exception e
                     (if (or (utils/sync-replica-down? e)
-                            (utils/cannot-get-shared-access? e))
+                            (utils/cannot-get-shared-access? e)
                             (utils/replica-timeout? e))
                       (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected. Here we return ok because
                       ; data will still get replicated since Memgraph doesn't have SYNC replication by the book.
