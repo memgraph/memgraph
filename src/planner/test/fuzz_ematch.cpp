@@ -195,11 +195,6 @@ inline auto is_leaf_symbol(FuzzSymbol sym) -> bool { return static_cast<uint32_t
 
 class EgglogGenerator {
  public:
-  // Note: the datatype preamble is NOT stored in this stream; it is emitted
-  // directly in match_and_verify() before prepending generate(). emit_preamble()
-  // was removed because it was dead code — never called, and match_and_verify()
-  // already handles the preamble inline.
-
   auto emit_leaf(FuzzSymbol sym, uint64_t disambiguator) -> std::string {
     auto var_name = fmt::format("n{}", var_counter_++);
     program_ << fmt::format("(let {} ({} {}))\n", var_name, symbol_name(sym), disambiguator);
@@ -229,52 +224,17 @@ class EgglogGenerator {
     program_ << fmt::format("(union {} {})\n", id1, id2);
   }
 
-  // Emit a query pattern and count matches using a relation and rule
-  // Returns the relation name for later printing
-  void emit_pattern_query(std::string const &pattern_str, std::vector<std::string> const &vars, size_t query_id) {
-    auto relation_name = fmt::format("Match{}", query_id);
-
-    // Build relation type signature
-    std::string type_sig;
-    for (size_t i = 0; i < vars.size(); ++i) {
-      if (i > 0) type_sig += " ";
-      type_sig += "Expr";
-    }
-
-    // Build var list for relation
-    std::string var_list;
-    for (size_t i = 0; i < vars.size(); ++i) {
-      if (i > 0) var_list += " ";
-      var_list += vars[i];
-    }
-
-    program_ << fmt::format("\n(relation {} ({}))\n", relation_name, type_sig);
-    program_ << fmt::format("(rule ((= ?root {}))\n", pattern_str);
-    program_ << fmt::format("      (({} {})))\n", relation_name, var_list);
-
-    current_relation_ = relation_name;
-  }
-
-  void emit_run_and_print() {
-    program_ << "(run 1000)\n";  // Run to saturation
-    if (!current_relation_.empty()) {
-      program_ << fmt::format("(print-function {} 100000)\n", current_relation_);
-    }
-  }
-
   auto generate() const -> std::string { return program_.str(); }
 
   void clear() {
     program_.str("");
     program_.clear();
     var_counter_ = 0;
-    current_relation_.clear();
   }
 
  private:
   std::ostringstream program_;
   int var_counter_ = 0;
-  std::string current_relation_;
 };
 
 // ============================================================================
@@ -744,9 +704,15 @@ class FuzzerState {
     current_patterns_egglog_.clear();
     current_all_vars_.clear();
 
+    // leaf_counter is shared across all patterns so that disambiguator variables
+    // (?d0, ?d1, ...) are unique globally.  If it were reset to 0 per pattern,
+    // the same name (e.g. ?d0) would appear in multiple pattern conditions of the
+    // combined egglog rule, creating an unintended join constraint: egglog would
+    // require all occurrences of ?d0 to match nodes with the *same* disambiguator
+    // value, making the query more restrictive than the EMatcher.
+    int leaf_counter = 0;
     for (auto const &ast : current_patterns_ast_) {
       std::vector<std::string> vars;
-      int leaf_counter = 0;
       auto egglog_str = pattern_to_egglog(ast, vars, leaf_counter);
       current_patterns_egglog_.push_back(egglog_str);
 
@@ -819,11 +785,6 @@ class FuzzerState {
     {
       EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
       RewriteContext rewrite_ctx;
-
-      patterns.clear();
-      for (auto const &ast : current_patterns_ast_) {
-        patterns.push_back(pattern_to_memgraph(ast));
-      }
 
       auto counting_rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_count");
       for (auto &p : patterns) {
@@ -959,9 +920,20 @@ class FuzzerState {
     full_program << ")\n\n";
     full_program << egglog_.generate();
 
-    // Build type signature and var list for MatchResult
+    // Build type signature and var list for MatchResult.
+    // Sort by numeric ID (parsing the N from "?vN") to match the numeric sort
+    // applied to var_ids above.  Lexicographic sort would mis-order IDs >= 10
+    // (e.g. "?v10" < "?v2" lexicographically but 10 > 2 numerically), making
+    // the column order in egglog's MatchResult inconsistent with the tuple order
+    // collected by EMatcher/VM — which would break any future tuple-level comparison.
     std::vector<std::string> v_vars(current_all_vars_.begin(), current_all_vars_.end());
-    std::sort(v_vars.begin(), v_vars.end());
+    std::sort(v_vars.begin(), v_vars.end(), [](std::string const &a, std::string const &b) {
+      auto parse_id = [](std::string const &s) -> uint32_t {
+        // s has the form "?vN"
+        return static_cast<uint32_t>(std::stoi(s.substr(2)));
+      };
+      return parse_id(a) < parse_id(b);
+    });
 
     std::string type_sig;
     std::string var_list;
@@ -1001,7 +973,12 @@ class FuzzerState {
     size_t egglog_count = egglog_result.match_count;
     VERBOSE_OUT << "Egglog found " << egglog_count << " matches\n";
 
-    // Verify counts match
+    // NOTE: Oracle comparison is count-only, not set-comparison.
+    // Egglog and memgraph use independent e-class ID spaces, so we cannot
+    // directly compare binding tuples.  A bug that produces the correct *number*
+    // of matches but with different tuples (e.g., swapped bindings) would not be
+    // caught here.  Tuple-level bugs between EMatcher and VM are still detected
+    // by the EMatcher-vs-VM set comparison above.
     bool ematcher_ok = (ematcher_count == egglog_count);
     bool vm_ok = (vm_count == egglog_count);
 
@@ -1048,30 +1025,39 @@ class FuzzerState {
   }
 
   void finalize() {
-    // Final verification with a simple variable pattern
     if (created_ids_.empty()) return;
 
     egraph_.rebuild(ctx_);
 
-    // Test matching with a simple variable pattern (should match all e-classes)
-    auto builder = Pattern<FuzzSymbol>::Builder{};
-    builder.var(PatternVar{0});
-    auto var_pattern = std::move(builder).build();
+    // 1. Structural invariant: a bare variable pattern should match once per
+    //    canonical e-class.  This catches basic EMatcher/union-find corruption
+    //    that a structured-pattern match might miss.
+    {
+      auto builder = Pattern<FuzzSymbol>::Builder{};
+      builder.var(PatternVar{0});
+      auto var_pattern = std::move(builder).build();
 
-    EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
-    EMatchContext match_ctx;
-    std::vector<PatternMatch> matches;
-    matcher.match_into(var_pattern, match_ctx, matches);
+      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
+      EMatchContext match_ctx;
+      std::vector<PatternMatch> matches;
+      matcher.match_into(var_pattern, match_ctx, matches);
 
-    // Variable pattern should match once per canonical e-class
-    if (matches.size() != egraph_.num_classes()) {
-      std::cerr << "\n!!! VARIABLE PATTERN MISMATCH !!!\n";
-      std::cerr << "Expected " << egraph_.num_classes() << " matches (one per e-class)\n";
-      std::cerr << "Got " << matches.size() << " matches\n";
-      abort();
+      if (matches.size() != egraph_.num_classes()) {
+        std::cerr << "\n!!! VARIABLE PATTERN MISMATCH !!!\n";
+        std::cerr << "Expected " << egraph_.num_classes() << " matches (one per e-class)\n";
+        std::cerr << "Got " << matches.size() << " matches\n";
+        abort();
+      }
+      VERBOSE_OUT << "Final variable-pattern check passed: " << matches.size() << " matches\n";
     }
 
-    VERBOSE_OUT << "Final verification passed: " << matches.size() << " matches for variable pattern\n";
+    // 2. If a pattern was set during this fuzz run, run one final match+verify
+    //    against the egglog oracle.  This catches state-corruption bugs that
+    //    only manifest after all merge/rebuild operations have settled.
+    if (!current_patterns_ast_.empty()) {
+      VERBOSE_OUT << "Running final match_and_verify...\n";
+      match_and_verify();
+    }
   }
 
  private:
