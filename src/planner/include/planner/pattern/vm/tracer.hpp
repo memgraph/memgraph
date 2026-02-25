@@ -171,17 +171,8 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         ss << " r" << static_cast<int>(instr.dst) << ", r" << static_cast<int>(instr.src) << ", @" << instr.target;
         break;
 
-      case VMOp::IterParentsSym:
-        ss << " r" << static_cast<int>(instr.dst) << ", r" << static_cast<int>(instr.src);
-        if (instr.arg < symbols.size()) {
-          ss << ", sym[" << static_cast<int>(instr.arg) << "]";
-        }
-        ss << ", @" << instr.target;
-        break;
-
       case VMOp::NextENode:
       case VMOp::NextParent:
-      case VMOp::NextParentFiltered:
       case VMOp::NextEClass:
         ss << " r" << static_cast<int>(instr.dst) << ", @" << instr.target;
         break;
