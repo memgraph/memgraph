@@ -348,8 +348,6 @@ struct VectorMmapEstimate {
 /// Arena alignment waste is included by rounding up to the allocator's alignment boundary,
 /// matching what memory_mapping_allocator_gt::allocate() does internally.
 ///
-/// Arena overhead (reserved tail, headers) is NOT included here — it is modeled separately
-/// by EmbeddingsMemoryCounter::PredictArenaTotalMmap() using the cumulative per-allocator totals.
 template <typename Index>
 VectorMmapEstimate EstimatePerVectorMmapBytes(const Index &index) {
   // All three come from private usearch types/typedefs that aren't exposed by index_dense_gt.
