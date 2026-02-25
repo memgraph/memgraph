@@ -193,10 +193,6 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         ss << " r" << static_cast<int>(instr.src) << ", " << static_cast<int>(instr.arg) << ", @" << instr.target;
         break;
 
-      case VMOp::BindSlot:
-        ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src);
-        break;
-
       case VMOp::BindSlotDedup:
         ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src) << ", @" << instr.target;
         break;
@@ -205,11 +201,19 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src) << ", @" << instr.target;
         break;
 
+      case VMOp::MarkSeen:
+        ss << " slot[" << static_cast<int>(instr.arg) << "]";
+        break;
+
       case VMOp::Jump:
         ss << " @" << instr.target;
         break;
 
       case VMOp::Yield:
+        // Yield marks slot as seen before emitting (special MarkSeen)
+        ss << " slot[" << static_cast<int>(instr.arg) << "]";
+        break;
+
       case VMOp::Halt:
         // No operands
         break;

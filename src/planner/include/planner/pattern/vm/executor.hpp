@@ -80,9 +80,6 @@ class CompiledPattern {
     return slots_bound_after_[slot];
   }
 
-  /// The last slot in binding order - this is where deduplication checks/inserts.
-  [[nodiscard]] auto last_bound_slot() const -> uint8_t { return binding_order_.empty() ? 0 : binding_order_.back(); }
-
  private:
   std::vector<Instruction> code_;
   std::size_t num_slots_;
@@ -117,11 +114,9 @@ class VMExecutorVerify {
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
     state_.reset(
-        pattern.num_slots(),
-        pattern.num_eclass_regs(),
-        pattern.num_enode_regs(),
-        [&pattern](std::size_t slot) { return pattern.slots_bound_after(slot); },
-        pattern.last_bound_slot());
+        pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs(), [&pattern](std::size_t slot) {
+          return pattern.slots_bound_after(slot);
+        });
     stats_.reset();  // TODO: no need for stats if not in a developer mode
     code_ = pattern.code();
     symbols_ = pattern.symbols();
@@ -191,9 +186,9 @@ class VMExecutorVerify {
         &&op_NextParent,
         &&op_CheckSymbol,
         &&op_CheckArity,
-        &&op_BindSlot,
         &&op_BindSlotDedup,
         &&op_CheckSlot,
+        &&op_MarkSeen,
         &&op_Jump,
         &&op_Yield,
         &&op_Halt,
@@ -281,10 +276,6 @@ class VMExecutorVerify {
       JUMP(code_[state_.pc].target);
     }
 
-  op_BindSlot:
-    exec_bind_slot(code_[state_.pc]);
-    NEXT();
-
   op_BindSlotDedup:
     if (exec_bind_slot_dedup(code_[state_.pc])) {
       NEXT();
@@ -299,11 +290,15 @@ class VMExecutorVerify {
       JUMP(code_[state_.pc].target);
     }
 
+  op_MarkSeen:
+    exec_mark_seen(code_[state_.pc]);
+    NEXT();
+
   op_Jump:
     JUMP(code_[state_.pc].target);
 
   op_Yield:
-    exec_yield(ctx, results);
+    exec_yield(code_[state_.pc], ctx, results);
     NEXT();
 
   op_Halt:
@@ -456,13 +451,6 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[gnu::always_inline]] void exec_bind_slot(Instruction instr) {
-    state_.bind(instr.arg, state_.eclass_regs[instr.src]);
-    if constexpr (kTracingEnabled) {
-      tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
-    }
-  }
-
   [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool {
     auto eclass = state_.eclass_regs[instr.src];
     bool is_new = state_.try_bind_dedup(instr.arg, eclass);
@@ -477,7 +465,7 @@ class VMExecutorVerify {
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool {
     // Both values are already canonical:
-    // - slots[] was set by BindSlot from canonical eclass_regs
+    // - slots[] was set by BindSlotDedup from canonical eclass_regs
     // - eclass_regs[] was set by LoadChild which canonicalizes
     if (state_.slots[instr.arg] != state_.eclass_regs[instr.src]) {
       if constexpr (kTracingEnabled) {
@@ -492,15 +480,9 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    // Deduplication: check if this tuple has been seen before.
-    // Uses the last-bound slot's seen set since all prefix slots are fixed at this point.
-    auto last_slot = state_.last_bound_slot_;
-    auto last_value = state_.slots[last_slot];
-    if (!state_.seen_per_slot[last_slot].insert(last_value).second) {
-      // Duplicate tuple - skip
-      return;
-    }
+  [[gnu::always_inline]] void exec_yield(Instruction instr, EMatchContext &ctx, std::vector<PatternMatch> &results) {
+    // Mark last slot as seen (Yield is a special MarkSeen + emit)
+    state_.mark_seen(instr.arg);
 
     if constexpr (kTracingEnabled) {
       ++stats_.yields;
@@ -508,6 +490,8 @@ class VMExecutorVerify {
     }
     results.push_back(ctx.arena().intern(state_.slots));
   }
+
+  [[gnu::always_inline]] void exec_mark_seen(Instruction instr) { state_.mark_seen(instr.arg); }
 
   EGraphType const *egraph_;
   std::span<Instruction const> code_;
@@ -540,11 +524,9 @@ class VMExecutorClean {
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
     state_.reset(
-        pattern.num_slots(),
-        pattern.num_eclass_regs(),
-        pattern.num_enode_regs(),
-        [&pattern](std::size_t slot) { return pattern.slots_bound_after(slot); },
-        pattern.last_bound_slot());
+        pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs(), [&pattern](std::size_t slot) {
+          return pattern.slots_bound_after(slot);
+        });
     stats_.reset();
     code_ = pattern.code();
     symbols_ = pattern.symbols();
@@ -596,9 +578,9 @@ class VMExecutorClean {
         &&op_NextParent,
         &&op_CheckSymbol,
         &&op_CheckArity,
-        &&op_BindSlot,
         &&op_BindSlotDedup,
         &&op_CheckSlot,
+        &&op_MarkSeen,
         &&op_Jump,
         &&op_Yield,
         &&op_Halt,
@@ -681,10 +663,6 @@ class VMExecutorClean {
       JUMP(code_[state_.pc].target);
     }
 
-  op_BindSlot:
-    exec_bind_slot(code_[state_.pc]);
-    NEXT();
-
   op_BindSlotDedup:
     if (exec_bind_slot_dedup(code_[state_.pc])) {
       NEXT();
@@ -699,11 +677,15 @@ class VMExecutorClean {
       JUMP(code_[state_.pc].target);
     }
 
+  op_MarkSeen:
+    exec_mark_seen(code_[state_.pc]);
+    NEXT();
+
   op_Jump:
     JUMP(code_[state_.pc].target);
 
   op_Yield:
-    exec_yield(ctx, results);
+    exec_yield(code_[state_.pc], ctx, results);
     NEXT();
 
   op_Halt:
@@ -810,10 +792,6 @@ class VMExecutorClean {
     return enode.arity() == instr.arg;
   }
 
-  [[gnu::always_inline]] void exec_bind_slot(Instruction instr) {
-    state_.bind(instr.arg, state_.eclass_regs[instr.src]);
-  }
-
   [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool {
     return state_.try_bind_dedup(instr.arg, state_.eclass_regs[instr.src]);
   }
@@ -823,13 +801,12 @@ class VMExecutorClean {
     return state_.slots[instr.arg] == state_.eclass_regs[instr.src];
   }
 
-  [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    // Deduplication: check if this tuple has been seen before.
-    auto last_slot = state_.last_bound_slot_;
-    auto last_value = state_.slots[last_slot];
-    if (!state_.seen_per_slot[last_slot].insert(last_value).second) {
-      return;
-    }
+  [[gnu::always_inline]] void exec_mark_seen(Instruction instr) { state_.mark_seen(instr.arg); }
+
+  [[gnu::always_inline]] void exec_yield(Instruction instr, EMatchContext &ctx, std::vector<PatternMatch> &results) {
+    // Mark last slot as seen (Yield is a special MarkSeen + emit)
+    state_.mark_seen(instr.arg);
+
     results.push_back(ctx.arena().intern(state_.slots));
   }
 

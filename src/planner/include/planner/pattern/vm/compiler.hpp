@@ -108,7 +108,9 @@ class PatternCompiler {
     }
 
     // Emit yield and continue loop
-    code_.push_back(Instruction::yield());
+    // Yield marks the last bound slot as seen (implicit MarkSeen)
+    auto last_slot = binding_order_.empty() ? uint8_t{0} : binding_order_.back();
+    code_.push_back(Instruction::yield(last_slot));
     code_.push_back(Instruction::jmp(innermost));
 
     // Patch halt placeholders and add halt
@@ -275,6 +277,13 @@ class PatternCompiler {
 
   auto emit_symbol_node(Pattern<Symbol> const &pattern, PatternNodeId node_id, SymbolWithChildren<Symbol> const &sym,
                         uint8_t eclass_reg, uint16_t backtrack) -> uint16_t {
+    // Bind this node BEFORE iteration if it has a binding.
+    // The e-class is the same for all e-nodes in the iteration, so we bind once.
+    // Backtrack goes to outer loop (not the e-node iteration we're about to create).
+    if (auto binding = pattern.binding_for(node_id)) {
+      emit_var_binding(*binding, eclass_reg, backtrack);
+    }
+
     auto sym_idx = get_symbol_index(sym.sym);
     auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
 
@@ -285,11 +294,6 @@ class PatternCompiler {
     // Check symbol and arity
     code_.push_back(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
     code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
-
-    // Bind this node if it has a binding
-    if (auto binding = pattern.binding_for(node_id)) {
-      emit_var_binding(*binding, eclass_reg, loop_pos);
-    }
 
     // For leaf symbols (no children), existence check is sufficient - after matching
     // one e-node, backtrack to parent instead of trying more e-nodes in this e-class.
@@ -369,6 +373,12 @@ class PatternCompiler {
     auto eclass_loop = emit_iter_loop(Instruction::iter_all_eclasses(eclass_reg, backtrack),
                                       Instruction::next_eclass(eclass_reg, backtrack));
 
+    // Bind root BEFORE e-node iteration if needed.
+    // Each e-class is different; if duplicate, backtrack to e-class loop.
+    if (auto binding = pattern.binding_for(pattern.root())) {
+      emit_bind_slot(get_slot(*binding), eclass_reg, eclass_loop);
+    }
+
     // Inner loop: e-nodes in each e-class
     auto enode_loop = emit_iter_loop(Instruction::iter_enodes(enode_reg, eclass_reg, eclass_loop),
                                      Instruction::next_enode(enode_reg, eclass_loop));
@@ -384,11 +394,6 @@ class PatternCompiler {
       auto child_reg = alloc_eclass_reg();  // LoadChild produces e-class
       code_.push_back(Instruction::load_child(child_reg, enode_reg, static_cast<uint8_t>(i)));
       innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
-    }
-
-    // Bind root if needed
-    if (auto binding = pattern.binding_for(pattern.root())) {
-      emit_bind_slot(get_slot(*binding), eclass_reg);
     }
 
     return innermost;
@@ -408,6 +413,14 @@ class PatternCompiler {
     code_.push_back(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
     code_.push_back(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
+    // Bind root BEFORE processing children if needed.
+    // Each parent could be in a different e-class, backtrack to parent loop if duplicate.
+    if (auto binding = pattern.binding_for(pattern.root())) {
+      auto eclass_reg = alloc_eclass_reg();  // GetENodeEClass produces e-class
+      code_.push_back(Instruction::get_enode_eclass(eclass_reg, parent_reg));
+      emit_bind_slot(get_slot(*binding), eclass_reg, loop_pos);
+    }
+
     // Process children
     uint16_t innermost = loop_pos;
     for (std::size_t i = 0; i < sym.children.size(); ++i) {
@@ -420,13 +433,6 @@ class PatternCompiler {
       } else {
         innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
       }
-    }
-
-    // Bind root if needed
-    if (auto binding = pattern.binding_for(pattern.root())) {
-      auto eclass_reg = alloc_eclass_reg();  // GetENodeEClass produces e-class
-      code_.push_back(Instruction::get_enode_eclass(eclass_reg, parent_reg));
-      emit_bind_slot(get_slot(*binding), eclass_reg);
     }
 
     return innermost;
@@ -446,6 +452,12 @@ class PatternCompiler {
             emit_var_binding(n, eclass_reg, backtrack);
             var_to_reg_[n] = eclass_reg;
           } else if constexpr (std::is_same_v<T, SymbolWithChildren<Symbol>>) {
+            // Bind this node BEFORE iteration if it has a binding.
+            // The e-class is the same for all e-nodes, so we bind once.
+            if (auto binding = pattern.binding_for(node_id)) {
+              emit_bind_slot(get_slot(*binding), eclass_reg, backtrack);
+            }
+
             auto sym_idx = get_symbol_index(n.sym);
             auto enode_reg = alloc_enode_reg();  // IterENodes produces e-node
 
@@ -454,10 +466,6 @@ class PatternCompiler {
 
             code_.push_back(Instruction::check_symbol(enode_reg, sym_idx, loop_pos));
             code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(n.children.size()), loop_pos));
-
-            if (auto binding = pattern.binding_for(node_id)) {
-              emit_bind_slot(get_slot(*binding), eclass_reg);
-            }
 
             // For leaf symbols, backtrack to parent after match (existence check only)
             if (n.children.empty()) {
@@ -487,19 +495,20 @@ class PatternCompiler {
       code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack));
     } else {
       seen_vars_.insert(var);
-      emit_bind_slot(slot, eclass_reg);
+      emit_bind_slot(slot, eclass_reg, backtrack);
     }
   }
 
-  /// Emit a BindSlot instruction and track binding order for deduplication.
+  /// Emit a BindSlotDedup instruction with backtrack target for early duplicate detection.
   /// All bind_slot emissions should go through this to ensure binding order is tracked.
-  void emit_bind_slot(uint8_t slot, uint8_t eclass_reg) {
+  /// @param backtrack The loop to backtrack to if this binding is a duplicate
+  void emit_bind_slot(uint8_t slot, uint8_t eclass_reg, uint16_t backtrack) {
     // Track binding order for deduplication
     // Only add if not already in binding_order (handles repeated bindings of same variable)
     if (std::find(binding_order_.begin(), binding_order_.end(), slot) == binding_order_.end()) {
       binding_order_.push_back(slot);
     }
-    code_.push_back(Instruction::bind_slot(slot, eclass_reg));
+    code_.push_back(Instruction::bind_slot_dedup(slot, eclass_reg, backtrack));
   }
 
   // ============================================================================
