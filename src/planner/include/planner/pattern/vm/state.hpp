@@ -241,23 +241,4 @@ struct VMState {
   [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots[slot]; }
 };
 
-/// Statistics collected during VM execution (for benchmarking)
-struct VMStats {
-  std::size_t instructions_executed{0};
-  std::size_t iter_enode_calls{0};
-  std::size_t iter_parent_calls{0};
-  std::size_t parent_symbol_hits{0};    // Parents that matched symbol filter
-  std::size_t parent_symbol_misses{0};  // Parents that failed symbol filter
-  std::size_t check_slot_hits{0};       // CheckSlot that passed
-  std::size_t check_slot_misses{0};     // CheckSlot that failed
-  std::size_t yields{0};
-
-  void reset() { *this = VMStats{}; }
-
-  [[nodiscard]] auto parent_filter_rate() const -> double {
-    auto total = parent_symbol_hits + parent_symbol_misses;
-    return total > 0 ? static_cast<double>(parent_symbol_misses) / static_cast<double>(total) : 0.0;
-  }
-};
-
 }  // namespace memgraph::planner::core::vm

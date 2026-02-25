@@ -102,7 +102,7 @@ class VMExecutor {
 
   explicit VMExecutor(EGraphType const &egraph, VMTracer *tracer = nullptr) : egraph_(&egraph) {
     if constexpr (DevMode) {
-      tracer_ = tracer ? tracer : &null_tracer_;
+      collector_.set_tracer(tracer);
     }
   }
 
@@ -115,7 +115,7 @@ class VMExecutor {
           return pattern.slots_bound_after(slot);
         });
     if constexpr (DevMode) {
-      stats_.reset();
+      collector_.reset();
     }
     code_ = pattern.code();
     symbols_ = pattern.symbols();
@@ -165,14 +165,14 @@ class VMExecutor {
   /// Get execution stats (only meaningful when DevMode=true)
   [[nodiscard]] auto stats() const -> VMStats const & {
     static_assert(DevMode, "stats() requires DevMode=true");
-    return stats_;
+    return collector_.stats;
   }
 
   /// Set tracer for debugging (only available when DevMode=true)
   void set_tracer(VMTracer *tracer)
     requires(DevMode)
   {
-    tracer_ = tracer ? tracer : &null_tracer_;
+    collector_.set_tracer(tracer);
   }
 
  private:
@@ -201,9 +201,8 @@ class VMExecutor {
 #define DISPATCH()                                                      \
   do {                                                                  \
     if (state_.pc >= code_.size()) return; /*DMG_ASSERT*/               \
-    if constexpr (DevMode) {                                    \
-      tracer_->on_instruction(state_.pc, code_[state_.pc]);             \
-      ++stats_.instructions_executed;                                   \
+    if constexpr (DevMode) {                                            \
+      collector_.on_instruction(state_.pc, code_[state_.pc]);           \
     }                                                                   \
     goto *dispatch_table[static_cast<uint8_t>(code_[state_.pc].op)];    \
   } while (0)
@@ -306,7 +305,7 @@ class VMExecutor {
 
   op_Halt:
     if constexpr (DevMode) {
-      tracer_->on_halt(stats_.instructions_executed);
+      collector_.on_halt();
     }
     return;
 
@@ -328,14 +327,11 @@ class VMExecutor {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool {
-    if constexpr (DevMode) {
-      ++stats_.iter_enode_calls;
-    }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto nodes = egraph_->eclass(eclass_id).nodes();
 
     if constexpr (DevMode) {
-      tracer_->on_iter_start(state_.pc, nodes.size());
+      collector_.on_iter_enode_start(state_.pc, nodes.size());
     }
 
     if (nodes.empty()) {
@@ -352,13 +348,13 @@ class VMExecutor {
     iter.advance();
     if (iter.exhausted()) {
       if constexpr (DevMode) {
-        tracer_->on_iter_advance(state_.pc, 0);
+        collector_.on_iter_advance(state_.pc, 0);
       }
       return false;
     }
 
     if constexpr (DevMode) {
-      tracer_->on_iter_advance(state_.pc, iter.remaining());
+      collector_.on_iter_advance(state_.pc, iter.remaining());
     }
     state_.enode_regs[instr.dst] = iter.current();
     return true;
@@ -389,14 +385,11 @@ class VMExecutor {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool {
-    if constexpr (DevMode) {
-      ++stats_.iter_parent_calls;
-    }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &parents = egraph_->eclass(eclass_id).parents();
 
     if constexpr (DevMode) {
-      tracer_->on_iter_start(state_.pc, parents.size());
+      collector_.on_iter_parent_start(state_.pc, parents.size());
     }
 
     if (parents.empty()) {
@@ -414,12 +407,12 @@ class VMExecutor {
     iter.advance();
     if (iter.exhausted()) {
       if constexpr (DevMode) {
-        tracer_->on_iter_advance(state_.pc, 0);
+        collector_.on_iter_advance(state_.pc, 0);
       }
       return false;
     }
     if constexpr (DevMode) {
-      tracer_->on_iter_advance(state_.pc, iter.remaining());
+      collector_.on_iter_advance(state_.pc, iter.remaining());
     }
     // Index-based iteration requires looking up the e-class again
     auto pit = egraph_->eclass(iter.eclass).parents().begin();
@@ -432,13 +425,12 @@ class VMExecutor {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.symbol() != symbols_[instr.arg]) {
       if constexpr (DevMode) {
-        ++stats_.parent_symbol_misses;
-        tracer_->on_check_fail(state_.pc, "symbol mismatch");
+        collector_.on_check_symbol_miss(state_.pc);
       }
       return false;
     }
     if constexpr (DevMode) {
-      ++stats_.parent_symbol_hits;
+      collector_.on_check_symbol_hit();
     }
     return true;
   }
@@ -447,7 +439,7 @@ class VMExecutor {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.arity() != instr.arg) {
       if constexpr (DevMode) {
-        tracer_->on_check_fail(state_.pc, "arity mismatch");
+        collector_.on_check_arity_fail(state_.pc);
       }
       return false;
     }
@@ -458,9 +450,9 @@ class VMExecutor {
     auto eclass = state_.eclass_regs[instr.src];
     bool is_new = state_.try_bind_dedup(instr.arg, eclass);
     if constexpr (DevMode) {
-      tracer_->on_bind(instr.arg, eclass);
+      collector_.on_bind(instr.arg, eclass);
       if (!is_new) {
-        tracer_->on_check_fail(state_.pc, "duplicate binding");
+        collector_.on_bind_duplicate(state_.pc);
       }
     }
     return is_new;
@@ -472,13 +464,12 @@ class VMExecutor {
     // - eclass_regs[] was set by LoadChild which canonicalizes
     if (state_.slots[instr.arg] != state_.eclass_regs[instr.src]) {
       if constexpr (DevMode) {
-        ++stats_.check_slot_misses;
-        tracer_->on_check_fail(state_.pc, "slot mismatch");
+        collector_.on_check_slot_miss(state_.pc);
       }
       return false;
     }
     if constexpr (DevMode) {
-      ++stats_.check_slot_hits;
+      collector_.on_check_slot_hit();
     }
     return true;
   }
@@ -488,8 +479,7 @@ class VMExecutor {
     state_.mark_seen(instr.arg);
 
     if constexpr (DevMode) {
-      ++stats_.yields;
-      tracer_->on_yield(state_.slots);
+      collector_.on_yield(state_.slots);
     }
     results.push_back(ctx.arena().intern(state_.slots));
   }
@@ -503,12 +493,10 @@ class VMExecutor {
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses (pre-cached in execute())
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
 
-  // Dev mode only: stats and tracing (zero overhead when DevMode=false)
+  // Dev mode only: combined stats and tracing (zero overhead when DevMode=false)
   struct NoDevState {};
 
-  [[no_unique_address]] std::conditional_t<DevMode, VMStats, NoDevState> stats_;
-  [[no_unique_address]] std::conditional_t<DevMode, NullTracer, NoDevState> null_tracer_;
-  [[no_unique_address]] std::conditional_t<DevMode, VMTracer *, NoDevState> tracer_;
+  [[no_unique_address]] std::conditional_t<DevMode, VMCollector, NoDevState> collector_;
 };
 
 // Backwards compatibility alias - VMExecutorVerify is now just VMExecutor

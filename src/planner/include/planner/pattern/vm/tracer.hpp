@@ -13,6 +13,7 @@
 
 import memgraph.planner.core.eids;
 
+#include <cstddef>
 #include <iostream>
 #include <span>
 #include <sstream>
@@ -22,6 +23,25 @@ import memgraph.planner.core.eids;
 #include "planner/pattern/vm/instruction.hpp"
 
 namespace memgraph::planner::core::vm {
+
+/// Statistics collected during VM execution (for benchmarking/profiling)
+struct VMStats {
+  std::size_t instructions_executed{0};
+  std::size_t iter_enode_calls{0};
+  std::size_t iter_parent_calls{0};
+  std::size_t parent_symbol_hits{0};    // Parents that matched symbol filter
+  std::size_t parent_symbol_misses{0};  // Parents that failed symbol filter
+  std::size_t check_slot_hits{0};       // CheckSlot that passed
+  std::size_t check_slot_misses{0};     // CheckSlot that failed
+  std::size_t yields{0};
+
+  void reset() { *this = VMStats{}; }
+
+  [[nodiscard]] auto parent_filter_rate() const -> double {
+    auto total = parent_symbol_hits + parent_symbol_misses;
+    return total > 0 ? static_cast<double>(parent_symbol_misses) / static_cast<double>(total) : 0.0;
+  }
+};
 
 /// Tracer interface for VM execution debugging
 struct VMTracer {
@@ -145,6 +165,73 @@ struct RecordingTracer final : VMTracer {
           break;
       }
     }
+  }
+};
+
+/// Combined stats and tracing collector for VM execution (DevMode only)
+///
+/// Provides a single interface for both statistics collection and tracing.
+/// Tracer is optional - if not set, only stats are collected.
+struct VMCollector {
+  VMStats stats;
+  VMTracer *tracer{nullptr};
+
+  void reset() { stats.reset(); }
+
+  void set_tracer(VMTracer *t) { tracer = t; }
+
+  void on_instruction(std::size_t pc, Instruction const &instr) {
+    ++stats.instructions_executed;
+    if (tracer) tracer->on_instruction(pc, instr);
+  }
+
+  void on_halt() {
+    if (tracer) tracer->on_halt(stats.instructions_executed);
+  }
+
+  void on_iter_enode_start(std::size_t pc, std::size_t count) {
+    ++stats.iter_enode_calls;
+    if (tracer) tracer->on_iter_start(pc, count);
+  }
+
+  void on_iter_parent_start(std::size_t pc, std::size_t count) {
+    ++stats.iter_parent_calls;
+    if (tracer) tracer->on_iter_start(pc, count);
+  }
+
+  void on_iter_advance(std::size_t pc, std::size_t remaining) {
+    if (tracer) tracer->on_iter_advance(pc, remaining);
+  }
+
+  void on_check_symbol_hit() { ++stats.parent_symbol_hits; }
+
+  void on_check_symbol_miss(std::size_t pc) {
+    ++stats.parent_symbol_misses;
+    if (tracer) tracer->on_check_fail(pc, "symbol mismatch");
+  }
+
+  void on_check_arity_fail(std::size_t pc) {
+    if (tracer) tracer->on_check_fail(pc, "arity mismatch");
+  }
+
+  void on_bind(std::size_t slot, EClassId eclass) {
+    if (tracer) tracer->on_bind(slot, eclass);
+  }
+
+  void on_bind_duplicate(std::size_t pc) {
+    if (tracer) tracer->on_check_fail(pc, "duplicate binding");
+  }
+
+  void on_check_slot_hit() { ++stats.check_slot_hits; }
+
+  void on_check_slot_miss(std::size_t pc) {
+    ++stats.check_slot_misses;
+    if (tracer) tracer->on_check_fail(pc, "slot mismatch");
+  }
+
+  void on_yield(std::span<EClassId const> slots) {
+    ++stats.yields;
+    if (tracer) tracer->on_yield(slots);
   }
 };
 
