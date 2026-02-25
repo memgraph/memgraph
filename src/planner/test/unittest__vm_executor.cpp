@@ -772,4 +772,272 @@ TEST_F(VMExecutionTest, DeduplicationWideEClass) {
   EXPECT_EQ(results.size(), kNumVariants) << "Should find " << kNumVariants << " unique matches";
 }
 
+// ============================================================================
+// Multi-Pattern Execution Tests
+// ============================================================================
+
+TEST_F(VMExecutionTest, MultiPattern_JoinWithParentTraversal) {
+  // Build e-graph:
+  //   sym_val = Const(1)
+  //   expr_val = Const(2)
+  //   bind_node = Bind(Const(0), sym_val, expr_val)
+  //   ident_node = Ident(sym_val)  <- shares sym_val with bind_node
+  auto placeholder = leaf(Op::Const, 0);
+  auto sym_val = leaf(Op::Const, 1);
+  auto expr_val = leaf(Op::Const, 2);
+  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+  [[maybe_unused]] auto ident_node = node(Op::Ident, sym_val);
+
+  rebuild_egraph();
+
+  // Anchor pattern: Bind(_, ?sym, ?expr)
+  constexpr PatternVar kVarSym{1};
+  constexpr PatternVar kVarExpr{2};
+  constexpr PatternVar kVarId{3};
+
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should find 1 match: Bind paired with Ident (both reference same sym_val)
+  EXPECT_EQ(results.size(), 1) << "Should find exactly 1 match where Bind and Ident share ?sym";
+}
+
+TEST_F(VMExecutionTest, MultiPattern_NoMatchingJoin) {
+  // Ident uses different symbol than Bind - no match expected
+  auto placeholder = leaf(Op::Const, 0);
+  auto sym_val1 = leaf(Op::Const, 1);
+  auto sym_val2 = leaf(Op::Const, 2);
+  auto expr_val = leaf(Op::Const, 3);
+  auto bind_node = node(Op::Bind, placeholder, sym_val1, expr_val);
+  node(Op::Ident, sym_val2);  // Uses different sym!
+
+  rebuild_egraph();
+
+  constexpr PatternVar kVarSym{1};
+  constexpr PatternVar kVarExpr{2};
+  constexpr PatternVar kVarId{3};
+
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  EXPECT_EQ(results.size(), 0) << "Should find no matches when Ident uses different symbol";
+}
+
+TEST_F(VMExecutionTest, MultiPattern_MultipleJoinMatches) {
+  // Multiple Ident nodes reference same symbol -> multiple matches
+  auto placeholder = leaf(Op::Const, 0);
+  auto sym_val = leaf(Op::Const, 1);
+  auto expr_val = leaf(Op::Const, 2);
+  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+  auto ident1 = node(Op::Ident, sym_val);
+  auto ident2 = node(Op::Ident, sym_val);
+
+  rebuild_egraph();
+
+  constexpr PatternVar kVarSym{1};
+  constexpr PatternVar kVarExpr{2};
+  constexpr PatternVar kVarId{3};
+
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Idents may merge due to structural sharing
+  bool idents_same_eclass = (egraph.find(ident1) == egraph.find(ident2));
+  std::size_t expected_matches = idents_same_eclass ? 1 : 2;
+
+  EXPECT_EQ(results.size(), expected_matches) << "Expected " << expected_matches << " matches";
+}
+
+TEST_F(VMExecutionTest, MultiPattern_NestedJoinedPattern) {
+  // Joined pattern with nested symbols: F(?sym, Neg(?x))
+  constexpr PatternVar kVarSym{0};
+  constexpr PatternVar kVarX{1};
+  constexpr PatternVar kBindRoot{2};
+
+  auto sym_val = leaf(Op::Const, 1);
+  auto x_val = leaf(Op::Const, 2);
+  auto neg_x = node(Op::Neg, x_val);
+  [[maybe_unused]] auto f_node = node(Op::F, sym_val, neg_x);
+  auto bind_node = node(Op::Bind, leaf(Op::A), sym_val, leaf(Op::B));
+
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kBindRoot);
+  auto joined = Pattern<Op>::build(Op::F, {Var{kVarSym}, Sym(Op::Neg, Var{kVarX})});
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  EXPECT_EQ(results.size(), 1) << "Should find 1 match for nested pattern";
+}
+
+TEST_F(VMExecutionTest, MultiPattern_ThreePatternJoin) {
+  // Three patterns with shared variables
+  auto placeholder = leaf(Op::Const, 0);
+  auto sym_val = leaf(Op::Const, 1);
+  auto expr_val = leaf(Op::Const, 2);
+  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+  [[maybe_unused]] auto ident_node = node(Op::Ident, sym_val);
+  [[maybe_unused]] auto neg_node = node(Op::Neg, sym_val);
+
+  rebuild_egraph();
+
+  constexpr PatternVar kVarSym{1};
+  constexpr PatternVar kVarIdent{2};
+  constexpr PatternVar kVarNeg{3};
+
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
+  auto joined_ident = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarIdent);
+  auto joined_neg = Pattern<Op>::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined_ident, joined_neg};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  EXPECT_EQ(results.size(), 1) << "Should find 1 match for three-pattern join";
+}
+
+TEST_F(VMExecutionTest, MultiPattern_ManyParentTraversals) {
+  // Multiple distinct parents of shared variable
+  auto placeholder = leaf(Op::Const, 0);
+  auto sym_val = leaf(Op::Const, 1);
+  auto expr_val = leaf(Op::Const, 2);
+  auto bind_node = node(Op::Bind, placeholder, sym_val, expr_val);
+
+  // Create 3 structurally distinct F2 parents
+  [[maybe_unused]] auto f2_1 = node(Op::F2, sym_val, leaf(Op::Const, 101));
+  [[maybe_unused]] auto f2_2 = node(Op::F2, sym_val, leaf(Op::Const, 102));
+  [[maybe_unused]] auto f2_3 = node(Op::F2, sym_val, leaf(Op::Const, 103));
+
+  // Create 1 Neg parent
+  [[maybe_unused]] auto neg_1 = node(Op::Neg, sym_val);
+
+  rebuild_egraph();
+
+  constexpr PatternVar kVarSym{1};
+  constexpr PatternVar kVarF2{2};
+  constexpr PatternVar kVarNeg{3};
+
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Wildcard{}}, kTestRoot);
+  auto joined_f2 = Pattern<Op>::build(Op::F2, {Var{kVarSym}, Wildcard{}}, kVarF2);
+  auto joined_neg = Pattern<Op>::build(Op::Neg, {Var{kVarSym}}, kVarNeg);
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined_f2, joined_neg};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(bind_node)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Expected: 3 F2 e-classes * 1 Neg e-class = 3 matches
+  EXPECT_EQ(results.size(), 3) << "Expected 3 F2 * 1 Neg = 3 matches";
+}
+
+TEST_F(VMExecutionTest, MultiPattern_DeduplicationWithPrefixChange) {
+  // Tests deduplication when prefix slot changes
+  auto a1 = leaf(Op::Const, 1);
+  auto a2 = leaf(Op::Const, 2);
+  auto b1 = leaf(Op::Const, 10);
+  auto c1 = leaf(Op::Const, 100);
+  auto c2 = leaf(Op::Const, 101);
+
+  auto f1 = node(Op::F, a1, b1);
+  auto f2 = node(Op::F, a2, b1);
+  [[maybe_unused]] auto g1 = node(Op::F2, b1, c1);
+  [[maybe_unused]] auto g2 = node(Op::F2, b1, c2);
+
+  rebuild_egraph();
+
+  constexpr PatternVar kVarA{0};
+  constexpr PatternVar kVarB{1};
+  constexpr PatternVar kVarC{2};
+  constexpr PatternVar kVarF{3};
+  constexpr PatternVar kVarF2{4};
+
+  auto pattern_f = Pattern<Op>::build(Op::F, {Var{kVarA}, Var{kVarB}}, kVarF);
+  auto pattern_f2 = Pattern<Op>::build(Op::F2, {Var{kVarB}, Var{kVarC}}, kVarF2);
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {pattern_f, pattern_f2};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(f1), egraph.find(f2)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Expected: 2 F's * 2 F2's = 4 matches
+  EXPECT_EQ(results.size(), 4) << "Expected 4 unique matches (2 F's * 2 F2's)";
+}
+
+TEST_F(VMExecutionTest, MultiPattern_DeduplicationMultiplePaths) {
+  // Same tuple reachable via multiple paths should be deduplicated
+  auto x = leaf(Op::Const, 1);
+  auto f_xx = node(Op::F, x, x);  // F(x, x)
+
+  [[maybe_unused]] auto x2 = leaf(Op::Const, 1);  // Same value, will merge
+  rebuild_egraph();
+
+  constexpr PatternVar kVarA{0};
+  constexpr PatternVar kVarF{1};
+
+  auto pattern = Pattern<Op>::build(Op::F, {Var{kVarA}, Var{kVarA}}, kVarF);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+  std::vector<EClassId> candidates = {egraph.find(f_xx)};
+
+  executor.execute(*compiled, candidates, ctx, results);
+
+  EXPECT_EQ(results.size(), 1) << "Should find exactly 1 match for F(?a, ?a)";
+}
+
 }  // namespace memgraph::planner::core
