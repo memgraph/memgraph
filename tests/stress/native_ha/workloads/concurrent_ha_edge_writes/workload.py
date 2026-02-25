@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """
-Publications dataset import workload (LOAD PARQUET high-concurrency variant).
-Imports scientific publications data from S3 parquet files using LOAD PARQUET clause.
-
-Uses bolt+routing protocol with a single worker for imports,
-then 5 concurrent workers for journal cartesian product edge merging.
+High-concurrency edge write workload.
+Creates 1000 nodes via UNWIND+CREATE, then 5 concurrent workers repeatedly
+MERGE RELATED_TO edges between cartesian product pairs of those nodes.
 """
 import os
 import sys
@@ -17,48 +15,24 @@ from common import Protocol, QueryType, execute_and_fetch, execute_query, run_pa
 
 COORDINATOR = "coord_1"
 
-S3_BUCKET = "memgraph-stress-tests-bucket"
-S3_DATASET_PATH = "publications-dataset-1-percent"
-S3_REGION = "eu-west-1"
-
 SHOW_REPLICAS_QUERY = "SHOW REPLICAS;"
 SHOW_STORAGE_INFO_QUERY = "SHOW STORAGE INFO;"
 
-NUM_JOURNAL_WORKERS = 5
-NUM_JOURNAL_ITERATIONS = 1000
+NUM_NODES = 1000
+NUM_WORKERS = 5
+NUM_ITERATIONS = 1000
 
 STORAGE_INFO_INTERVAL_SECONDS = 5
 SHOW_REPLICAS_INTERVAL_SECONDS = 5
-
-
-def configure_s3_credentials() -> None:
-    """Set S3 credentials via SET DATABASE SETTING so LOAD PARQUET can access S3."""
-    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-
-    if not access_key or not secret_key:
-        raise ValueError(
-            "AWS credentials not found. Please set AWS_ACCESS_KEY_ID and "
-            "AWS_SECRET_ACCESS_KEY environment variables."
-        )
-
-    settings = [
-        f"SET DATABASE SETTING 'aws.region' TO '{S3_REGION}';",
-        f"SET DATABASE SETTING 'aws.access_key' TO '{access_key}';",
-        f"SET DATABASE SETTING 'aws.secret_key' TO '{secret_key}';",
-    ]
-
-    for query in settings:
-        execute_query(COORDINATOR, query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
 
 
 def create_indices_and_constraints() -> None:
     print("Creating indices and constraints...")
 
     queries = [
-        "CREATE INDEX ON :Journal;",
-        "CREATE INDEX ON :Journal(journal_name);",
-        "CREATE CONSTRAINT ON (n:Journal) ASSERT n.journal_name IS UNIQUE;",
+        "CREATE INDEX ON :Node;",
+        "CREATE INDEX ON :Node(uid);",
+        "CREATE CONSTRAINT ON (n:Node) ASSERT n.uid IS UNIQUE;",
     ]
 
     for query in queries:
@@ -68,41 +42,32 @@ def create_indices_and_constraints() -> None:
     print("Indices and constraints created.")
 
 
-def import_data() -> None:
-    s3_base = f"s3://{S3_BUCKET}/{S3_DATASET_PATH}"
+def create_nodes() -> None:
+    print(f"\nCreating {NUM_NODES} nodes...")
+    query = f"""
+UNWIND range(0, {NUM_NODES - 1}) AS i
+CREATE (:Node {{uid: i, name: 'node_' + toString(i)}});"""
 
-    imports = [
-        (
-            "Journal nodes",
-            f"""
-LOAD PARQUET FROM "{s3_base}/journals.parquet" AS row
-MERGE (n:Journal {{journal_name: row.journal_name}})
-SET n += row;""",
-        ),
-    ]
-
-    for name, query in imports:
-        print(f"\nImporting {name}...")
-        start_time = time.time()
-        execute_query(COORDINATOR, query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
-        elapsed = time.time() - start_time
-        print(f"  Completed in {elapsed:.1f}s")
+    start_time = time.time()
+    execute_query(COORDINATOR, query, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.WRITE)
+    elapsed = time.time() - start_time
+    print(f"  Created {NUM_NODES} nodes in {elapsed:.1f}s")
 
 
-def journal_cartesian_worker(worker_id: int) -> dict:
+def edge_write_worker(worker_id: int) -> dict:
     """
-    Each worker MATCHes the cartesian product of Journal nodes already in the DB
-    and MERGEs RELATED_TO edges. Partitioning is done via (id(a) + id(b)) % NUM_WORKERS
-    so each worker handles a distinct, non-overlapping slice.
+    Each worker MATCHes the cartesian product of Node pairs and MERGEs
+    RELATED_TO edges. Partitioning via (id(a) + id(b)) % NUM_WORKERS
+    ensures each worker handles a distinct, non-overlapping slice.
     """
     query = f"""
-MATCH (a:Journal), (b:Journal)
-WHERE a.journal_name < b.journal_name
-  AND (id(a) + id(b)) % {NUM_JOURNAL_WORKERS} = {worker_id}
+MATCH (a:Node), (b:Node)
+WHERE a.uid < b.uid
+  AND (a.uid + b.uid) % {NUM_WORKERS} = {worker_id}
 MERGE (a)-[:RELATED_TO]->(b);"""
 
     t0 = time.time()
-    for iteration in range(NUM_JOURNAL_ITERATIONS):
+    for iteration in range(NUM_ITERATIONS):
         execute_query(
             COORDINATOR,
             query,
@@ -110,21 +75,21 @@ MERGE (a)-[:RELATED_TO]->(b);"""
             query_type=QueryType.WRITE,
         )
         if (iteration + 1) % 10 == 0:
-            print(f"  [Journal worker {worker_id}] {iteration + 1}/{NUM_JOURNAL_ITERATIONS} iterations")
+            print(f"  [Worker {worker_id}] {iteration + 1}/{NUM_ITERATIONS} iterations")
     elapsed = time.time() - t0
-    print(f"  [Journal worker {worker_id}] Completed {NUM_JOURNAL_ITERATIONS} iterations in {elapsed:.1f}s")
+    print(f"  [Worker {worker_id}] Completed {NUM_ITERATIONS} iterations in {elapsed:.1f}s")
     return {"worker_id": worker_id, "elapsed": elapsed}
 
 
-def run_journal_cartesian() -> None:
-    print(f"\nRunning {NUM_JOURNAL_WORKERS} concurrent journal cartesian product workers...")
-    tasks = [(i,) for i in range(NUM_JOURNAL_WORKERS)]
+def run_concurrent_edge_writes() -> None:
+    print(f"\nRunning {NUM_WORKERS} concurrent edge write workers...")
+    tasks = [(i,) for i in range(NUM_WORKERS)]
 
     t0 = time.time()
-    results = run_parallel(journal_cartesian_worker, tasks, num_workers=NUM_JOURNAL_WORKERS)
+    results = run_parallel(edge_write_worker, tasks, num_workers=NUM_WORKERS)
     elapsed = time.time() - t0
 
-    print(f"  All {NUM_JOURNAL_WORKERS} workers completed in {elapsed:.1f}s")
+    print(f"  All {NUM_WORKERS} workers completed in {elapsed:.1f}s")
 
 
 def storage_info_worker(stop_event: threading.Event) -> None:
@@ -196,30 +161,14 @@ def verify_replicas_ready() -> bool:
     return all_ready
 
 
-def get_node_counts() -> dict[str, int]:
-    labels = ["Journal"]
-    counts = {}
-
-    for label in labels:
-        result = execute_and_fetch(
-            COORDINATOR, f"MATCH (n:{label}) RETURN count(n) as cnt", protocol=Protocol.BOLT_ROUTING
-        )
-        counts[label] = result[0]["cnt"] if result else 0
-
-    return counts
-
-
 def main():
     print("=" * 60)
-    print("LOAD PARQUET High-Concurrency Edge Write Workload")
+    print("High-Concurrency Edge Write Workload")
     print("=" * 60)
-    print(f"S3 Bucket: {S3_BUCKET}")
-    print(f"Dataset Path: {S3_DATASET_PATH}")
-    print(f"Region: {S3_REGION}")
+    print(f"Nodes: {NUM_NODES}")
+    print(f"Workers: {NUM_WORKERS}")
+    print(f"Iterations per worker: {NUM_ITERATIONS}")
     print("-" * 60)
-
-    configure_s3_credentials()
-    print("S3 credentials configured via SET DATABASE SETTING.")
 
     stop_event = threading.Event()
     storage_thread = threading.Thread(target=storage_info_worker, args=(stop_event,), daemon=True)
@@ -234,8 +183,8 @@ def main():
 
     try:
         create_indices_and_constraints()
-        import_data()
-        run_journal_cartesian()
+        create_nodes()
+        run_concurrent_edge_writes()
     finally:
         stop_event.set()
         storage_thread.join(timeout=5)
@@ -245,12 +194,17 @@ def main():
     total_elapsed = time.time() - total_start
 
     print("-" * 60)
-    print(f"Total import time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
+    print(f"Total time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
 
-    print("\nNode counts:")
-    counts = get_node_counts()
-    for label, count in counts.items():
-        print(f"  {label}: {count:,}")
+    result = execute_and_fetch(COORDINATOR, "MATCH (n:Node) RETURN count(n) as cnt", protocol=Protocol.BOLT_ROUTING)
+    node_count = result[0]["cnt"] if result else 0
+
+    result = execute_and_fetch(
+        COORDINATOR, "MATCH ()-[r:RELATED_TO]->() RETURN count(r) as cnt", protocol=Protocol.BOLT_ROUTING
+    )
+    edge_count = result[0]["cnt"] if result else 0
+
+    print(f"\nFinal counts: {node_count:,} nodes, {edge_count:,} edges")
 
     print("\nWaiting 30 seconds before final verification...")
     time.sleep(30)

@@ -35,10 +35,7 @@ dataset:
 
 customWorkloads:
   tests:
-    - name: load-parquet-high-concurrency-edge-write
+    - name: concurrent-ha-edge-writes
       memgraph_args: []
-      script: "native_ha/workloads/load_parquet_high_concurrency_edge_write/workload.py"
+      script: "native_ha/workloads/concurrent_ha_edge_writes/workload.py"
       timeout_min: 120
-      env:
-        - AWS_ACCESS_KEY_ID
-        - AWS_SECRET_ACCESS_KEY
