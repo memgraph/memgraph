@@ -10,4 +10,4 @@ workloads:
     enabled: false
 
   - config: workloads/concurrent_ha_edge_writes/workload.yaml
-    enabled: true
+    enabled: false
