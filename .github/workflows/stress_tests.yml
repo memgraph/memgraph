@@ -13,11 +13,6 @@ on:
           - docker_ha
           - eks_ha
         default: native_standalone
-      memgraph_image:
-        description: 'Memgraph Docker image (docker image tag or URL to .tar.gz) - required for docker_ha/eks_ha'
-        required: true
-        type: string
-        default: ''
       arch:
         description: 'Architecture (amd/arm)'
         required: true
@@ -30,13 +25,26 @@ on:
 run-name: "Stress Tests (${{ inputs.deployment }} - ${{ inputs.arch }})"
 
 jobs:
+  BuildMageImage:
+    name: "Build MAGE Image"
+    if: ${{ inputs.deployment == 'docker_ha' || inputs.deployment == 'eks_ha' }}
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    with:
+      arch: ${{ inputs.arch }}
+      build_type: RelWithDebInfo
+      push_to_s3: true
+      s3_dest_dir: "stress-test/mage/${{ github.run_id }}"
+      print_output_url: true
+      run_tests: false
+      package_deb: "false"
+    secrets: inherit
+
   stress_test_native_standalone:
     name: "Stress Tests Native Standalone"
     if: ${{ inputs.deployment == 'native_standalone' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
-      memgraph_image: ${{ inputs.memgraph_image }}
       arch: ${{ inputs.arch }}
     secrets: inherit
 
@@ -46,26 +54,27 @@ jobs:
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
-      memgraph_image: ${{ inputs.memgraph_image }}
       arch: ${{ inputs.arch }}
     secrets: inherit
 
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
     if: ${{ inputs.deployment == 'docker_ha' }}
+    needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
-      memgraph_image: ${{ inputs.memgraph_image }}
+      memgraph_image: ${{ needs.BuildMageImage.outputs.s3_package_url }}
       arch: ${{ inputs.arch }}
     secrets: inherit
 
   stress_test_eks_ha:
     name: "Stress Tests EKS HA"
     if: ${{ inputs.deployment == 'eks_ha' }}
+    needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
-      memgraph_image: ${{ inputs.memgraph_image }}
+      memgraph_image: ${{ needs.BuildMageImage.outputs.s3_package_url }}
       arch: ${{ inputs.arch }}
     secrets: inherit

@@ -213,6 +213,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Determine Input Type
+        if: ${{ inputs.memgraph_image != '' }}
         run: |
           read image_type image_value < <(python3 tools/ci/issu_image_type.py "$INPUT_IMAGE")
           echo "IMAGE_TYPE=${image_type}" >> $GITHUB_ENV
