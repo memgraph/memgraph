@@ -39,6 +39,12 @@
 - [ ] Analysis-guided rewrites (e-class analysis)
 - [ ] Parallel rule application
 - [ ] Incremental e-graph rebuild tracking
+- [ ] ParentSymbolIndex for high-parent-count scenarios
+      With equality saturation, shared nodes (columns, tables) may accumulate
+      many parents as equivalent plans are added. If parent traversal becomes
+      a bottleneck, consider adding an index: eclass -> symbol -> [parent_enodes].
+      This enables O(1) lookup vs O(n) iterate+filter. See parent_index.hpp.
+      Profile first to confirm this is actually a bottleneck.
 
 ## E-Matching Performance: O(n²) Chain Pattern Issue
 
