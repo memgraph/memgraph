@@ -8,10 +8,10 @@ add_unit_test(planner
         unittest__ematch.cpp
         unittest__rewrite.cpp
         unittest__join_order.cpp
-        test__vm_compiler.cpp
-        test__vm_executor.cpp
-        test__vm_fused.cpp
-        test__vm_modes.cpp
+        unittest__vm_compiler.cpp
+        unittest__vm_executor.cpp
+        unittest__vm_state.cpp
+        unittest__vm_comparison.cpp
         benchmark__vm_matching.cpp
         benchmark__egglog.cpp
     LINK_TARGETS mg::planner

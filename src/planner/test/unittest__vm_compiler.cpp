@@ -15,6 +15,7 @@
 
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/pattern/vm/tracer.hpp"
 #include "test_egraph_fixture.hpp"
 #include "test_patterns.hpp"
 
@@ -197,14 +198,17 @@ TEST_F(VMCompilerTest, BinarySymbolPattern) {
   EXPECT_GE(bind_slot_count, 2) << "Expected at least 2 BindSlotDedup instructions for two variables";
 }
 
-TEST_F(VMCompilerTest, DeepNestedJoinUsesParentChain) {
+// ============================================================================
+// Multi-Pattern Compilation Tests
+// ============================================================================
+
+TEST_F(VMCompilerTest, MultiPattern_DeepNestedUsesParentChain) {
   // Pattern 1: Neg(?x) - shallow pattern that binds ?x
   // Pattern 2: Neg(Neg(Neg(Neg(?x)))) - deep nested pattern with shared ?x at bottom
   //
   // The compiler should use parent chain traversal instead of Cartesian product.
   // This is critical for O(n) vs O(n^2) performance.
 
-  // Build patterns
   auto pattern1 = TestPattern::build(Op::Neg, {Var{kVarX}});
   auto pattern2 = TestPattern::build(Op::Neg, {Sym(Op::Neg, Sym(Op::Neg, Sym(Op::Neg, Var{kVarX})))});
 
@@ -249,6 +253,112 @@ TEST_F(VMCompilerTest, DeepNestedJoinUsesParentChain) {
   EXPECT_EQ(iter_all_eclasses_count, 0)
       << "Should not use IterAllEClasses (Cartesian product) for deep nested join\nBytecode:\n"
       << bytecode;
+}
+
+TEST_F(VMCompilerTest, MultiPattern_SharedVarUsesParentTraversal) {
+  // Anchor: Bind(_, ?sym, ?expr)
+  // Joined: Ident(?sym) - shared variable at direct child position
+  //
+  // Verifies parent traversal bytecode is generated for shared variable joins.
+
+  constexpr PatternVar kVarSym{1};
+  constexpr PatternVar kVarExpr{2};
+  constexpr PatternVar kVarId{3};
+
+  auto anchor = Pattern<Op>::build(Op::Bind, {Wildcard{}, Var{kVarSym}, Var{kVarExpr}}, kTestRoot);
+  auto joined = Pattern<Op>::build(Op::Ident, {Var{kVarSym}}, kVarId);
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
+
+  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+
+  // Verify bytecode has parent traversal instructions
+  bool has_iter_parents = false;
+  bool has_next_parent = false;
+  bool has_get_enode_eclass = false;
+
+  for (auto const &instr : compiled->code()) {
+    if (instr.op == VMOp::IterParents) has_iter_parents = true;
+    if (instr.op == VMOp::NextParent) has_next_parent = true;
+    if (instr.op == VMOp::GetENodeEClass) has_get_enode_eclass = true;
+  }
+
+  EXPECT_TRUE(has_iter_parents) << "Should have IterParents instruction\nBytecode:\n" << bytecode;
+  EXPECT_TRUE(has_next_parent) << "Should have NextParent instruction\nBytecode:\n" << bytecode;
+  EXPECT_TRUE(has_get_enode_eclass) << "Should have GetENodeEClass for binding\nBytecode:\n" << bytecode;
+}
+
+TEST_F(VMCompilerTest, MultiPattern_NoSharedVarUsesCartesianProduct) {
+  // Anchor: Add(?x, ?y)
+  // Joined: Neg(?z) - no shared variable with anchor
+  //
+  // Verifies Cartesian product bytecode (IterAllEClasses) is generated.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  auto anchor = Pattern<Op>::build(Op::Add, {Var{kVarX}, Var{kVarY}});
+  auto joined = Pattern<Op>::build(Op::Neg, {Var{kVarZ}});
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value()) << "Multi-pattern compilation should succeed";
+
+  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+
+  // Verify bytecode has IterAllEClasses and NextEClass instructions
+  bool has_iter_all_eclasses = false;
+  bool has_next_eclass = false;
+
+  for (auto const &instr : compiled->code()) {
+    if (instr.op == VMOp::IterAllEClasses) has_iter_all_eclasses = true;
+    if (instr.op == VMOp::NextEClass) has_next_eclass = true;
+  }
+
+  EXPECT_TRUE(has_iter_all_eclasses) << "Cartesian product should use IterAllEClasses instruction\nBytecode:\n"
+                                     << bytecode;
+  EXPECT_TRUE(has_next_eclass) << "Cartesian product should use NextEClass instruction\nBytecode:\n" << bytecode;
+}
+
+TEST_F(VMCompilerTest, MultiPattern_VariableOnlyUsesIterAllEClasses) {
+  // Anchor: Add(?x, ?y)
+  // Joined: ?z - just a variable, no symbol
+  //
+  // Verifies variable-only joined patterns use IterAllEClasses.
+
+  constexpr PatternVar kVarX{0};
+  constexpr PatternVar kVarY{1};
+  constexpr PatternVar kVarZ{2};
+
+  auto anchor = Pattern<Op>::build(Op::Add, {Var{kVarX}, Var{kVarY}});
+
+  auto joined_builder = TestPattern::Builder{};
+  joined_builder.var(kVarZ);
+  auto joined = std::move(joined_builder).build();
+
+  PatternCompiler<Op> compiler;
+  std::array patterns = {anchor, joined};
+  auto compiled = compiler.compile(patterns);
+  ASSERT_TRUE(compiled.has_value()) << "Compilation should succeed for variable-only joined pattern";
+
+  auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
+
+  bool has_iter_all_eclasses = false;
+  bool has_next_eclass = false;
+
+  for (auto const &instr : compiled->code()) {
+    if (instr.op == VMOp::IterAllEClasses) has_iter_all_eclasses = true;
+    if (instr.op == VMOp::NextEClass) has_next_eclass = true;
+  }
+
+  EXPECT_TRUE(has_iter_all_eclasses) << "Variable-only joined pattern should use IterAllEClasses\nBytecode:\n"
+                                     << bytecode;
+  EXPECT_TRUE(has_next_eclass) << "Variable-only joined pattern should use NextEClass\nBytecode:\n" << bytecode;
 }
 
 }  // namespace memgraph::planner::core
