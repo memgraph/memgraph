@@ -35,7 +35,8 @@ static constexpr std::size_t kDefaultRegisters = 16;
 
 /// Iterating e-nodes in an e-class (span-based, advances via subspan)
 /// Empty span = inactive/exhausted
-// TODO: ENodesIter, AllEClassesIter are very similar, why not template + alias?
+/// Note: ENodesIter and AllEClassesIter share the same structure but differ in element type
+/// (ENodeId vs EClassId). Could be templatized: template<typename Id> struct SpanIter {...}
 struct ENodesIter {
   std::span<ENodeId const> nodes;
 
