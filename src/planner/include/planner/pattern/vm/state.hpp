@@ -36,7 +36,7 @@ static constexpr std::size_t kDefaultRegisters = 16;
 
 /// Iterating e-nodes in an e-class (span-based, advances via subspan)
 /// Empty span = inactive/exhausted
-// TODO: ENodesIter, ParentsFilteredIter, AllEClassesIter are very simular, why not template + alias?
+// TODO: ENodesIter, AllEClassesIter are very similar, why not template + alias?
 struct ENodesIter {
   std::span<ENodeId const> nodes;
 
@@ -63,20 +63,6 @@ struct ParentsIter {
   [[nodiscard]] auto index() const -> std::size_t { return idx; }
 
   void advance() { ++idx; }
-};
-
-/// Iterating filtered parents (span-based, advances via subspan)
-/// Empty span = inactive/exhausted
-struct ParentsFilteredIter {
-  std::span<ENodeId const> nodes;
-
-  [[nodiscard]] auto exhausted() const -> bool { return nodes.empty(); }
-
-  [[nodiscard]] auto remaining() const -> std::size_t { return nodes.size(); }
-
-  [[nodiscard]] auto current() const -> ENodeId { return nodes.front(); }
-
-  void advance() { nodes = nodes.subspan(1); }
 };
 
 /// Iterating all canonical e-classes (span-based, advances via subspan)
@@ -129,10 +115,9 @@ struct VMState {
   // Each type uses exhausted state as inactive indicator (no explicit deactivation needed)
   // The compiler statically determines which type each register uses
   // When an iteration exhausts, its state is naturally inert; fresh iterations overwrite
-  std::vector<ENodesIter> enodes_iters;             // E-node iterations (span-based)
-  std::vector<ParentsIter> parents_iters;           // Parent iterations (index-based)
-  std::vector<ParentsFilteredIter> filtered_iters;  // Filtered parent iterations (span-based)
-  std::vector<AllEClassesIter> eclasses_iters;      // All e-classes iterations (span-based)
+  std::vector<ENodesIter> enodes_iters;         // E-node iterations (span-based)
+  std::vector<ParentsIter> parents_iters;       // Parent iterations (index-based)
+  std::vector<AllEClassesIter> eclasses_iters;  // All e-classes iterations (span-based)
 
   /// Initialize state for execution with given number of slots and registers
   void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs) {
@@ -153,9 +138,8 @@ struct VMState {
     if (enode_regs.size() < num_enode_regs) {
       enode_regs.resize(num_enode_regs);
       // TODO: _iters are just another kind of register dealing with particular iterations types
-      enodes_iters.resize(num_enode_regs);    // E-node iteration state (IterENodes)
-      parents_iters.resize(num_enode_regs);   // Parent iteration state (index-based, IterParents)
-      filtered_iters.resize(num_enode_regs);  // Filtered parent iteration state (span-based, IterParentsSym)
+      enodes_iters.resize(num_enode_regs);   // E-node iteration state (IterENodes)
+      parents_iters.resize(num_enode_regs);  // Parent iteration state (index-based, IterParents)
     }
     // No need to reset iteration states - exhausted() is the inactive indicator,
     // and start_*_iter() overwrites with fresh state when re-entering loops
@@ -176,11 +160,6 @@ struct VMState {
     parents_iters[reg] = ParentsIter{eclass, 0, parent_count};
   }
 
-  /// Start a filtered parent iteration on a register (uses span from index)
-  void start_filtered_parent_iter(uint8_t reg, std::span<ENodeId const> parents) {
-    filtered_iters[reg] = ParentsFilteredIter{parents};
-  }
-
   /// Start an all-eclasses iteration on a register (uses span of e-class IDs)
   void start_all_eclasses_iter(uint8_t reg, std::span<EClassId const> eclasses) {
     eclasses_iters[reg] = AllEClassesIter{eclasses};
@@ -195,11 +174,6 @@ struct VMState {
   [[nodiscard]] auto get_parents_iter(uint8_t reg) -> ParentsIter & { return parents_iters[reg]; }
 
   [[nodiscard]] auto get_parents_iter(uint8_t reg) const -> ParentsIter const & { return parents_iters[reg]; }
-
-  /// Get filtered parents iterator for a register
-  [[nodiscard]] auto get_filtered_iter(uint8_t reg) -> ParentsFilteredIter & { return filtered_iters[reg]; }
-
-  [[nodiscard]] auto get_filtered_iter(uint8_t reg) const -> ParentsFilteredIter const & { return filtered_iters[reg]; }
 
   /// Get all e-classes iterator for a register
   [[nodiscard]] auto get_eclasses_iter(uint8_t reg) -> AllEClassesIter & { return eclasses_iters[reg]; }

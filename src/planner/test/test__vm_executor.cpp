@@ -610,4 +610,166 @@ TEST_F(VMExecutionTest, DeduplicationMergedDifferentSymbols) {
   }
 }
 
+// ============================================================================
+// Deduplication Edge Case Tests
+// ============================================================================
+
+// Test: max_seen_slot_ tracking with non-sequential slot binding
+// Bug: bind() incorrectly sets max_seen_slot_ = end after clearing seen sets
+// This could cause incorrect deduplication behavior when slots are bound out of order
+TEST_F(VMExecutionTest, DeduplicationSlotOrderIndependence) {
+  // Create a pattern where the slot binding order might not match slot indices
+  // Pattern: F(?y, ?x) - variables may be bound as y=slot0, x=slot1 or vice versa
+  //
+  // E-graph with multiple F nodes that should yield unique matches:
+  //   F(a, b), F(a, c), F(b, a)
+  // Should yield 3 unique matches, no duplicates
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+
+  auto f1 = node(Op::F, a, b);  // F(a, b)
+  auto f2 = node(Op::F, a, c);  // F(a, c)
+  auto f3 = node(Op::F, b, a);  // F(b, a)
+
+  rebuild_egraph();
+
+  // Pattern: F(?x, ?y)
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+
+  std::vector<EClassId> candidates = {egraph.find(f1), egraph.find(f2), egraph.find(f3)};
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should find exactly 3 unique matches
+  EXPECT_EQ(results.size(), 3) << "Should find 3 unique matches for F(?x, ?y)";
+}
+
+// Test: Deduplication with repeated candidate causing same bindings
+// Verifies that deduplication correctly prevents duplicate matches when
+// the same binding tuple is reached via different paths
+TEST_F(VMExecutionTest, DeduplicationMultiplePaths) {
+  // Create e-graph where same binding can be reached multiple ways:
+  //   a, b are leaves
+  //   f1 = F(a, b)
+  //   f2 = F(a, b) - structurally identical to f1
+  //
+  // After e-graph rebuild, f1 and f2 should be in same e-class (structural sharing)
+  // But if we provide both as candidates, deduplication should prevent duplicates
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+
+  auto f1 = node(Op::F, a, b);
+  auto f2 = node(Op::F, a, b);  // Identical structure
+
+  rebuild_egraph();
+
+  // After rebuild, f1 and f2 should be same e-class
+  ASSERT_EQ(egraph.find(f1), egraph.find(f2)) << "Identical F(a,b) nodes should merge";
+
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+
+  // Provide the same e-class as candidate multiple times
+  auto candidate = egraph.find(f1);
+  std::vector<EClassId> candidates = {candidate, candidate, candidate};
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should find only 1 unique match despite 3 identical candidates
+  EXPECT_EQ(results.size(), 1) << "Deduplication should prevent duplicate matches from same e-class";
+}
+
+// Test: Deduplication with changing prefix (slot rebinding)
+// This tests the seen_per_slot clearing logic when a slot value changes
+TEST_F(VMExecutionTest, DeduplicationPrefixChange) {
+  // Create pattern: Add(?x, F(?x, ?y))
+  // This binds ?x first (from Add's first child), then ?y (from F's second child)
+  //
+  // E-graph:
+  //   a = Const(1), b = Const(2), c = Const(3)
+  //   f_ab = F(a, b), f_ac = F(a, c)
+  //   add1 = Add(a, f_ab) - matches with ?x=a, ?y=b
+  //   add2 = Add(a, f_ac) - matches with ?x=a, ?y=c
+  //
+  // Both should match (different ?y values)
+
+  auto a = leaf(Op::Const, 1);
+  auto b = leaf(Op::Const, 2);
+  auto c = leaf(Op::Const, 3);
+
+  auto f_ab = node(Op::F, a, b);
+  auto f_ac = node(Op::F, a, c);
+  auto add1 = node(Op::Add, a, f_ab);
+  auto add2 = node(Op::Add, a, f_ac);
+
+  rebuild_egraph();
+
+  // Pattern: Add(?x, F(?x, ?y)) - ?x appears twice, ?y once
+  auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Sym(Op::F, Var{kVarX}, Var{kVarY})}, kTestRoot);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+
+  std::vector<EClassId> candidates = {egraph.find(add1), egraph.find(add2)};
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should find 2 unique matches: (?x=a, ?y=b) and (?x=a, ?y=c)
+  EXPECT_EQ(results.size(), 2) << "Should find 2 matches with same ?x but different ?y";
+}
+
+// Test: Wide e-class with many e-nodes and deduplication
+// This stress-tests the deduplication when iterating through many e-nodes
+TEST_F(VMExecutionTest, DeduplicationWideEClass) {
+  // Create multiple F(a, x) nodes for different x values, then merge them
+  // Pattern F(?x, ?y) should find each unique binding once
+
+  auto a = leaf(Op::Const, 0);
+  std::vector<EClassId> f_nodes;
+
+  constexpr std::size_t kNumVariants = 50;
+  for (std::size_t i = 1; i <= kNumVariants; ++i) {
+    auto x = leaf(Op::Const, i);
+    f_nodes.push_back(node(Op::F, a, x));
+  }
+
+  // Merge all F nodes into one e-class
+  for (std::size_t i = 1; i < f_nodes.size(); ++i) {
+    merge(f_nodes[0], f_nodes[i]);
+  }
+  rebuild_egraph();
+
+  auto f_class = egraph.find(f_nodes[0]);
+  auto const &eclass = egraph.eclass(f_class);
+  ASSERT_EQ(eclass.nodes().size(), kNumVariants) << "All F nodes should be in same e-class";
+
+  auto pattern = TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}, kTestRoot);
+
+  PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(pattern);
+  ASSERT_TRUE(compiled.has_value());
+
+  VMExecutorVerify<Op, NoAnalysis> executor(egraph);
+
+  std::vector<EClassId> candidates = {f_class};
+  executor.execute(*compiled, candidates, ctx, results);
+
+  // Should find kNumVariants unique matches (each F(a, xi) is unique)
+  EXPECT_EQ(results.size(), kNumVariants) << "Should find " << kNumVariants << " unique matches";
+}
+
 }  // namespace memgraph::planner::core

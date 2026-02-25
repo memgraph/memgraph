@@ -60,7 +60,7 @@ class CompiledPattern {
   std::size_t num_slots_;
   std::size_t num_eclass_regs_;         // Registers holding e-class IDs
   std::size_t num_enode_regs_;          // Registers holding e-node IDs (and iteration state)
-  std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol/IterParentsSym //TODO: are these deduplicated?
+  std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol //TODO: are these deduplicated?
   std::optional<Symbol> entry_symbol_;  // For index-based candidate lookup
 };
 
@@ -146,9 +146,7 @@ class VMExecutorVerify {
         &&op_IterAllEClasses,
         &&op_NextEClass,
         &&op_IterParents,
-        &&op_IterParentsSym,
         &&op_NextParent,
-        &&op_NextParentFiltered,
         &&op_CheckSymbol,
         &&op_CheckArity,
         &&op_BindSlot,
@@ -220,23 +218,8 @@ class VMExecutorVerify {
       JUMP(code_[state_.pc].target);
     }
 
-  op_IterParentsSym:
-    // In verify mode, filter parents by symbol
-    if (exec_iter_parents_sym(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
-
   op_NextParent:
     if (exec_next_parent(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
-
-  op_NextParentFiltered:
-    if (exec_next_parent_filtered(code_[state_.pc])) {
       NEXT();
     } else {
       JUMP(code_[state_.pc].target);
@@ -396,42 +379,6 @@ class VMExecutorVerify {
     return true;
   }
 
-  /// Filter parents by symbol and iterate (verify mode)
-  [[nodiscard]] auto exec_iter_parents_sym(Instruction instr) -> bool {
-    if constexpr (kTracingEnabled) {
-      ++stats_.iter_parent_calls;
-    }
-    auto eclass_id = state_.eclass_regs[instr.src];
-    auto target_symbol = symbols_[instr.arg];
-    auto const &parents = egraph_->eclass(eclass_id).parents();
-
-    // Filter parents to only those with matching symbol
-    // TODO: is this safe, one filtered_parents_buffer_ that multiple IterParentsSym might be pointing at
-    //       might be worth just doing normal IterParents + CheckSymbol
-    filtered_parents_buffer_.clear();
-    for (auto parent_id : parents) {
-      auto const &enode = egraph_->get_enode(parent_id);
-      if (enode.symbol() == target_symbol) {
-        filtered_parents_buffer_.push_back(parent_id);
-      }
-    }
-
-    if constexpr (kTracingEnabled) {
-      tracer_->on_iter_start(state_.pc, filtered_parents_buffer_.size());
-    }
-
-    if (filtered_parents_buffer_.empty()) [[unlikely]] {
-      return false;
-    }
-
-    state_.start_filtered_parent_iter(instr.dst, filtered_parents_buffer_);
-    state_.enode_regs[instr.dst] = filtered_parents_buffer_[0];
-    if constexpr (kTracingEnabled) {
-      ++stats_.parent_symbol_hits;
-    }
-    return true;
-  }
-
   /// Advance index-based parent iteration (for IterParents)
   [[nodiscard]] auto exec_next_parent(Instruction instr) -> bool {
     auto &iter = state_.get_parents_iter(instr.dst);
@@ -449,23 +396,6 @@ class VMExecutorVerify {
     auto pit = egraph_->eclass(iter.eclass).parents().begin();
     std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
     state_.enode_regs[instr.dst] = *pit;
-    return true;
-  }
-
-  /// Advance span-based filtered parent iteration (for IterParentsSym)
-  [[nodiscard]] auto exec_next_parent_filtered(Instruction instr) -> bool {
-    auto &iter = state_.get_filtered_iter(instr.dst);
-    iter.advance();
-    if (iter.exhausted()) {
-      if constexpr (kTracingEnabled) {
-        tracer_->on_iter_advance(state_.pc, 0);
-      }
-      return false;
-    }
-    if constexpr (kTracingEnabled) {
-      tracer_->on_iter_advance(state_.pc, iter.remaining());
-    }
-    state_.enode_regs[instr.dst] = iter.current();
     return true;
   }
 
@@ -564,10 +494,9 @@ class VMExecutorVerify {
   VMStats stats_;
   Tracer null_tracer_;  // TODO: can we have a static NullTracer rather than per instance Tracer?
   Tracer *tracer_;
-  std::vector<EClassId> all_eclasses_buffer_;                            // Buffer for IterAllEClasses
-  std::vector<EClassId> candidates_buffer_;                              // Buffer for automatic candidate lookup
-  boost::container::small_vector<ENodeId, 16> filtered_parents_buffer_;  // Buffer for IterParentsSym filtering
-  bool all_eclasses_cached_ = false;                                     // Whether all_eclasses_buffer_ is valid
+  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
+  std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
+  bool all_eclasses_cached_ = false;           // Whether all_eclasses_buffer_ is valid
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -605,7 +534,6 @@ class VMExecutorClean {
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
       state_.bound.reset();
-      filtered_parents_ = {};
 
       run_until_halt(ctx, results);
     }
@@ -641,9 +569,7 @@ class VMExecutorClean {
         &&op_IterAllEClasses,
         &&op_NextEClass,
         &&op_IterParents,
-        &&op_IterParentsSym,
         &&op_NextParent,
-        &&op_NextParentFiltered,
         &&op_CheckSymbol,
         &&op_CheckArity,
         &&op_BindSlot,
@@ -710,22 +636,8 @@ class VMExecutorClean {
       JUMP(code_[state_.pc].target);
     }
 
-  op_IterParentsSym:
-    if (exec_iter_parents_sym(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
-
   op_NextParent:
     if (exec_next_parent(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
-
-  op_NextParentFiltered:
-    if (exec_next_parent_filtered(code_[state_.pc])) {
       NEXT();
     } else {
       JUMP(code_[state_.pc].target);
@@ -856,28 +768,11 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_parents_sym(Instruction instr) -> bool {
-    auto eclass_id = state_.eclass_regs[instr.src];
-    auto sym = symbols_[instr.arg];
-
-    auto parents = parent_index_->parents_with_symbol(eclass_id, sym);
-
-    if (parents.empty()) {
-      return false;
-    }
-
-    filtered_parents_ = parents;  // TODO: why cached locally as the "current" filtered parents?
-    state_.start_filtered_parent_iter(instr.dst, parents);
-    state_.enode_regs[instr.dst] = parents[0];
-    return true;
-  }
-
   /// Advance index-based parent iteration (for IterParents)
   [[nodiscard]] auto exec_next_parent(Instruction instr) -> bool {
     auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
-      filtered_parents_ = {};
       return false;
     }
     // Index-based iteration requires looking up the e-class again
@@ -886,18 +781,6 @@ class VMExecutorClean {
     auto pit = parent_set.begin();
     std::advance(pit, static_cast<std::ptrdiff_t>(iter.index()));
     state_.enode_regs[instr.dst] = *pit;
-    return true;
-  }
-
-  /// Advance span-based filtered parent iteration (for IterParentsSym)
-  [[nodiscard]] auto exec_next_parent_filtered(Instruction instr) -> bool {
-    auto &iter = state_.get_filtered_iter(instr.dst);
-    iter.advance();
-    if (iter.exhausted()) {
-      filtered_parents_ = {};
-      return false;
-    }
-    state_.enode_regs[instr.dst] = iter.current();
     return true;
   }
 
@@ -942,7 +825,6 @@ class VMExecutorClean {
   ParentIndexType const *parent_index_;
   std::span<Instruction const> code_;
   std::span<Symbol const> symbols_;
-  std::span<ENodeId const> filtered_parents_;  // Current filtered parent list
   VMState state_;
   VMStats stats_;
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses

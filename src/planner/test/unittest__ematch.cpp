@@ -672,18 +672,16 @@ TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
 TEST_F(EMatcherTest, MultiPatternVMFiltersBySymbolInVerifyMode) {
   // Regression test for VM multi-pattern matching bug found by fuzzer.
   //
-  // Bug: In VMExecutorVerify, IterParentsSym was falling back to
-  // exec_iter_parents() which iterates ALL parents without filtering by symbol.
-  // Since the compiler doesn't emit CheckSymbol after IterParentsSym (assumes
-  // the instruction filters), wrong parents could slip through and produce
-  // spurious matches.
+  // Historical note: The original bug was in IterParentsSym which iterated all
+  // parents without filtering by symbol. The fix was to switch to IterParents +
+  // CheckSymbol which explicitly checks the symbol for each parent e-node.
   //
   // Reproducer from fuzzer (crash-43736aae77a61652d5e1db4fabcfc47e26e548ca):
   //   E-graph: A(4), F(A(4))   <- one leaf, one unary
   //   Pattern 0: F(?v0)        <- matches F(A(4)), binds ?v0 = A class
   //   Pattern 1: F2(?v0)       <- should match F2 parents of ?v0 (none exist)
   //
-  //   Bug: VM found 1 match (wrong), EMatcher found 0 (correct)
+  //   Old bug: VM found 1 match (wrong), EMatcher found 0 (correct)
   //   VM was iterating F parent instead of F2 parents, and since F's child
   //   equals ?v0, the CheckSlot passed spuriously.
 

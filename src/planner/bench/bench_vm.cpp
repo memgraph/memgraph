@@ -407,9 +407,9 @@ BENCHMARK_REGISTER_F(BindIdentVMFusedFixture, ParentTraversal)
 // High Parent Count: Hub node with many parents of different symbols
 // ============================================================================
 //
-// Measures: Symbol index filtering effectiveness when a node has many parents.
-// Why it matters: Clean mode with IterParentsSym should skip non-matching parents
-//   entirely, while Verify mode iterates all parents and filters.
+// Measures: Symbol filtering effectiveness when a node has many parents.
+// Why it matters: Both modes use IterParents + CheckSymbol, iterating all parents
+//   and filtering by symbol. Clean mode may use parent index for optimization.
 // Variables: parents_f (F parents), parents_neg (Neg parents to match).
 
 class VMHighParentFixture : public VMFixtureBase {

@@ -391,14 +391,15 @@ class PatternCompiler {
   auto emit_joined_with_parent_traversal(Pattern<Symbol> const &pattern, SymbolWithChildren<Symbol> const &sym,
                                          PatternVar shared_var, std::size_t shared_idx, uint8_t shared_reg,
                                          uint16_t backtrack) -> uint16_t {
-    auto parent_reg = alloc_enode_reg();  // IterParentsSym produces e-node
+    auto parent_reg = alloc_enode_reg();  // IterParents produces e-node
     auto sym_idx = get_symbol_index(sym.sym);
 
-    // Iterate parents with this symbol (span-based, uses filtered iter)
-    auto loop_pos = emit_iter_loop(Instruction::iter_parents_sym(parent_reg, shared_reg, sym_idx, backtrack),
-                                   Instruction::next_parent_filtered(parent_reg, backtrack));
+    // Iterate all parents with lazy symbol checking (avoids buffer allocation)
+    auto loop_pos = emit_iter_loop(Instruction::iter_parents(parent_reg, shared_reg, backtrack),
+                                   Instruction::next_parent(parent_reg, backtrack));
 
-    // Check arity
+    // Check symbol and arity (backtrack to loop on mismatch)
+    code_.push_back(Instruction::check_symbol(parent_reg, sym_idx, loop_pos));
     code_.push_back(Instruction::check_arity(parent_reg, static_cast<uint8_t>(sym.children.size()), loop_pos));
 
     // Process children
@@ -533,7 +534,7 @@ class PatternCompiler {
     return next_eclass_reg_++;
   }
 
-  /// Allocate an e-node register (for IterENodes, IterParents, IterParentsSym destinations)
+  /// Allocate an e-node register (for IterENodes, IterParents destinations)
   auto alloc_enode_reg() -> uint8_t {
     // Register indices are uint8_t in instructions, so max 256 registers
     return next_enode_reg_++;

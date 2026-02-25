@@ -44,15 +44,9 @@ enum class VMOp : uint8_t {
   /// Begin iterating ALL parents of e-class[src] (index-based)
   /// Pushes iteration state. If empty, jumps to target.
   IterParents,
-  /// Begin iterating parents of e-class[src] filtered by symbol[arg] (span-based)
-  /// Uses by-symbol index if available. Pushes state. If empty, jumps.
-  IterParentsSym,
   /// Advance to next parent e-node (index-based, for IterParents), store in dst
   /// If exhausted, pops state and jumps to target.
   NextParent,
-  /// Advance to next filtered parent e-node (span-based, for IterParentsSym), store in dst
-  /// If exhausted, pops state and jumps to target.
-  NextParentFiltered,
 
   // ===== Filtering =====
   /// If enode[src].symbol != symbols[arg], jump to target
@@ -114,16 +108,8 @@ struct Instruction {
     return {VMOp::IterParents, dst, src, 0, on_empty};
   }
 
-  static constexpr auto iter_parents_sym(uint8_t dst, uint8_t src, uint8_t sym_idx, uint16_t on_empty) -> Instruction {
-    return {VMOp::IterParentsSym, dst, src, sym_idx, on_empty};
-  }
-
   static constexpr auto next_parent(uint8_t dst, uint16_t on_exhausted) -> Instruction {
     return {VMOp::NextParent, dst, 0, 0, on_exhausted};
-  }
-
-  static constexpr auto next_parent_filtered(uint8_t dst, uint16_t on_exhausted) -> Instruction {
-    return {VMOp::NextParentFiltered, dst, 0, 0, on_exhausted};
   }
 
   static constexpr auto check_symbol(uint8_t src, uint8_t sym_idx, uint16_t on_mismatch) -> Instruction {
@@ -176,12 +162,8 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
       return "NextEClass";
     case VMOp::IterParents:
       return "IterParents";
-    case VMOp::IterParentsSym:
-      return "IterParentsSym";
     case VMOp::NextParent:
       return "NextParent";
-    case VMOp::NextParentFiltered:
-      return "NextParentFiltered";
     case VMOp::CheckSymbol:
       return "CheckSymbol";
     case VMOp::CheckArity:
