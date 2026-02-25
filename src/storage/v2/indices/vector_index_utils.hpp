@@ -396,25 +396,29 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
   }
 
   auto thread_id_for_adding = thread_id.value_or(Index::any_thread());
+  // When usearch reuses a freed slot (update of existing key), no new arena
+  // memory is allocated — skip TryAdd/Sub for that case.
+  bool is_fresh_insert = true;
   {
     auto locked_index = mg_index.MutableSharedLock();
     const auto est = EstimatePerVectorMmapBytes(*locked_index);
 
-    const bool had_existing = locked_index->contains(key);
-    if (had_existing) {
+    if (locked_index->contains(key)) {
       locked_index->remove(key);
-      utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
+      is_fresh_insert = false;
     }
     if (vector.empty()) return;
 
-    if (!utils::embeddings_memory_counter.CanAllocate(est.hnsw_bytes, est.vec_bytes)) {
+    if (is_fresh_insert && !utils::embeddings_memory_counter.TryAdd(est.hnsw_bytes, est.vec_bytes)) {
       throw query::VectorSearchException("Embeddings memory limit exceeded.");
     }
 
     auto result = locked_index->add(key, vector.data(), thread_id_for_adding);
     if (!result.error) {
-      utils::embeddings_memory_counter.Add(est.hnsw_bytes, est.vec_bytes);
       return;
+    }
+    if (is_fresh_insert) {
+      utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
     }
     if (locked_index->size() >= locked_index->capacity()) {
       result.error.release();
@@ -430,10 +434,13 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
       }
       spec.capacity = exclusively_locked_index->capacity();
     }
+    const auto est_retry = EstimatePerVectorMmapBytes(*exclusively_locked_index);
+    if (is_fresh_insert && !utils::embeddings_memory_counter.TryAdd(est_retry.hnsw_bytes, est_retry.vec_bytes)) {
+      throw query::VectorSearchException("Embeddings memory limit exceeded.");
+    }
     auto result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
-    if (!result.error) {
-      const auto est = EstimatePerVectorMmapBytes(*exclusively_locked_index);
-      utils::embeddings_memory_counter.Add(est.hnsw_bytes, est.vec_bytes);
+    if (result.error && is_fresh_insert) {
+      utils::embeddings_memory_counter.Sub(est_retry.hnsw_bytes, est_retry.vec_bytes);
     }
   }
 }

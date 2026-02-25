@@ -287,8 +287,6 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
       });
       if (locked_index->contains(vertex)) {
         locked_index->remove(vertex);
-        const auto est = EstimatePerVectorMmapBytes(*locked_index);
-        utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
       }
       vertex->properties.SetProperty(property_id, property_value_to_set);
     }
@@ -467,11 +465,9 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index_size);
     locked_index->export_keys(vertices_to_remove.data(), 0, index_size);
 
-    const auto est = EstimatePerVectorMmapBytes(*locked_index);
     auto deleted = vertices_to_remove | rv::filter([](const Vertex *vertex) { return vertex->deleted; });
     for (const auto &vertex : deleted) {
       locked_index->remove(vertex);
-      utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
     }
   }
 }

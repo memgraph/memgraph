@@ -73,6 +73,12 @@ class MemoryTracker final {
   void Free(int64_t size);
   void DoCheck();
 
+  /// Track memory allocated outside of jemalloc (e.g. mmap).
+  /// Adjusts the tracked amount without limit checks — the caller
+  /// is responsible for enforcing limits before calling this.
+  void TrackExternalAlloc(int64_t size);
+  void TrackExternalFree(int64_t size);
+
   auto Amount() const { return amount_.load(std::memory_order_relaxed); }
 
   auto Peak() const { return peak_.load(std::memory_order_relaxed); }

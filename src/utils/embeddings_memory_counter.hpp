@@ -11,25 +11,25 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstdint>
+#include <mutex>
 
 namespace memgraph::utils {
 
-/// Lock-free counter for vector index embedding memory.
-/// Tracks memory consumed by usearch vector storage (which uses mmap internally
-/// and is invisible to jemalloc-based total_memory_tracker).
+/// Tracks mmap-backed memory used by usearch vector indices.
 ///
-/// Usearch has two separate mmap-backed arena allocators per index:
-///   - HNSW tape  (alignment=64) — graph nodes (key + level + neighbor lists)
-///   - Vector tape (alignment=8) — raw vector data
-/// We track these separately so we can predict the arena overhead accurately
-/// (each allocator has its own independent doubling-arena chain).
+/// Usearch allocates HNSW graph nodes and raw vector data through
+/// memory_mapping_allocator_gt (a doubling-arena mmap allocator),
+/// which bypasses jemalloc and total_memory_tracker. This counter
+/// models each arena chain's state to predict actual RSS, and syncs
+/// deltas into total_memory_tracker so the overall memory limit
+/// covers both jemalloc and embedding memory.
 ///
-/// Two independent limits can be enforced:
-///   1. Embeddings-specific limit (from license) -- checked via embeddings_limit_
-///   2. Overall memory limit (user-configured)   -- checked by combining this counter
-///      with total_memory_tracker.Amount()
+/// Arena memory is never freed on individual vector removal — usearch
+/// reuses freed slots on subsequent inserts. Only dropping or clearing
+/// an entire index releases the arenas (via munmap). Callers must
+/// reflect this: call TryAdd only for fresh inserts (not slot reuse),
+/// and call Sub only on index drop/clear.
 class EmbeddingsMemoryCounter final {
  public:
   EmbeddingsMemoryCounter() = default;
@@ -39,62 +39,64 @@ class EmbeddingsMemoryCounter final {
   EmbeddingsMemoryCounter(EmbeddingsMemoryCounter &&) = delete;
   EmbeddingsMemoryCounter &operator=(EmbeddingsMemoryCounter &&) = delete;
 
-  void Add(int64_t hnsw_bytes, int64_t vec_bytes) {
-    hnsw_data_.fetch_add(hnsw_bytes, std::memory_order_relaxed);
-    vec_data_.fetch_add(vec_bytes, std::memory_order_relaxed);
-  }
+  /// Called on fresh vector insert (usearch allocates new arena space).
+  /// Checks overall limit, advances arena models, syncs with total_memory_tracker.
+  /// Do NOT call when usearch will reuse a freed slot (e.g. update of existing key).
+  bool TryAdd(int64_t hnsw_bytes, int64_t vec_bytes);
 
-  void Sub(int64_t hnsw_bytes, int64_t vec_bytes) {
-    hnsw_data_.fetch_sub(hnsw_bytes, std::memory_order_relaxed);
-    vec_data_.fetch_sub(vec_bytes, std::memory_order_relaxed);
-  }
+  /// Called ONLY when dropping/clearing an entire index (arenas are munmap'd),
+  /// or to roll back a failed TryAdd.
+  /// Do NOT call on individual vector removals — arena memory is not freed.
+  void Sub(int64_t hnsw_bytes, int64_t vec_bytes);
 
-  void Reset() {
-    hnsw_data_.store(0, std::memory_order_relaxed);
-    vec_data_.store(0, std::memory_order_relaxed);
-  }
+  void Reset();
 
-  /// Returns the raw data estimate (sum of per-vector HNSW + vector bytes) WITHOUT arena overhead.
-  int64_t DataAmount() const {
-    return hnsw_data_.load(std::memory_order_relaxed) + vec_data_.load(std::memory_order_relaxed);
-  }
-
-  /// Returns the predicted total mmap'd memory INCLUDING arena overhead.
-  /// Models each allocator's doubling-arena chain independently.
+  /// O(1): predicted RSS from cached arena models.
   int64_t Amount() const;
 
-  void SetEmbeddingsLimit(int64_t limit) { embeddings_limit_.store(limit, std::memory_order_relaxed); }
-
-  int64_t EmbeddingsLimit() const { return embeddings_limit_.load(std::memory_order_relaxed); }
-
-  void SetOverallLimit(int64_t limit) { overall_limit_.store(limit, std::memory_order_relaxed); }
-
-  int64_t OverallLimit() const { return overall_limit_.load(std::memory_order_relaxed); }
-
-  /// Fast pre-check before adding an embedding.
-  /// Returns true if the allocation is allowed under both limits.
-  /// Not perfectly linearizable (speed over precision) -- the two atomic loads
-  /// are not synchronized, but that's acceptable for this use case.
-  bool CanAllocate(int64_t hnsw_bytes, int64_t vec_bytes) const;
-
-  /// Models the doubling-arena allocator used by usearch's memory_mapping_allocator_gt.
-  /// Given the total data written to one allocator, returns the total mmap'd bytes
-  /// (data + arena headers + reserved tail of the last arena).
-  ///
-  /// Arena growth: first arena = 2 * min_capacity (8 MiB), each subsequent = 2x previous.
-  /// Each arena has a small header (head_size bytes) at the start.
-  static int64_t PredictArenaTotalMmap(int64_t data_bytes, int64_t head_size);
+  void SetOverallLimit(int64_t limit);
+  int64_t OverallLimit() const;
 
  private:
+  /// Models one usearch memory_mapping_allocator_gt arena chain.
+  /// Caches current position for O(1) per-insert advancement.
+  struct ArenaModel {
+    int64_t total_committed{0};  // sum of fully-used arenas (all pages resident)
+    int64_t last_cap{0};         // current arena capacity (0 = no arena yet)
+    int64_t last_used{0};        // bytes consumed in current arena (includes header)
+    int64_t head_size{0};
+
+    static constexpr int64_t kMinCap = int64_t{4} * 1024 * 1024;
+    static constexpr int64_t kPageSize = 4096;
+
+    explicit ArenaModel(int64_t hs) : head_size(hs) {}
+
+    /// Advance arena chain by bytes. O(1) for normal-sized allocations.
+    void Add(int64_t bytes);
+
+    /// Predicted RSS: committed arenas + touched pages in last arena.
+    int64_t TotalMemory() const;
+
+    /// Rebuild state from total data bytes. O(log N) — only used on index drop.
+    void Rebuild(int64_t total_data);
+
+    void Reset();
+  };
+
+  void SyncTrackerAmount();
+
   /// HNSW tape: alignment=64, head_size = ceil(16/64)*64 = 64
   static constexpr int64_t kHnswArenaHeadSize = 64;
   /// Vector tape: alignment=8, head_size = ceil(16/8)*8 = 16
   static constexpr int64_t kVecArenaHeadSize = 16;
 
-  std::atomic<int64_t> hnsw_data_{0};
-  std::atomic<int64_t> vec_data_{0};
-  std::atomic<int64_t> embeddings_limit_{0};  // 0 = unlimited
-  std::atomic<int64_t> overall_limit_{0};     // 0 = unlimited
+  mutable std::mutex mutex_;
+  ArenaModel hnsw_arena_{kHnswArenaHeadSize};
+  ArenaModel vec_arena_{kVecArenaHeadSize};
+  int64_t hnsw_data_{0};      // total HNSW bytes ever allocated (not freed on individual removal)
+  int64_t vec_data_{0};       // total vector bytes ever allocated
+  int64_t overall_limit_{0};  // 0 = unlimited
+  int64_t last_synced_amount_{0};
 };
 
 extern EmbeddingsMemoryCounter embeddings_memory_counter;

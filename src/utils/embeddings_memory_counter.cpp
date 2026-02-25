@@ -18,51 +18,126 @@ namespace memgraph::utils {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EmbeddingsMemoryCounter embeddings_memory_counter{};
 
-int64_t EmbeddingsMemoryCounter::PredictArenaTotalMmap(int64_t data_bytes, int64_t head_size) {
-  if (data_bytes <= 0) return 0;
+// --- ArenaModel ---
 
-  // Models usearch memory_mapping_allocator_gt: min_capacity=4MiB, multiplier=2.
-  // First arena = min_capacity * multiplier = 8 MiB. Each subsequent doubles.
-  // Usable space per arena = capacity - head_size (header stores prev-pointer + capacity).
-  constexpr int64_t kMinCapacity = 4 * 1024 * 1024;
-  int64_t total_mmap = 0;
-  int64_t filled = 0;
-  int64_t arena_cap = kMinCapacity * 2;
-
-  while (filled < data_bytes) {
-    total_mmap += arena_cap;
-    filled += arena_cap - head_size;
-    arena_cap *= 2;
+void EmbeddingsMemoryCounter::ArenaModel::Add(int64_t bytes) {
+  if (last_cap == 0) {
+    last_cap = kMinCap * 2;  // first arena = 8 MiB
+    last_used = head_size;
   }
+  // Match usearch overflow condition: allocate new arena when current can't fit
+  if (last_used + bytes >= last_cap) {
+    total_committed += last_cap;
+    last_cap *= 2;
+    last_used = head_size;
+  }
+  last_used += bytes;
+}
 
-  return total_mmap;
+int64_t EmbeddingsMemoryCounter::ArenaModel::TotalMemory() const {
+  if (last_cap == 0) return 0;
+  const auto touched = (last_used + kPageSize - 1) / kPageSize * kPageSize;
+  return total_committed + touched;
+}
+
+void EmbeddingsMemoryCounter::ArenaModel::Rebuild(int64_t total_data) {
+  Reset();
+  if (total_data <= 0) return;
+
+  last_cap = kMinCap * 2;
+  last_used = head_size;
+  auto remaining = total_data;
+
+  while (remaining > 0) {
+    const auto space = last_cap - last_used;
+    if (remaining < space) {
+      last_used += remaining;
+      return;
+    }
+    remaining -= space;
+    total_committed += last_cap;
+    last_cap *= 2;
+    last_used = head_size;
+  }
+}
+
+void EmbeddingsMemoryCounter::ArenaModel::Reset() {
+  total_committed = 0;
+  last_cap = 0;
+  last_used = 0;
+}
+
+// --- EmbeddingsMemoryCounter ---
+
+void EmbeddingsMemoryCounter::SyncTrackerAmount() {
+  const auto current = hnsw_arena_.TotalMemory() + vec_arena_.TotalMemory();
+  const auto delta = current - last_synced_amount_;
+  if (delta > 0) {
+    total_memory_tracker.TrackExternalAlloc(delta);
+  } else if (delta < 0) {
+    total_memory_tracker.TrackExternalFree(-delta);
+  }
+  last_synced_amount_ = current;
 }
 
 int64_t EmbeddingsMemoryCounter::Amount() const {
-  const auto hnsw = hnsw_data_.load(std::memory_order_relaxed);
-  const auto vec = vec_data_.load(std::memory_order_relaxed);
-  return PredictArenaTotalMmap(hnsw, kHnswArenaHeadSize) + PredictArenaTotalMmap(vec, kVecArenaHeadSize);
+  std::lock_guard lock(mutex_);
+  return hnsw_arena_.TotalMemory() + vec_arena_.TotalMemory();
 }
 
-bool EmbeddingsMemoryCounter::CanAllocate(int64_t hnsw_bytes, int64_t vec_bytes) const {
-  const auto hnsw = hnsw_data_.load(std::memory_order_relaxed);
-  const auto vec = vec_data_.load(std::memory_order_relaxed);
-  const auto predicted_after = PredictArenaTotalMmap(hnsw + hnsw_bytes, kHnswArenaHeadSize) +
-                               PredictArenaTotalMmap(vec + vec_bytes, kVecArenaHeadSize);
+void EmbeddingsMemoryCounter::Sub(int64_t hnsw_bytes, int64_t vec_bytes) {
+  std::lock_guard lock(mutex_);
+  hnsw_data_ -= hnsw_bytes;
+  vec_data_ -= vec_bytes;
+  hnsw_arena_.Rebuild(hnsw_data_);
+  vec_arena_.Rebuild(vec_data_);
+  SyncTrackerAmount();
+}
 
-  const auto emb_limit = embeddings_limit_.load(std::memory_order_relaxed);
-  if (emb_limit > 0 && predicted_after > emb_limit) {
-    return false;
-  }
+void EmbeddingsMemoryCounter::Reset() {
+  std::lock_guard lock(mutex_);
+  hnsw_data_ = 0;
+  vec_data_ = 0;
+  hnsw_arena_.Reset();
+  vec_arena_.Reset();
+  SyncTrackerAmount();
+}
 
-  const auto ovr_limit = overall_limit_.load(std::memory_order_relaxed);
-  if (ovr_limit > 0) {
-    const auto tracked_memory = total_memory_tracker.Amount();
-    if (tracked_memory + predicted_after > ovr_limit) {
+void EmbeddingsMemoryCounter::SetOverallLimit(int64_t limit) {
+  std::lock_guard lock(mutex_);
+  overall_limit_ = limit;
+}
+
+int64_t EmbeddingsMemoryCounter::OverallLimit() const {
+  std::lock_guard lock(mutex_);
+  return overall_limit_;
+}
+
+bool EmbeddingsMemoryCounter::TryAdd(int64_t hnsw_bytes, int64_t vec_bytes) {
+  std::lock_guard lock(mutex_);
+
+  // Speculatively advance arena models to compute predicted memory
+  const auto hnsw_before = hnsw_arena_;
+  const auto vec_before = vec_arena_;
+
+  hnsw_arena_.Add(hnsw_bytes);
+  vec_arena_.Add(vec_bytes);
+
+  const auto new_total = hnsw_arena_.TotalMemory() + vec_arena_.TotalMemory();
+  const auto delta = new_total - last_synced_amount_;
+
+  if (overall_limit_ > 0) {
+    const auto total_after = total_memory_tracker.Amount() + delta;
+    if (total_after > overall_limit_) {
+      hnsw_arena_ = hnsw_before;
+      vec_arena_ = vec_before;
       return false;
     }
   }
 
+  hnsw_data_ += hnsw_bytes;
+  vec_data_ += vec_bytes;
+  SyncTrackerAmount();
   return true;
 }
 

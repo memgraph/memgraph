@@ -21,7 +21,6 @@
 
 #include "slk/serialization.hpp"
 #include "utils/base64.hpp"
-#include "utils/embeddings_memory_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/settings.hpp"
@@ -127,7 +126,6 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   if (enterprise_enabled_) [[unlikely]] {
     is_valid_.store(true, std::memory_order_relaxed);
     set_memory_limit(0);
-    utils::embeddings_memory_counter.SetEmbeddingsLimit(0);
     return;
   }
 
@@ -177,7 +175,6 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     is_valid_.store(true, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = true;
     set_memory_limit(maybe_license->memory_limit);
-    utils::embeddings_memory_counter.SetEmbeddingsLimit(maybe_license->embeddings_memory_limit);
     locked_previous_license_info->license = std::move(*maybe_license);
   }
 }

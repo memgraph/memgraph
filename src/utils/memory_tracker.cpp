@@ -126,6 +126,13 @@ void MemoryTracker::DoCheck() {
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
 
+void MemoryTracker::TrackExternalAlloc(const int64_t size) {
+  const auto will_be = size + amount_.fetch_add(size, std::memory_order_relaxed);
+  UpdatePeak(will_be);
+}
+
+void MemoryTracker::TrackExternalFree(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
+
 // DEVNOTE: important that this is allocated at thread construction time
 //          otherwise subtle bug where jemalloc will try to lock an non-recursive mutex
 //          that it already owns

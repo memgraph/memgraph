@@ -315,14 +315,12 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<EdgeIndexEntry> edges_to_remove(index_size);
     locked_index->export_keys(edges_to_remove.data(), 0, index_size);
 
-    const auto est = EstimatePerVectorMmapBytes(*locked_index);
     auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
                      auto guard = std::shared_lock{entry.edge->lock};
                      return entry.edge->deleted;
                    });
     for (const auto &entry : deleted) {
       locked_index->remove(entry);
-      utils::embeddings_memory_counter.Sub(est.hnsw_bytes, est.vec_bytes);
     }
   }
 }

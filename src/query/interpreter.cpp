@@ -6489,18 +6489,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("embeddings_memory"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_counter.Amount())))},
-            {TypedValue("embeddings_memory_data"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_counter.DataAmount())))},
-            {TypedValue("embeddings_memory_actual"),
+            {TypedValue("embeddings_memory_usearch"),
              TypedValue(
                  utils::GetReadableSize(static_cast<double>(storage->indices_.vector_index_.TotalMemoryUsage() +
                                                             storage->indices_.vector_edge_index_.TotalMemoryUsage())))},
-            {TypedValue("embeddings_memory_limit"),
-             TypedValue(
-                 utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_counter.EmbeddingsLimit())))},
-            {TypedValue("total_memory_with_embeddings"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount() +
-                                                                   utils::embeddings_memory_counter.Amount())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
