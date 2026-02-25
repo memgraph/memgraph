@@ -8,3 +8,6 @@ workloads:
 
   - config: workloads/publications_import/workload.yaml
     enabled: false
+
+  - config: workloads/concurrent_ha_edge_writes/workload.yaml
+    enabled: true

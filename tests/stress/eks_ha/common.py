@@ -6,12 +6,13 @@ resolves instance hosts at import time by querying kubectl for external
 LoadBalancer IPs. All EKS instances expose bolt on port 7687.
 """
 
+import multiprocessing
 import os
 import re
 import subprocess
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Iterable, TypeVar
 
 from neo4j import GraphDatabase
 from neo4j.exceptions import ClientError, DatabaseError
@@ -124,6 +125,15 @@ def create_bolt_routing_driver_for(
         host = _get_instance_host(instance_name)
     uri = f"neo4j://{host}:{BOLT_PORT}"
     return GraphDatabase.driver(uri, auth=auth)
+
+
+def run_parallel(
+    worker_fn: Callable[..., R],
+    tasks: Iterable[tuple],
+    num_workers: int = 4,
+) -> list[R]:
+    with multiprocessing.Pool(processes=num_workers) as pool:
+        return pool.starmap(worker_fn, tasks)
 
 
 def _run_query(
