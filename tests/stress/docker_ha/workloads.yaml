@@ -4,12 +4,15 @@
 
 workloads:
   - config: workloads/concurrent_write/workload.yaml
-    enabled: false
+    enabled: true
 
   - config: workloads/rag/workload.yaml
-    enabled: false
+    enabled: true
 
   - config: workloads/publications_import/workload.yaml
+    enabled: true
+
+  - config: workloads/python_high_concurrency_edge_write/workload.yaml
     enabled: true
 
   # Add new workloads here:
