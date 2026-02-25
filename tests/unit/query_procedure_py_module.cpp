@@ -12,7 +12,9 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <thread>
 
 #include "disk_test_utils.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -314,6 +316,28 @@ TYPED_TEST(PyModule, PyObjectToMgpValue) {
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_double, v2), 1);
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(double, mgp_value_get_double, v2), 4.0);
   mgp_value_destroy(value);
+}
+
+namespace {
+void GILCheckCapsuleDestructor(PyObject * /*capsule*/) {}
+}  // namespace
+
+// Regression test: py::Object must acquire the GIL before calling Py_XDECREF,
+// even when destroyed on a thread that doesn't hold the GIL.
+// Uses a PyCapsule with a C-level destructor that checks PyGILState_Check()
+// at the exact moment of deallocation.
+TEST(PyObjectLifecycle, DestructorAcquiresGIL) {
+  std::optional<memgraph::py::Object> py_obj;
+  {
+    auto gil = memgraph::py::EnsureGIL();
+    static int dummy;
+    py_obj.emplace(PyCapsule_New(&dummy, "gil_test", GILCheckCapsuleDestructor));
+    ASSERT_TRUE(*py_obj);
+  }
+  // GIL is released. Destroy on a thread that never held the GIL.
+  {
+    std::jthread t([&py_obj]() { py_obj.reset(); });
+  }
 }
 
 int main(int argc, char **argv) {

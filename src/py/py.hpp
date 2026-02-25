@@ -73,7 +73,12 @@ class [[nodiscard]] Object final {
     return Object(ptr);
   }
 
-  ~Object() noexcept { Py_XDECREF(ptr_); }
+  ~Object() noexcept {
+    if (ptr_ && !_Py_IsFinalizing()) {
+      EnsureGIL gil;
+      Py_XDECREF(ptr_);
+    }
+  }
 
   Object(const Object &other) noexcept : ptr_(other.ptr_) { Py_XINCREF(ptr_); }
 
