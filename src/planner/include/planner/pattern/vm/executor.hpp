@@ -197,71 +197,75 @@ class VMExecutor {
         &&op_Halt,
     };
 
+    // Cache current instruction - fetched once per dispatch, used by all handlers
+    Instruction instr;
+
     // clang-format off
 #define DISPATCH()                                                      \
   do {                                                                  \
     if (state_.pc >= code_.size()) return; /*DMG_ASSERT*/               \
+    instr = code_[state_.pc];                                           \
     if constexpr (DevMode) {                                            \
-      collector_.on_instruction(state_.pc, code_[state_.pc]);           \
+      collector_.on_instruction(state_.pc, instr);                      \
     }                                                                   \
-    goto *dispatch_table[static_cast<uint8_t>(code_[state_.pc].op)];    \
+    goto *dispatch_table[static_cast<uint8_t>(instr.op)];               \
   } while (0)
 
 #define NEXT() do { ++state_.pc; DISPATCH(); } while (0)
 #define JUMP(target) do { state_.pc = (target); DISPATCH(); } while (0)
 #define NEXT_OR_JUMP(condition) \
-  do { if (condition) { NEXT(); } else { JUMP(code_[state_.pc].target); } } while (0)
+  do { if (condition) { NEXT(); } else { JUMP(instr.target); } } while (0)
     // clang-format on
 
     DISPATCH();
 
   op_LoadChild:
-    exec_load_child(code_[state_.pc]);
+    exec_load_child(instr);
     NEXT();
 
   op_GetENodeEClass:
-    exec_get_enode_eclass(code_[state_.pc]);
+    exec_get_enode_eclass(instr);
     NEXT();
 
   op_IterENodes:
-    NEXT_OR_JUMP(exec_iter_enodes(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_iter_enodes(instr));
 
   op_NextENode:
-    NEXT_OR_JUMP(exec_next_enode(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_next_enode(instr));
 
   op_IterAllEClasses:
-    NEXT_OR_JUMP(exec_iter_all_eclasses(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_iter_all_eclasses(instr));
 
   op_NextEClass:
-    NEXT_OR_JUMP(exec_next_eclass(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_next_eclass(instr));
 
   op_IterParents:
-    NEXT_OR_JUMP(exec_iter_parents(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_iter_parents(instr));
 
   op_NextParent:
-    NEXT_OR_JUMP(exec_next_parent(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_next_parent(instr));
 
   op_CheckSymbol:
-    NEXT_OR_JUMP(exec_check_symbol(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_check_symbol(instr));
 
   op_CheckArity:
-    NEXT_OR_JUMP(exec_check_arity(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_check_arity(instr));
 
   op_BindSlotDedup:
-    NEXT_OR_JUMP(exec_bind_slot_dedup(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_bind_slot_dedup(instr));
 
   op_CheckSlot:
-    NEXT_OR_JUMP(exec_check_slot(code_[state_.pc]));
+    NEXT_OR_JUMP(exec_check_slot(instr));
 
   op_MarkSeen:
-    exec_mark_seen(code_[state_.pc]);
+    exec_mark_seen(instr);
     NEXT();
 
   op_Jump:
-    JUMP(code_[state_.pc].target);
+    JUMP(instr.target);
 
   op_Yield:
-    exec_yield(code_[state_.pc], ctx, results);
+    exec_yield(instr, ctx, results);
     NEXT();
 
   op_Halt:
