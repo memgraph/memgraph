@@ -371,33 +371,31 @@ class EgglogMatcherBenchmark : public EGraphTestBase {
     std::vector<QueryDef> queries;
     queries.push_back(QueryDef{
         .name = "Neg(?x)",
-        .pattern = TestPattern::build(Op::Neg, {Var{kVarX}}, kTestRoot),
+        .pattern = TestPattern::build(Op::Neg, {Var{kVarX}}),
         .egglog_pattern = "(Neg ?x)",
         .egglog_vars = {"?x"},
     });
     queries.push_back(QueryDef{
         .name = "Add(?x, ?x)",
-        .pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarX}}, kTestRoot),
+        .pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarX}}),
         .egglog_pattern = "(Add ?x ?x)",
         .egglog_vars = {"?x"},
     });
     queries.push_back(QueryDef{
         .name = "F(Add(?x, ?y), Neg(?z))",
-        .pattern =
-            TestPattern::build(Op::F, {Sym(Op::Add, Var{kVarX}, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}, kTestRoot),
+        .pattern = TestPattern::build(Op::F, {Sym(Op::Add, Var{kVarX}, Var{kVarY}), Sym(Op::Neg, Var{kVarZ})}),
         .egglog_pattern = "(F (Add ?x ?y) (Neg ?z))",
         .egglog_vars = {"?x", "?y", "?z"},
     });
     queries.push_back(QueryDef{
         .name = "F2(F(Mul(?x, ?y), ?z))",
-        .pattern =
-            TestPattern::build(Op::F2, {Sym(Op::F, Sym(Op::Mul, Var{kVarX}, Var{kVarY}), Var{kVarZ})}, kTestRoot),
+        .pattern = TestPattern::build(Op::F2, {Sym(Op::F, Sym(Op::Mul, Var{kVarX}, Var{kVarY}), Var{kVarZ})}),
         .egglog_pattern = "(F2 (F (Mul ?x ?y) ?z))",
         .egglog_vars = {"?x", "?y", "?z"},
     });
     queries.push_back(QueryDef{
         .name = "Test(?x) [expected no matches]",
-        .pattern = TestPattern::build(Op::Test, {Var{kVarX}}, kTestRoot),
+        .pattern = TestPattern::build(Op::Test, {Var{kVarX}}),
         .egglog_pattern = "(Test ?x)",
         .egglog_vars = {"?x"},
     });
@@ -629,9 +627,10 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
     auto rust_result = run_rust_egglog_bench(rust_bin, iterations, compare_results);
     ASSERT_TRUE(rust_result.success) << "Rust egglog benchmark failed: " << rust_bin;
     std::cout << "Rust egglog total (query-only): " << rust_result.query_only_ms
-              << " ms (library, baseline-subtracted)\n";
+              << " ms (library, pre-built graph; includes push/pop overhead)\n";
     std::cout << "Rust egglog total (end-to-end): " << rust_result.end_to_end_ms << " ms\n";
-    std::cout << "Speedup (RustEgglog/VM, query-only): " << (rust_result.query_only_ms / vm_time.count()) << "x\n";
+    std::cout << "Speedup (RustEgglog/VM, query-only): " << (rust_result.query_only_ms / vm_exec_only_time.count())
+              << "x\n";  // exec-only: both sides have pre-built patterns, no compilation overhead
     std::cout << "Speedup (RustEgglog/VM, end-to-end): " << (rust_result.end_to_end_ms / vm_end_to_end_time.count())
               << "x\n";
     if (compare_results) {

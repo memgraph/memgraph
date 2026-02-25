@@ -180,6 +180,12 @@ fn install_prepared_queries(egraph: &mut EGraph) -> Result<Vec<PreparedQuery>, S
     ])
 }
 
+// NOTE: push()/pop() is required because egglog's rule-firing writes facts into
+// relations permanently. push() snapshots graph state and pop() restores it so
+// repeated calls start from the same baseline. This overhead has no C++ equivalent
+// (C++ matching is purely read-only). The query-only timing therefore includes
+// this snapshot/restore cost on every iteration, which should be kept in mind
+// when comparing against the C++ VM exec-only numbers.
 fn run_queries(egraph: &mut EGraph, prepared: &[PreparedQuery]) -> Result<Vec<usize>, String> {
     egraph.push();
     let mut counts = Vec::with_capacity(prepared.len());
@@ -190,12 +196,6 @@ fn run_queries(egraph: &mut EGraph, prepared: &[PreparedQuery]) -> Result<Vec<us
     }
     egraph.pop().map_err(|e| format!("egraph.pop failed: {e}"))?;
     Ok(counts)
-}
-
-fn run_baseline() -> Result<f64, String> {
-    let start = Instant::now();
-    let _ = build_egraph()?;
-    Ok(start.elapsed().as_secs_f64() * 1000.0)
 }
 
 fn run_full(with_counts: bool) -> Result<(f64, Vec<usize>), String> {
@@ -222,14 +222,9 @@ fn parse_arg<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> T
     default
 }
 
-fn has_flag(args: &[String], name: &str) -> bool {
-    args.iter().any(|a| a == name)
-}
-
 fn main() -> Result<(), String> {
     let args = std::env::args().collect::<Vec<_>>();
     let iterations = parse_arg(&args, "--iterations", 5usize);
-    let compare_results = has_flag(&args, "--compare-results");
 
     // Query-only mode: build once, then run queries repeatedly on the same graph.
     let (mut prebuilt_egraph, _expr_sort) = build_egraph()?;
@@ -242,19 +237,16 @@ fn main() -> Result<(), String> {
     }
     let query_only_ms = query_start.elapsed().as_secs_f64() * 1000.0;
 
-    // End-to-end mode: build + query path (with baseline subtraction available for inspection).
-    let mut total_baseline_ms = 0.0;
+    // End-to-end mode: build + install queries + run queries, all timed together.
+    // Comparable to the C++ end-to-end: graph build + pattern compilation + execution per iteration.
     let mut total_full_ms = 0.0;
     for _ in 0..iterations {
         let (full_ms, _) = run_full(false)?;
-        let baseline_ms = run_baseline()?;
         total_full_ms += full_ms;
-        total_baseline_ms += baseline_ms;
     }
 
     println!("RUST_EGGLOG_QUERY_ONLY_MS={query_only_ms:.6}");
     println!("RUST_EGGLOG_TOTAL_FULL_MS={total_full_ms:.6}");
-    println!("RUST_EGGLOG_TOTAL_BASELINE_MS={total_baseline_ms:.6}");
     println!(
         "RUST_EGGLOG_MATCH_COUNTS={}",
         counts
@@ -267,10 +259,6 @@ fn main() -> Result<(), String> {
         "RUST_EGGLOG_QUERIES={}",
         QUERY_NAMES.join("|")
     );
-
-    if compare_results {
-        // Exit code and printed counts are enough for parent benchmark to validate.
-    }
 
     Ok(())
 }
