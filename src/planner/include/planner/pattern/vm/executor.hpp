@@ -95,17 +95,16 @@ class CompiledPattern {
 ///
 /// This executor always verifies child consistency when traversing parents.
 /// Safe but slower - does not require a clean parent index.
-// TODO: better name than VMExecutorVerify (why Verify?)
-template <typename Symbol, typename Analysis, typename Tracer = NullTracer>
+///
+/// @tparam DevMode Enable stats collection and tracing (for debugging/profiling)
+template <typename Symbol, typename Analysis, bool DevMode = false>
 class VMExecutorVerify {
  public:
   using EGraphType = EGraph<Symbol, Analysis>;
 
-  explicit VMExecutorVerify(EGraphType const &egraph, Tracer *tracer = nullptr) : egraph_(&egraph) {
-    if (tracer) {
-      tracer_ = tracer;
-    } else {
-      tracer_ = &null_tracer_;
+  explicit VMExecutorVerify(EGraphType const &egraph, VMTracer *tracer = nullptr) : egraph_(&egraph) {
+    if constexpr (DevMode) {
+      tracer_ = tracer ? tracer : &null_tracer_;
     }
   }
 
@@ -117,7 +116,9 @@ class VMExecutorVerify {
         pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs(), [&pattern](std::size_t slot) {
           return pattern.slots_bound_after(slot);
         });
-    stats_.reset();  // TODO: no need for stats if not in a developer mode
+    if constexpr (DevMode) {
+      stats_.reset();
+    }
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
@@ -163,16 +164,20 @@ class VMExecutorVerify {
     execute(pattern, candidates_buffer_, ctx, results);
   }
 
-  [[nodiscard]] auto stats() const -> VMStats const & { return stats_; }
+  /// Get execution stats (only meaningful when DevMode=true)
+  [[nodiscard]] auto stats() const -> VMStats const & {
+    static_assert(DevMode, "stats() requires DevMode=true");
+    return stats_;
+  }
 
-  /// Set tracer for debugging
-  void set_tracer(Tracer *tracer) { tracer_ = tracer ? tracer : &null_tracer_; }
+  /// Set tracer for debugging (only available when DevMode=true)
+  void set_tracer(VMTracer *tracer)
+    requires(DevMode)
+  {
+    tracer_ = tracer ? tracer : &null_tracer_;
+  }
 
  private:
-  // Compile-time constant for whether tracing is enabled
-  // TODO: I rather think about stats + Trace as developer mode
-  static constexpr bool kTracingEnabled = !std::is_same_v<Tracer, NullTracer>;
-
   void run_until_halt(EMatchContext &ctx, std::vector<PatternMatch> &results) {
     // Dispatch table - must match VMOp enum order exactly
     static constexpr void *dispatch_table[] = {
@@ -198,7 +203,7 @@ class VMExecutorVerify {
 #define DISPATCH()                                                      \
   do {                                                                  \
     if (state_.pc >= code_.size()) return; /*DMG_ASSERT*/               \
-    if constexpr (kTracingEnabled) {                                    \
+    if constexpr (DevMode) {                                    \
       tracer_->on_instruction(state_.pc, code_[state_.pc]);             \
       ++stats_.instructions_executed;                                   \
     }                                                                   \
@@ -302,7 +307,7 @@ class VMExecutorVerify {
     NEXT();
 
   op_Halt:
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       tracer_->on_halt(stats_.instructions_executed);
     }
     return;
@@ -325,13 +330,13 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool {
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       ++stats_.iter_enode_calls;
     }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto nodes = egraph_->eclass(eclass_id).nodes();
 
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       tracer_->on_iter_start(state_.pc, nodes.size());
     }
 
@@ -348,13 +353,13 @@ class VMExecutorVerify {
     auto &iter = state_.get_enodes_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
-      if constexpr (kTracingEnabled) {
+      if constexpr (DevMode) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
       return false;
     }
 
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       tracer_->on_iter_advance(state_.pc, iter.remaining());
     }
     state_.enode_regs[instr.dst] = iter.current();
@@ -386,13 +391,13 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool {
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       ++stats_.iter_parent_calls;
     }
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &parents = egraph_->eclass(eclass_id).parents();
 
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       tracer_->on_iter_start(state_.pc, parents.size());
     }
 
@@ -410,12 +415,12 @@ class VMExecutorVerify {
     auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
-      if constexpr (kTracingEnabled) {
+      if constexpr (DevMode) {
         tracer_->on_iter_advance(state_.pc, 0);
       }
       return false;
     }
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       tracer_->on_iter_advance(state_.pc, iter.remaining());
     }
     // Index-based iteration requires looking up the e-class again
@@ -428,13 +433,13 @@ class VMExecutorVerify {
   [[nodiscard]] [[gnu::always_inline]] auto exec_check_symbol(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.symbol() != symbols_[instr.arg]) {
-      if constexpr (kTracingEnabled) {
+      if constexpr (DevMode) {
         ++stats_.parent_symbol_misses;
         tracer_->on_check_fail(state_.pc, "symbol mismatch");
       }
       return false;
     }
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       ++stats_.parent_symbol_hits;
     }
     return true;
@@ -443,7 +448,7 @@ class VMExecutorVerify {
   [[nodiscard]] [[gnu::always_inline]] auto exec_check_arity(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.arity() != instr.arg) {
-      if constexpr (kTracingEnabled) {
+      if constexpr (DevMode) {
         tracer_->on_check_fail(state_.pc, "arity mismatch");
       }
       return false;
@@ -454,7 +459,7 @@ class VMExecutorVerify {
   [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool {
     auto eclass = state_.eclass_regs[instr.src];
     bool is_new = state_.try_bind_dedup(instr.arg, eclass);
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       tracer_->on_bind(instr.arg, eclass);
       if (!is_new) {
         tracer_->on_check_fail(state_.pc, "duplicate binding");
@@ -468,13 +473,13 @@ class VMExecutorVerify {
     // - slots[] was set by BindSlotDedup from canonical eclass_regs
     // - eclass_regs[] was set by LoadChild which canonicalizes
     if (state_.slots[instr.arg] != state_.eclass_regs[instr.src]) {
-      if constexpr (kTracingEnabled) {
+      if constexpr (DevMode) {
         ++stats_.check_slot_misses;
         tracer_->on_check_fail(state_.pc, "slot mismatch");
       }
       return false;
     }
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       ++stats_.check_slot_hits;
     }
     return true;
@@ -484,7 +489,7 @@ class VMExecutorVerify {
     // Mark last slot as seen (Yield is a special MarkSeen + emit)
     state_.mark_seen(instr.arg);
 
-    if constexpr (kTracingEnabled) {
+    if constexpr (DevMode) {
       ++stats_.yields;
       tracer_->on_yield(state_.slots);
     }
@@ -497,11 +502,15 @@ class VMExecutorVerify {
   std::span<Instruction const> code_;
   std::span<Symbol const> symbols_;
   VMState state_;
-  VMStats stats_;
-  Tracer null_tracer_;  // TODO: can we have a static NullTracer rather than per instance Tracer?
-  Tracer *tracer_;
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses (pre-cached in execute())
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
+
+  // Dev mode only: stats and tracing (zero overhead when DevMode=false)
+  struct NoDevState {};
+
+  [[no_unique_address]] std::conditional_t<DevMode, VMStats, NoDevState> stats_;
+  [[no_unique_address]] std::conditional_t<DevMode, NullTracer, NoDevState> null_tracer_;
+  [[no_unique_address]] std::conditional_t<DevMode, VMTracer *, NoDevState> tracer_;
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -509,6 +518,9 @@ class VMExecutorVerify {
 /// This executor uses ParentSymbolIndex for efficient parent traversal.
 /// Requires the index to be kept clean (rebuilt after e-graph modifications).
 /// Faster but requires index maintenance.
+///
+/// Note: This executor does not support DevMode (stats/tracing). Use VMExecutorVerify<..., true>
+/// if you need debugging capabilities.
 // TODO: why two VMExecutor? VMExecutorVerify, VMExecutorClean we should only have one CORRECT version, we will make
 // incrementatl improvements to performace without damaging correctness
 template <typename Symbol, typename Analysis>
@@ -527,7 +539,6 @@ class VMExecutorClean {
         pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs(), [&pattern](std::size_t slot) {
           return pattern.slots_bound_after(slot);
         });
-    stats_.reset();
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
@@ -561,8 +572,6 @@ class VMExecutorClean {
 
     execute(pattern, candidates_buffer_, ctx, results);
   }
-
-  [[nodiscard]] auto stats() const -> VMStats const & { return stats_; }
 
  private:
   void run_until_halt(EMatchContext &ctx, std::vector<PatternMatch> &results) {
@@ -815,7 +824,6 @@ class VMExecutorClean {
   std::span<Instruction const> code_;
   std::span<Symbol const> symbols_;
   VMState state_;
-  VMStats stats_;
   std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses (pre-cached in execute())
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
 };
