@@ -87,7 +87,7 @@ class CompiledPattern {
   std::size_t num_slots_;
   std::size_t num_eclass_regs_;                          // Registers holding e-class IDs
   std::size_t num_enode_regs_;                           // Registers holding e-node IDs (and iteration state)
-  std::vector<Symbol> symbols_;                          // Symbol table for CheckSymbol //TODO: are these deduplicated?
+  std::vector<Symbol> symbols_;                          // Symbol table for CheckSymbol (deduplicated by compiler)
   std::optional<Symbol> entry_symbol_;                   // For index-based candidate lookup
   std::vector<uint8_t> binding_order_;                   // Order in which slots are bound during matching
   std::vector<std::vector<uint8_t>> slots_bound_after_;  // Precomputed: slots to clear when slot i changes
@@ -124,17 +124,18 @@ class VMExecutorVerify {
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
-    // TODO: Do we know the pattern will require all_eclasses? If not then we do not need to do this
-    //  Pre-cache all e-classes for IterAllEClasses (avoids rebuilding on each call)
+    // Pre-cache all e-classes for IterAllEClasses instruction.
+    // Future optimization: only do this if pattern contains IterAllEClasses.
     all_eclasses_buffer_.clear();
     for (auto const &[id, _] : egraph_->canonical_classes()) {
       all_eclasses_buffer_.push_back(id);
     }
-    all_eclasses_cached_ = true;  // TODO: does this flag need to exist? During matching nobody can violate this
+    all_eclasses_cached_ = true;
 
     for (auto candidate : candidates) {
-      auto canonical = egraph_->find(candidate);  // TODO: is it not already canonical?
-      state_.eclass_regs[0] = canonical;
+      // Candidates from EMatcher are already canonical. The find() is defensive
+      // for direct callers who may pass non-canonical IDs.
+      state_.eclass_regs[0] = egraph_->find(candidate);
       state_.pc = 0;
 
       run_until_halt(ctx, results);
@@ -301,19 +302,17 @@ class VMExecutorVerify {
   }
 
   // Instruction is 6 bytes - pass by value for efficiency (fits in register)
-  void exec_load_child(Instruction instr) {
+  [[gnu::always_inline]] void exec_load_child(Instruction instr) {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
-    // TODO: would it be better to LOAD CHILDREN as on instruction, and LOAD CHILD as another, this would reduce
-    // get_enode calls
+    // Future optimization: LOAD_CHILDREN instruction to batch get_enode calls
     state_.eclass_regs[instr.dst] = egraph_->find(enode.children()[instr.arg]);
   }
 
-  void exec_get_enode_eclass(Instruction instr) {
+  [[gnu::always_inline]] void exec_get_enode_eclass(Instruction instr) {
     auto enode_id = state_.enode_regs[instr.src];
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
 
-  // TODO: all these exec_* should have [[gnu::always_inline]]
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_enodes(Instruction instr) -> bool {
     if constexpr (kTracingEnabled) {
       ++stats_.iter_enode_calls;
@@ -352,8 +351,9 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
-    // Use cached all-eclasses buffer if available, otherwise rebuild
-    if (!all_eclasses_cached_) {  // TODO: during run_until_halt this should always be !all_eclasses_cached_ == false
+    // Buffer is pre-cached in execute(), so this check is always false during normal execution.
+    // The defensive rebuild exists for direct callers bypassing execute().
+    if (!all_eclasses_cached_) [[unlikely]] {
       all_eclasses_buffer_.clear();
       for (auto const &[id, _] : egraph_->canonical_classes()) {
         all_eclasses_buffer_.push_back(id);
@@ -383,7 +383,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_parents(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool {
     if constexpr (kTracingEnabled) {
       ++stats_.iter_parent_calls;
     }
@@ -404,7 +404,7 @@ class VMExecutorVerify {
   }
 
   /// Advance index-based parent iteration (for IterParents)
-  [[nodiscard]] auto exec_next_parent(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_parent(Instruction instr) -> bool {
     auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -423,7 +423,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_check_symbol(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_symbol(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.symbol() != symbols_[instr.arg]) {
       if constexpr (kTracingEnabled) {
@@ -438,7 +438,7 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_check_arity(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_arity(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     if (enode.arity() != instr.arg) {
       if constexpr (kTracingEnabled) {
@@ -449,15 +449,15 @@ class VMExecutorVerify {
     return true;
   }
 
-  void exec_bind_slot(Instruction instr) {
-    // TODO: dedup should be able to be done on bind, not on yield
+  [[gnu::always_inline]] void exec_bind_slot(Instruction instr) {
+    // Future optimization: early dedup check on bind instead of yield
     state_.bind(instr.arg, state_.eclass_regs[instr.src]);
     if constexpr (kTracingEnabled) {
       tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
     }
   }
 
-  [[nodiscard]] auto exec_check_slot(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool {
     // Both values are already canonical:
     // - slots[] was set by BindSlot from canonical eclass_regs
     // - eclass_regs[] was set by LoadChild which canonicalizes
@@ -534,7 +534,8 @@ class VMExecutorClean {
     code_ = pattern.code();
     symbols_ = pattern.symbols();
 
-    // Pre-cache all e-classes for IterAllEClasses (avoids rebuilding on each call)
+    // Pre-cache all e-classes for IterAllEClasses instruction.
+    // Future optimization: only do this if pattern contains IterAllEClasses.
     all_eclasses_buffer_.clear();
     for (auto const &[id, _] : egraph_->canonical_classes()) {
       all_eclasses_buffer_.push_back(id);
@@ -542,8 +543,9 @@ class VMExecutorClean {
     all_eclasses_cached_ = true;
 
     for (auto candidate : candidates) {
-      auto canonical = egraph_->find(candidate);
-      state_.eclass_regs[0] = canonical;
+      // Candidates from EMatcher are already canonical. The find() is defensive
+      // for direct callers who may pass non-canonical IDs.
+      state_.eclass_regs[0] = egraph_->find(candidate);
       state_.pc = 0;
 
       run_until_halt(ctx, results);
@@ -693,12 +695,12 @@ class VMExecutorClean {
 #undef JUMP
   }
 
-  void exec_load_child(Instruction instr) {
+  [[gnu::always_inline]] void exec_load_child(Instruction instr) {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     state_.eclass_regs[instr.dst] = egraph_->find(enode.children()[instr.arg]);
   }
 
-  void exec_get_enode_eclass(Instruction instr) {
+  [[gnu::always_inline]] void exec_get_enode_eclass(Instruction instr) {
     auto enode_id = state_.enode_regs[instr.src];
     state_.eclass_regs[instr.dst] = egraph_->find(enode_id);
   }
@@ -712,7 +714,7 @@ class VMExecutorClean {
       return false;
     }
 
-    // TODO: do we need two distinct destinations, so that we are not wasting space in the underlying registers?
+    // Note: iter and enode_regs share the same dst index; iter tracks iteration state
     state_.start_enode_iter(instr.dst, nodes);
     state_.enode_regs[instr.dst] = nodes[0];
     return true;
@@ -729,15 +731,17 @@ class VMExecutorClean {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
-    // Use cached all-eclasses buffer if available, otherwise rebuild
-    if (!all_eclasses_cached_) {
+    // Buffer is pre-cached in execute(), so this check is always false during normal execution.
+    // The defensive rebuild exists for direct callers bypassing execute().
+    if (!all_eclasses_cached_) [[unlikely]] {
       all_eclasses_buffer_.clear();
       for (auto const &[id, _] : egraph_->canonical_classes()) {
         all_eclasses_buffer_.push_back(id);
       }
+      all_eclasses_cached_ = true;
     }
 
-    if (all_eclasses_buffer_.empty()) {
+    if (all_eclasses_buffer_.empty()) [[unlikely]] {
       return false;
     }
 
@@ -756,7 +760,7 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_iter_parents(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool {
     auto eclass_id = state_.eclass_regs[instr.src];
     auto const &eclass = egraph_->eclass(eclass_id);
     auto const &parents = eclass.parents();
@@ -765,14 +769,13 @@ class VMExecutorClean {
       return false;
     }
 
-    // TODO: can we pass in a range type (even if its hardcoded for unordered_flat_set?
     state_.start_parent_iter(instr.dst, eclass_id, parents.size());
     state_.enode_regs[instr.dst] = *parents.begin();
     return true;
   }
 
   /// Advance index-based parent iteration (for IterParents)
-  [[nodiscard]] auto exec_next_parent(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_next_parent(Instruction instr) -> bool {
     auto &iter = state_.get_parents_iter(instr.dst);
     iter.advance();
     if (iter.exhausted()) {
@@ -787,19 +790,21 @@ class VMExecutorClean {
     return true;
   }
 
-  [[nodiscard]] auto exec_check_symbol(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_symbol(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     return enode.symbol() == symbols_[instr.arg];
   }
 
-  [[nodiscard]] auto exec_check_arity(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_arity(Instruction instr) -> bool {
     auto const &enode = egraph_->get_enode(state_.enode_regs[instr.src]);
     return enode.arity() == instr.arg;
   }
 
-  void exec_bind_slot(Instruction instr) { state_.bind(instr.arg, state_.eclass_regs[instr.src]); }
+  [[gnu::always_inline]] void exec_bind_slot(Instruction instr) {
+    state_.bind(instr.arg, state_.eclass_regs[instr.src]);
+  }
 
-  [[nodiscard]] auto exec_check_slot(Instruction instr) -> bool {
+  [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool {
     // Both values are already canonical (see VMExecutorVerify::exec_check_slot)
     return state_.slots[instr.arg] == state_.eclass_regs[instr.src];
   }
