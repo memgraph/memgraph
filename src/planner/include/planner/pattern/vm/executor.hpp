@@ -13,6 +13,7 @@
 
 import memgraph.planner.core.eids;
 
+#include <algorithm>
 #include <optional>
 #include <span>
 #include <type_traits>
@@ -153,7 +154,17 @@ class VMExecutorVerify {
       matcher.all_candidates(candidates_buffer_);
     }
 
-    // TODO: can be do better than copying into a candidates_buffer_?
+    // Canonicalize and deduplicate candidates.
+    // The matcher index may have stale entries pointing to merged-away e-classes.
+    // We must canonicalize before passing to the VM, which assumes canonical IDs.
+    for (auto &cand : candidates_buffer_) {
+      cand = egraph_->find(cand);
+    }
+    // Remove duplicates (stale entries that now point to the same canonical e-class)
+    std::sort(candidates_buffer_.begin(), candidates_buffer_.end());
+    candidates_buffer_.erase(std::unique(candidates_buffer_.begin(), candidates_buffer_.end()),
+                             candidates_buffer_.end());
+
     execute(pattern, candidates_buffer_, ctx, results);
   }
 
@@ -181,6 +192,7 @@ class VMExecutorVerify {
         &&op_CheckSymbol,
         &&op_CheckArity,
         &&op_BindSlot,
+        &&op_BindSlotDedup,
         &&op_CheckSlot,
         &&op_Jump,
         &&op_Yield,
@@ -272,6 +284,13 @@ class VMExecutorVerify {
   op_BindSlot:
     exec_bind_slot(code_[state_.pc]);
     NEXT();
+
+  op_BindSlotDedup:
+    if (exec_bind_slot_dedup(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
 
   op_CheckSlot:
     if (exec_check_slot(code_[state_.pc])) {
@@ -438,11 +457,22 @@ class VMExecutorVerify {
   }
 
   [[gnu::always_inline]] void exec_bind_slot(Instruction instr) {
-    // Future optimization: early dedup check on bind instead of yield
     state_.bind(instr.arg, state_.eclass_regs[instr.src]);
     if constexpr (kTracingEnabled) {
       tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
     }
+  }
+
+  [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool {
+    auto eclass = state_.eclass_regs[instr.src];
+    bool is_new = state_.try_bind_dedup(instr.arg, eclass);
+    if constexpr (kTracingEnabled) {
+      tracer_->on_bind(instr.arg, eclass);
+      if (!is_new) {
+        tracer_->on_check_fail(state_.pc, "duplicate binding");
+      }
+    }
+    return is_new;
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool {
@@ -463,15 +493,12 @@ class VMExecutorVerify {
   }
 
   [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    // Slots already contain canonical IDs (set by BindSlot from canonical eclass_regs).
-    // No need to re-canonicalize since e-graph isn't modified during execute().
-
-    // Check if this tuple has already been yielded
-    if (!state_.try_yield_dedup(state_.slots)) {
-      // Duplicate tuple, skip
-      if constexpr (kTracingEnabled) {
-        tracer_->on_check_fail(state_.pc, "duplicate yield");
-      }
+    // Deduplication: check if this tuple has been seen before.
+    // Uses the last-bound slot's seen set since all prefix slots are fixed at this point.
+    auto last_slot = state_.last_bound_slot_;
+    auto last_value = state_.slots[last_slot];
+    if (!state_.seen_per_slot[last_slot].insert(last_value).second) {
+      // Duplicate tuple - skip
       return;
     }
 
@@ -570,6 +597,7 @@ class VMExecutorClean {
         &&op_CheckSymbol,
         &&op_CheckArity,
         &&op_BindSlot,
+        &&op_BindSlotDedup,
         &&op_CheckSlot,
         &&op_Jump,
         &&op_Yield,
@@ -656,6 +684,13 @@ class VMExecutorClean {
   op_BindSlot:
     exec_bind_slot(code_[state_.pc]);
     NEXT();
+
+  op_BindSlotDedup:
+    if (exec_bind_slot_dedup(code_[state_.pc])) {
+      NEXT();
+    } else {
+      JUMP(code_[state_.pc].target);
+    }
 
   op_CheckSlot:
     if (exec_check_slot(code_[state_.pc])) {
@@ -779,18 +814,23 @@ class VMExecutorClean {
     state_.bind(instr.arg, state_.eclass_regs[instr.src]);
   }
 
+  [[nodiscard]] [[gnu::always_inline]] auto exec_bind_slot_dedup(Instruction instr) -> bool {
+    return state_.try_bind_dedup(instr.arg, state_.eclass_regs[instr.src]);
+  }
+
   [[nodiscard]] [[gnu::always_inline]] auto exec_check_slot(Instruction instr) -> bool {
     // Both values are already canonical (see VMExecutorVerify::exec_check_slot)
     return state_.slots[instr.arg] == state_.eclass_regs[instr.src];
   }
 
   [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
-    // Slots already contain canonical IDs - no need to re-canonicalize
-
-    // Check if this tuple has already been yielded
-    if (state_.try_yield_dedup(state_.slots)) {
-      results.push_back(ctx.arena().intern(state_.slots));
+    // Deduplication: check if this tuple has been seen before.
+    auto last_slot = state_.last_bound_slot_;
+    auto last_value = state_.slots[last_slot];
+    if (!state_.seen_per_slot[last_slot].insert(last_value).second) {
+      return;
     }
+    results.push_back(ctx.arena().intern(state_.slots));
   }
 
   EGraphType const *egraph_;

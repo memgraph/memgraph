@@ -57,6 +57,9 @@ enum class VMOp : uint8_t {
   // ===== Binding =====
   /// Unconditional bind: slots[arg] = regs[src]
   BindSlot,
+  /// Bind with dedup: slots[arg] = regs[src], check seen set, jump to target if duplicate
+  /// Used for the last bound slot to enable early backtracking on duplicates.
+  BindSlotDedup,
   /// Check consistency: if find(slots[arg]) != find(regs[src]), jump to target
   CheckSlot,
 
@@ -118,8 +121,12 @@ struct Instruction {
     return {VMOp::CheckArity, 0, src, arity, on_mismatch};
   }
 
-  static constexpr auto bind_slot(uint8_t slot_idx, uint8_t src, uint16_t on_duplicate = 0) -> Instruction {
-    return {VMOp::BindSlot, 0, src, slot_idx, on_duplicate};
+  static constexpr auto bind_slot(uint8_t slot_idx, uint8_t src) -> Instruction {
+    return {VMOp::BindSlot, 0, src, slot_idx, 0};
+  }
+
+  static constexpr auto bind_slot_dedup(uint8_t slot_idx, uint8_t src, uint16_t on_duplicate) -> Instruction {
+    return {VMOp::BindSlotDedup, 0, src, slot_idx, on_duplicate};
   }
 
   static constexpr auto check_slot(uint8_t slot_idx, uint8_t src, uint16_t on_mismatch) -> Instruction {
@@ -164,6 +171,8 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
       return "CheckArity";
     case VMOp::BindSlot:
       return "BindSlot";
+    case VMOp::BindSlotDedup:
+      return "BindSlotDedup";
     case VMOp::CheckSlot:
       return "CheckSlot";
     case VMOp::Jump:

@@ -203,7 +203,7 @@ struct VMState {
 
   [[nodiscard]] auto get_eclasses_iter(uint8_t reg) const -> AllEClassesIter const & { return eclasses_iters[reg]; }
 
-  /// Bind a slot to an e-class.
+  /// Bind a slot to an e-class (unconditional, for non-last slots).
   /// If the slot value changes, clears the seen sets for slots bound AFTER this one
   /// in binding order (since their prefix context has changed).
   ///
@@ -220,21 +220,18 @@ struct VMState {
     }
   }
 
-  /// Try to yield with deduplication.
-  /// Returns false if this binding tuple has already been yielded.
-  /// Returns true if this is a new unique tuple.
-  /// The canonicalized_slots parameter should contain find()-canonicalized e-class IDs.
-  [[nodiscard]] auto try_yield_dedup(std::span<EClassId const> canonicalized_slots) -> bool {
-    if (canonicalized_slots.empty()) [[unlikely]] {
-      return true;  // No variables, always yield (single match)
-    }
+  /// Try to bind the last slot with deduplication check.
+  /// Returns false if this binding would create a duplicate tuple (caller should backtrack).
+  /// Returns true if this is a new unique binding.
+  ///
+  /// This should only be called for the last bound slot. For earlier slots, use bind().
+  [[nodiscard]] auto try_bind_dedup(std::size_t slot, EClassId eclass) -> bool {
+    // First do the normal bind logic (clear dependent seen sets if value changed)
+    bind(slot, eclass);
 
-    // Check/insert the LAST slot in binding order (not last by index).
-    // The prefix for this slot is all slots bound before it.
-    auto last_value = canonicalized_slots[last_bound_slot_];
-
-    // Try to insert - returns false if already present
-    return seen_per_slot[last_bound_slot_].insert(last_value).second;
+    // Then check if this creates a duplicate tuple
+    // The seen set for this slot contains all values yielded given the current prefix
+    return seen_per_slot[slot].insert(eclass).second;
   }
 
   /// Get bound value
