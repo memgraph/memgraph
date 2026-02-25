@@ -111,7 +111,8 @@ class VMExecutorVerify {
     }
   }
 
-  /// Execute compiled pattern, collecting matches
+  /// Execute compiled pattern, collecting matches.
+  /// @pre candidates must contain canonical e-class IDs (use egraph.find() if unsure)
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
     state_.reset(
@@ -130,18 +131,14 @@ class VMExecutorVerify {
     for (auto const &[id, _] : egraph_->canonical_classes()) {
       all_eclasses_buffer_.push_back(id);
     }
-    all_eclasses_cached_ = true;
 
     for (auto candidate : candidates) {
-      // Candidates from EMatcher are already canonical. The find() is defensive
-      // for direct callers who may pass non-canonical IDs.
-      state_.eclass_regs[0] = egraph_->find(candidate);
+      DMG_ASSERT(egraph_->find(candidate) == candidate, "candidates must be canonical");
+      state_.eclass_regs[0] = candidate;
       state_.pc = 0;
 
       run_until_halt(ctx, results);
     }
-
-    all_eclasses_cached_ = false;
   }
 
   /// Execute compiled pattern with automatic candidate lookup via EMatcher
@@ -351,16 +348,7 @@ class VMExecutorVerify {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
-    // Buffer is pre-cached in execute(), so this check is always false during normal execution.
-    // The defensive rebuild exists for direct callers bypassing execute().
-    if (!all_eclasses_cached_) [[unlikely]] {
-      all_eclasses_buffer_.clear();
-      for (auto const &[id, _] : egraph_->canonical_classes()) {
-        all_eclasses_buffer_.push_back(id);
-      }
-      all_eclasses_cached_ = true;
-    }
-
+    // Buffer is pre-cached in execute() - no need to rebuild here
     if (all_eclasses_buffer_.empty()) [[unlikely]] {
       return false;
     }
@@ -501,9 +489,8 @@ class VMExecutorVerify {
   VMStats stats_;
   Tracer null_tracer_;  // TODO: can we have a static NullTracer rather than per instance Tracer?
   Tracer *tracer_;
-  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
+  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses (pre-cached in execute())
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
-  bool all_eclasses_cached_ = false;           // Whether all_eclasses_buffer_ is valid
 };
 
 /// VM executor for pattern matching - "clean" mode
@@ -522,6 +509,7 @@ class VMExecutorClean {
   VMExecutorClean(EGraphType const &egraph, ParentIndexType const &parent_index)
       : egraph_(&egraph), parent_index_(&parent_index) {}
 
+  /// @pre candidates must contain canonical e-class IDs (use egraph.find() if unsure)
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
     state_.reset(
@@ -540,18 +528,14 @@ class VMExecutorClean {
     for (auto const &[id, _] : egraph_->canonical_classes()) {
       all_eclasses_buffer_.push_back(id);
     }
-    all_eclasses_cached_ = true;
 
     for (auto candidate : candidates) {
-      // Candidates from EMatcher are already canonical. The find() is defensive
-      // for direct callers who may pass non-canonical IDs.
-      state_.eclass_regs[0] = egraph_->find(candidate);
+      DMG_ASSERT(egraph_->find(candidate) == candidate, "candidates must be canonical");
+      state_.eclass_regs[0] = candidate;
       state_.pc = 0;
 
       run_until_halt(ctx, results);
     }
-
-    all_eclasses_cached_ = false;
   }
 
   /// Execute compiled pattern with automatic candidate lookup via EMatcher
@@ -731,16 +715,7 @@ class VMExecutorClean {
   }
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_all_eclasses(Instruction instr) -> bool {
-    // Buffer is pre-cached in execute(), so this check is always false during normal execution.
-    // The defensive rebuild exists for direct callers bypassing execute().
-    if (!all_eclasses_cached_) [[unlikely]] {
-      all_eclasses_buffer_.clear();
-      for (auto const &[id, _] : egraph_->canonical_classes()) {
-        all_eclasses_buffer_.push_back(id);
-      }
-      all_eclasses_cached_ = true;
-    }
-
+    // Buffer is pre-cached in execute() - no need to rebuild here
     if (all_eclasses_buffer_.empty()) [[unlikely]] {
       return false;
     }
@@ -824,9 +799,8 @@ class VMExecutorClean {
   std::span<Symbol const> symbols_;
   VMState state_;
   VMStats stats_;
-  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses
+  std::vector<EClassId> all_eclasses_buffer_;  // Buffer for IterAllEClasses (pre-cached in execute())
   std::vector<EClassId> candidates_buffer_;    // Buffer for automatic candidate lookup
-  bool all_eclasses_cached_ = false;           // Whether all_eclasses_buffer_ is valid
 };
 
 }  // namespace memgraph::planner::core::vm
