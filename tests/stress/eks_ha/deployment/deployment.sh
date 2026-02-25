@@ -455,6 +455,9 @@ UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': '${data1_ext}:7687'};
         return 1
     fi
 
+    log_info "Memgraph version on MAIN instance:"
+    kubectl exec -i memgraph-data-0-0 -- mgconsole --host 127.0.0.1 --port 7687 <<< "SHOW VERSION;" || true
+
     log_info "HA cluster setup completed!"
 }
 
