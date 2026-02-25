@@ -56,24 +56,9 @@ def create_indices_and_constraints() -> None:
     print("Creating indices and constraints...")
 
     queries = [
-        "CREATE INDEX ON :Concept;",
-        "CREATE INDEX ON :Concept(concept_id);",
-        "CREATE CONSTRAINT ON (n:Concept) ASSERT n.concept_id IS UNIQUE;",
         "CREATE INDEX ON :Journal;",
         "CREATE INDEX ON :Journal(journal_name);",
         "CREATE CONSTRAINT ON (n:Journal) ASSERT n.journal_name IS UNIQUE;",
-        "CREATE INDEX ON :Date;",
-        "CREATE INDEX ON :Date(publish_date);",
-        "CREATE CONSTRAINT ON (n:Date) ASSERT n.publish_date IS UNIQUE;",
-        "CREATE INDEX ON :Publication;",
-        "CREATE INDEX ON :Publication(doi);",
-        "CREATE CONSTRAINT ON (n:Publication) ASSERT n.doi IS UNIQUE;",
-        "CREATE INDEX ON :Section;",
-        "CREATE INDEX ON :Section(section_id);",
-        "CREATE CONSTRAINT ON (n:Section) ASSERT n.section_id IS UNIQUE;",
-        "CREATE INDEX ON :Author;",
-        "CREATE INDEX ON :Author(author_id);",
-        "CREATE CONSTRAINT ON (n:Author) ASSERT n.author_id IS UNIQUE;",
     ]
 
     for query in queries:
@@ -88,109 +73,11 @@ def import_data() -> None:
 
     imports = [
         (
-            "Concept nodes",
-            f"""
-LOAD PARQUET FROM "{s3_base}/concepts.parquet" AS row
-MERGE (n:Concept {{concept_id: row.concept_id}})
-SET n += row;""",
-        ),
-        (
             "Journal nodes",
             f"""
 LOAD PARQUET FROM "{s3_base}/journals.parquet" AS row
 MERGE (n:Journal {{journal_name: row.journal_name}})
 SET n += row;""",
-        ),
-        (
-            "Publication nodes",
-            f"""
-LOAD PARQUET FROM "{s3_base}/publications.parquet" AS row
-MERGE (n:Publication {{doi: row.doi}});""",
-        ),
-        (
-            "Date nodes",
-            f"""
-LOAD PARQUET FROM "{s3_base}/publish_dates.parquet" AS row
-MERGE (n:Date {{publish_date: row.publish_date}})
-SET n += row;""",
-        ),
-        (
-            "Section nodes",
-            f"""
-LOAD PARQUET FROM "{s3_base}/sections.parquet" AS row
-MERGE (n:Section {{section_id: row.section_id}})
-SET n += row;""",
-        ),
-        (
-            "Author nodes",
-            f"""
-LOAD PARQUET FROM "{s3_base}/authors.parquet" AS row
-MERGE (n:Author {{author_id: row.author_id}})
-SET n += row;""",
-        ),
-        (
-            "AUTHORED_BY relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_authored_by.parquet" AS row
-MERGE (a:Author {{author_id: row.author_id}})
-MERGE (p:Publication {{doi: row.publication_doi}})
-MERGE (p)-[:AUTHORED_BY]->(a);""",
-        ),
-        (
-            "CITES relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_cites_paper.parquet" AS row
-MERGE (citing:Publication {{doi: row.citing_doi}})
-MERGE (cited:Publication {{doi: row.cited_doi}})
-MERGE (citing)-[:CITES]->(cited);""",
-        ),
-        (
-            "PART_OF relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_part_of.parquet" AS row
-MERGE (section:Section {{section_id: row.section_id}})
-MERGE (publication:Publication {{doi: row.publication_doi}})
-MERGE (section)-[:PART_OF]->(publication);""",
-        ),
-        (
-            "PUBLISHED_IN relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_published_in.parquet" AS row
-MERGE (journal:Journal {{journal_name: row.journal_name}})
-MERGE (publication:Publication {{doi: row.publication_doi}})
-MERGE (publication)-[:PUBLISHED_IN]->(journal);""",
-        ),
-        (
-            "PUBLISHED_ON relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_published_on.parquet" AS row
-MERGE (publication:Publication {{doi: row.publication_doi}})
-MERGE (d:Date {{publish_date: row.publish_date}})
-MERGE (publication)-[:PUBLISHED_ON]->(d);""",
-        ),
-        (
-            "REFERENCES relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_references.parquet" AS row
-MERGE (concept:Concept {{concept_id: row.concept_id}})
-MERGE (section:Section {{section_id: row.section_id}})
-CREATE (section)-[:row.type {{score: row.confidence_score}}]->(concept);""",
-        ),
-        (
-            "SUBFIELD_OF relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_subfield_of.parquet" AS row
-MERGE (parent_concept:Concept {{concept_id: row.parent_concept_id}})
-MERGE (child_concept:Concept {{concept_id: row.child_concept_id}})
-MERGE (child_concept)-[:SUBFIELD_OF]->(parent_concept);""",
-        ),
-        (
-            "SYNONYM_OF relationships",
-            f"""
-LOAD PARQUET FROM "{s3_base}/rel_synonym_of.parquet" AS row
-MERGE (concept:Concept {{concept_id: row.concept_id}})
-MERGE (similar_concept:Concept {{concept_id: row.synonym_id}})
-MERGE (concept)-[:SYNONYM_OF]->(similar_concept);""",
         ),
     ]
 
@@ -310,7 +197,7 @@ def verify_replicas_ready() -> bool:
 
 
 def get_node_counts() -> dict[str, int]:
-    labels = ["Concept", "Journal", "Publication", "Date", "Section", "Author"]
+    labels = ["Journal"]
     counts = {}
 
     for label in labels:
