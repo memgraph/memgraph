@@ -95,18 +95,15 @@ struct VMState {
 
   // Which slots are bound (for BindOrCheck)
   // Use std::bitset for O(1) operations with no dynamic allocation
-  // TODO: why arbitary 256?
+  // TODO: why arbitrary 256?
   std::bitset<256> bound;
 
   // Per-slot seen sets for deduplication.
   // seen_per_slot[i] tracks which values we've seen at slot i for the CURRENT prefix.
-  // The prefix is implicitly defined by the current bindings of slots 0..i-1.
-  // When slot j is rebound to a different value, we clear seen_per_slot[j+1..] since
-  // those sets were for the old prefix.
+  // The prefix is defined by slots bound BEFORE slot i in binding order.
+  // When slot j is rebound to a different value, we clear seen_per_slot for slots
+  // that are bound AFTER j (not slots with higher indices).
   std::vector<FastEClassSet> seen_per_slot;
-
-  // Highest slot index that has been used (for optimization in bind())
-  std::size_t max_seen_slot_{0};
 
   // Program counter
   std::size_t pc{0};
@@ -119,39 +116,71 @@ struct VMState {
   std::vector<ParentsIter> parents_iters;       // Parent iterations (index-based)
   std::vector<AllEClassesIter> eclasses_iters;  // All e-classes iterations (span-based)
 
+  // Binding order information (set during reset, from CompiledPattern)
+  // slots_bound_after_[i] = list of slots bound AFTER slot i in binding order
+  // Used by bind() to know which seen sets to clear when slot i changes
+  std::vector<std::span<uint8_t const>> slots_bound_after_;
+  // The last slot in binding order - deduplication checks this slot
+  uint8_t last_bound_slot_{0};
+
   /// Initialize state for execution with given number of slots and registers
-  void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs) {
-    slots.assign(num_slots, EClassId{});  // TODO: why EClassId{} if bound will be cleared
+  template <typename SlotsAfterAccessor>
+  void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs,
+             SlotsAfterAccessor slots_bound_after_fn, uint8_t last_bound_slot) {
+    slots.assign(num_slots, EClassId{});
     bound.reset();
     pc = 0;
-    // Resize register arrays if needed (separate sizes for each type)
-    // TODO: why not a separate count per register kind? Are these correleated (each eclass_regs paired with
-    // eclasses_iters)
+
+    // Store binding order information
+    slots_bound_after_.resize(num_slots);
+    for (std::size_t i = 0; i < num_slots; ++i) {
+      slots_bound_after_[i] = slots_bound_after_fn(i);
+    }
+    last_bound_slot_ = last_bound_slot;
+
+    // Resize register arrays if needed
     if (eclass_regs.size() < num_eclass_regs) {
       eclass_regs.resize(num_eclass_regs);
-      eclasses_iters.resize(num_eclass_regs);  // E-class iteration state (IterAllEClasses)
+      eclasses_iters.resize(num_eclass_regs);
     }
-    // TODO: why not a separate count per register kind? Are these correleated (each enode_regs paired with enodes_iters
-    // and parents_iters and parents_iters)
-    //       each instruction op will hardcode which registers they will be dealing with, hence their src and dst are
-    //       related to the actual typed registers
     if (enode_regs.size() < num_enode_regs) {
       enode_regs.resize(num_enode_regs);
-      // TODO: _iters are just another kind of register dealing with particular iterations types
-      enodes_iters.resize(num_enode_regs);   // E-node iteration state (IterENodes)
-      parents_iters.resize(num_enode_regs);  // Parent iteration state (index-based, IterParents)
+      enodes_iters.resize(num_enode_regs);
+      parents_iters.resize(num_enode_regs);
     }
-    // No need to reset iteration states - exhausted() is the inactive indicator,
-    // and start_*_iter() overwrites with fresh state when re-entering loops
 
     // Reset per-slot seen maps for deduplication
     seen_per_slot.resize(num_slots);
     for (auto &seen_map : seen_per_slot) {
       seen_map.clear();
     }
-    max_seen_slot_ = 0;
   }
 
+  /// Legacy reset without binding order (uses slot index order)
+  void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs) {
+    // Fall back to index-based ordering (slot 0, 1, 2, ...)
+    // This is used by tests that don't have CompiledPattern
+    legacy_slots_bound_after_.clear();
+    legacy_slots_bound_after_.resize(num_slots);
+    for (std::size_t i = 0; i < num_slots; ++i) {
+      for (std::size_t j = i + 1; j < num_slots; ++j) {
+        legacy_slots_bound_after_[i].push_back(static_cast<uint8_t>(j));
+      }
+    }
+
+    reset(
+        num_slots,
+        num_eclass_regs,
+        num_enode_regs,
+        [this](std::size_t slot) -> std::span<uint8_t const> { return legacy_slots_bound_after_[slot]; },
+        num_slots > 0 ? static_cast<uint8_t>(num_slots - 1) : 0);
+  }
+
+ private:
+  // Storage for legacy mode (when no binding order provided)
+  std::vector<std::vector<uint8_t>> legacy_slots_bound_after_;
+
+ public:
   /// Start an e-node iteration on a register (uses span)
   void start_enode_iter(uint8_t reg, std::span<ENodeId const> nodes) { enodes_iters[reg] = ENodesIter{nodes}; }
 
@@ -181,21 +210,18 @@ struct VMState {
   [[nodiscard]] auto get_eclasses_iter(uint8_t reg) const -> AllEClassesIter const & { return eclasses_iters[reg]; }
 
   /// Bind a slot to an e-class.
-  /// If the slot value changes, clears the seen sets for all later slots
-  /// (since their prefix has changed).
+  /// If the slot value changes, clears the seen sets for slots bound AFTER this one
+  /// in binding order (since their prefix context has changed).
+  ///
+  /// This uses binding order, not slot index order. For pattern A(?x, B(?y, ?z)) with
+  /// binding order [1, 2, 0], when slot 2 (?z) changes, we clear seen[0] (bound after),
+  /// not seen[3..] (higher indices).
   void bind(std::size_t slot, EClassId eclass) {
-    if (slots[slot] !=
-        eclass) {  // TODO: only correct if slot was bound right? We need to ensure clear of seen_per_slot is correct
-      // Slot value changed - clear seen sets for dependent slots
-      // Only iterate up to max_seen_slot_ to avoid unnecessary work
-      // TODO: calulate iterators rather than indices
-      auto end = std::min(max_seen_slot_ + 1, seen_per_slot.size());
-      for (std::size_t i = slot + 1; i < end; ++i) {
-        if (!seen_per_slot[i].empty()) {  // TODO: do we need to ask this? clear would be fast if empty
-          seen_per_slot[i].clear();
-        }
+    if (slots[slot] != eclass) {
+      // Slot value changed - clear seen sets for slots bound AFTER this one
+      for (auto after_slot : slots_bound_after_[slot]) {
+        seen_per_slot[after_slot].clear();
       }
-      max_seen_slot_ = end;  // TODO: is this logically correct?
       slots[slot] = eclass;
     }
     bound.set(slot);
@@ -210,21 +236,12 @@ struct VMState {
       return true;  // No variables, always yield (single match)
     }
 
-    // The prefix (slots 0..n-2) is implicitly tracked by the current bindings.
-    // We only need to check if the last slot's value is new for this prefix.
-    auto last_slot_idx = canonicalized_slots.size() - 1;
-    auto last_value = canonicalized_slots.back();
-
-    // Track highest slot used for optimization in bind()
-    // TODO: I think max_seen_slot_ is incorrect
-    //       1) the insertion order of symbols (I'm not sure they are in order 0,1,....n-1) This depends on the order
-    //       slots are bound (dictated by the instruction compiler) 2) this should be on bind, not as late as yeild
-    if (last_slot_idx > max_seen_slot_) {
-      max_seen_slot_ = last_slot_idx;
-    }
+    // Check/insert the LAST slot in binding order (not last by index).
+    // The prefix for this slot is all slots bound before it.
+    auto last_value = canonicalized_slots[last_bound_slot_];
 
     // Try to insert - returns false if already present
-    return seen_per_slot[last_slot_idx].insert(last_value).second;
+    return seen_per_slot[last_bound_slot_].insert(last_value).second;
   }
 
   /// Check if slot is bound

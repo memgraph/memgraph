@@ -118,8 +118,13 @@ class PatternCompiler {
     }
     code_.push_back(Instruction::halt());
 
-    return CompiledPattern<Symbol>(
-        std::move(code_), slot_map_.size(), next_eclass_reg_, next_enode_reg_, std::move(symbols_), entry_symbol);
+    return CompiledPattern<Symbol>(std::move(code_),
+                                   slot_map_.size(),
+                                   next_eclass_reg_,
+                                   next_enode_reg_,
+                                   std::move(symbols_),
+                                   entry_symbol,
+                                   std::move(binding_order_));
   }
 
   void reset() {
@@ -128,6 +133,7 @@ class PatternCompiler {
     seen_vars_.clear();
     var_to_reg_.clear();
     slot_map_.clear();
+    binding_order_.clear();
     next_eclass_reg_ = 1;  // eclass_regs[0] is reserved for input e-class
     next_enode_reg_ = 0;
   }
@@ -382,7 +388,7 @@ class PatternCompiler {
 
     // Bind root if needed
     if (auto binding = pattern.binding_for(pattern.root())) {
-      code_.push_back(Instruction::bind_slot(get_slot(*binding), eclass_reg));
+      emit_bind_slot(get_slot(*binding), eclass_reg);
     }
 
     return innermost;
@@ -420,7 +426,7 @@ class PatternCompiler {
     if (auto binding = pattern.binding_for(pattern.root())) {
       auto eclass_reg = alloc_eclass_reg();  // GetENodeEClass produces e-class
       code_.push_back(Instruction::get_enode_eclass(eclass_reg, parent_reg));
-      code_.push_back(Instruction::bind_slot(get_slot(*binding), eclass_reg));
+      emit_bind_slot(get_slot(*binding), eclass_reg);
     }
 
     return innermost;
@@ -450,7 +456,7 @@ class PatternCompiler {
             code_.push_back(Instruction::check_arity(enode_reg, static_cast<uint8_t>(n.children.size()), loop_pos));
 
             if (auto binding = pattern.binding_for(node_id)) {
-              code_.push_back(Instruction::bind_slot(get_slot(*binding), eclass_reg));
+              emit_bind_slot(get_slot(*binding), eclass_reg);
             }
 
             // For leaf symbols, backtrack to parent after match (existence check only)
@@ -481,9 +487,19 @@ class PatternCompiler {
       code_.push_back(Instruction::check_slot(slot, eclass_reg, backtrack));
     } else {
       seen_vars_.insert(var);
-      // No backtrack target needed - deduplication happens at yield time
-      code_.push_back(Instruction::bind_slot(slot, eclass_reg));
+      emit_bind_slot(slot, eclass_reg);
     }
+  }
+
+  /// Emit a BindSlot instruction and track binding order for deduplication.
+  /// All bind_slot emissions should go through this to ensure binding order is tracked.
+  void emit_bind_slot(uint8_t slot, uint8_t eclass_reg) {
+    // Track binding order for deduplication
+    // Only add if not already in binding_order (handles repeated bindings of same variable)
+    if (std::find(binding_order_.begin(), binding_order_.end(), slot) == binding_order_.end()) {
+      binding_order_.push_back(slot);
+    }
+    code_.push_back(Instruction::bind_slot(slot, eclass_reg));
   }
 
   // ============================================================================
@@ -547,6 +563,7 @@ class PatternCompiler {
   boost::unordered_flat_set<PatternVar> seen_vars_;
   boost::unordered_flat_map<PatternVar, std::size_t> slot_map_;
   boost::unordered_flat_map<PatternVar, uint8_t> var_to_reg_;  // Maps vars to eclass registers
+  std::vector<uint8_t> binding_order_;                         // Order in which slots are bound
   uint8_t next_eclass_reg_{1};                                 // eclass_regs[0] reserved for input
   uint8_t next_enode_reg_{0};
 };
