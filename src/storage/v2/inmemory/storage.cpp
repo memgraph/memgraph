@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 #include <system_error>
+#include <unordered_set>
 
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
@@ -3290,6 +3291,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   DeltaVertexCache vertex_cache(current_commit_timestamp);
 
   auto append_deltas = [&](auto callback) {
+    bool const should_track_nonseq_subchains{transaction_.has_non_sequential_deltas};
+
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
     auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
@@ -3301,7 +3304,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       while (true) {
         auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
-        // Only encode if this delta belongs to our transaction and matches filter
         if (ts == current_commit_timestamp && filter(delta->action)) {
           callback(*delta, parent, durability_commit_timestamp);
         }
@@ -3311,6 +3313,38 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         if (prev.delta->commit_info != current_commit_info) break;
         delta = prev.delta;
       }
+    };
+
+    // Variant for pass 2 (edge creation) which must handle non-sequential
+    // deltas which be concurrently modified by aborting transactions.
+    std::unordered_set<Delta const *> processed_subchain_tails;
+    auto find_and_apply_concurrent_edge_create_deltas = [&](Delta const *delta, Vertex *parent, auto filter) {
+      auto const *const current_commit_info = delta->commit_info;
+      while (true) {
+        auto *older = delta->next.load(std::memory_order_acquire);
+        if (older == nullptr || older->commit_info != current_commit_info) break;
+        delta = older;
+      }
+      auto const *subchain_tail = delta;
+      while (true) {
+        // Concurrent aborts can rewire chains while we traverse. If we hit a
+        // previously processed tail marker from this pass, it means that two
+        // subchains have become one because the deltas in the middle have
+        // been aborted and snipped out.
+        if (processed_subchain_tails.contains(delta)) {
+          break;
+        }
+        auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+        if (ts == current_commit_timestamp && filter(delta->action)) {
+          callback(*delta, parent, durability_commit_timestamp);
+        }
+        auto prev = delta->prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::DELTA) break;
+        if (prev.delta->commit_info != current_commit_info) break;
+        delta = prev.delta;
+      }
+      processed_subchain_tails.insert(subchain_tail);
     };
 
     // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
@@ -3359,15 +3393,29 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       });
     }
     // 2. Process all Vertex deltas and store all operations that create edges.
+    // Because this phase handles `REMOVE_OUT_EDGE`, we must accommodate
+    // non-sequential chunks while abort can concurrently rewire prev/next.
+    //
+    // Example while committing Tx1:
+    //   (v)-[A:Tx1]-[B:Tx1]-[C:Tx2]-[D:Tx1]-[E:Tx1]
+    //
+    // If Tx2 aborts, C is snipped and the chain can become:
+    //   (v)-[A:Tx1]-[B:Tx1]-[D:Tx1]-[E:Tx1]
+    //
+    // i) A/B and D/E were two subchains but can become one merged subchain.
+    //    Tail markers avoid re-processing already emitted depth when this happens.
+    // ii) D (previously a non-sequential subchain head with prev=C) can stop
+    //     looking like a head after rewiring (prev=B). The start condition also
+    //     treats "prev is already a processed tail marker" as a valid start.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
 
-      // Becasuse in this phase we handle `REMOVE_OUT_EDGE`, we MUST accomidate for NonSequential chunks
       bool const is_subchain_start =
           (prev.type == PreviousPtr::Type::VERTEX) ||
           (prev.type == PreviousPtr::Type::DELTA &&
-           prev.delta->commit_info->timestamp.load(std::memory_order_acquire) != current_commit_timestamp);
+           (prev.delta->commit_info != delta.commit_info ||
+            (should_track_nonseq_subchains && processed_subchain_tails.contains(prev.delta))));
       if (!is_subchain_start) {
         continue;
       }
@@ -3378,7 +3426,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       } else {
         vertex = vertex_cache.GetVertexFromDelta(&delta);
       }
-      find_and_apply_deltas(&delta, vertex, [](auto action) {
+      auto edge_create_filter = [](auto action) {
         switch (action) {
           case Delta::Action::REMOVE_OUT_EDGE:
             return true;
@@ -3395,7 +3443,12 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           default:
             LOG_FATAL("Unknown Delta Action");
         }
-      });
+      };
+      if (should_track_nonseq_subchains) {
+        find_and_apply_concurrent_edge_create_deltas(&delta, vertex, edge_create_filter);
+      } else {
+        find_and_apply_deltas(&delta, vertex, edge_create_filter);
+      }
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
     for (const auto &delta : transaction_.deltas) {
