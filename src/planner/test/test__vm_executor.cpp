@@ -52,7 +52,7 @@ TEST_F(VMExecutionTest, SimpleMatch) {
 
   // Execute with tracer
   RecordingTracer tracer;
-  VMExecutorVerify<Op, NoAnalysis, RecordingTracer> executor(egraph, &tracer);
+  VMExecutorVerify<Op, NoAnalysis, true> executor(egraph, &tracer);
 
   std::vector<EClassId> candidates;
   for (auto id : egraph.canonical_class_ids()) {
@@ -178,7 +178,7 @@ TEST_F(VMExecutionTest, SelfReferentialEClass) {
   auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
 
   RecordingTracer tracer;
-  VMExecutorVerify<Op, NoAnalysis, RecordingTracer> executor(egraph, &tracer);
+  VMExecutorVerify<Op, NoAnalysis, true> executor(egraph, &tracer);
 
   std::vector<EClassId> candidates;
   for (auto id : egraph.canonical_class_ids()) {
@@ -346,7 +346,7 @@ TEST_F(VMExecutionTest, SameVariableMergedEClass) {
   auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
 
   RecordingTracer tracer;
-  VMExecutorVerify<Op, NoAnalysis, RecordingTracer> executor(egraph, &tracer);
+  VMExecutorVerify<Op, NoAnalysis, true> executor(egraph, &tracer);
 
   // Use the merged Add e-class as candidate
   std::vector<EClassId> candidates = {egraph.find(n0)};
@@ -422,7 +422,7 @@ TEST_F(VMExecutionTest, SameVariableInnerLoopMultipleENodes) {
   auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
 
   RecordingTracer tracer;
-  VMExecutorVerify<Op, NoAnalysis, RecordingTracer> executor(egraph, &tracer);
+  VMExecutorVerify<Op, NoAnalysis, true> executor(egraph, &tracer);
 
   std::vector<EClassId> candidates = {egraph.find(add)};
 
