@@ -251,9 +251,10 @@ def test_snapshots_on_replica(test_name):
     data_dir_instance_2 = f"{build_dir}/{get_data_path(file, test_name)}/instance_2"
     snapshot_dir_instance_2 = f"{data_dir_instance_2}/snapshots"
 
-    # There won't be more than one snapshot created because snapshot digest will be used
+    # There can be more than one snapshot because SystemRecoveryRpc changes storage UUID
+    # --storage-snapshot-on-exit=false
     def checker_func(num_snapshot_files):
-        return num_snapshot_files == 1
+        return num_snapshot_files >= 1
 
     mg_sleep_and_assert_eval_function(checker_func, partial(count_files, snapshot_dir_instance_2))
 
