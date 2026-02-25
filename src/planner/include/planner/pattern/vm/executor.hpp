@@ -136,7 +136,6 @@ class VMExecutorVerify {
       auto canonical = egraph_->find(candidate);  // TODO: is it not already canonical?
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
-      state_.bound.reset();
 
       run_until_halt(ctx, results);
     }
@@ -185,7 +184,6 @@ class VMExecutorVerify {
         &&op_CheckArity,
         &&op_BindSlot,
         &&op_CheckSlot,
-        &&op_BindOrCheck,
         &&op_Jump,
         &&op_Yield,
         &&op_Halt,
@@ -278,15 +276,7 @@ class VMExecutorVerify {
     NEXT();
 
   op_CheckSlot:
-    // TODO: is CheckSlot ever emitted, or do we always use BindOrCheck
     if (exec_check_slot(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
-
-  op_BindOrCheck:
-    if (exec_bind_or_check(code_[state_.pc])) {
       NEXT();
     } else {
       JUMP(code_[state_.pc].target);
@@ -484,18 +474,6 @@ class VMExecutorVerify {
     return true;
   }
 
-  [[nodiscard]] auto exec_bind_or_check(Instruction instr) -> bool {
-    if (!state_.is_bound(instr.arg)) {
-      // TODO: dedup should be able to be done on bind, not on yield
-      state_.bind(instr.arg, state_.eclass_regs[instr.src]);
-      if constexpr (kTracingEnabled) {
-        tracer_->on_bind(instr.arg, state_.eclass_regs[instr.src]);
-      }
-      return true;
-    }
-    return exec_check_slot(instr);
-  }
-
   [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
     // Slots already contain canonical IDs (set by BindSlot from canonical eclass_regs).
     // No need to re-canonicalize since e-graph isn't modified during execute().
@@ -506,8 +484,6 @@ class VMExecutorVerify {
       if constexpr (kTracingEnabled) {
         tracer_->on_check_fail(state_.pc, "duplicate yield");
       }
-      // TODO: why reset the whole bind? Are we not backtracking unbinding parts of a match?
-      state_.bound.reset();
       return;
     }
 
@@ -516,9 +492,6 @@ class VMExecutorVerify {
       tracer_->on_yield(state_.slots);
     }
     results.push_back(ctx.arena().intern(state_.slots));
-    // Clear bound flags to allow finding different variable bindings in subsequent matches
-    // TODO: why reset the whole bind? Are we not backtracking unbinding parts of a match?
-    state_.bound.reset();
   }
 
   EGraphType const *egraph_;
@@ -572,7 +545,6 @@ class VMExecutorClean {
       auto canonical = egraph_->find(candidate);
       state_.eclass_regs[0] = canonical;
       state_.pc = 0;
-      state_.bound.reset();
 
       run_until_halt(ctx, results);
     }
@@ -613,7 +585,6 @@ class VMExecutorClean {
         &&op_CheckArity,
         &&op_BindSlot,
         &&op_CheckSlot,
-        &&op_BindOrCheck,
         &&op_Jump,
         &&op_Yield,
         &&op_Halt,
@@ -702,13 +673,6 @@ class VMExecutorClean {
 
   op_CheckSlot:
     if (exec_check_slot(code_[state_.pc])) {
-      NEXT();
-    } else {
-      JUMP(code_[state_.pc].target);
-    }
-
-  op_BindOrCheck:
-    if (exec_bind_or_check(code_[state_.pc])) {
       NEXT();
     } else {
       JUMP(code_[state_.pc].target);
@@ -840,14 +804,6 @@ class VMExecutorClean {
     return state_.slots[instr.arg] == state_.eclass_regs[instr.src];
   }
 
-  [[nodiscard]] auto exec_bind_or_check(Instruction instr) -> bool {
-    if (!state_.is_bound(instr.arg)) {
-      state_.bind(instr.arg, state_.eclass_regs[instr.src]);
-      return true;
-    }
-    return exec_check_slot(instr);
-  }
-
   [[gnu::always_inline]] void exec_yield(EMatchContext &ctx, std::vector<PatternMatch> &results) {
     // Slots already contain canonical IDs - no need to re-canonicalize
 
@@ -855,9 +811,6 @@ class VMExecutorClean {
     if (state_.try_yield_dedup(state_.slots)) {
       results.push_back(ctx.arena().intern(state_.slots));
     }
-    // Clear bound flags to allow finding different variable bindings in subsequent matches
-    // TODO: is this right? we should backtrack, we do not need to unbind all variables right?
-    state_.bound.reset();
   }
 
   EGraphType const *egraph_;
