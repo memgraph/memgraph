@@ -298,10 +298,9 @@ TEST_F(EMatcherTest, MergeEnablesRepeatedVariableMatch) {
 }
 
 TEST_F(EMatcherTest, SelfReferentialEClassMatchesMultipleTimes) {
-  // BUG: EMatcher misses matches when non-root frames should try multiple
-  // e-nodes in a self-referential e-class.
+  // Regression test for self-referential e-class matching.
   //
-  // Setup (from egglog):
+  // Setup:
   //   (let n0 (B 64))
   //   (let n1 (F n0))
   //   (let n2 (F n1))
@@ -313,7 +312,7 @@ TEST_F(EMatcherTest, SelfReferentialEClassMatchesMultipleTimes) {
   //
   // Pattern: F(F(F(?v0)))
   //
-  // Expected matches (egglog finds both):
+  // Expected matches:
   //   Match 1: ?v0 = EC0
   //     - outermost F: F(EC1) from EC1
   //     - middle F: F(EC1) from EC1 (self-loop)
@@ -325,9 +324,6 @@ TEST_F(EMatcherTest, SelfReferentialEClassMatchesMultipleTimes) {
   //     - middle F: F(EC1) from EC1
   //     - inner F: F(EC1) from EC1 (self-loop)
   //     - ?v0 binds to EC1 itself
-  //
-  // BUG: EMatcher only finds match 1. The innermost F(?v0) frame at EC1
-  // tries F(EC0), yields, gets popped via ChildYielded, and never tries F(EC1).
 
   auto n0 = leaf(Op::B, 64);
   auto n1 = node(Op::F, n0);
@@ -352,7 +348,7 @@ TEST_F(EMatcherTest, SelfReferentialEClassMatchesMultipleTimes) {
 }
 
 TEST_F(EMatcherTest, UnionNodeWithChildCreatesSimpleSelfReferentialEClass) {
-  // Simulates the egglog scenario:
+  // Scenario:
   //
   //   (let n0 (A 10))
   //   (let n1 (G n0))
@@ -363,7 +359,7 @@ TEST_F(EMatcherTest, UnionNodeWithChildCreatesSimpleSelfReferentialEClass) {
   //
   //   (rule ((= ?root (G ?v0))) ((MatchResult ?v0)))
   //
-  //   Egglog output: (MatchResult (A 10))
+  //   Expected output: (MatchResult (A 10))
   //
   // After union(n0, n1) and rebuild:
   //   EC_merged = { A(10), F(EC_merged) }   <- self-referential
@@ -374,7 +370,7 @@ TEST_F(EMatcherTest, UnionNodeWithChildCreatesSimpleSelfReferentialEClass) {
   // Pattern F(?v0) should produce exactly one match:
   //   ?root = EC_merged,  ?v0 = EC_merged
   //
-  // (egglog reports ?v0 as "(A 10)" which is the canonical form of EC_merged)
+  // (?v0 as "(A 10)" is the canonical form of EC_merged)
 
   auto n0 = leaf(Op::A, 10);
   auto n1 = node(Op::F, n0);
@@ -615,7 +611,7 @@ TEST_F(EMatcherTest, LeafSymbolChildWithMergedENodesConsistency) {
 TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
   // Regression test from fuzzer: Pattern with a leaf symbol child in 3-ary pattern.
   //
-  //   Setup (reproduces fuzzer bug):
+  //   Setup:
   //     v0 = X(0)
   //     v1 = Y(0)
   //     a0 = A(0)
@@ -627,9 +623,7 @@ TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
   //
   //   Pattern: F(?x, A, ?y)  <- A is a leaf symbol, not a variable
   //
-  //   Bug: EMatcher produces 2 matches while VM produces 1 match.
-  //        EMatcher iterates e-nodes for leaf symbol children and produces
-  //        one match per e-node, when it should produce one match per e-class.
+  //   Expected: 1 match (one F node, regardless of e-nodes in merged child)
 
   auto v0 = leaf(Op::X, 0);
   auto v1 = leaf(Op::Y, 0);
@@ -660,7 +654,6 @@ TEST_F(EMatcherTest, TernaryPatternWithLeafSymbolChildConsistency) {
   vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
 
   // EMatcher and VM should produce the same number of matches
-  // Currently fails: EMatcher produces 2, VM produces 1 (VM is correct)
   EXPECT_EQ(matches.size(), vm_matches.size()) << "EMatcher and VM should produce same number of matches. "
                                                << "EMatcher: " << matches.size() << ", VM: " << vm_matches.size();
 }
