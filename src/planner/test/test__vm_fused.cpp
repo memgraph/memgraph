@@ -667,25 +667,14 @@ TEST_F(FusedPatternNestedTest, FilteredParentsBufferOverwriteBug) {
   auto const &sym_eclass = egraph.eclass(sym_class);
 
   std::size_t f2_count = 0, f_count = 0;
-  std::cerr << "sym_val e-class: " << sym_class << "\n";
-  std::cerr << "Parents of sym_val:\n";
   for (auto parent_id : sym_eclass.parents()) {
     auto const &parent = egraph.get_enode(parent_id);
-    auto parent_eclass = egraph.find(parent_id);
-    std::cerr << "  ENode " << parent_id << " (e-class " << parent_eclass
-              << ") symbol=" << static_cast<int>(parent.symbol());
     if (parent.symbol() == Op::F2) {
-      std::cerr << " [F2]";
       ++f2_count;
     }
     if (parent.symbol() == Op::F) {
-      std::cerr << " [F]";
       ++f_count;
     }
-    if (parent.symbol() == Op::Bind) {
-      std::cerr << " [Bind]";
-    }
-    std::cerr << "\n";
   }
 
   ASSERT_EQ(f2_count, 2) << "Should have 2 F2 parents";
@@ -719,23 +708,6 @@ TEST_F(FusedPatternNestedTest, FilteredParentsBufferOverwriteBug) {
     }
   }
 
-  // Print bytecode and symbol table for debugging
-  std::cerr << "FilteredParentsBufferOverwriteBug bytecode:\n" << bytecode << "\n";
-  std::cerr << "Symbol table:\n";
-  for (std::size_t i = 0; i < compiled->symbols().size(); ++i) {
-    auto sym = compiled->symbols()[i];
-    std::cerr << "  sym[" << i << "] = " << static_cast<int>(sym);
-    if (sym == Op::Bind) std::cerr << " [Bind]";
-    if (sym == Op::F2) std::cerr << " [F2]";
-    if (sym == Op::F) std::cerr << " [F]";
-    std::cerr << "\n";
-  }
-  std::cerr << "num_enode_regs=" << compiled->num_enode_regs() << ", num_eclass_regs=" << compiled->num_eclass_regs()
-            << "\n";
-  std::cerr << "Op enum values: F2=" << static_cast<int>(Op::F2) << ", F=" << static_cast<int>(Op::F)
-            << ", Bind=" << static_cast<int>(Op::Bind) << "\n";
-  std::cerr << "IterParents count: " << iter_parents_count << "\n";
-
   // CRITICAL: We need 2 IterParents (with CheckSymbol) to test nested parent traversals
   ASSERT_GE(iter_parents_count, 2) << "Need 2 IterParents for this test to be meaningful";
 
@@ -759,14 +731,10 @@ TEST_F(FusedPatternNestedTest, FilteredParentsBufferOverwriteBug) {
     if (instr.op == VMOp::CheckSymbol && iter_parents_regs.count(instr.src)) {
       auto sym = compiled->symbols()[instr.arg];
       reg_to_symbol[instr.src] = sym;
-      std::cerr << "Register r" << static_cast<int>(instr.src) << " filters symbol " << static_cast<int>(sym);
-      if (sym == Op::F2) std::cerr << " [F2]";
-      if (sym == Op::F) std::cerr << " [F]";
-      std::cerr << "\n";
     }
   }
 
-  // Second pass: find which slot is bound from which register
+  // Third pass: find which slot is bound from which register
   for (std::size_t i = 1; i < compiled->code().size(); ++i) {
     auto const &instr = compiled->code()[i];
     if (instr.op == VMOp::BindSlot && instr.arg != 0 && instr.arg != 1) {
@@ -777,11 +745,9 @@ TEST_F(FusedPatternNestedTest, FilteredParentsBufferOverwriteBug) {
           auto sym = reg_to_symbol[src_reg];
           if (sym == Op::F2) {
             f2_slot = static_cast<int>(instr.arg);
-            std::cerr << "F2 bound to slot[" << f2_slot << "] (via r" << static_cast<int>(src_reg) << ")\n";
           }
           if (sym == Op::F) {
             f_slot = static_cast<int>(instr.arg);
-            std::cerr << "F bound to slot[" << f_slot << "] (via r" << static_cast<int>(src_reg) << ")\n";
           }
         }
       }
@@ -793,7 +759,6 @@ TEST_F(FusedPatternNestedTest, FilteredParentsBufferOverwriteBug) {
 
   VMExecutorVerify<Op, NoAnalysis> executor(egraph);
   std::vector<EClassId> candidates = {egraph.find(bind_node)};
-  std::cerr << "Candidate bind_node e-class: " << egraph.find(bind_node) << "\n";
 
   EMatchContext ctx;
   std::vector<PatternMatch> results;
@@ -816,33 +781,18 @@ TEST_F(FusedPatternNestedTest, FilteredParentsBufferOverwriteBug) {
     f_classes.insert(egraph.find(f_parent));
   }
 
-  std::cerr << "F2_1 e-class: " << f2_1_class << ", F2_2 e-class: " << f2_2_class << "\n";
-  std::cerr << "F e-classes: ";
-  for (auto fc : f_classes) std::cerr << fc << " ";
-  std::cerr << "\n";
-
   std::set<EClassId> matched_f2_in_f2_slot;
   std::set<EClassId> wrong_in_f2_slot;  // Non-F2 e-classes found in f2_slot
-  int match_idx = 0;
   for (auto const &match : results) {
     auto f2_slot_value = ctx.arena().get(match, static_cast<std::size_t>(f2_slot));
     auto canonical = egraph.find(f2_slot_value);
 
-    std::cerr << "Match " << match_idx++ << ": slot[" << f2_slot << "]=" << f2_slot_value << " (canonical=" << canonical
-              << ")";
-
     if (canonical == f2_1_class) {
       matched_f2_in_f2_slot.insert(canonical);
-      std::cerr << " -> F2_1 (correct)\n";
     } else if (canonical == f2_2_class) {
       matched_f2_in_f2_slot.insert(canonical);
-      std::cerr << " -> F2_2 (correct)\n";
-    } else if (f_classes.count(canonical)) {
-      wrong_in_f2_slot.insert(canonical);
-      std::cerr << " -> F (WRONG!)\n";
     } else {
       wrong_in_f2_slot.insert(canonical);
-      std::cerr << " -> Unknown (WRONG!)\n";
     }
   }
 
@@ -959,7 +909,6 @@ TEST_F(FusedPatternNestedTest, DeduplicationWithPrefixChange) {
   ASSERT_TRUE(compiled.has_value()) << "Compilation should succeed";
 
   auto bytecode = disassemble<Op>(compiled->code(), compiled->symbols());
-  std::cerr << "DeduplicationWithPrefixChange bytecode:\n" << bytecode << "\n";
 
   VMExecutorVerify<Op, NoAnalysis> executor(egraph);
 
@@ -969,24 +918,6 @@ TEST_F(FusedPatternNestedTest, DeduplicationWithPrefixChange) {
   EMatchContext ctx;
   std::vector<PatternMatch> results;
   executor.execute(*compiled, candidates, ctx, results);
-
-  // Print slot assignments from bytecode for debugging
-  std::cerr << "Slot assignments:\n";
-  std::cerr << "  kVarA=" << kVarA.id << ", kVarB=" << kVarB.id << ", kVarC=" << kVarC.id << "\n";
-  std::cerr << "  kVarF=" << kVarF.id << ", kVarF2=" << kVarF2.id << "\n";
-  std::cerr << "  num_slots=" << compiled->num_slots() << "\n";
-
-  // Print results for debugging
-  std::cerr << "Results (" << results.size() << " matches):\n";
-  for (std::size_t i = 0; i < results.size(); ++i) {
-    auto const &match = results[i];
-    std::cerr << "  Match " << i << ": [";
-    for (std::size_t s = 0; s < compiled->num_slots(); ++s) {
-      if (s > 0) std::cerr << ", ";
-      std::cerr << "slot[" << s << "]=" << ctx.arena().get(match, s);
-    }
-    std::cerr << "]\n";
-  }
 
   // Expected: 2 F's * 2 F2's = 4 matches
   // Each (a, b, c) tuple should appear exactly once
@@ -1011,8 +942,6 @@ TEST_F(FusedPatternNestedTest, DeduplicationWithPrefixChange) {
       auto b_val = ctx.arena().get(match, kSlotB);
       auto c_val = ctx.arena().get(match, kSlotC);
       seen_tuples.insert({egraph.find(a_val), egraph.find(b_val), egraph.find(c_val)});
-      std::cerr << "  Tuple: (" << egraph.find(a_val) << ", " << egraph.find(b_val) << ", " << egraph.find(c_val)
-                << ")\n";
     }
     EXPECT_EQ(seen_tuples.size(), 4) << "All 4 (a, b, c) combinations should be unique";
   }
@@ -1055,10 +984,9 @@ TEST_F(FusedPatternNestedTest, DeduplicationMultiplePaths) {
 // VMState Unit Tests - Direct State Manipulation
 // ============================================================================
 
-// Test: Global deduplication across candidates
-// The VM implements GLOBAL deduplication: if the same binding tuple is reached
-// from multiple candidates, only the first occurrence should yield.
-// This is intentional - the stale value comparison in bind() enables this behavior.
+// Test: Global deduplication across candidates via bind-time dedup.
+// When the same value is bound to a slot with the same prefix, it's a duplicate.
+// The dedup check happens at bind time, not yield time.
 TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
   using namespace vm;
 
@@ -1067,12 +995,9 @@ TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
 
   // Simulate first "candidate" execution:
   // Bind slot 0 to e-class 100, slot 1 to e-class 200
-  state.bind(0, EClassId{100});
-  state.bind(1, EClassId{200});
-
-  // Yield with tuple (100, 200) - should succeed
-  std::array<EClassId, 2> tuple1 = {EClassId{100}, EClassId{200}};
-  EXPECT_TRUE(state.try_yield_dedup(tuple1)) << "First yield should succeed";
+  // Using try_bind_dedup for all slots (bind-time dedup)
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
   // Simulate moving to second "candidate"
   // seen_per_slot is NOT cleared (intentional for global dedup)
@@ -1084,23 +1009,17 @@ TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
   // Bind slot 0 to the SAME value (100)
   // Since slots[0] == 100 (stale match), seen_per_slot[1] is NOT cleared
   // This is intentional: same prefix context means same dedup context
-  state.bind(0, EClassId{100});
+  // But seen_per_slot[0] already contains 100, so this returns false (duplicate)
+  bool bind0_result = state.try_bind_dedup(0, EClassId{100});
 
-  // Bind slot 1 to the SAME value (200)
-  state.bind(1, EClassId{200});
-
-  // Try to yield with tuple (100, 200) again
-  // This SHOULD FAIL because it's a duplicate binding tuple (global dedup)
-  std::array<EClassId, 2> tuple2 = {EClassId{100}, EClassId{200}};
-  bool yield_result = state.try_yield_dedup(tuple2);
-
-  // Global deduplication: same tuple should be filtered as duplicate
-  EXPECT_FALSE(yield_result) << "Second yield with same tuple should be deduplicated (global dedup).\n"
+  // Global deduplication: same value with same prefix should be filtered as duplicate
+  EXPECT_FALSE(bind0_result) << "Second bind of slot 0 with same value should be deduplicated (global dedup).\n"
                              << "The stale value comparison in bind() intentionally preserves seen_per_slot\n"
                              << "when the binding value matches, enabling cross-candidate deduplication.";
 }
 
 // Test: Verify correct behavior when slot value actually changes
+// When a prefix slot changes, downstream seen sets are cleared, so same values become new.
 TEST(VMStateTest, BindSlotValueChange) {
   using namespace vm;
 
@@ -1108,35 +1027,33 @@ TEST(VMStateTest, BindSlotValueChange) {
   state.reset(2, 1, 1);
 
   // First candidate: (100, 200)
-  state.bind(0, EClassId{100});
-  state.bind(1, EClassId{200});
-  std::array<EClassId, 2> tuple1 = {EClassId{100}, EClassId{200}};
-  EXPECT_TRUE(state.try_yield_dedup(tuple1));
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
   // Second candidate with DIFFERENT slot 0 value
   state.pc = 0;
 
-  state.bind(0, EClassId{101});  // Different value - should clear seen_per_slot[1]
-  state.bind(1, EClassId{200});  // Same value but fresh context
-
-  std::array<EClassId, 2> tuple2 = {EClassId{101}, EClassId{200}};
-  EXPECT_TRUE(state.try_yield_dedup(tuple2)) << "Different slot 0 should yield successfully";
+  // Different value for slot 0 - should clear seen_per_slot[1]
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{101})) << "New value for slot 0 should succeed";
+  // Same value 200 for slot 1, but prefix changed, so seen_per_slot[1] was cleared
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "Same slot 1 value with different prefix should succeed";
 }
 
 // Test: Verify deduplication still works within same candidate
+// Same slot value with same prefix should be deduplicated at bind time.
 TEST(VMStateTest, DeduplicationWithinCandidate) {
   using namespace vm;
 
   VMState state;
   state.reset(2, 1, 1);
 
-  // Same candidate, same tuple twice - should be deduplicated
-  state.bind(0, EClassId{100});
-  state.bind(1, EClassId{200});
-  std::array<EClassId, 2> tuple = {EClassId{100}, EClassId{200}};
+  // Same candidate, same values twice - should be deduplicated at bind time
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
-  EXPECT_TRUE(state.try_yield_dedup(tuple)) << "First yield should succeed";
-  EXPECT_FALSE(state.try_yield_dedup(tuple)) << "Second yield with same tuple (same candidate) should be deduplicated";
+  // Try to bind same values again (simulating another iteration reaching same state)
+  // Since slots still have same values (no prefix change), seen sets are preserved
+  EXPECT_FALSE(state.try_bind_dedup(0, EClassId{100})) << "Second bind of slot 0 (same value) should be deduplicated";
 }
 
 // ============================================================================
@@ -1189,28 +1106,6 @@ TEST_F(FusedPatternNestedTest, BindingOrderTrackedForJoinedPatterns) {
   // Verify binding_order is tracked
   auto binding_order = compiled->binding_order();
   ASSERT_FALSE(binding_order.empty()) << "Binding order should not be empty";
-
-  // Print binding order for debugging
-  std::cerr << "BindingOrderTrackedForJoinedPatterns:\n";
-  std::cerr << "  num_slots = " << compiled->num_slots() << "\n";
-  std::cerr << "  binding_order = [";
-  for (std::size_t i = 0; i < binding_order.size(); ++i) {
-    if (i > 0) std::cerr << ", ";
-    std::cerr << static_cast<int>(binding_order[i]);
-  }
-  std::cerr << "]\n";
-  std::cerr << "  last_bound_slot = " << static_cast<int>(compiled->last_bound_slot()) << "\n";
-
-  // Verify slots_bound_after is computed correctly
-  for (std::size_t slot = 0; slot < compiled->num_slots(); ++slot) {
-    auto after = compiled->slots_bound_after(slot);
-    std::cerr << "  slots_bound_after[" << slot << "] = [";
-    for (std::size_t i = 0; i < after.size(); ++i) {
-      if (i > 0) std::cerr << ", ";
-      std::cerr << static_cast<int>(after[i]);
-    }
-    std::cerr << "]\n";
-  }
 
   // The binding order should contain all slots
   std::set<uint8_t> bound_slots(binding_order.begin(), binding_order.end());
@@ -1330,43 +1225,6 @@ TEST_F(FusedPatternNestedTest, DeduplicationWithOutOfOrderBinding) {
   auto compiled = compiler.compile(patterns);
   ASSERT_TRUE(compiled.has_value());
 
-  // Print binding order
-  auto binding_order = compiled->binding_order();
-  std::cerr << "DeduplicationWithOutOfOrderBinding:\n";
-  std::cerr << "  num_slots = " << compiled->num_slots() << "\n";
-  std::cerr << "  binding_order = [";
-  for (std::size_t i = 0; i < binding_order.size(); ++i) {
-    if (i > 0) std::cerr << ", ";
-    std::cerr << static_cast<int>(binding_order[i]);
-  }
-  std::cerr << "]\n";
-  std::cerr << "  last_bound_slot = " << static_cast<int>(compiled->last_bound_slot()) << "\n";
-
-  // Verify binding order is NOT simply [0, 1, 2, 3, 4]
-  // (This is the key assertion - binding order should differ from slot index order)
-  bool is_sequential = true;
-  for (std::size_t i = 0; i < binding_order.size(); ++i) {
-    if (binding_order[i] != i) {
-      is_sequential = false;
-      break;
-    }
-  }
-
-  // Note: The actual binding order depends on compilation details.
-  // What matters is that slots_bound_after is computed correctly from binding_order.
-  std::cerr << "  is_sequential = " << (is_sequential ? "true" : "false") << "\n";
-
-  // Print slots_bound_after
-  for (std::size_t slot = 0; slot < compiled->num_slots(); ++slot) {
-    auto after = compiled->slots_bound_after(slot);
-    std::cerr << "  slots_bound_after[" << slot << "] = [";
-    for (std::size_t i = 0; i < after.size(); ++i) {
-      if (i > 0) std::cerr << ", ";
-      std::cerr << static_cast<int>(after[i]);
-    }
-    std::cerr << "]\n";
-  }
-
   // Execute pattern
   VMExecutorVerify<Op, NoAnalysis> executor(egraph);
   std::vector<EClassId> candidates = {egraph.find(f1), egraph.find(f2)};
@@ -1432,38 +1290,32 @@ TEST(VMStateTest, BindingOrderClearsSlotsCorrectly) {
       2  // last_bound_slot = 2
   );
 
-  // Bind in order: slot 1, slot 0, slot 2
-  state.bind(1, EClassId{100});
-  state.bind(0, EClassId{200});
-  state.bind(2, EClassId{300});
+  // Bind in order: slot 1, slot 0, slot 2 (using try_bind_dedup for all)
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{100})) << "First bind of slot 1 should succeed";
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{200})) << "First bind of slot 0 should succeed";
+  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "First bind of slot 2 should succeed";
 
-  // First yield should succeed
-  std::array<EClassId, 3> tuple1 = {EClassId{200}, EClassId{100}, EClassId{300}};
-  EXPECT_TRUE(state.try_yield_dedup(tuple1)) << "First yield should succeed";
-
-  // Same tuple should be deduplicated
-  EXPECT_FALSE(state.try_yield_dedup(tuple1)) << "Same tuple should be deduplicated";
+  // Same values should be deduplicated (slot 2 is last, triggers dedup check)
+  // Try binding same value to slot 2 again - should fail (duplicate)
+  EXPECT_FALSE(state.try_bind_dedup(2, EClassId{300})) << "Same slot 2 value with same prefix should be deduplicated";
 
   // Now change slot 0 (middle in binding order)
   // This should clear seen_per_slot[2] (slot 2 is bound after slot 0)
-  state.bind(0, EClassId{201});  // Different value
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{201})) << "New value for slot 0 should succeed";
 
-  // Re-bind slot 2 with same value
-  state.bind(2, EClassId{300});
-
+  // Re-bind slot 2 with same value 300
   // This should now succeed because seen_per_slot[2] was cleared when slot 0 changed
-  std::array<EClassId, 3> tuple2 = {EClassId{201}, EClassId{100}, EClassId{300}};
-  EXPECT_TRUE(state.try_yield_dedup(tuple2)) << "After prefix change, same slot[2] value should be new";
+  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "After prefix change, same slot[2] value should be new";
 
   // Now change slot 1 (first in binding order)
   // This should clear seen_per_slot[0] and seen_per_slot[2]
-  state.bind(1, EClassId{101});  // Different value
-  state.bind(0, EClassId{200});  // Back to original
-  state.bind(2, EClassId{300});  // Same
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{101})) << "New value for slot 1 should succeed";
 
-  // This should succeed because all downstream seen sets were cleared
-  std::array<EClassId, 3> tuple3 = {EClassId{200}, EClassId{101}, EClassId{300}};
-  EXPECT_TRUE(state.try_yield_dedup(tuple3)) << "After root prefix change, tuple should be new";
+  // Bind slot 0 back to original value (200) - should succeed because seen_per_slot[0] was cleared
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{200})) << "Original slot 0 value should be new after slot 1 changed";
+
+  // Bind slot 2 with same value - should succeed because seen_per_slot[2] was cleared
+  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "After root prefix change, tuple should be new";
 }
 
 }  // namespace memgraph::planner::core

@@ -493,7 +493,7 @@ TEST_F(VMExecutionTest, SameVariableMultipleMergedENodes) {
 // ============================================================================
 
 // Test that VM executor correctly deduplicates matches
-// This tests the try_yield_dedup mechanism with self-referential e-classes
+// This tests the bind-time dedup mechanism with self-referential e-classes
 TEST_F(VMExecutionTest, DeduplicationSelfReferentialEClass) {
   // Create a self-referential e-class where multiple paths lead to the same binding:
   //   a = Const(1)

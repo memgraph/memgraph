@@ -197,6 +197,10 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src);
         break;
 
+      case VMOp::BindSlotDedup:
+        ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src) << ", @" << instr.target;
+        break;
+
       case VMOp::CheckSlot:
         ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src) << ", @" << instr.target;
         break;
