@@ -229,6 +229,26 @@ inline auto BuildSelfReferential(TestEGraph &g, uint64_t seed = 42) -> EClassId 
   return g.find(n1);  // Return canonical ID of self-referential class
 }
 
+// NestedJoinGraph: Creates scenario for (F ?v0) JOIN (F (F (F (F ?v0)))) pattern.
+// For each of num_leaves leaves, creates:
+//   - A shallow F node: F(leaf)
+//   - A deep F chain: F(F(F(F(leaf))))
+// This creates num_leaves matches where ?v0 binds to each leaf.
+inline void BuildNestedJoinGraph(TestEGraph &g, int64_t num_leaves) {
+  for (int64_t i = 0; i < num_leaves; ++i) {
+    auto leaf = g.emplace(Op::Const, static_cast<uint64_t>(i)).eclass_id;
+
+    // Create shallow F(leaf)
+    g.emplace(Op::F, {leaf});
+
+    // Create deep chain F(F(F(F(leaf))))
+    auto f1 = g.emplace(Op::F, {leaf}).eclass_id;
+    auto f2 = g.emplace(Op::F, {f1}).eclass_id;
+    auto f3 = g.emplace(Op::F, {f2}).eclass_id;
+    g.emplace(Op::F, {f3});
+  }
+}
+
 // ParentDiversity: Many leaves each with diverse parents of various symbols.
 // num_leaves leaves, parents_per_leaf parents randomly distributed among Add, Mul, Neg, F.
 inline void BuildParentDiversity(TestEGraph &g, int64_t num_leaves, int64_t parents_per_leaf, uint64_t seed = 42) {
@@ -284,6 +304,12 @@ inline auto PatternNestedNeg(int depth) -> TestPattern {
 inline auto PatternNeg() { return TestPattern::build(Op::Neg, {Var{kX}}); }
 
 inline auto PatternNestedF() { return TestPattern::build(Op::F, {Sym(Op::F, Var{kX})}); }
+
+// Pattern for shallow F: F(?x)
+inline auto PatternShallowF() { return TestPattern::build(Op::F, {Var{kX}}); }
+
+// Pattern for deep nested F: F(F(F(F(?x)))) - 4 levels deep
+inline auto PatternDeepNestedF() { return TestPattern::build(Op::F, {Sym(Op::F, Sym(Op::F, Sym(Op::F, Var{kX})))}); }
 
 // ============================================================================
 // Rule Builders
