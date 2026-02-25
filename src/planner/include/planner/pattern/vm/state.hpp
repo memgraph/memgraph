@@ -33,21 +33,26 @@ static constexpr std::size_t kDefaultRegisters = 16;
 // Each type uses exhausted state as inactive indicator (no separate discriminator needed).
 // The compiler statically knows which iteration type each register uses.
 
-/// Iterating e-nodes in an e-class (span-based, advances via subspan)
+/// Span-based iterator (advances via subspan)
 /// Empty span = inactive/exhausted
-/// Note: ENodesIter and AllEClassesIter share the same structure but differ in element type
-/// (ENodeId vs EClassId). Could be templatized: template<typename Id> struct SpanIter {...}
-struct ENodesIter {
-  std::span<ENodeId const> nodes;
+template <typename Id>
+struct SpanIter {
+  std::span<Id const> items;
 
-  [[nodiscard]] auto exhausted() const -> bool { return nodes.empty(); }
+  [[nodiscard]] auto exhausted() const -> bool { return items.empty(); }
 
-  [[nodiscard]] auto remaining() const -> std::size_t { return nodes.size(); }
+  [[nodiscard]] auto remaining() const -> std::size_t { return items.size(); }
 
-  [[nodiscard]] auto current() const -> ENodeId { return nodes.front(); }
+  [[nodiscard]] auto current() const -> Id { return items.front(); }
 
-  void advance() { nodes = nodes.subspan(1); }
+  void advance() { items = items.subspan(1); }
 };
+
+/// Iterating e-nodes in an e-class
+using ENodesIter = SpanIter<ENodeId>;
+
+/// Iterating all canonical e-classes
+using AllEClassesIter = SpanIter<EClassId>;
 
 /// Iterating parent e-nodes (index-based, set doesn't support span)
 /// idx >= end = inactive/exhausted
@@ -63,20 +68,6 @@ struct ParentsIter {
   [[nodiscard]] auto index() const -> std::size_t { return idx; }
 
   void advance() { ++idx; }
-};
-
-/// Iterating all canonical e-classes (span-based, advances via subspan)
-/// Empty span = inactive/exhausted
-struct AllEClassesIter {
-  std::span<EClassId const> eclasses;
-
-  [[nodiscard]] auto exhausted() const -> bool { return eclasses.empty(); }
-
-  [[nodiscard]] auto remaining() const -> std::size_t { return eclasses.size(); }
-
-  [[nodiscard]] auto current() const -> EClassId { return eclasses.front(); }
-
-  void advance() { eclasses = eclasses.subspan(1); }
 };
 
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
