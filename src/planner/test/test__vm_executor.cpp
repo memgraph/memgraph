@@ -312,8 +312,8 @@ TEST_F(VMExecutionTest, DeepPatternCompiles) {
 // Same Variable Correctness Tests
 // ============================================================================
 
-// Bug: After Yield clears bound flags, BindOrCheck for repeated variable
-// incorrectly rebinds instead of checking when iterating multiple e-nodes.
+// Test: Verify same variable pattern works correctly with merged e-classes.
+// Pattern Add(?x, Neg(?x)) uses CheckSlot for the second ?x occurrence.
 TEST_F(VMExecutionTest, SameVariableMergedEClass) {
   // Create e-graph with merged e-class containing:
   //   n0 = Add(a, Neg(a))  -- ?x binds to a, Neg child is a, should match

@@ -198,7 +198,6 @@ auto disassemble(std::span<Instruction const> code, std::span<Symbol const> symb
         break;
 
       case VMOp::CheckSlot:
-      case VMOp::BindOrCheck:
         ss << " slot[" << static_cast<int>(instr.arg) << "], r" << static_cast<int>(instr.src) << ", @" << instr.target;
         break;
 

@@ -59,8 +59,6 @@ enum class VMOp : uint8_t {
   BindSlot,
   /// Check consistency: if find(slots[arg]) != find(regs[src]), jump to target
   CheckSlot,
-  /// Bind if unbound, else check: combines BindSlot + CheckSlot
-  BindOrCheck,
 
   // ===== Control =====
   /// Unconditional jump to target
@@ -128,10 +126,6 @@ struct Instruction {
     return {VMOp::CheckSlot, 0, src, slot_idx, on_mismatch};
   }
 
-  static constexpr auto bind_or_check(uint8_t slot_idx, uint8_t src, uint16_t on_conflict) -> Instruction {
-    return {VMOp::BindOrCheck, 0, src, slot_idx, on_conflict};
-  }
-
   static constexpr auto jmp(uint16_t target) -> Instruction { return {VMOp::Jump, 0, 0, 0, target}; }
 
   static constexpr auto yield() -> Instruction { return {VMOp::Yield, 0, 0, 0, 0}; }
@@ -172,8 +166,6 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
       return "BindSlot";
     case VMOp::CheckSlot:
       return "CheckSlot";
-    case VMOp::BindOrCheck:
-      return "BindOrCheck";
     case VMOp::Jump:
       return "Jump";
     case VMOp::Yield:

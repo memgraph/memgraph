@@ -1074,9 +1074,8 @@ TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
   std::array<EClassId, 2> tuple1 = {EClassId{100}, EClassId{200}};
   EXPECT_TRUE(state.try_yield_dedup(tuple1)) << "First yield should succeed";
 
-  // Now simulate moving to second "candidate" - this is what execute() does:
-  // bound.reset() but NOT clearing seen_per_slot (intentional for global dedup)
-  state.bound.reset();  // All slots now unbound
+  // Simulate moving to second "candidate"
+  // seen_per_slot is NOT cleared (intentional for global dedup)
   state.pc = 0;
 
   // Slots retain stale values: slots[0] = 100, slots[1] = 200
@@ -1115,7 +1114,6 @@ TEST(VMStateTest, BindSlotValueChange) {
   EXPECT_TRUE(state.try_yield_dedup(tuple1));
 
   // Second candidate with DIFFERENT slot 0 value
-  state.bound.reset();
   state.pc = 0;
 
   state.bind(0, EClassId{101});  // Different value - should clear seen_per_slot[1]

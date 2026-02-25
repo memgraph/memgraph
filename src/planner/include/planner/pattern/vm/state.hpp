@@ -15,7 +15,6 @@ import memgraph.planner.core.eids;
 
 #include <algorithm>
 #include <array>
-#include <bitset>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -93,11 +92,6 @@ struct VMState {
   // Variable binding slots
   boost::container::small_vector<EClassId, 8> slots;
 
-  // Which slots are bound (for BindOrCheck)
-  // Use std::bitset for O(1) operations with no dynamic allocation
-  // TODO: why arbitrary 256?
-  std::bitset<256> bound;
-
   // Per-slot seen sets for deduplication.
   // seen_per_slot[i] tracks which values we've seen at slot i for the CURRENT prefix.
   // The prefix is defined by slots bound BEFORE slot i in binding order.
@@ -128,7 +122,6 @@ struct VMState {
   void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs,
              SlotsAfterAccessor slots_bound_after_fn, uint8_t last_bound_slot) {
     slots.assign(num_slots, EClassId{});
-    bound.reset();
     pc = 0;
 
     // Store binding order information
@@ -224,7 +217,6 @@ struct VMState {
       }
       slots[slot] = eclass;
     }
-    bound.set(slot);
   }
 
   /// Try to yield with deduplication.
@@ -244,10 +236,7 @@ struct VMState {
     return seen_per_slot[last_bound_slot_].insert(last_value).second;
   }
 
-  /// Check if slot is bound
-  [[nodiscard]] auto is_bound(std::size_t slot) const -> bool { return bound.test(slot); }
-
-  /// Get bound value (must be bound)
+  /// Get bound value
   [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots[slot]; }
 };
 

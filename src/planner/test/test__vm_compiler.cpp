@@ -79,7 +79,7 @@ TEST_F(VMCompilerTest, SimpleSymbolPattern) {
   // 4:  CheckArity r1, 1, @loop
   // 5:  BindSlot slot[root], r0
   // 6:  LoadChild r2, r1, 0
-  // 7:  BindOrCheck slot[0], r2, @loop
+  // 7:  BindSlot slot[0], r2          ; bind ?x
   // 8:  Yield
   // 9:  Jump @loop
   // 10: Halt
@@ -128,7 +128,7 @@ TEST_F(VMCompilerTest, NestedSymbolPattern) {
   // 7: CheckSymbol r3, Neg, @6       ; check inner Neg (backtrack to inner loop)
   // 8: CheckArity r3, 1, @6
   // 9: LoadChild r4, r3, 0
-  // 10: BindOrCheck slot[0], r4, @6  ; bind ?x (backtrack to inner loop)
+  // 10: BindSlot slot[0], r4          ; bind ?x
   // 11: Yield
   // 12: Jump @6                       ; continue inner loop
   // 13: Jump @1                       ; continue outer loop
