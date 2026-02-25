@@ -1,6 +1,7 @@
 """
 Common utilities for Native HA stress tests.
 """
+import atexit
 import multiprocessing
 import os
 import subprocess
@@ -77,6 +78,33 @@ def create_bolt_routing_driver_for(instance_name: str, host: str = "127.0.0.1", 
     return GraphDatabase.driver(uri, auth=auth)
 
 
+_driver_cache: dict[tuple[int, str, str], Any] = {}
+
+
+def _get_or_create_driver(instance_name: str, protocol: Protocol):
+    pid = os.getpid()
+    key = (pid, instance_name, protocol.value)
+    if key not in _driver_cache:
+        if protocol == Protocol.BOLT_ROUTING:
+            _driver_cache[key] = create_bolt_routing_driver_for(instance_name)
+        else:
+            _driver_cache[key] = create_bolt_driver_for(instance_name)
+    return _driver_cache[key]
+
+
+def _close_all_drivers():
+    pid = os.getpid()
+    to_close = [k for k in _driver_cache if k[0] == pid]
+    for key in to_close:
+        try:
+            _driver_cache.pop(key).close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_all_drivers)
+
+
 def run_parallel(
     worker_fn: Callable[..., R],
     tasks: Iterable[tuple],
@@ -95,10 +123,7 @@ def _run_query(
     apply_retry_mechanism: bool,
     result_handler: Callable,
 ) -> Any:
-    if protocol == Protocol.BOLT_ROUTING:
-        driver = create_bolt_routing_driver_for(instance_name)
-    else:
-        driver = create_bolt_driver_for(instance_name)
+    driver = _get_or_create_driver(instance_name, protocol)
 
     try:
         with driver.session() as session:
@@ -113,8 +138,6 @@ def _run_query(
         if SYNC_REPLICA_ERROR in str(e):
             return None
         raise
-    finally:
-        driver.close()
 
 
 def execute_query(
