@@ -16,7 +16,107 @@
 
 namespace memgraph::planner::core::vm {
 
-/// VM opcodes for pattern matching
+// =============================================================================
+// VM Bytecode Contract Documentation
+// =============================================================================
+//
+// This file defines the bytecode instruction set for the pattern matching VM.
+// Understanding the contracts between components is essential for correctness.
+//
+// ## Component Relationships
+//
+//   Pattern<Symbol>  ──compile──>  CompiledPattern  ──execute──>  Matches
+//        │                              │                            │
+//        │                              │                            │
+//   PatternCompiler              VMExecutor::execute          PatternMatch[]
+//   (compiler.hpp)                (executor.hpp)              (in MatchArena)
+//
+// ## Producer: PatternCompiler (compiler.hpp)
+//
+// PatternCompiler emits Instructions with these guarantees:
+//
+//   1. Register Allocation:
+//      - eclass_regs[0] is reserved for the input candidate e-class
+//      - eclass_regs[1..N] are allocated via alloc_eclass_reg()
+//      - enode_regs[0..M] are allocated via alloc_enode_reg()
+//      - CompiledPattern reports num_eclass_regs and num_enode_regs
+//
+//   2. Jump Targets:
+//      - All targets are valid instruction indices < code.size()
+//      - 0xFFFF placeholders are patched to halt position before returning
+//      - Backtrack targets point to NextX instructions (loop continuation)
+//
+//   3. Symbol Table:
+//      - CheckSymbol.arg indexes into CompiledPattern::symbols()
+//      - Symbols are deduplicated by get_symbol_index()
+//
+//   4. Slot Binding:
+//      - slots[i] correspond to pattern variables
+//      - binding_order tracks the order slots are bound
+//      - slots_bound_after[i] lists slots to clear when slot i changes
+//
+//   5. Iteration Pairing:
+//      - IterENodes must be followed eventually by NextENode with same dst
+//      - IterParents must be followed eventually by NextParent with same dst
+//      - IterAllEClasses must be followed eventually by NextEClass with same dst
+//
+// ## Consumer: VMExecutor (executor.hpp)
+//
+// VMExecutor interprets Instructions with these expectations:
+//
+//   1. State Initialization (before each candidate):
+//      - eclass_regs[0] = candidate (must be canonical)
+//      - pc = 0
+//      - slots, seen_per_slot cleared appropriately
+//
+//   2. Register Semantics:
+//      - eclass_regs[dst]: written by LoadChild, GetENodeEClass, IterAllEClasses
+//      - enode_regs[dst]: written by IterENodes, IterParents
+//      - Both are indexed by uint8_t (max 256 registers)
+//
+//   3. Canonicalization:
+//      - LoadChild canonicalizes child e-class IDs via egraph.find()
+//      - GetENodeEClass canonicalizes via egraph.find()
+//      - Candidates must be pre-canonicalized by caller
+//      - slots[] always contain canonical IDs
+//
+//   4. Iteration Protocol:
+//      - IterX: Initialize iterator, store first element, return success/fail
+//      - NextX: Advance iterator, store element, return success/fail
+//      - On failure (empty/exhausted): jump to target (backtrack)
+//      - Iterators are stored in VMState indexed by dst register
+//
+//   5. Deduplication:
+//      - BindSlotDedup checks seen_per_slot[arg] before binding
+//      - If value already seen, jumps to target (backtrack)
+//      - MarkSeen/Yield add current slot value to seen set
+//      - When slot i changes, seen_per_slot[j] cleared for j in slots_bound_after[i]
+//
+// ## Instruction Field Conventions
+//
+//   | Field  | Size | Usage                                           |
+//   |--------|------|-------------------------------------------------|
+//   | op     | 1B   | VMOp enum value                                 |
+//   | dst    | 1B   | Destination register index                      |
+//   | src    | 1B   | Source register index                           |
+//   | arg    | 1B   | Symbol index, slot index, child index, or arity |
+//   | target | 2B   | Jump target address (instruction index)         |
+//
+// ## Opcode Categories
+//
+//   Navigation:   LoadChild, GetENodeEClass
+//   Iteration:    IterENodes/NextENode, IterAllEClasses/NextEClass, IterParents/NextParent
+//   Filtering:    CheckSymbol, CheckArity
+//   Binding:      BindSlotDedup, CheckSlot, CheckEClassEq, MarkSeen
+//   Control:      Jump, Yield, Halt
+//
+// =============================================================================
+
+/// VM opcodes for pattern matching.
+///
+/// @see PatternCompiler for bytecode generation
+/// @see VMExecutor for bytecode interpretation
+/// @see CompiledPattern for the compiled bytecode container
 enum class VMOp : uint8_t {
   // ===== Navigation =====
   /// Load child e-class from current e-node: dst = enode[src].children[arg]
@@ -75,13 +175,43 @@ enum class VMOp : uint8_t {
   Halt,
 };
 
-/// Single VM instruction (6 bytes, fits in cache line nicely)
+/// Single VM instruction (6 bytes for cache efficiency).
+///
+/// ## Field Semantics by Opcode
+///
+/// | Opcode          | dst              | src              | arg           | target           |
+/// |-----------------|------------------|------------------|---------------|------------------|
+/// | LoadChild       | eclass_reg out   | enode_reg in     | child index   | -                |
+/// | GetENodeEClass  | eclass_reg out   | enode_reg in     | -             | -                |
+/// | IterENodes      | enode_reg out    | eclass_reg in    | -             | on_empty         |
+/// | NextENode       | enode_reg out    | -                | -             | on_exhausted     |
+/// | IterAllEClasses | eclass_reg out   | -                | -             | on_empty         |
+/// | NextEClass      | eclass_reg out   | -                | -             | on_exhausted     |
+/// | IterParents     | enode_reg out    | eclass_reg in    | -             | on_empty         |
+/// | NextParent      | enode_reg out    | -                | -             | on_exhausted     |
+/// | CheckSymbol     | -                | enode_reg in     | symbol_idx    | on_mismatch      |
+/// | CheckArity      | -                | enode_reg in     | arity         | on_mismatch      |
+/// | BindSlotDedup   | -                | eclass_reg in    | slot_idx      | on_duplicate     |
+/// | CheckSlot       | -                | eclass_reg in    | slot_idx      | on_mismatch      |
+/// | CheckEClassEq   | eclass_reg in    | eclass_reg in    | -             | on_mismatch      |
+/// | MarkSeen        | -                | -                | slot_idx      | -                |
+/// | Jump            | -                | -                | -             | destination      |
+/// | Yield           | -                | -                | last_slot_idx | -                |
+/// | Halt            | -                | -                | -             | -                |
+///
+/// @invariant sizeof(Instruction) == 6
+/// @invariant All register indices < 256 (uint8_t)
+/// @invariant target < code.size() after compilation (except during compilation)
+///
+/// @see VMOp for opcode semantics
+/// @see PatternCompiler::emit_* for instruction generation
+/// @see VMExecutor::exec_* for instruction execution
 struct Instruction {
   VMOp op;
-  uint8_t dst;      // Destination register index
-  uint8_t src;      // Source register index
-  uint8_t arg;      // Symbol index, slot index, child index, or arity
-  uint16_t target;  // Jump target for conditional/iteration ops
+  uint8_t dst;      // Destination register index (eclass_reg or enode_reg depending on op)
+  uint8_t src;      // Source register index (eclass_reg or enode_reg depending on op)
+  uint8_t arg;      // Symbol index, slot index, child index, or arity (opcode-specific)
+  uint16_t target;  // Jump target for conditional/iteration ops (instruction index)
 
   // Factory methods for cleaner construction
   static constexpr auto load_child(uint8_t dst, uint8_t src, uint8_t child_idx) -> Instruction {

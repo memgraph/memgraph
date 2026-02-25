@@ -30,7 +30,79 @@ import memgraph.planner.core.eids;
 
 namespace memgraph::planner::core::vm {
 
-/// Compiled pattern ready for VM execution
+// =============================================================================
+// VMExecutor Contract Documentation
+// =============================================================================
+//
+// VMExecutor interprets CompiledPattern bytecode against an e-graph.
+// It is the CONSUMER in the VM contract; PatternCompiler is the PRODUCER.
+//
+// ## Contractual Expectations (what VMExecutor requires from PatternCompiler)
+//
+// ### 1. Well-Formed Bytecode
+//
+//   - All jump targets are valid instruction indices
+//   - Register indices don't exceed num_*_regs - 1
+//   - Symbol indices don't exceed symbols.size() - 1
+//   - Slot indices don't exceed num_slots - 1
+//
+// ### 2. Iteration Consistency
+//
+//   - IterX/NextX pairs use the same dst register
+//   - Iteration state is managed per-register by VMState
+//   - Exhausted iterators trigger backtrack via jump target
+//
+// ### 3. Canonical E-Class IDs
+//
+//   - Input candidates MUST be canonical (egraph.find(id) == id)
+//   - VMExecutor canonicalizes via LoadChild and GetENodeEClass
+//   - slots[] always contain canonical IDs after BindSlotDedup
+//
+// ## Execution Model
+//
+// For each candidate e-class:
+//   1. Set eclass_regs[0] = candidate, pc = 0
+//   2. Fetch instruction at pc
+//   3. Dispatch to handler based on opcode
+//   4. Handler may: advance pc, jump to target, or halt
+//   5. Repeat until Halt
+//
+// ## Deduplication Protocol
+//
+// Prevents duplicate match tuples via seen_per_slot sets:
+//
+//   1. BindSlotDedup checks if value is in seen_per_slot[slot]
+//   2. If seen, backtrack (don't explore same value twice)
+//   3. Yield/MarkSeen adds value to seen_per_slot[slot]
+//   4. When slot i changes, clear seen_per_slot[j] for j in slots_bound_after[i]
+//
+// This ensures each unique binding tuple is yielded exactly once.
+//
+// =============================================================================
+
+/// Compiled pattern ready for VM execution.
+///
+/// Contains the bytecode, symbol table, and metadata needed by VMExecutor.
+/// Produced by PatternCompiler, consumed by VMExecutor.
+///
+/// ## Contract
+///
+/// CompiledPattern encapsulates the contract between PatternCompiler and VMExecutor:
+///
+/// - code(): The bytecode sequence; all jump targets are valid
+/// - num_slots(): Number of result slots (variables)
+/// - num_eclass_regs(): E-class registers needed (≥1, reg 0 is input)
+/// - num_enode_regs(): E-node registers needed
+/// - symbols(): Symbol table for CheckSymbol instructions
+/// - entry_symbol(): Root symbol for candidate lookup (nullopt if variable root)
+/// - binding_order(): Order slots are bound (for deduplication)
+/// - slots_bound_after(i): Slots to clear when slot i changes
+///
+/// @tparam Symbol The symbol type (must match PatternCompiler and VMExecutor)
+///
+/// @see PatternCompiler for bytecode generation
+/// @see VMExecutor for bytecode execution
+/// @see Instruction for bytecode format
 template <typename Symbol>
 class CompiledPattern {
  public:
@@ -90,11 +162,50 @@ class CompiledPattern {
   std::vector<std::vector<uint8_t>> slots_bound_after_;  // Precomputed: slots to clear when slot i changes
 };
 
-/// VM executor for pattern matching
+/// VM executor for pattern matching.
 ///
 /// Executes compiled patterns against an e-graph, collecting matches.
+/// This is the CONSUMER of the VM contract defined in instruction.hpp.
 ///
+/// ## Contract Expectations
+///
+/// VMExecutor expects CompiledPattern to satisfy:
+///
+/// 1. **Valid Bytecode**: All instructions are well-formed per VMOp semantics
+/// 2. **Valid Targets**: Jump targets are in [0, code.size())
+/// 3. **Valid Indices**: Register, symbol, slot indices within bounds
+/// 4. **Paired Iterations**: IterX/NextX use matching dst registers
+///
+/// ## Execution Guarantees
+///
+/// VMExecutor provides:
+///
+/// 1. **Canonical Results**: All slot values are canonical e-class IDs
+/// 2. **No Duplicates**: Each unique binding tuple yielded exactly once
+/// 3. **Complete Enumeration**: All valid matches are found
+/// 4. **Correct Backtracking**: Failed checks backtrack to correct loop
+///
+/// ## Usage
+///
+/// ```cpp
+/// PatternCompiler<Op> compiler;
+/// auto compiled = compiler.compile(pattern);
+/// if (!compiled) { /* pattern too complex */ }
+///
+/// VMExecutor<Op, Analysis> executor(egraph);
+/// EMatchContext ctx;
+/// std::vector<PatternMatch> matches;
+/// executor.execute(*compiled, matcher, ctx, matches);
+/// ```
+///
+/// @tparam Symbol The symbol type used in patterns
+/// @tparam Analysis The e-graph analysis type
 /// @tparam DevMode Enable stats collection and tracing (for debugging/profiling)
+///
+/// @see PatternCompiler for bytecode generation
+/// @see CompiledPattern for the bytecode container
+/// @see VMOp for opcode definitions
+/// @see Instruction for bytecode format
 template <typename Symbol, typename Analysis, bool DevMode = false>
 class VMExecutor {
  public:
@@ -106,8 +217,22 @@ class VMExecutor {
     }
   }
 
-  /// Execute compiled pattern, collecting matches.
-  /// @pre candidates must contain canonical e-class IDs (use egraph.find() if unsure)
+  /// Execute compiled pattern with explicit candidate list.
+  ///
+  /// ## Contract
+  ///
+  /// @pre pattern was produced by PatternCompiler (satisfies all bytecode contracts)
+  /// @pre candidates contains ONLY canonical e-class IDs (egraph.find(id) == id)
+  /// @pre ctx.arena() is valid for storing match bindings
+  ///
+  /// @post results contains all unique matches found
+  /// @post Each match has num_slots() values, all canonical e-class IDs
+  /// @post No duplicate binding tuples in results
+  ///
+  /// @param pattern The compiled bytecode to execute
+  /// @param candidates E-class IDs to try as pattern roots (must be canonical!)
+  /// @param ctx Match context with arena for storing bindings
+  /// @param results Output vector for matches (appended, not cleared)
   void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
     state_.reset(
@@ -136,7 +261,25 @@ class VMExecutor {
     }
   }
 
-  /// Execute compiled pattern with automatic candidate lookup via EMatcher
+  /// Execute compiled pattern with automatic candidate lookup via EMatcher.
+  ///
+  /// Uses the pattern's entry_symbol() to look up candidates from the matcher's
+  /// symbol index. If the pattern has a variable/wildcard root, falls back to
+  /// iterating all e-classes.
+  ///
+  /// ## Contract
+  ///
+  /// @pre pattern was produced by PatternCompiler (satisfies all bytecode contracts)
+  /// @pre matcher's index is up-to-date with the e-graph
+  /// @pre ctx.arena() is valid for storing match bindings
+  ///
+  /// @post results contains all unique matches found
+  /// @post Stale index entries (merged e-classes) are handled via canonicalization
+  ///
+  /// @param pattern The compiled bytecode to execute
+  /// @param matcher EMatcher with symbol index for candidate lookup
+  /// @param ctx Match context with arena for storing bindings
+  /// @param results Output vector for matches (appended, not cleared)
   void execute(CompiledPattern<Symbol> const &pattern, EMatcher<Symbol, Analysis> &matcher, EMatchContext &ctx,
                std::vector<PatternMatch> &results) {
     // Get candidates based on pattern's entry symbol
