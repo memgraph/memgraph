@@ -13,6 +13,11 @@ on:
           - docker_ha
           - eks_ha
         default: native_standalone
+      memgraph_image:
+        description: 'MAGE image (URL to .tar.gz or docker tag) - leave empty to build from branch'
+        required: false
+        type: string
+        default: ''
       arch:
         description: 'Architecture (amd/arm)'
         required: true
@@ -27,7 +32,7 @@ run-name: "Stress Tests (${{ inputs.deployment }} - ${{ inputs.arch }})"
 jobs:
   BuildMageImage:
     name: "Build MAGE Image"
-    if: ${{ inputs.deployment == 'docker_ha' || inputs.deployment == 'eks_ha' }}
+    if: ${{ (inputs.deployment == 'docker_ha' || inputs.deployment == 'eks_ha') && inputs.memgraph_image == '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: ${{ inputs.arch }}
@@ -59,22 +64,22 @@ jobs:
 
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
-    if: ${{ inputs.deployment == 'docker_ha' }}
+    if: ${{ always() && inputs.deployment == 'docker_ha' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
     needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
-      memgraph_image: ${{ needs.BuildMageImage.outputs.s3_package_url }}
+      memgraph_image: ${{ inputs.memgraph_image != '' && inputs.memgraph_image || needs.BuildMageImage.outputs.s3_package_url }}
       arch: ${{ inputs.arch }}
     secrets: inherit
 
   stress_test_eks_ha:
     name: "Stress Tests EKS HA"
-    if: ${{ inputs.deployment == 'eks_ha' }}
+    if: ${{ always() && inputs.deployment == 'eks_ha' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
     needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
-      memgraph_image: ${{ needs.BuildMageImage.outputs.s3_package_url }}
+      memgraph_image: ${{ inputs.memgraph_image != '' && inputs.memgraph_image || needs.BuildMageImage.outputs.s3_package_url }}
       arch: ${{ inputs.arch }}
     secrets: inherit
