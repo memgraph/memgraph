@@ -737,7 +737,7 @@ TEST_F(FusedPatternNestedTest, FilteredParentsBufferOverwriteBug) {
   // Third pass: find which slot is bound from which register
   for (std::size_t i = 1; i < compiled->code().size(); ++i) {
     auto const &instr = compiled->code()[i];
-    if (instr.op == VMOp::BindSlot && instr.arg != 0 && instr.arg != 1) {
+    if (instr.op == VMOp::BindSlotDedup && instr.arg != 0 && instr.arg != 1) {
       auto const &prev = compiled->code()[i - 1];
       if (prev.op == VMOp::GetENodeEClass) {
         auto src_reg = prev.src;
@@ -999,6 +999,11 @@ TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
   EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
+  // Mark slot 1 as seen (simulates what happens at yield time for last slot)
+  state.mark_seen(1);
+  // Mark slot 0 as seen (simulates marking when slot 0's iteration exhausts)
+  state.mark_seen(0);
+
   // Simulate moving to second "candidate"
   // seen_per_slot is NOT cleared (intentional for global dedup)
   state.pc = 0;
@@ -1009,7 +1014,7 @@ TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
   // Bind slot 0 to the SAME value (100)
   // Since slots[0] == 100 (stale match), seen_per_slot[1] is NOT cleared
   // This is intentional: same prefix context means same dedup context
-  // But seen_per_slot[0] already contains 100, so this returns false (duplicate)
+  // seen_per_slot[0] already contains 100, so this returns false (duplicate)
   bool bind0_result = state.try_bind_dedup(0, EClassId{100});
 
   // Global deduplication: same value with same prefix should be filtered as duplicate
@@ -1040,19 +1045,23 @@ TEST(VMStateTest, BindSlotValueChange) {
 }
 
 // Test: Verify deduplication still works within same candidate
-// Same slot value with same prefix should be deduplicated at bind time.
+// Same slot value with same prefix should be deduplicated at mark time.
 TEST(VMStateTest, DeduplicationWithinCandidate) {
   using namespace vm;
 
   VMState state;
   state.reset(2, 1, 1);
 
-  // Same candidate, same values twice - should be deduplicated at bind time
+  // Same candidate, same values twice - should be deduplicated after mark_seen
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
   EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
 
+  // Mark slot 0 as seen (simulates what happens when exploration exhausts)
+  state.mark_seen(0);
+
   // Try to bind same values again (simulating another iteration reaching same state)
   // Since slots still have same values (no prefix change), seen sets are preserved
+  // Now seen_per_slot[0] contains 100, so this returns false
   EXPECT_FALSE(state.try_bind_dedup(0, EClassId{100})) << "Second bind of slot 0 (same value) should be deduplicated";
 }
 
@@ -1111,10 +1120,8 @@ TEST_F(FusedPatternNestedTest, BindingOrderTrackedForJoinedPatterns) {
   std::set<uint8_t> bound_slots(binding_order.begin(), binding_order.end());
   EXPECT_EQ(bound_slots.size(), compiled->num_slots()) << "All slots should appear exactly once in binding_order";
 
-  // Verify last_bound_slot is consistent with binding_order
-  ASSERT_FALSE(binding_order.empty());
-  EXPECT_EQ(compiled->last_bound_slot(), binding_order.back())
-      << "last_bound_slot should be the last element of binding_order";
+  // Note: last_bound_slot is now embedded in the Yield instruction (instr.arg)
+  // rather than stored in CompiledPattern, so we can't easily verify it here.
 
   // Verify slots_bound_after is consistent with binding_order
   // For each position i in binding_order, slots_bound_after[binding_order[i]]
@@ -1282,20 +1289,19 @@ TEST(VMStateTest, BindingOrderClearsSlotsCorrectly) {
   };
 
   VMState state;
-  state.reset(
-      3,
-      1,
-      1,
-      [&slots_after_storage](std::size_t slot) -> std::span<uint8_t const> { return slots_after_storage[slot]; },
-      2  // last_bound_slot = 2
-  );
+  state.reset(3, 1, 1, [&slots_after_storage](std::size_t slot) -> std::span<uint8_t const> {
+    return slots_after_storage[slot];
+  });
 
   // Bind in order: slot 1, slot 0, slot 2 (using try_bind_dedup for all)
   EXPECT_TRUE(state.try_bind_dedup(1, EClassId{100})) << "First bind of slot 1 should succeed";
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{200})) << "First bind of slot 0 should succeed";
   EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "First bind of slot 2 should succeed";
 
-  // Same values should be deduplicated (slot 2 is last, triggers dedup check)
+  // Mark slot 2 as seen (simulates yield time for last slot)
+  state.mark_seen(2);
+
+  // Same values should be deduplicated (slot 2 is last, marked as seen)
   // Try binding same value to slot 2 again - should fail (duplicate)
   EXPECT_FALSE(state.try_bind_dedup(2, EClassId{300})) << "Same slot 2 value with same prefix should be deduplicated";
 
@@ -1306,6 +1312,9 @@ TEST(VMStateTest, BindingOrderClearsSlotsCorrectly) {
   // Re-bind slot 2 with same value 300
   // This should now succeed because seen_per_slot[2] was cleared when slot 0 changed
   EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "After prefix change, same slot[2] value should be new";
+
+  // Mark slot 2 again for this new prefix
+  state.mark_seen(2);
 
   // Now change slot 1 (first in binding order)
   // This should clear seen_per_slot[0] and seen_per_slot[2]

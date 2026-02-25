@@ -55,13 +55,14 @@ enum class VMOp : uint8_t {
   CheckArity,
 
   // ===== Binding =====
-  /// Unconditional bind: slots[arg] = regs[src]
-  BindSlot,
   /// Bind with dedup: slots[arg] = regs[src], check seen set, jump to target if duplicate
-  /// Used for the last bound slot to enable early backtracking on duplicates.
+  /// Used for all bindings to enable early backtracking on duplicates.
   BindSlotDedup,
   /// Check consistency: if find(slots[arg]) != find(regs[src]), jump to target
   CheckSlot,
+  /// Mark slot as seen (exhausted) for deduplication: seen[arg].insert(slots[arg])
+  /// Used when an iteration exhausts to mark the controlling slot as fully explored.
+  MarkSeen,
 
   // ===== Control =====
   /// Unconditional jump to target
@@ -121,10 +122,6 @@ struct Instruction {
     return {VMOp::CheckArity, 0, src, arity, on_mismatch};
   }
 
-  static constexpr auto bind_slot(uint8_t slot_idx, uint8_t src) -> Instruction {
-    return {VMOp::BindSlot, 0, src, slot_idx, 0};
-  }
-
   static constexpr auto bind_slot_dedup(uint8_t slot_idx, uint8_t src, uint16_t on_duplicate) -> Instruction {
     return {VMOp::BindSlotDedup, 0, src, slot_idx, on_duplicate};
   }
@@ -133,9 +130,12 @@ struct Instruction {
     return {VMOp::CheckSlot, 0, src, slot_idx, on_mismatch};
   }
 
+  static constexpr auto mark_seen(uint8_t slot_idx) -> Instruction { return {VMOp::MarkSeen, 0, 0, slot_idx, 0}; }
+
   static constexpr auto jmp(uint16_t target) -> Instruction { return {VMOp::Jump, 0, 0, 0, target}; }
 
-  static constexpr auto yield() -> Instruction { return {VMOp::Yield, 0, 0, 0, 0}; }
+  /// Yield is a special MarkSeen: marks the slot as seen, then emits the match
+  static constexpr auto yield(uint8_t last_slot) -> Instruction { return {VMOp::Yield, 0, 0, last_slot, 0}; }
 
   static constexpr auto halt() -> Instruction { return {VMOp::Halt, 0, 0, 0, 0}; }
 
@@ -169,12 +169,12 @@ static_assert(alignof(Instruction) == 2, "Instruction should be 2 aligned");
       return "CheckSymbol";
     case VMOp::CheckArity:
       return "CheckArity";
-    case VMOp::BindSlot:
-      return "BindSlot";
     case VMOp::BindSlotDedup:
       return "BindSlotDedup";
     case VMOp::CheckSlot:
       return "CheckSlot";
+    case VMOp::MarkSeen:
+      return "MarkSeen";
     case VMOp::Jump:
       return "Jump";
     case VMOp::Yield:

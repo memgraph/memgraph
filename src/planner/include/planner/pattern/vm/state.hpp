@@ -115,13 +115,11 @@ struct VMState {
   // slots_bound_after_[i] = list of slots bound AFTER slot i in binding order
   // Used by bind() to know which seen sets to clear when slot i changes
   std::vector<std::span<uint8_t const>> slots_bound_after_;
-  // The last slot in binding order - deduplication checks this slot
-  uint8_t last_bound_slot_{0};
 
   /// Initialize state for execution with given number of slots and registers
   template <typename SlotsAfterAccessor>
   void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs,
-             SlotsAfterAccessor slots_bound_after_fn, uint8_t last_bound_slot) {
+             SlotsAfterAccessor slots_bound_after_fn) {
     slots.assign(num_slots, EClassId{});
     pc = 0;
 
@@ -130,7 +128,6 @@ struct VMState {
     for (std::size_t i = 0; i < num_slots; ++i) {
       slots_bound_after_[i] = slots_bound_after_fn(i);
     }
-    last_bound_slot_ = last_bound_slot;
 
     // Resize register arrays if needed
     if (eclass_regs.size() < num_eclass_regs) {
@@ -162,12 +159,9 @@ struct VMState {
       }
     }
 
-    reset(
-        num_slots,
-        num_eclass_regs,
-        num_enode_regs,
-        [this](std::size_t slot) -> std::span<uint8_t const> { return legacy_slots_bound_after_[slot]; },
-        num_slots > 0 ? static_cast<uint8_t>(num_slots - 1) : 0);
+    reset(num_slots, num_eclass_regs, num_enode_regs, [this](std::size_t slot) -> std::span<uint8_t const> {
+      return legacy_slots_bound_after_[slot];
+    });
   }
 
  private:
@@ -220,19 +214,37 @@ struct VMState {
     }
   }
 
-  /// Try to bind the last slot with deduplication check.
-  /// Returns false if this binding would create a duplicate tuple (caller should backtrack).
-  /// Returns true if this is a new unique binding.
+  /// Try to bind a slot with deduplication check.
+  /// Returns false if this value has already been fully explored at this slot (backtrack).
+  /// Returns true if this is a value to explore.
   ///
-  /// This should only be called for the last bound slot. For earlier slots, use bind().
+  /// The seen set tracks values that have been marked as exhausted (via mark_seen).
+  /// A value is exhausted when we've finished exploring all paths with that binding
+  /// (either yielded or exhausted all downstream iterations).
+  ///
+  /// When iterating e-nodes within the same e-class, the binding may be the same.
+  /// We still check seen (to catch duplicate candidates), but don't clear later
+  /// slots or re-bind if the value hasn't changed.
   [[nodiscard]] auto try_bind_dedup(std::size_t slot, EClassId eclass) -> bool {
-    // First do the normal bind logic (clear dependent seen sets if value changed)
-    bind(slot, eclass);
+    // Always check if we've already exhausted this value
+    if (seen_per_slot[slot].contains(eclass)) {
+      return false;  // Already exhausted - backtrack
+    }
 
-    // Then check if this creates a duplicate tuple
-    // The seen set for this slot contains all values yielded given the current prefix
-    return seen_per_slot[slot].insert(eclass).second;
+    // Only clear later slots and update if value is actually changing
+    if (slots[slot] != eclass) {
+      for (auto after_slot : slots_bound_after_[slot]) {
+        seen_per_slot[after_slot].clear();
+      }
+      slots[slot] = eclass;
+    }
+
+    return true;
   }
+
+  /// Mark a slot's current value as seen (exhausted) for deduplication.
+  /// Called when an iteration exhausts (for earlier slots) or at yield time (for last slot).
+  void mark_seen(std::size_t slot) { seen_per_slot[slot].insert(slots[slot]); }
 
   /// Get bound value
   [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots[slot]; }

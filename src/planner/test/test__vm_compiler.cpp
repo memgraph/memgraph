@@ -38,10 +38,10 @@ TEST_F(VMCompilerTest, WildcardPattern) {
   PatternCompiler<Op> compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Wildcard at root: yield, jump back (to halt), halt
+  // Wildcard at root: yield (no slots to mark), jump back (to halt), halt
   auto code = compiled->code();
   ASSERT_EQ(code.size(), 3);
-  EXPECT_EQ(code[0], Instruction::yield());
+  EXPECT_EQ(code[0], Instruction::yield(0));  // No bindings, last_slot defaults to 0
   EXPECT_EQ(code[1].op, VMOp::Jump);
   EXPECT_EQ(code[2], Instruction::halt());
 }
@@ -53,11 +53,11 @@ TEST_F(VMCompilerTest, VariablePattern) {
   PatternCompiler<Op> compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Variable at root: bind, yield, jump back (to halt), halt
+  // Variable at root: bind_dedup (backtrack to halt), yield (mark slot 0), jump back (to halt), halt
   auto code = compiled->code();
   ASSERT_EQ(code.size(), 4);
-  EXPECT_EQ(code[0], Instruction::bind_slot(0, 0));  // slot 0, src reg 0
-  EXPECT_EQ(code[1], Instruction::yield());
+  EXPECT_EQ(code[0], Instruction::bind_slot_dedup(0, 0, 3));  // slot 0, src reg 0, on_duplicate=3 (halt)
+  EXPECT_EQ(code[1], Instruction::yield(0));                  // Last slot is 0 (?x)
   EXPECT_EQ(code[2].op, VMOp::Jump);
   EXPECT_EQ(code[3], Instruction::halt());
 }
@@ -69,17 +69,17 @@ TEST_F(VMCompilerTest, SimpleSymbolPattern) {
   PatternCompiler<Op> compiler;
   auto compiled = compiler.compile(pattern);
 
-  // Expected bytecode structure:
-  // 0:  IterENodes r1, r0, @halt     ; load first e-node
-  // 1:  Jump @check                  ; skip NextENode first time
+  // Expected bytecode structure (root binding BEFORE iteration):
+  // 0:  BindSlotDedup slot[root], r0, @halt  ; bind root once per candidate
+  // 1:  IterENodes r1, r0, @halt     ; load first e-node
+  // 2:  Jump @check                  ; skip NextENode first time
   // loop:
-  // 2:  NextENode r1, @halt          ; advance to next
+  // 3:  NextENode r1, @halt          ; advance to next
   // check:
-  // 3:  CheckSymbol r1, Neg, @loop
-  // 4:  CheckArity r1, 1, @loop
-  // 5:  BindSlot slot[root], r0
+  // 4:  CheckSymbol r1, Neg, @loop
+  // 5:  CheckArity r1, 1, @loop
   // 6:  LoadChild r2, r1, 0
-  // 7:  BindSlot slot[0], r2          ; bind ?x
+  // 7:  BindSlotDedup slot[0], r2, @loop  ; bind ?x
   // 8:  Yield
   // 9:  Jump @loop
   // 10: Halt
@@ -87,24 +87,26 @@ TEST_F(VMCompilerTest, SimpleSymbolPattern) {
   auto code = compiled->code();
   auto bytecode = disassemble<Op>(code, compiled->symbols());
 
-  ASSERT_GE(code.size(), 8) << "Expected at least 8 instructions\nBytecode:\n" << bytecode;
+  ASSERT_GE(code.size(), 9) << "Expected at least 9 instructions\nBytecode:\n" << bytecode;
 
-  // Check instruction sequence
-  EXPECT_EQ(code[0].op, VMOp::IterENodes);
-  EXPECT_EQ(code[1].op, VMOp::Jump) << "Should have jump to skip NextENode";
-  EXPECT_EQ(code[2].op, VMOp::NextENode);
-  EXPECT_EQ(code[3].op, VMOp::CheckSymbol);
-  EXPECT_EQ(code[4].op, VMOp::CheckArity);
+  // Check instruction sequence - root binding comes first
+  EXPECT_EQ(code[0].op, VMOp::BindSlotDedup) << "Root binding should come first";
+  EXPECT_EQ(code[1].op, VMOp::IterENodes);
+  EXPECT_EQ(code[2].op, VMOp::Jump) << "Should have jump to skip NextENode";
+  EXPECT_EQ(code[3].op, VMOp::NextENode);
+  EXPECT_EQ(code[4].op, VMOp::CheckSymbol);
+  EXPECT_EQ(code[5].op, VMOp::CheckArity);
 
   // Check backtrack targets
-  auto loop_pos = static_cast<uint16_t>(2);  // NextENode position
+  auto loop_pos = static_cast<uint16_t>(3);  // NextENode position
   auto halt_pos = static_cast<uint16_t>(code.size() - 1);
 
-  EXPECT_EQ(code[0].target, halt_pos) << "IterENodes should jump to halt on empty";
-  EXPECT_EQ(code[1].target, 3) << "First Jump should skip to CheckSymbol";
-  EXPECT_EQ(code[2].target, halt_pos) << "NextENode should jump to halt on exhausted";
-  EXPECT_EQ(code[3].target, loop_pos) << "CheckSymbol should backtrack to NextENode";
-  EXPECT_EQ(code[4].target, loop_pos) << "CheckArity should backtrack to NextENode";
+  EXPECT_EQ(code[0].target, halt_pos) << "BindSlotDedup should jump to halt on duplicate";
+  EXPECT_EQ(code[1].target, halt_pos) << "IterENodes should jump to halt on empty";
+  EXPECT_EQ(code[2].target, 4) << "First Jump should skip to CheckSymbol";
+  EXPECT_EQ(code[3].target, halt_pos) << "NextENode should jump to halt on exhausted";
+  EXPECT_EQ(code[4].target, loop_pos) << "CheckSymbol should backtrack to NextENode";
+  EXPECT_EQ(code[5].target, loop_pos) << "CheckArity should backtrack to NextENode";
 }
 
 TEST_F(VMCompilerTest, NestedSymbolPattern) {
@@ -128,7 +130,7 @@ TEST_F(VMCompilerTest, NestedSymbolPattern) {
   // 7: CheckSymbol r3, Neg, @6       ; check inner Neg (backtrack to inner loop)
   // 8: CheckArity r3, 1, @6
   // 9: LoadChild r4, r3, 0
-  // 10: BindSlot slot[0], r4          ; bind ?x
+  // 10: BindSlotDedup slot[0], r4, @6 ; bind ?x with dedup
   // 11: Yield
   // 12: Jump @6                       ; continue inner loop
   // 13: Jump @1                       ; continue outer loop
@@ -182,17 +184,17 @@ TEST_F(VMCompilerTest, BinarySymbolPattern) {
   }
   EXPECT_EQ(load_child_count, 2) << "Expected 2 LoadChild instructions for binary pattern";
 
-  // Should have two BindSlot for ?x and ?y (both first occurrences)
+  // Should have two BindSlotDedup for ?x and ?y (both first occurrences)
   int bind_slot_count = 0;
   for (auto const &instr : code) {
-    if (instr.op == VMOp::BindSlot) {
+    if (instr.op == VMOp::BindSlotDedup) {
       ++bind_slot_count;
     }
   }
-  // Note: There are 3 BindSlots: one for root binding, and two for ?x and ?y
+  // Note: There are 3 BindSlotDedups: one for root binding, and two for ?x and ?y
   // Actually there should be 2 for variables + 1 for root = 3 if root has binding
   // Let's check what we actually get - should be at least 2 for variables
-  EXPECT_GE(bind_slot_count, 2) << "Expected at least 2 BindSlot instructions for two variables";
+  EXPECT_GE(bind_slot_count, 2) << "Expected at least 2 BindSlotDedup instructions for two variables";
 }
 
 }  // namespace memgraph::planner::core
