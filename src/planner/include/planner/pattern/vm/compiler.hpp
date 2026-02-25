@@ -24,6 +24,76 @@
 
 namespace memgraph::planner::core::vm {
 
+// =============================================================================
+// PatternCompiler Contract Documentation
+// =============================================================================
+//
+// PatternCompiler transforms high-level Pattern<Symbol> into executable bytecode.
+// It is the PRODUCER in the VM contract; VMExecutor is the CONSUMER.
+//
+// ## Contractual Guarantees (what PatternCompiler promises to VMExecutor)
+//
+// ### 1. Register Allocation Contract
+//
+//   - eclass_regs[0] is ALWAYS reserved for the input candidate e-class
+//   - eclass_regs[1..num_eclass_regs-1] are allocated sequentially
+//   - enode_regs[0..num_enode_regs-1] are allocated sequentially
+//   - No register index exceeds 255 (uint8_t limit)
+//   - CompiledPattern::num_eclass_regs() returns exact count needed
+//   - CompiledPattern::num_enode_regs() returns exact count needed
+//
+// ### 2. Jump Target Contract
+//
+//   - ALL jump targets are valid instruction indices in [0, code.size())
+//   - 0xFFFF (kHaltPlaceholder) is used during compilation, patched before return
+//   - Backtrack targets always point to NextX or earlier instructions
+//   - No forward jumps beyond the Halt instruction
+//
+// ### 3. Symbol Table Contract
+//
+//   - CheckSymbol.arg is an index into CompiledPattern::symbols()
+//   - Symbol indices are in [0, symbols.size())
+//   - Symbols are deduplicated (same symbol -> same index)
+//   - symbols() returns the exact symbol table used by all CheckSymbol ops
+//
+// ### 4. Slot Binding Contract
+//
+//   - slots[i] maps to pattern variables per slot_map()
+//   - num_slots() equals the number of distinct variables across all patterns
+//   - binding_order() returns the order slots are bound during execution
+//   - slots_bound_after(i) returns slots that must be cleared when slot i changes
+//   - BindSlotDedup always uses slot indices in [0, num_slots())
+//
+// ### 5. Iteration Pairing Contract
+//
+//   - Every IterENodes(dst, ...) has a corresponding NextENode(dst, ...)
+//   - Every IterParents(dst, ...) has a corresponding NextParent(dst, ...)
+//   - Every IterAllEClasses(dst, ...) has a corresponding NextEClass(dst, ...)
+//   - The dst register uniquely identifies the iteration state
+//
+// ### 6. Code Structure Contract
+//
+//   - Code begins with iteration setup for root pattern
+//   - Code ends with: Yield, Jump(innermost_loop), Halt
+//   - Halt is always the last instruction
+//   - At least one Yield instruction exists (unless pattern cannot match)
+//
+// ## Join Strategies
+//
+//   1. Parent Traversal (depth 1): When patterns share a variable at root's child
+//      - IterParents from bound variable, CheckSymbol, verify child
+//      - O(parents) per candidate
+//
+//   2. Parent Chain (depth N): When shared variable is deeply nested
+//      - Walk upward through N levels of IterParents
+//      - O(parents^N) per candidate
+//
+//   3. Cartesian Product: When no shared variable
+//      - IterAllEClasses × IterENodes
+//      - O(eclasses × enodes) - expensive, used as last resort
+//
+// =============================================================================
+
 /// Compiles patterns into VM bytecode for efficient e-graph matching.
 ///
 /// Handles both single patterns and multi-pattern joins with automatic
@@ -32,14 +102,22 @@ namespace memgraph::planner::core::vm {
 /// For multi-pattern joins, uses parent traversal when a shared variable
 /// allows efficient joining, otherwise falls back to Cartesian product.
 ///
-/// Example single pattern `Neg(Neg(?x))`:
+/// ## Contract
+///
+/// PatternCompiler guarantees that the produced CompiledPattern satisfies all
+/// contracts expected by VMExecutor. See instruction.hpp for the full contract
+/// specification.
+///
+/// ## Example
+///
+/// Single pattern `Neg(Neg(?x))` compiles to:
 /// ```
 /// 0:  IterENodes r1, r0, @halt     ; iterate e-nodes in input e-class
 /// 1:  Jump @3
 /// 2:  NextENode r1, @halt          ; advance, or jump to halt
 /// 3:  CheckSymbol r1, Neg, @2      ; wrong symbol -> try next
 /// 4:  CheckArity r1, 1, @2         ; wrong arity -> try next
-/// 5:  LoadChild r2, r1, 0          ; load child
+/// 5:  LoadChild r2, r1, 0          ; load child e-class
 /// 6:  IterENodes r3, r2, @2        ; iterate inner Neg
 /// ...
 /// N:  Yield
@@ -47,6 +125,13 @@ namespace memgraph::planner::core::vm {
 /// halt:
 /// N+2: Halt
 /// ```
+///
+/// @tparam Symbol The symbol type used in patterns (e.g., Op enum)
+///
+/// @see VMOp for opcode definitions
+/// @see Instruction for bytecode format
+/// @see VMExecutor for bytecode execution
+/// @see CompiledPattern for the compiled bytecode container
 template <typename Symbol>
 class PatternCompiler {
  public:
