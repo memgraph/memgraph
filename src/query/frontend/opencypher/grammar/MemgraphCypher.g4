@@ -194,7 +194,6 @@ memgraphCypherKeyword : cypherKeyword
                       | STRING
                       | SYNC
                       | TERMINATE
-                      | TERMINATING
                       | TEXT
                       | TIMEOUT
                       | TO
@@ -424,7 +423,7 @@ showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
 
 transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
 
-transactionStatus : RUNNING | COMMITTING | ABORTING | TERMINATING ;
+transactionStatus : RUNNING | COMMITTING | ABORTING ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 

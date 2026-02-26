@@ -440,6 +440,28 @@ class Interpreter final {
    */
   void Abort();
 
+  struct TxVerifier {
+    TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
+        : original_status_(original_status), transaction_status_(transaction_status) {}
+
+    ~TxVerifier() {
+      if (transaction_status_.load() == TransactionStatus::VERIFYING) {
+        transaction_status_.store(original_status_);
+      }
+    }
+
+    TransactionStatus status() const { return original_status_; }
+
+   private:
+    TransactionStatus original_status_;
+    std::atomic<TransactionStatus> &transaction_status_;
+  };
+
+  /**
+   * Pause the current multicommand transaction to verify it.
+   */
+  std::optional<TxVerifier> PauseTransactionToVerify();
+
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
   // ShowTransactions/TerminateTransactions CAS transaction_status_ → VERIFYING before reading fields.
   // Commit/abort cleanup paths spin-wait on VERIFYING before clearing fields and transitioning to IDLE.

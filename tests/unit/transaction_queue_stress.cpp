@@ -185,7 +185,7 @@ TEST_F(TransactionQueueStressTest, ConcurrentOperations) {
           // Column 3: status (must be one of the known statuses)
           ASSERT_TRUE(row[3].IsString());
           auto status = row[3].ValueString();
-          EXPECT_TRUE(status == "running" || status == "committing" || status == "aborting" || status == "terminating")
+          EXPECT_TRUE(status == "running" || status == "committing" || status == "aborting")
               << "Unexpected status: " << status;
 
           // Column 4: metadata (map)
@@ -335,7 +335,7 @@ TEST_F(TransactionQueueStressTest, ShowTransactionsRacesWithCommitAbort) {
           EXPECT_FALSE(row[1].ValueString().empty());
           // Status must be valid
           auto status = row[3].ValueString();
-          EXPECT_TRUE(status == "running" || status == "committing" || status == "aborting" || status == "terminating")
+          EXPECT_TRUE(status == "running" || status == "committing" || status == "aborting")
               << "Unexpected status: " << status;
         }
       } catch (memgraph::query::HintedAbortError &) {
@@ -455,7 +455,7 @@ TEST_F(TransactionQueueStressTest, TerminateAndVerifyCleanup) {
       auto show_stream = terminator->Interpret("SHOW TRANSACTIONS");
       for (const auto &row : show_stream.GetResults()) {
         auto status = row[3].ValueString();
-        EXPECT_TRUE(status == "running" || status == "committing" || status == "aborting" || status == "terminating")
+        EXPECT_TRUE(status == "running" || status == "committing" || status == "aborting")
             << "Round " << round << ": unexpected status: " << status;
       }
     } catch (...) {

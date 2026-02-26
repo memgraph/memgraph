@@ -118,18 +118,13 @@ TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
     ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
     EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
     ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
-    // After TERMINATE, the transaction should show as "terminating"
+    // After TERMINATE, the transaction should eventually disappear or stay in some other state.
+    // However, for this test, we just want to make sure we don't crash and the status is NOT "terminating" anymore.
     auto show_stream_after_killing = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
-    // The terminated transaction is now visible with "terminating" status
-    // It shows 2 results: the SHOW TRANSACTIONS itself + the terminated one
-    ASSERT_EQ(show_stream_after_killing.GetResults().size(), 2U);
-    // Find the terminated transaction by its transaction_id
+    // It should only show the SHOW TRANSACTIONS itself, because the terminated one is hidden.
+    ASSERT_EQ(show_stream_after_killing.GetResults().size(), 1U);
     for (const auto &row : show_stream_after_killing.GetResults()) {
-      if (row[1].ValueString() == run_trans_id) {
-        EXPECT_EQ(row[3].ValueString(), "terminating");
-      } else {
-        EXPECT_EQ(row[3].ValueString(), "running");
-      }
+      EXPECT_NE(row[3].ValueString(), "terminating");
     }
     // finish thread
     running_thread.request_stop();
@@ -224,34 +219,7 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusAborting) {
                                                                   std::memory_order_release);
 }
 
-TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusTerminated) {
-  // Start a transaction on the running interpreter
-  this->running_interpreter.Interpret("BEGIN");
-  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
-
-  std::string expected_tx_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
-
-  // Manually set the status to TERMINATED to simulate a killed-but-not-yet-aborted transaction
-  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::TERMINATED,
-                                                                  std::memory_order_release);
-
-  auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
-  ASSERT_EQ(show_stream.GetResults().size(), 2U);
-
-  // Find the terminated transaction
-  bool found_terminating = false;
-  for (const auto &row : show_stream.GetResults()) {
-    if (row[3].ValueString() == "terminating") {
-      found_terminating = true;
-      EXPECT_EQ(row[1].ValueString(), expected_tx_id);
-    }
-  }
-  EXPECT_TRUE(found_terminating);
-
-  // Restore to IDLE so the test can clean up
-  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
-                                                                  std::memory_order_release);
-}
+// ShowTransactionStatusTerminated removed because TERMINATED status is no longer visible
 
 TYPED_TEST(TransactionQueueSimpleTest, TerminateCommittingTransactionNotFound) {
   // Start a transaction and simulate it being in the middle of committing
@@ -375,9 +343,10 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsExcludesNonMatchi
   auto show_committing = this->main_interpreter.Interpret("SHOW COMMITTING TRANSACTIONS");
   ASSERT_EQ(show_committing.GetResults().size(), 0U);
 
-  // SHOW TERMINATING TRANSACTIONS should also see none
-  auto show_terminating = this->main_interpreter.Interpret("SHOW TERMINATING TRANSACTIONS");
-  ASSERT_EQ(show_terminating.GetResults().size(), 0U);
+  // SHOW TERMINATING TRANSACTIONS should also see none (actually it's now removed from grammar)
+  // but if it was in the grammar it would see none.
+  // Since it's removed from grammar, this query might fail or just not execute.
+  // The user says they removed the ability to see a TERMINATING transaction (and to filter by it).
 
   // SHOW RUNNING, COMMITTING TRANSACTIONS should still see both running ones
   auto show_multi = this->main_interpreter.Interpret("SHOW RUNNING, COMMITTING TRANSACTIONS");
@@ -388,34 +357,4 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsExcludesNonMatchi
   this->running_interpreter.Abort();
 }
 
-TYPED_TEST(TransactionQueueSimpleTest, ShowFilteredTransactionsWithTerminated) {
-  // Start a transaction on the running interpreter
-  this->running_interpreter.Interpret("BEGIN");
-  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
-
-  // Manually set the status to TERMINATED to simulate a terminated transaction
-  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::TERMINATED,
-                                                                  std::memory_order_release);
-
-  // SHOW TERMINATING TRANSACTIONS should see only the terminated one
-  auto show_terminating = this->main_interpreter.Interpret("SHOW TERMINATING TRANSACTIONS");
-  ASSERT_EQ(show_terminating.GetResults().size(), 1U);
-  EXPECT_EQ(show_terminating.GetResults()[0][3].ValueString(), "terminating");
-
-  // SHOW RUNNING TRANSACTIONS should see only the main interpreter (running SHOW itself)
-  auto show_running = this->main_interpreter.Interpret("SHOW RUNNING TRANSACTIONS");
-  ASSERT_EQ(show_running.GetResults().size(), 1U);
-  EXPECT_EQ(show_running.GetResults()[0][3].ValueString(), "running");
-
-  // SHOW RUNNING, TERMINATING TRANSACTIONS should see both
-  auto show_multi = this->main_interpreter.Interpret("SHOW RUNNING, TERMINATING TRANSACTIONS");
-  ASSERT_EQ(show_multi.GetResults().size(), 2U);
-
-  // SHOW COMMITTING TRANSACTIONS should see none of the above
-  auto show_committing = this->main_interpreter.Interpret("SHOW COMMITTING TRANSACTIONS");
-  ASSERT_EQ(show_committing.GetResults().size(), 0U);
-
-  // Restore to IDLE so the test can clean up
-  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
-                                                                  std::memory_order_release);
-}
+// ShowFilteredTransactionsWithTerminated removed

@@ -5971,14 +5971,15 @@ PreparedQuery PrepareParameterQuery(ParsedQuery parsed_query, const bool in_expl
 }
 }  // namespace
 
+// NOTE: Strings must match the ones in grammar
 auto TransactionStatusToString(TransactionStatus status) -> char const * {
   switch (status) {
     case TransactionStatus::IDLE:
       return "idle";
     case TransactionStatus::ACTIVE:
-      [[fallthrough]];
-    case TransactionStatus::VERIFYING:
       return "running";
+    case TransactionStatus::VERIFYING:
+      return "verifying";
     case TransactionStatus::TERMINATED:
       return "terminating";
     case TransactionStatus::STARTED_COMMITTING:
@@ -5995,47 +5996,19 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus status = interpreter->transaction_status_.load(std::memory_order_acquire);
-
-    // Skip idle interpreters (no active transaction) and interpreters being verified by another SHOW/TERMINATE
-    if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
+    const auto verifier = interpreter->PauseTransactionToVerify();
+    if (!verifier) {
       continue;
     }
-
-    // CAS any non-IDLE/non-VERIFYING state → VERIFYING to block the interpreter's own
-    // commit/abort cleanup from modifying fields while we read them.
-    // The commit/abort cleanup paths spin-wait on VERIFYING before transitioning to IDLE,
-    // so our reads of current_transaction_, metadata_, transaction_queries_, etc. are safe.
-    TransactionStatus original_status = status;
-    if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
-      // CAS failed — status changed between load and CAS
-      if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
-        continue;
-      }
-      // Status changed to a different observable state — try once more
-      original_status = status;
-      if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
-        continue;  // Give up rather than spinning in ShowTransactions
-      }
-    }
-
-    // Restore original status on scope exit — this unblocks the interpreter's cleanup path
-    const utils::OnScopeExit clean_status([interpreter, original_status]() {
-      interpreter->transaction_status_.store(original_status, std::memory_order_release);
-    });
-
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-
     auto get_interpreter_db_name = [&]() -> std::string {
       return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : "";
     };
-
     auto same_user = [](const auto &lv, const auto &rv) {
       if (lv.get() == rv) return true;
       if (lv && rv) return *lv == *rv;
       return false;
     };
-
     if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
                                        privilege_checker(user_or_role, get_interpreter_db_name()))) {
       const auto &typed_queries = interpreter->GetQueries();
@@ -6045,7 +6018,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                           : ""),
            TypedValue(std::to_string(transaction_id.value())),
            TypedValue(typed_queries),
-           TypedValue(TransactionStatusToString(original_status))});
+           TypedValue(TransactionStatusToString(verifier->status()))});
       // metadata_ is safe to read — we hold CAS protection (status is VERIFYING,
       // cleanup paths spin-wait before modifying fields)
       std::map<std::string, TypedValue> metadata_tv;
@@ -8948,6 +8921,22 @@ void Interpreter::Abort() {
     if (qe) qe->CleanRuntimeData();
   }
   frame_change_collector_.reset();
+}
+
+std::optional<Interpreter::TxVerifier> Interpreter::PauseTransactionToVerify() {
+  constexpr std::array valid_statuses = {
+      TransactionStatus::ACTIVE, TransactionStatus::STARTED_COMMITTING, TransactionStatus::STARTED_ROLLBACK};
+  TransactionStatus status = transaction_status_.load(std::memory_order_acquire);
+  if (std::find(valid_statuses.begin(), valid_statuses.end(), status) == valid_statuses.end()) {
+    // Transaction is not in a state we can pause and verify
+    return std::nullopt;
+  }
+  // CAS to VERIFYING to own the transaction
+  if (transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
+    return TxVerifier{status, transaction_status_};
+  }
+  // CAS failed, return to avoid busy loops
+  return std::nullopt;
 }
 
 namespace {

@@ -194,7 +194,6 @@ STRICT_SYNC             : S T R I C T UNDERSCORE S Y N C ;
 STRING                  : S T R I N G ;
 SYNC                    : S Y N C ;
 TERMINATE               : T E R M I N A T E ;
-TERMINATING             : T E R M I N A T I N G ;
 TEXT                    : T E X T ;
 TIMEOUT                 : T I M E O U T ;
 TO                      : T O ;

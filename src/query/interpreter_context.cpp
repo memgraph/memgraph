@@ -121,28 +121,10 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   std::vector<uint64_t> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus status = interpreter->transaction_status_.load(std::memory_order_acquire);
-
-    if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
+    const auto verifier = interpreter->PauseTransactionToVerify();
+    if (!verifier) {
       continue;
     }
-
-    // CAS any non-IDLE/non-VERIFYING state → VERIFYING to read fields safely.
-    // Commit/abort cleanup paths spin-wait on VERIFYING before modifying fields.
-    TransactionStatus original_status = status;
-    if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
-      if (status == TransactionStatus::IDLE || status == TransactionStatus::VERIFYING) {
-        continue;
-      }
-      original_status = status;
-      if (!interpreter->transaction_status_.compare_exchange_strong(status, TransactionStatus::VERIFYING)) {
-        continue;
-      }
-    }
-
-    const utils::OnScopeExit clean_status([interpreter, original_status]() {
-      interpreter->transaction_status_.store(original_status, std::memory_order_release);
-    });
     // Transaction is running, so cannot change the underlying db
     if (interpreter->current_db_.db_acc_ && interpreter->current_db_.db_acc_->get()->name() != db_name) {
       continue;

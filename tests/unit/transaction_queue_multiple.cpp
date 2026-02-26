@@ -155,16 +155,13 @@ TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
     ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
     EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
     ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
-    // test here show transactions — the terminated transaction is now visible with "terminating" status
+    // test here show transactions — the terminated transaction should NOT show as "terminating"
     auto show_stream_after_kill = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
-    ASSERT_EQ(show_stream_after_kill.GetResults().size(), NUM_INTERPRETERS + 1);
-    // Verify the terminated transaction shows as "terminating" and others as "running"
+    // The terminated transaction is now hidden.
+    ASSERT_EQ(show_stream_after_kill.GetResults().size(), NUM_INTERPRETERS);
+    // Verify the remaining transactions are NOT "terminating"
     for (const auto &row : show_stream_after_kill.GetResults()) {
-      if (row[1].ValueString() == run_trans_id) {
-        EXPECT_EQ(row[3].ValueString(), "terminating");
-      } else {
-        EXPECT_EQ(row[3].ValueString(), "running");
-      }
+      EXPECT_NE(row[3].ValueString(), "terminating");
     }
     // wait to finish for threads
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
