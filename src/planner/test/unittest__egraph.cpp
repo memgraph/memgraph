@@ -614,4 +614,179 @@ TEST(EGraphCongruenceClosureBug, DuplicateDetectionWithMultipleLayers) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
+TEST(EGraphCongruenceClosureBug, IndirectCongruenceViaChildMerges) {
+  // Regression test for congruence closure bug where two e-nodes become
+  // congruent via child merges but aren't detected as duplicates.
+  //
+  // The bug: When two e-nodes have different children that become equivalent
+  // through separate merge chains, the rebuild may fail to detect that the
+  // e-nodes are now congruent and should be merged.
+  //
+  // Scenario:
+  //   a, b are separate leaves
+  //   c = F(a), d = F(b) - will become self-referential
+  //   merge(c, a) - a's e-class now contains F(a)
+  //   merge(d, b) - b's e-class now contains F(b)
+  //
+  //   e = G(c, b) - after canonicalization: G(find(c), find(b)) = G(E_a, E_b)
+  //   f = G(a, d) - after canonicalization: G(find(a), find(d)) = G(E_a, E_b)
+  //
+  //   Both e and f canonicalize to G(E_a, E_b), so they must be merged!
+  //
+  // This is a minimal reproduction of the bug found by the fuzzer in
+  // RepeatedVarInNestedPatternWithSelfReferentialEClass where n11 and n13
+  // should have been merged but weren't.
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  // Create two separate leaves
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+
+  // Create F(a) and F(b)
+  auto c = egraph.emplace(Op::F, {a}).eclass_id;  // F(a)
+  auto d = egraph.emplace(Op::F, {b}).eclass_id;  // F(b)
+
+  // Create G(c, b) and G(a, d) BEFORE the merges
+  // These will become congruent after the merges
+  auto e = egraph.emplace(Op::F2, {c, b}).eclass_id;  // G(F(a), b)
+  auto f = egraph.emplace(Op::F2, {a, d}).eclass_id;  // G(a, F(b))
+
+  EXPECT_EQ(egraph.num_classes(), 6);
+  EXPECT_NE(egraph.find(e), egraph.find(f));  // Not yet congruent
+
+  // Make a and b self-referential:
+  // merge(F(a), a) => a's e-class contains {a, F(a)}, so find(c) = find(a)
+  // merge(F(b), b) => b's e-class contains {b, F(b)}, so find(d) = find(b)
+  egraph.merge(c, a);
+  egraph.merge(d, b);
+
+  // Before rebuild, e and f are in separate e-classes
+  EXPECT_NE(egraph.find(e), egraph.find(f));
+
+  egraph.rebuild(ctx);
+
+  // After rebuild:
+  // - e = G(c, b) canonicalizes to G(find(c), find(b)) = G(E_a, E_b)
+  // - f = G(a, d) canonicalizes to G(find(a), find(d)) = G(E_a, E_b)
+  // Both canonicalize to the same form, so they MUST be merged!
+
+  EXPECT_EQ(egraph.find(e), egraph.find(f)) << "e and f should be in the same e-class after rebuild because both "
+                                               "canonicalize to G(E_a, E_b)";
+
+  // Should have 3 e-classes: {a, F(a)}, {b, F(b)}, {G(E_a, E_b)}
+  EXPECT_EQ(egraph.num_classes(), 3);
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCongruenceClosureBug, SelfRefWithIndirectChildCongruence) {
+  // Exact reproduction from the failing fuzzer test
+  // RepeatedVarInNestedPatternWithSelfReferentialEClass
+  //
+  // This copies the EXACT sequence of operations that triggers the bug.
+  // The bug is that n11 and n13 should be in the same e-class after rebuild
+  // because both canonicalize to F2(E_n1, E_n0), but they aren't.
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  // Exact reproduction from unittest__ematch.cpp
+  auto n0 = egraph.emplace(Op::A, 0).eclass_id;
+  auto n1 = egraph.emplace(Op::A, 1).eclass_id;
+  auto n2 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
+  auto n3 = egraph.emplace(Op::F, {n0, n0}).eclass_id;
+  auto n4 = egraph.emplace(Op::F, {n3, n3}).eclass_id;
+  auto n5 = egraph.emplace(Op::F, {n0, n0}).eclass_id;
+  auto n6 = egraph.emplace(Op::F, {n5, n5}).eclass_id;
+  auto n7 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
+  auto n8 = egraph.emplace(Op::F, {n7, n7}).eclass_id;
+  auto n9 = egraph.emplace(Op::F, {n6, n6}).eclass_id;
+  auto n10 = egraph.emplace(Op::F, {n5, n5}).eclass_id;
+  auto n11 = egraph.emplace(Op::F, {n8, n0}).eclass_id;
+  auto n12 = egraph.emplace(Op::F, {n10, n5}).eclass_id;
+  auto n13 = egraph.emplace(Op::F, {n7, n10}).eclass_id;
+  auto n14 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
+  auto n15 = egraph.emplace(Op::F, {n5, n5}).eclass_id;
+
+  // First batch of Add merges (using F2 since we don't have Add)
+  auto n16 = egraph.emplace(Op::F2, {n0, n0}).eclass_id;
+  egraph.merge(n16, n0);
+  auto n17 = egraph.emplace(Op::F2, {n8, n8}).eclass_id;
+  egraph.merge(n17, n8);
+  auto n18 = egraph.emplace(Op::F2, {n14, n14}).eclass_id;
+  egraph.merge(n18, n14);
+  auto n19 = egraph.emplace(Op::F2, {n11, n11}).eclass_id;
+  egraph.merge(n19, n11);
+  auto n20 = egraph.emplace(Op::F2, {n15, n15}).eclass_id;
+  egraph.merge(n20, n15);
+  auto n21 = egraph.emplace(Op::F2, {n13, n13}).eclass_id;
+  egraph.merge(n21, n13);
+  auto n22 = egraph.emplace(Op::F2, {n1, n1}).eclass_id;
+  egraph.merge(n22, n1);
+  auto n23 = egraph.emplace(Op::F2, {n9, n9}).eclass_id;
+  egraph.merge(n23, n9);
+
+  // First batch of F merges (self-referential)
+  auto n24 = egraph.emplace(Op::F, {n0, n0}).eclass_id;
+  egraph.merge(n24, n0);
+  auto n25 = egraph.emplace(Op::F, {n8, n8}).eclass_id;
+  egraph.merge(n25, n8);
+  auto n26 = egraph.emplace(Op::F, {n14, n14}).eclass_id;
+  egraph.merge(n26, n14);
+  auto n27 = egraph.emplace(Op::F, {n11, n11}).eclass_id;
+  egraph.merge(n27, n11);
+  auto n28 = egraph.emplace(Op::F, {n15, n15}).eclass_id;
+  egraph.merge(n28, n15);
+  auto n29 = egraph.emplace(Op::F, {n13, n13}).eclass_id;
+  egraph.merge(n29, n13);
+  auto n30 = egraph.emplace(Op::F, {n1, n1}).eclass_id;
+  egraph.merge(n30, n1);
+  auto n31 = egraph.emplace(Op::F, {n15, n15}).eclass_id;
+  egraph.merge(n31, n15);
+
+  // Second batch of F2 merges
+  auto n32 = egraph.emplace(Op::F2, {n30, n30}).eclass_id;
+  egraph.merge(n32, n30);
+  auto n33 = egraph.emplace(Op::F2, {n11, n11}).eclass_id;
+  egraph.merge(n33, n11);
+  auto n34 = egraph.emplace(Op::F2, {n31, n31}).eclass_id;
+  egraph.merge(n34, n31);
+  auto n35 = egraph.emplace(Op::F2, {n13, n13}).eclass_id;
+  egraph.merge(n35, n13);
+  auto n36 = egraph.emplace(Op::F2, {n32, n32}).eclass_id;
+  egraph.merge(n36, n32);
+  auto n37 = egraph.emplace(Op::F2, {n33, n33}).eclass_id;
+  egraph.merge(n37, n33);
+  auto n38 = egraph.emplace(Op::F2, {n34, n34}).eclass_id;
+  egraph.merge(n38, n34);
+  auto n39 = egraph.emplace(Op::F2, {n35, n35}).eclass_id;
+  egraph.merge(n39, n35);
+
+  // Final nodes
+  auto n40 = egraph.emplace(Op::F, {n38, n21}).eclass_id;
+  auto n41 = egraph.emplace(Op::F, {n17, n28}).eclass_id;
+
+  // Suppress unused variable warnings
+  (void)n2;
+  (void)n4;
+  (void)n12;
+  (void)n40;
+  (void)n41;
+
+  egraph.rebuild(ctx);
+
+  // After rebuild:
+  // n11 = F(n8, n0), and find(n8) should be in n1's e-class, find(n0) is E_n0
+  // n13 = F(n7, n10), and find(n7) = n1's e-class, find(n10) = n0's e-class
+  // Both should canonicalize to F(E_n1, E_n0) and be merged!
+
+  EXPECT_EQ(egraph.find(n11), egraph.find(n13)) << "n11 and n13 should be in the same e-class because both "
+                                                   "canonicalize to F(E_n1, E_n0). find(n11)="
+                                                << egraph.find(n11) << ", find(n13)=" << egraph.find(n13);
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
 }  // namespace memgraph::planner::core

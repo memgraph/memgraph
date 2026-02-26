@@ -269,7 +269,7 @@ struct EGraph : private detail::EGraphBase {
   bool ValidateCongruenceClosure();
 
  protected:
-  auto repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) -> std::optional<EClassId>;
+  auto repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) -> EClassId;
 
   auto repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> std::optional<EClassId>;
 
@@ -469,29 +469,12 @@ auto EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) -> boost:
         continue;
       }
       const auto &eclass = *it->second;
-      auto merge_target = repair_hashcons_eclass(eclass, eclass_id);
+      auto canonical_after_repair = repair_hashcons_eclass(eclass, eclass_id);
 
-      // If a duplicate was detected during hashcons repair, merge the classes
-      if (merge_target) {
-        auto target_canonical = canonical_eclass(union_find_, *merge_target);
-        auto current_canonical = canonical_eclass(union_find_, eclass_id);
-        if (target_canonical != current_canonical) {
-#ifdef EGRAPH_DEBUG_REBUILD
-          std::cerr << "[chunk_processor] Merging class " << current_canonical << " with " << target_canonical
-                    << " due to duplicate detection\n";
-#endif
-          auto merged = union_find_.UnionSets(target_canonical.value_of(), current_canonical.value_of());
-          auto merged_id = EClassId{merged};
-          auto other_id = (merged_id == target_canonical) ? current_canonical : target_canonical;
-          rebuild_worklist_.insert(merged_id);
-          merge_eclasses(*classes_[merged_id], other_id);
-        }
-      }
-
-      // Re-lookup the class since it might have been merged
-      it = classes_.find(canonical_eclass(union_find_, eclass_id));
-      if (it == classes_.end()) {
-        continue;
+      // Re-lookup the class since it might have been merged during repair
+      if (canonical_after_repair != eclass_id) {
+        it = classes_.find(canonical_after_repair);
+        DMG_ASSERT(it != classes_.end());
       }
       process_parents(*it->second, ctx);
     }
@@ -522,43 +505,29 @@ auto EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) -> boost:
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id)
-    -> std::optional<EClassId> {
-  std::optional<EClassId> merge_target = std::nullopt;
+auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) -> EClassId {
+  auto current_eclass = eclass_id;
   for (const auto &enode_id : eclass.nodes()) {
-    auto result = repair_hashcons_enode(enode_id, eclass_id);
-    if (result && !merge_target) {
-      merge_target = result;
-    } else if (result && merge_target) {
-      // Multiple merge targets - they should all be the same after canonicalization
-      // due to how we're processing, but we need to merge them too
-      auto target1 = canonical_eclass(union_find_, *merge_target);
-      auto target2 = canonical_eclass(union_find_, *result);
-      if (target1 != target2) {
-        // Need to merge these targets too
-        auto merged = union_find_.UnionSets(target1.value_of(), target2.value_of());
-        merge_target = EClassId{merged};
-        rebuild_worklist_.insert(*merge_target);
-        merge_eclasses(*classes_[*merge_target], target1 == *merge_target ? target2 : target1);
-      }
+    auto merge_target = repair_hashcons_enode(enode_id, current_eclass);
+    if (merge_target) {
+      current_eclass = merge(current_eclass, *merge_target).eclass_id;
     }
   }
-  return merge_target;
+  return current_eclass;
 }
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> std::optional<EClassId> {
   auto &enode = get_enode(enode_id);
-  // NOTE: the node maybe non-canonicalize, if so it will not be found
   auto old_it = hashcons_.find(ENodeRef{enode});
+  DMG_ASSERT(old_it != hashcons_.end(), "canonical e-node must exist in hashcons");
+  DMG_ASSERT(canonical_eclass(union_find_, eclass_id) == eclass_id);
 
   // Canonicalize the enode in place
   auto const changed = enode.canonicalize_in_place(union_find_);
   if (changed) {
-    // Hash + value have changed, need to remove stale hashcons entry
-    if (old_it != hashcons_.end()) {
-      hashcons_.erase(old_it);
-    }
+    // remove stale hashcons entry
+    hashcons_.erase(old_it);
 
     // Check if canonical form already exists (duplicate detection)
     auto existing_it = hashcons_.find(ENodeRef{enode});
@@ -566,7 +535,6 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId 
       // Duplicate! This enode canonicalizes to the same form as an existing one.
       // The duplicate's e-class should be merged with the existing e-node's e-class.
       auto existing_eclass = canonical_eclass(union_find_, existing_it->second.current_eclassid);
-      auto duplicate_eclass = canonical_eclass(union_find_, eclass_id);
 
 #ifdef EGRAPH_DEBUG_REBUILD
       std::cerr << "[repair_hashcons_enode] Duplicate detected: enode " << enode_id << " in class " << eclass_id
@@ -574,29 +542,18 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId 
                 << "\n";
 #endif
 
-      if (existing_eclass != duplicate_eclass) {
-        // Remove this enode - the existing hashcons entry is correct.
-        remove_duplicate_enode(enode, enode_id, eclass_id);
-        // Return the e-class that needs to be merged
-        return existing_eclass;
-      } else {
-        // Already in the same class, just remove the duplicate
-        remove_duplicate_enode(enode, enode_id, eclass_id);
-        return std::nullopt;
-      }
+      // Remove this enode, the existing hashcons entry is prefered.
+      remove_duplicate_enode(enode, enode_id, eclass_id);
+      // Return the e-class that needs to be merged
+      return (existing_eclass != eclass_id) ? std::optional{existing_eclass} : std::nullopt;
     }
 
     hashcons_[ENodeRef{enode}] = ENodeInfo{eclass_id, enode_id};
   } else {
-    if (old_it != hashcons_.end()) {
-      // ensure updated eclass
-      old_it->second.current_eclassid = eclass_id;
-    } else {
-      // TODO: coverage...do we get here? Can we get here
-      DMG_ASSERT(false, "not sure if this should be possible");
-      hashcons_[ENodeRef{enode}] = ENodeInfo{eclass_id, enode_id};
-    }
+    // ensure updated eclass
+    old_it->second.current_eclassid = eclass_id;
   }
+
   return std::nullopt;
 }
 
@@ -665,10 +622,15 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
       // hashcons update deferred to next rebuild iteration - duplicates will be
       // detected and removed then via repair_hashcons_enode
     } else if (canonical_eclass_ids.size() == 1) {
-      // NOTE: we can NOT add to rebuild_worklist_, we must avoid infinate processing bugs (where parent is yourself)
-      // repair_hashcons_enode detects and removes duplicates when inserting into hashcons
+      // All parent e-nodes in this group belong to the same e-class after canonicalization.
+      // We still need to check for congruence with e-nodes in OTHER e-classes via hashcons lookup.
+      // repair_hashcons_enode returns a merge target if it finds a duplicate in a different e-class.
+      auto current_eclass = EClassId{canonical_eclass_ids[0]};
       for (auto enode_id : enode_ids) {
-        repair_hashcons_enode(enode_id, EClassId{canonical_eclass_ids[0]});
+        auto merge_target = repair_hashcons_enode(enode_id, current_eclass);
+        if (merge_target) {
+          current_eclass = merge(current_eclass, *merge_target).eclass_id;
+        }
       }
     }
   }
