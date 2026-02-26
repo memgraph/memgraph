@@ -3426,7 +3426,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       } else {
         vertex = vertex_cache.GetVertexFromDelta(&delta);
       }
-      auto edge_create_filter = [](auto action) {
+      auto const edge_create_filter = [](auto action) {
         switch (action) {
           case Delta::Action::REMOVE_OUT_EDGE:
             return true;
