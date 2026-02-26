@@ -555,8 +555,16 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  data[kGlobalGrants] = global_grants_.value_or(-1);
-  data[kGlobalDenies] = global_denies_.value_or(-1);
+  if (global_grants_) {
+    data[kGlobalGrants] = global_grants_.value();
+  } else {
+    data[kGlobalGrants] = -1;
+  }
+  if (global_denies_) {
+    data[kGlobalDenies] = global_denies_.value();
+  } else {
+    data[kGlobalDenies] = -1;
+  }
 
   nlohmann::json rules_json = nlohmann::json::array();
   for (const auto &rule : rules_) {
