@@ -33,19 +33,22 @@
 //
 //   FUZZ_VERBOSE=1 ./build/src/planner/test/fuzz_ematch crash-<sha1hash>
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -96,38 +99,32 @@ inline auto format_tuple(BindingTuple const &tuple) -> std::string {
 
 /// Print the difference between two sets of binding tuples
 inline void print_tuple_diff(std::set<BindingTuple> const &set_a, std::set<BindingTuple> const &set_b,
-                             std::string const &name_a, std::string const &name_b) {
+                             std::string_view name_a, std::string_view name_b) {
   // Find tuples in A but not in B
   std::set<BindingTuple> only_in_a;
-  std::set_difference(
-      set_a.begin(), set_a.end(), set_b.begin(), set_b.end(), std::inserter(only_in_a, only_in_a.begin()));
+  std::ranges::set_difference(set_a, set_b, std::inserter(only_in_a, only_in_a.begin()));
 
   // Find tuples in B but not in A
   std::set<BindingTuple> only_in_b;
-  std::set_difference(
-      set_b.begin(), set_b.end(), set_a.begin(), set_a.end(), std::inserter(only_in_b, only_in_b.begin()));
+  std::ranges::set_difference(set_b, set_a, std::inserter(only_in_b, only_in_b.begin()));
 
   if (!only_in_a.empty()) {
     std::cerr << "\n  In " << name_a << " but NOT in " << name_b << " (" << only_in_a.size() << " tuples):\n";
-    std::size_t count = 0;
-    for (auto const &t : only_in_a) {
+    for (auto const &t : only_in_a | std::views::take(10)) {
       std::cerr << "    " << format_tuple(t) << "\n";
-      if (++count >= 10) {
-        std::cerr << "    ... and " << (only_in_a.size() - 10) << " more\n";
-        break;
-      }
+    }
+    if (only_in_a.size() > 10) {
+      std::cerr << "    ... and " << (only_in_a.size() - 10) << " more\n";
     }
   }
 
   if (!only_in_b.empty()) {
     std::cerr << "\n  In " << name_b << " but NOT in " << name_a << " (" << only_in_b.size() << " tuples):\n";
-    std::size_t count = 0;
-    for (auto const &t : only_in_b) {
+    for (auto const &t : only_in_b | std::views::take(10)) {
       std::cerr << "    " << format_tuple(t) << "\n";
-      if (++count >= 10) {
-        std::cerr << "    ... and " << (only_in_b.size() - 10) << " more\n";
-        break;
-      }
+    }
+    if (only_in_b.size() > 10) {
+      std::cerr << "    ... and " << (only_in_b.size() - 10) << " more\n";
     }
   }
 }
@@ -158,7 +155,7 @@ struct FuzzAnalysis {};
 // Symbol Name Mapping
 // ============================================================================
 
-inline auto symbol_name(FuzzSymbol sym) -> std::string {
+inline auto symbol_name(FuzzSymbol sym) -> std::string_view {
   switch (sym) {
     case FuzzSymbol::A:
       return "A";
@@ -201,28 +198,25 @@ class EgglogGenerator {
     return var_name;
   }
 
-  auto emit_unary(FuzzSymbol sym, std::string const &child) -> std::string {
+  auto emit_unary(FuzzSymbol sym, std::string_view child) -> std::string {
     auto var_name = fmt::format("n{}", var_counter_++);
     program_ << fmt::format("(let {} ({} {}))\n", var_name, symbol_name(sym), child);
     return var_name;
   }
 
-  auto emit_binary(FuzzSymbol sym, std::string const &left, std::string const &right) -> std::string {
+  auto emit_binary(FuzzSymbol sym, std::string_view left, std::string_view right) -> std::string {
     auto var_name = fmt::format("n{}", var_counter_++);
     program_ << fmt::format("(let {} ({} {} {}))\n", var_name, symbol_name(sym), left, right);
     return var_name;
   }
 
-  auto emit_ternary(FuzzSymbol sym, std::string const &c0, std::string const &c1, std::string const &c2)
-      -> std::string {
+  auto emit_ternary(FuzzSymbol sym, std::string_view c0, std::string_view c1, std::string_view c2) -> std::string {
     auto var_name = fmt::format("n{}", var_counter_++);
     program_ << fmt::format("(let {} ({} {} {} {}))\n", var_name, symbol_name(sym), c0, c1, c2);
     return var_name;
   }
 
-  void emit_merge(std::string const &id1, std::string const &id2) {
-    program_ << fmt::format("(union {} {})\n", id1, id2);
-  }
+  void emit_merge(std::string_view id1, std::string_view id2) { program_ << fmt::format("(union {} {})\n", id1, id2); }
 
   auto generate() const -> std::string { return program_.str(); }
 
@@ -248,7 +242,7 @@ struct EgglogResult {
   std::string error;
 };
 
-auto run_egglog(std::string const &program) -> EgglogResult {
+auto run_egglog(std::string_view program) -> EgglogResult {
   EgglogResult result;
 
   // Write program to temp file
@@ -353,14 +347,7 @@ auto pattern_to_egglog(PatternASTPtr const &ast, std::vector<std::string> &out_v
         if constexpr (std::is_same_v<T, PatternAST::Variable>) {
           auto var_name = fmt::format("?v{}", n.id);
           // Track unique vars
-          bool found = false;
-          for (auto const &v : out_vars) {
-            if (v == var_name) {
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
+          if (std::ranges::find(out_vars, var_name) == out_vars.end()) {
             out_vars.push_back(var_name);
           }
           return var_name;
@@ -424,13 +411,21 @@ auto pattern_to_memgraph(PatternASTPtr const &ast) -> Pattern<FuzzSymbol> {
 
 class PatternGenerator {
  public:
+  /// Set the maximum recursion depth allowed for generated patterns (2–6).
+  /// Called once per top-level generate() call; the value is consumed from the
+  /// fuzz stream so the fuzzer can explore different depths.
+  void set_max_depth(uint8_t raw) {
+    // Map raw byte to range [2, 6]
+    max_depth_ = 2 + (raw % 5);
+  }
+
   auto generate(uint8_t const *data, size_t &pos, size_t size, int depth = 0) -> PatternASTPtr {
-    if (pos >= size || depth > 3) {
+    if (pos >= size || depth > max_depth_) {
       // Generate a simple variable
       return PatternAST::make_var(next_var_id_++);
     }
 
-    uint8_t type = data[pos++] % 7;
+    uint8_t type = data[pos++] % 10;
 
     switch (type) {
       case 0:
@@ -490,6 +485,47 @@ class PatternGenerator {
         return PatternAST::make_sym(FuzzSymbol::Ternary, {c0, c1, c2});
       }
 
+      case 7: {
+        // Nested repeated variable: Plus(?x, Plus(?x, ?y)) or Mul(?x, Mul(?x, ?y))
+        // The same variable appears at two different depths — tests equality constraints
+        // across nested structures.
+        if (pos >= size) return PatternAST::make_var(next_var_id_++);
+        auto sym = static_cast<FuzzSymbol>(13 + (data[pos++] % 2));  // Plus or Mul
+        int shared_var = next_var_id_++;
+        used_vars_.push_back(shared_var);
+        auto inner_right = generate(data, pos, size, depth + 2);
+        auto inner = PatternAST::make_sym(sym, {PatternAST::make_var(shared_var), inner_right});
+        return PatternAST::make_sym(sym, {PatternAST::make_var(shared_var), inner});
+      }
+
+      case 8: {
+        // Same leaf in both children: Plus(A, A) or Mul(B, B)
+        // Tests matching when both children must be the same leaf symbol.
+        if (pos >= size) return PatternAST::make_var(next_var_id_++);
+        auto outer_sym = static_cast<FuzzSymbol>(13 + (data[pos++] % 2));  // Plus or Mul
+        if (pos >= size) return PatternAST::make_var(next_var_id_++);
+        auto leaf_sym = static_cast<FuzzSymbol>(data[pos++] % 5);  // A-E
+        return PatternAST::make_sym(outer_sym, {PatternAST::make_sym(leaf_sym), PatternAST::make_sym(leaf_sym)});
+      }
+
+      case 9: {
+        // DAG pattern: Plus(F(?x), G(?x)) — same variable in disjoint subtrees
+        // Tests that the matcher correctly handles shared variables across branches.
+        if (used_vars_.empty()) {
+          used_vars_.push_back(next_var_id_++);
+        }
+        auto shared_var = used_vars_[0];
+        if (pos >= size) return PatternAST::make_var(shared_var);
+        auto outer_sym = static_cast<FuzzSymbol>(13 + (data[pos++] % 2));  // Plus or Mul
+        // Left branch: F/G/H(?x)
+        auto left_wrapper = static_cast<FuzzSymbol>(10 + ((pos < size ? data[pos++] : 0) % 3));
+        // Right branch: F/G/H(?x) (possibly same, possibly different wrapper)
+        auto right_wrapper = static_cast<FuzzSymbol>(10 + ((pos < size ? data[pos++] : 0) % 3));
+        auto left = PatternAST::make_sym(left_wrapper, {PatternAST::make_var(shared_var)});
+        auto right = PatternAST::make_sym(right_wrapper, {PatternAST::make_var(shared_var)});
+        return PatternAST::make_sym(outer_sym, {left, right});
+      }
+
       default:
         return PatternAST::make_var(next_var_id_++);
     }
@@ -498,6 +534,7 @@ class PatternGenerator {
   void reset() {
     next_var_id_ = 0;
     used_vars_.clear();
+    max_depth_ = 3;  // restored to default on each reset
   }
 
   /// Get used vars for sharing across patterns
@@ -508,6 +545,7 @@ class PatternGenerator {
 
  private:
   int next_var_id_ = 0;
+  int max_depth_ = 3;
   std::vector<int> used_vars_;
 };
 
@@ -529,6 +567,11 @@ class MultiPatternGenerator {
 
     // Determine number of patterns (1-3)
     uint8_t num_patterns = 1 + (data[pos++] % 3);
+
+    // Set fuzz-driven max depth (2–6) for all patterns in this batch
+    if (pos < size) {
+      pattern_gen_.set_max_depth(data[pos++]);
+    }
 
     // Generate first pattern
     pattern_gen_.reset();
@@ -559,7 +602,7 @@ class MultiPatternGenerator {
 
       // Update shared_vars pool with new vars
       for (auto v : pattern_gen_.get_used_vars()) {
-        if (std::find(shared_vars.begin(), shared_vars.end(), v) == shared_vars.end()) {
+        if (std::ranges::find(shared_vars, v) == shared_vars.end()) {
           shared_vars.push_back(v);
         }
       }
@@ -582,8 +625,30 @@ class FuzzerState {
     operation_count_++;
     VERBOSE_OUT << "\n--- Operation #" << operation_count_ << " ---\n";
 
-    int operation_type = op % 6;
-    char const *op_names[] = {"CREATE_LEAF", "CREATE_COMPOUND", "MERGE", "REBUILD", "SET_PATTERN", "MATCH_AND_VERIFY"};
+    // Dispatch table: compound nodes get 3 slots vs 1 for leaf so the fuzzer
+    // builds deeper, more pattern-matchable graphs more often.
+    static constexpr std::array<uint8_t, 11> kDispatch = {
+        0,  // CREATE_LEAF        (1/11)
+        1,
+        1,
+        1,  // CREATE_COMPOUND    (3/11)
+        2,  // MERGE              (1/11)
+        3,  // REBUILD            (1/11)
+        4,  // SET_PATTERN        (1/11)
+        5,
+        5,  // MATCH_AND_VERIFY   (2/11)
+        6,  // VERIFY_ABSENT      (1/11)
+        7,  // APPLY_REWRITE      (1/11)
+    };
+    int operation_type = kDispatch[op % kDispatch.size()];
+    static constexpr std::array<char const *, 8> op_names = {"CREATE_LEAF",
+                                                             "CREATE_COMPOUND",
+                                                             "MERGE",
+                                                             "REBUILD",
+                                                             "SET_PATTERN",
+                                                             "MATCH_AND_VERIFY",
+                                                             "VERIFY_ABSENT",
+                                                             "APPLY_REWRITE"};
     VERBOSE_OUT << "Op: " << op_names[operation_type] << " (raw: " << static_cast<int>(op) << ")\n";
 
     switch (operation_type) {
@@ -599,6 +664,10 @@ class FuzzerState {
         return set_pattern(data, pos, size);
       case 5:
         return match_and_verify();
+      case 6:
+        return verify_absent();
+      case 7:
+        return apply_rewrite_cycle(data, pos, size);
       default:
         return true;
     }
@@ -608,7 +677,15 @@ class FuzzerState {
     if (pos >= size) return true;
 
     uint8_t symbol = data[pos++] % 5;  // A-E
-    uint64_t disambiguator = pos < size ? data[pos++] : 0;
+
+    // Read up to 4 bytes for disambiguator (32-bit range) so the fuzzer can
+    // generate leaf nodes that are never merged by coincidence.  One byte
+    // (0–255) is too narrow: after ~256 leaves the probability that two random
+    // leaves share a disambiguator and appear equivalent to egglog grows quickly.
+    uint64_t disambiguator = 0;
+    for (int byte_idx = 0; byte_idx < 4 && pos < size; ++byte_idx) {
+      disambiguator = (disambiguator << 8) | data[pos++];
+    }
 
     auto sym = static_cast<FuzzSymbol>(symbol);
     auto info = egraph_.emplace(sym, disambiguator);
@@ -623,10 +700,25 @@ class FuzzerState {
   }
 
   bool create_compound_node(uint8_t const *data, size_t &pos, size_t size) {
-    if (pos + 2 >= size || created_ids_.empty()) return true;
+    if (pos >= size || created_ids_.empty()) return true;
 
-    uint8_t symbol_idx = data[pos++] % 6;  // F, G, H, Plus, Mul, Ternary
-    auto sym = static_cast<FuzzSymbol>(10 + symbol_idx);
+    // Symbol dispatch weighted by arity: each symbol gets as many slots as its
+    // arity, so higher-arity (more interesting for pattern matching) nodes are
+    // proportionally more likely.
+    static constexpr std::array<uint8_t, 10> kSymDispatch = {
+        0,  // F       arity 1  (1 slot)
+        1,  // G       arity 1  (1 slot)
+        2,  // H       arity 1  (1 slot)
+        3,
+        3,  // Plus    arity 2  (2 slots)
+        4,
+        4,  // Mul     arity 2  (2 slots)
+        5,
+        5,
+        5,  // Ternary arity 3  (3 slots)
+    };
+    auto sym = static_cast<FuzzSymbol>(10 + kSymDispatch[data[pos++] % kSymDispatch.size()]);
+    created_symbols_.insert(sym);
 
     // Determine arity based on symbol
     size_t arity;
@@ -638,16 +730,18 @@ class FuzzerState {
       arity = 1;
     }
 
-    if (pos + arity > size) return true;
     if (created_ids_.size() < arity) return true;
 
+    // pick_node_idx reads 2 bytes per child so all nodes (not just first 256)
+    // are reachable once the graph grows beyond uint8_t range.
     utils::small_vector<EClassId> children;
     std::vector<std::string> child_names;
     for (size_t i = 0; i < arity; ++i) {
-      uint8_t child_idx = data[pos++] % created_ids_.size();
-      auto child_id = egraph_.find(created_ids_[child_idx]);
+      auto idx = pick_node_idx(data, pos, size);
+      if (!idx) return true;
+      auto child_id = egraph_.find(created_ids_[*idx]);
       children.push_back(child_id);
-      child_names.push_back(egglog_names_[created_ids_[child_idx]]);
+      child_names.push_back(egglog_names_[created_ids_[*idx]]);
     }
 
     auto info = egraph_.emplace(sym, children);
@@ -669,14 +763,16 @@ class FuzzerState {
   }
 
   bool merge_classes(uint8_t const *data, size_t &pos, size_t size) {
-    if (pos + 2 > size || created_ids_.size() < 2) return true;
+    if (created_ids_.size() < 2) return true;
 
-    uint8_t idx1 = data[pos++] % created_ids_.size();
-    uint8_t idx2 = data[pos++] % created_ids_.size();
-    if (idx1 == idx2) return true;
+    auto idx1 = pick_node_idx(data, pos, size);
+    if (!idx1) return true;
+    auto idx2 = pick_node_idx(data, pos, size);
+    if (!idx2) return true;
+    if (*idx1 == *idx2) return true;
 
-    auto id1 = created_ids_[idx1];
-    auto id2 = created_ids_[idx2];
+    auto id1 = created_ids_[*idx1];
+    auto id2 = created_ids_[*idx2];
 
     VERBOSE_OUT << "Merging class " << id1 << " with " << id2 << "\n";
 
@@ -764,14 +860,20 @@ class FuzzerState {
     // Collect binding tuples instead of just counting.
     // Egglog uses set semantics (deduplicates), so we must deduplicate too.
     // Extract the ?vN variable IDs to collect from matches.
+    // parse_var_id is shared by both the var_ids extraction and v_vars sort below.
+    auto parse_var_id = [](std::string_view s) -> uint32_t {
+      uint32_t id = 0;
+      std::from_chars(s.data() + 2, s.data() + s.size(), id);  // skip "?v"
+      return id;
+    };
+
     std::vector<uint32_t> var_ids;
     for (auto const &v : current_all_vars_) {
-      // Parse "?vN" to get N
       if (v.size() >= 3 && v[0] == '?' && v[1] == 'v') {
-        var_ids.push_back(static_cast<uint32_t>(std::stoi(v.substr(2))));
+        var_ids.push_back(parse_var_id(v));
       }
     }
-    std::sort(var_ids.begin(), var_ids.end());
+    std::ranges::sort(var_ids);
 
     // Use set of canonicalized binding tuples for deduplication
     using BindingTuple = std::vector<EClassId>;
@@ -921,29 +1023,24 @@ class FuzzerState {
     full_program << egglog_.generate();
 
     // Build type signature and var list for MatchResult.
-    // Sort by numeric ID (parsing the N from "?vN") to match the numeric sort
-    // applied to var_ids above.  Lexicographic sort would mis-order IDs >= 10
+    // Sort by numeric ID (reusing parse_var_id from above) to match the numeric
+    // sort applied to var_ids.  Lexicographic sort would mis-order IDs >= 10
     // (e.g. "?v10" < "?v2" lexicographically but 10 > 2 numerically), making
     // the column order in egglog's MatchResult inconsistent with the tuple order
     // collected by EMatcher/VM — which would break any future tuple-level comparison.
     std::vector<std::string> v_vars(current_all_vars_.begin(), current_all_vars_.end());
-    std::sort(v_vars.begin(), v_vars.end(), [](std::string const &a, std::string const &b) {
-      auto parse_id = [](std::string const &s) -> uint32_t {
-        // s has the form "?vN"
-        return static_cast<uint32_t>(std::stoi(s.substr(2)));
-      };
-      return parse_id(a) < parse_id(b);
-    });
+    std::ranges::sort(v_vars, std::less{}, parse_var_id);
 
     std::string type_sig;
     std::string var_list;
-    for (size_t i = 0; i < v_vars.size(); ++i) {
-      if (i > 0) {
-        type_sig += " ";
-        var_list += " ";
+    for (bool first = true; auto const &v : v_vars) {
+      if (!first) {
+        type_sig += ' ';
+        var_list += ' ';
       }
       type_sig += "Expr";
-      var_list += v_vars[i];
+      var_list += v;
+      first = false;
     }
 
     full_program << fmt::format("\n(relation MatchResult ({}))\n", type_sig);
@@ -1024,6 +1121,203 @@ class FuzzerState {
     return true;
   }
 
+  /// Apply one rewrite cycle: match current patterns, create new compound nodes
+  /// whose children are the matched e-classes, merge each new node with one of
+  /// the matched e-classes, rebuild, then re-verify the patterns.  This exercises
+  /// the interaction between rewriting and pattern matching (e.g., congruence
+  /// closure updating matches after a rewrite).
+  ///
+  /// The rewrite shape is fuzz-driven:
+  ///   0-2: Unary wrapper F/G/H(x) = x
+  ///   3-4: Binary self-wrapper Plus/Mul(x, x) = x
+  ///   5:   Nested unary F(F(x)) = x
+  bool apply_rewrite_cycle(uint8_t const *data, size_t &pos, size_t size) {
+    if (current_patterns_ast_.empty() || created_ids_.empty()) {
+      VERBOSE_OUT << "APPLY_REWRITE: no pattern set, skipping\n";
+      return true;
+    }
+
+    // Determine rewrite shape from fuzz data
+    uint8_t shape = (pos < size) ? data[pos++] % 6 : 0;
+
+    egraph_.rebuild(ctx_);
+
+    std::vector<Pattern<FuzzSymbol>> patterns;
+    for (auto const &ast : current_patterns_ast_) {
+      patterns.push_back(pattern_to_memgraph(ast));
+    }
+
+    // Skip patterns with no variables (cannot extract bindings)
+    for (auto const &p : patterns) {
+      if (p.num_vars() == 0) {
+        VERBOSE_OUT << "APPLY_REWRITE: pattern has 0 vars, skipping\n";
+        return true;
+      }
+    }
+
+    // Collect the first match's variable 0 binding (one representative per match)
+    std::vector<EClassId> match_roots;
+    {
+      EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
+      RewriteContext rewrite_ctx;
+
+      auto rule_builder = RewriteRule<FuzzSymbol, FuzzAnalysis>::Builder("fuzz_rewrite");
+      for (auto &p : patterns) {
+        rule_builder = std::move(rule_builder).pattern(std::move(p));
+      }
+      auto rule =
+          std::move(rule_builder).apply([&match_roots](RuleContext<FuzzSymbol, FuzzAnalysis> &, Match const &m) {
+            // Limit to 8 rewrites to keep the e-graph from blowing up
+            if (match_roots.size() < 8) {
+              match_roots.push_back(m[PatternVar{0}]);
+            }
+          });
+      rule.apply(egraph_, matcher, rewrite_ctx);
+    }
+
+    if (match_roots.empty()) {
+      VERBOSE_OUT << "APPLY_REWRITE: no matches, skipping rewrite\n";
+      return true;
+    }
+
+    // Shape descriptions for logging
+    static constexpr std::array<char const *, 6> kShapeNames = {
+        "F(x)=x", "G(x)=x", "H(x)=x", "Plus(x,x)=x", "Mul(x,x)=x", "F(F(x))=x"};
+    VERBOSE_OUT << "APPLY_REWRITE: applying " << match_roots.size() << " rewrite(s) with shape " << kShapeNames[shape]
+                << "\n";
+
+    for (auto root_id : match_roots) {
+      auto canonical = egraph_.find(root_id);
+      auto root_name = egglog_names_.count(canonical) ? egglog_names_[canonical] : egglog_names_[root_id];
+
+      EClassId wrapper_id{};
+      std::string wrapper_name;
+
+      switch (shape) {
+        case 0:
+        case 1:
+        case 2: {
+          // Unary wrapper: F/G/H(x) = x
+          auto sym = static_cast<FuzzSymbol>(10 + shape);  // F=10, G=11, H=12
+          utils::small_vector<EClassId> children;
+          children.push_back(canonical);
+          auto info = egraph_.emplace(sym, children);
+          wrapper_id = info.eclass_id;
+          created_symbols_.insert(sym);
+          wrapper_name = egglog_.emit_unary(sym, root_name);
+          break;
+        }
+        case 3:
+        case 4: {
+          // Binary self-wrapper: Plus(x, x) = x or Mul(x, x) = x
+          auto sym = (shape == 3) ? FuzzSymbol::Plus : FuzzSymbol::Mul;
+          utils::small_vector<EClassId> children;
+          children.push_back(canonical);
+          children.push_back(canonical);
+          auto info = egraph_.emplace(sym, children);
+          wrapper_id = info.eclass_id;
+          created_symbols_.insert(sym);
+          wrapper_name = egglog_.emit_binary(sym, root_name, root_name);
+          break;
+        }
+        case 5: {
+          // Nested unary: F(F(x)) = x
+          utils::small_vector<EClassId> inner_children;
+          inner_children.push_back(canonical);
+          auto inner_info = egraph_.emplace(FuzzSymbol::F, inner_children);
+          created_ids_.push_back(inner_info.eclass_id);
+          auto inner_name = egglog_.emit_unary(FuzzSymbol::F, root_name);
+          egglog_names_[inner_info.eclass_id] = inner_name;
+
+          utils::small_vector<EClassId> outer_children;
+          outer_children.push_back(inner_info.eclass_id);
+          auto outer_info = egraph_.emplace(FuzzSymbol::F, outer_children);
+          wrapper_id = outer_info.eclass_id;
+          created_symbols_.insert(FuzzSymbol::F);
+          wrapper_name = egglog_.emit_unary(FuzzSymbol::F, inner_name);
+          break;
+        }
+        default:
+          continue;
+      }
+
+      created_ids_.push_back(wrapper_id);
+      egglog_names_[wrapper_id] = wrapper_name;
+
+      // Merge back: wrapper = x
+      egraph_.merge(wrapper_id, canonical);
+      egglog_.emit_merge(wrapper_name, root_name);
+    }
+
+    egraph_.rebuild(ctx_);
+
+    // Re-verify: patterns must still match consistently after the rewrite
+    VERBOSE_OUT << "APPLY_REWRITE: re-verifying after rewrite\n";
+    return match_and_verify();
+  }
+
+  bool verify_absent() {
+    if (created_ids_.empty()) return true;
+
+    // Collect compound symbols NOT yet inserted into this e-graph
+    static constexpr std::array<FuzzSymbol, 6> kCompoundSymbols = {
+        FuzzSymbol::F,
+        FuzzSymbol::G,
+        FuzzSymbol::H,
+        FuzzSymbol::Plus,
+        FuzzSymbol::Mul,
+        FuzzSymbol::Ternary,
+    };
+
+    FuzzSymbol absent_sym{};
+    bool found = false;
+    for (auto s : kCompoundSymbols) {
+      if (!created_symbols_.contains(s)) {
+        absent_sym = s;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      VERBOSE_OUT << "VERIFY_ABSENT: all compound symbols present, skipping\n";
+      return true;
+    }
+
+    VERBOSE_OUT << "VERIFY_ABSENT: checking " << symbol_name(absent_sym) << " yields 0 matches\n";
+
+    egraph_.rebuild(ctx_);
+
+    // Build a simple pattern: AbsentSym(?v0 [, ?v1 [, ?v2]])
+    size_t arity = 1;
+    if (absent_sym == FuzzSymbol::Plus || absent_sym == FuzzSymbol::Mul) arity = 2;
+    if (absent_sym == FuzzSymbol::Ternary) arity = 3;
+
+    auto builder = Pattern<FuzzSymbol>::Builder{};
+    utils::small_vector<PatternNodeId> children;
+    for (size_t i = 0; i < arity; ++i) {
+      children.push_back(builder.var(PatternVar{static_cast<uint32_t>(i)}));
+    }
+    builder.sym(absent_sym, std::move(children));
+    auto pattern = std::move(builder).build();
+
+    EMatcher<FuzzSymbol, FuzzAnalysis> matcher(egraph_);
+    EMatchContext match_ctx;
+    std::vector<PatternMatch> matches;
+    matcher.match_into(pattern, match_ctx, matches);
+
+    if (!matches.empty()) {
+      std::cerr << "\n!!! VERIFY_ABSENT FAILURE !!!\n";
+      std::cerr << "Symbol " << symbol_name(absent_sym) << " was never created but EMatcher found " << matches.size()
+                << " match(es)\n";
+      std::cerr << "E-graph has " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
+      abort();
+    }
+
+    VERBOSE_OUT << "VERIFY_ABSENT: " << symbol_name(absent_sym) << " correctly yields 0 matches\n";
+    return true;
+  }
+
   void finalize() {
     if (created_ids_.empty()) return;
 
@@ -1061,6 +1355,15 @@ class FuzzerState {
   }
 
  private:
+  /// Pick a node index from `created_ids_` using 2 bytes of fuzz data so that
+  /// all nodes (not just the first 256) are reachable as children/merge targets.
+  [[nodiscard]] auto pick_node_idx(uint8_t const *data, size_t &pos, size_t size) const -> std::optional<size_t> {
+    if (pos + 2 > size || created_ids_.empty()) return std::nullopt;
+    auto raw = static_cast<uint16_t>((static_cast<uint16_t>(data[pos]) << 8) | data[pos + 1]);
+    pos += 2;
+    return static_cast<size_t>(raw % created_ids_.size());
+  }
+
   EGraph<FuzzSymbol, FuzzAnalysis> egraph_;
   ProcessingContext<FuzzSymbol> ctx_;
   std::vector<EClassId> created_ids_;
@@ -1069,6 +1372,9 @@ class FuzzerState {
   // Egglog tracking
   EgglogGenerator egglog_;
   std::unordered_map<EClassId, std::string> egglog_names_;
+
+  // Track which compound symbols have been inserted (for zero-match testing)
+  std::set<FuzzSymbol> created_symbols_;
 
   // Current pattern(s) for matching (1-3 patterns with shared variables)
   MultiPatternGenerator pattern_gen_;
@@ -1093,11 +1399,14 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) {
   // multi-threaded execution is ever needed.
   static bool initialized = false;
   if (!initialized) {
-    char const *verbose_env = std::getenv("FUZZ_VERBOSE");
-    g_verbose = verbose_env != nullptr && (std::strcmp(verbose_env, "1") == 0 || std::strcmp(verbose_env, "true") == 0);
-
-    char const *skip_env = std::getenv("FUZZ_SKIP_EGGLOG");
-    g_skip_egglog = skip_env != nullptr && (std::strcmp(skip_env, "1") == 0 || std::strcmp(skip_env, "true") == 0);
+    auto env_flag = [](char const *name) -> bool {
+      char const *val = std::getenv(name);
+      if (val == nullptr) return false;
+      std::string_view sv{val};
+      return sv == "1" || sv == "true";
+    };
+    g_verbose = env_flag("FUZZ_VERBOSE");
+    g_skip_egglog = env_flag("FUZZ_SKIP_EGGLOG");
 
     initialized = true;
   }
