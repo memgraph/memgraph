@@ -7,9 +7,9 @@ Uses bolt+routing protocol with a single worker.
 """
 import os
 import sys
-import threading
 import time
 
+from cluster_monitor import ClusterMonitor
 from ha_common import Protocol, QueryType, execute_and_fetch, execute_query
 
 COORDINATOR = "coord_1"
@@ -17,11 +17,6 @@ COORDINATOR = "coord_1"
 S3_BUCKET = "memgraph-stress-tests-bucket"
 S3_DATASET_PATH = "publications-dataset-1-percent"
 S3_REGION = "eu-west-1"
-
-SHOW_REPLICAS_QUERY = "SHOW REPLICAS;"
-SHOW_STORAGE_INFO_QUERY = "SHOW STORAGE INFO;"
-
-STORAGE_INFO_INTERVAL_SECONDS = 5
 
 
 def get_s3_secret() -> str:
@@ -243,48 +238,6 @@ MERGE (concept)-[:SYNONYM_OF]->(similar_concept);""",
         print(f"  Completed in {elapsed:.1f}s")
 
 
-def storage_info_worker(stop_event: threading.Event) -> None:
-    while not stop_event.is_set():
-        try:
-            results = execute_and_fetch(
-                COORDINATOR, SHOW_STORAGE_INFO_QUERY, protocol=Protocol.BOLT_ROUTING, query_type=QueryType.READ
-            )
-            print(f"\n[STORAGE INFO @ {time.strftime('%H:%M:%S')}]")
-            for row in results:
-                print(f"  {row}")
-        except Exception as e:
-            print(f"\n[STORAGE INFO ERROR] {e}")
-
-        stop_event.wait(STORAGE_INFO_INTERVAL_SECONDS)
-
-
-def show_replicas() -> None:
-    results = execute_and_fetch(COORDINATOR, SHOW_REPLICAS_QUERY, protocol=Protocol.BOLT_ROUTING)
-    if results:
-        headers = list(results[0].keys())
-        print(",".join(headers))
-        for replica in results:
-            values = [str(replica[h]) for h in headers]
-            print(",".join(values))
-
-
-def verify_replicas_ready() -> bool:
-    results = execute_and_fetch(COORDINATOR, SHOW_REPLICAS_QUERY, protocol=Protocol.BOLT_ROUTING)
-    all_ready = True
-
-    for replica in results:
-        name = replica.get("name", "unknown")
-        data_info = replica.get("data_info", {})
-
-        for db_name, db_status in data_info.items():
-            status = db_status.get("status", "unknown")
-            if status != "ready":
-                print(f"WARN: Replica {name}, database {db_name} status is '{status}', expected 'ready'")
-                all_ready = False
-
-    return all_ready
-
-
 def get_node_counts() -> dict[str, int]:
     labels = ["Concept", "Journal", "Publication", "Date", "Section", "Author"]
     counts = {}
@@ -310,20 +263,19 @@ def main():
     s3_secret = get_s3_secret()
     print("S3 credentials loaded from environment variables.")
 
-    stop_event = threading.Event()
-    storage_thread = threading.Thread(target=storage_info_worker, args=(stop_event,), daemon=True)
-    storage_thread.start()
-    print(f"Started background STORAGE INFO worker (interval: {STORAGE_INFO_INTERVAL_SECONDS}s)")
+    monitor = ClusterMonitor(
+        coordinator=COORDINATOR,
+        show_replicas=True,
+        verify_up=True,
+        storage_info=["vertex_count", "edge_count", "memory_res"],
+        interval=5,
+    )
 
     total_start = time.time()
 
-    try:
+    with monitor:
         create_indices_and_constraints()
         import_data(s3_secret)
-    finally:
-        stop_event.set()
-        storage_thread.join(timeout=5)
-        print("\nStopped background STORAGE INFO worker")
 
     total_elapsed = time.time() - total_start
 
@@ -339,14 +291,12 @@ def main():
     time.sleep(30)
 
     print("\nFinal replica status:")
-    show_replicas()
+    monitor.show_replicas()
 
-    if verify_replicas_ready():
-        print("\nAll replicas are in sync!")
-        print("Workload completed successfully!")
-    else:
-        print("\nERROR: Not all replicas are in sync!")
+    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+    if not ok:
         sys.exit(1)
+    print("Workload completed successfully!")
 
 
 if __name__ == "__main__":

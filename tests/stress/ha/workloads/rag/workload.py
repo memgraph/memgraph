@@ -13,14 +13,12 @@ import sys
 import time
 from typing import Callable
 
+from cluster_monitor import ClusterMonitor
 from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, get_restart_fn, run_parallel
 
 MAIN = "data_1"
 COORDINATOR = "coord_1"
 REPLICA = "data_2"
-
-SHOW_REPLICAS_QUERY = "SHOW REPLICAS;"
-SHOW_METRICS_QUERY = "SHOW METRICS;"
 
 SNAPSHOT_RECOVERY_LATENCY_METRIC = "SnapshotRecoveryLatency_us_99p"
 
@@ -67,18 +65,8 @@ def run_batches_parallel(batch_numbers: list[int]) -> None:
     run_parallel(execute_query, tasks, num_workers=NUM_WORKERS)
 
 
-def show_replicas() -> None:
-    results = execute_and_fetch(COORDINATOR, SHOW_REPLICAS_QUERY, protocol=Protocol.BOLT_ROUTING)
-    if results:
-        headers = list(results[0].keys())
-        print(",".join(headers))
-        for replica in results:
-            values = [str(replica[h]) for h in headers]
-            print(",".join(values))
-
-
 def get_metric(instance: str, name: str):
-    results = execute_and_fetch(instance, SHOW_METRICS_QUERY, protocol=Protocol.BOLT)
+    results = execute_and_fetch(instance, "SHOW METRICS;", protocol=Protocol.BOLT)
     for metric in results:
         if metric.get("name") == name:
             return metric.get("value")
@@ -97,31 +85,14 @@ def show_replica_snapshot_metric() -> None:
         print("SnapshotRecoveryLatency_s_99p: replica not reachable for metrics")
 
 
-def verify_replicas_ready() -> bool:
-    results = execute_and_fetch(COORDINATOR, SHOW_REPLICAS_QUERY, protocol=Protocol.BOLT_ROUTING)
-    all_ready = True
-
-    for replica in results:
-        name = replica.get("name", "unknown")
-        data_info = replica.get("data_info", {})
-
-        for db_name, db_status in data_info.items():
-            status = db_status.get("status", "unknown")
-            if status != "ready":
-                print(f"WARN: Replica {name}, database {db_name} status is '{status}', expected 'ready'")
-                all_ready = False
-
-    return all_ready
-
-
-def run_workload(restart_fn: Callable[[str], None] | None = None) -> None:
+def run_workload(monitor: ClusterMonitor, restart_fn: Callable[[str], None] | None = None) -> None:
     restart_count = 0
 
     for batch_num in range(NUM_BATCHES):
         print(f"\nBatch {batch_num + 1}/{NUM_BATCHES}")
 
         run_batches_parallel([batch_num])
-        show_replicas()
+        monitor.show_replicas()
         show_replica_snapshot_metric()
 
         if restart_fn and batch_num < NUM_BATCHES - 1 and random.random() < RESTART_PROBABILITY:
@@ -141,22 +112,29 @@ def main():
     print(f"Restart function: {'provided' if restart_fn else 'none (restarts disabled)'}")
     print("-" * 60)
 
-    create_indexes()
-    run_workload(restart_fn=restart_fn)
+    monitor = ClusterMonitor(
+        coordinator=COORDINATOR,
+        show_replicas=True,
+        verify_up=False,
+        storage_info=["vertex_count", "edge_count", "memory_res"],
+        interval=10,
+    )
+
+    with monitor:
+        create_indexes()
+        run_workload(monitor, restart_fn=restart_fn)
 
     print("-" * 60)
     print("Waiting 30 seconds before final verification...")
     time.sleep(30)
 
     print("\nFinal replica status:")
-    show_replicas()
+    monitor.show_replicas()
 
-    if verify_replicas_ready():
-        print("\nAll replicas are in sync!")
-        print("Workload completed successfully!")
-    else:
-        print("\nERROR: Not all replicas are in sync!")
+    ok = monitor.verify_all_ready() and monitor.verify_instances_up()
+    if not ok:
         sys.exit(1)
+    print("Workload completed successfully!")
 
 
 if __name__ == "__main__":
