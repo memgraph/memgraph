@@ -95,7 +95,7 @@ def test_can_not_create_vertex_when_given_global_update(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_add_vertex_label_when_given_set_label_and_modify_labels(switch):
+def test_can_add_vertex_label_when_given_create_and_set_label(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
@@ -104,7 +104,7 @@ def test_can_add_vertex_label_when_given_set_label_and_modify_labels(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT SET LABEL ON NODES CONTAINING LABELS :new_create_delete_label, READ, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
+        "GRANT CREATE ON NODES CONTAINING LABELS :new_create_delete_label, READ, SET LABEL ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -137,7 +137,7 @@ def test_can_not_add_vertex_label_when_given_only_set_property(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_not_add_vertex_label_when_missing_set_label_on_target(switch):
+def test_can_not_add_vertex_label_when_missing_create_on_target(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
@@ -146,7 +146,7 @@ def test_can_not_add_vertex_label_when_missing_set_label_on_target(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ ON NODES CONTAINING LABELS :new_create_delete_label, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
+        "GRANT READ ON NODES CONTAINING LABELS :new_create_delete_label, SET LABEL ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -157,7 +157,7 @@ def test_can_not_add_vertex_label_when_missing_set_label_on_target(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_remove_vertex_label_when_given_remove_label_and_modify_labels(switch):
+def test_can_remove_vertex_label_when_given_remove_label(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
@@ -178,7 +178,7 @@ def test_can_remove_vertex_label_when_given_remove_label_and_modify_labels(switc
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_remove_vertex_label_when_given_global_remove_label_and_modify_labels(switch):
+def test_can_remove_vertex_label_when_given_global_remove_label(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:

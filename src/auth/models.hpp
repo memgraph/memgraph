@@ -76,7 +76,6 @@ enum class FineGrainedPermission : uint64_t {
   SET_LABEL     = 1U << 5U,  // 32
   REMOVE_LABEL  = 1U << 6U,  // 64
   DELETE_EDGE   = 1U << 7U,  // 128
-  MODIFY_LABELS = 1U << 8U,  // 256
 };
 // clang-format on
 
@@ -109,7 +108,7 @@ constexpr FineGrainedPermission kAllLabelPermissions =
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
     memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_LABEL |
     memgraph::auth::FineGrainedPermission::REMOVE_LABEL | memgraph::auth::FineGrainedPermission::SET_PROPERTY |
-    memgraph::auth::FineGrainedPermission::DELETE_EDGE | memgraph::auth::FineGrainedPermission::MODIFY_LABELS;
+    memgraph::auth::FineGrainedPermission::DELETE_EDGE;
 
 constexpr FineGrainedPermission kAllEdgeTypePermissions =
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
