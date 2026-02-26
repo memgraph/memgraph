@@ -789,4 +789,210 @@ TEST(EGraphCongruenceClosureBug, SelfRefWithIndirectChildCongruence) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
+TEST(EGraphCongruenceClosureBug, DuplicateInSameEClass) {
+  // Test: When two e-nodes in the SAME e-class canonicalize to the same form,
+  // one is removed as a duplicate but no merge is triggered.
+  //
+  // Scenario:
+  //   a = leaf
+  //   f1 = F(a)
+  //   f2 = F(a)  <- same canonical form as f1, but different e-node
+  //   merge(f1, f2)  <- now both e-nodes are in the same e-class
+  //   rebuild should detect f2 as duplicate of f1 and remove it,
+  //   but no inter-class merge is needed
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto f1 = egraph.emplace(Op::F, {a}).eclass_id;
+  auto f2 = egraph.emplace(Op::F, {a}).eclass_id;  // Same canonical form as f1
+
+  // f1 and f2 are already the same due to hashcons deduplication at emplace time
+  EXPECT_EQ(f1, f2) << "Hashcons should deduplicate at emplace time";
+  EXPECT_EQ(egraph.num_classes(), 2);  // a, F(a)
+
+  // To actually test duplicate removal within same e-class, we need to create
+  // two e-nodes that become duplicates AFTER a merge changes their children
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;  // F(a)
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;  // F(b) - different from F(a)
+
+  EXPECT_NE(fa, fb);
+  EXPECT_EQ(egraph.num_classes(), 4);  // a, b, F(a), F(b)
+
+  // Merge a and b - now F(a) and F(b) should become congruent
+  egraph.merge(a, b);
+
+  // Also merge fa and fb manually BEFORE rebuild
+  // This puts two e-nodes that will canonicalize to the same form in the same e-class
+  egraph.merge(fa, fb);
+
+  EXPECT_EQ(egraph.num_classes(), 2);  // {a,b}, {F(a),F(b)}
+
+  egraph.rebuild(ctx);
+
+  // After rebuild, the e-class should have had duplicate e-nodes removed
+  // but since they're in the same class, no additional merges needed
+  EXPECT_EQ(egraph.num_classes(), 2);
+  EXPECT_EQ(egraph.find(a), egraph.find(b));
+  EXPECT_EQ(egraph.find(fa), egraph.find(fb));
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCongruenceClosureBug, DuplicateInDifferentEClass) {
+  // Test: When two e-nodes in DIFFERENT e-classes canonicalize to the same form,
+  // a merge must be triggered.
+  //
+  // This is the core case that was broken before the fix.
+  //
+  // Scenario:
+  //   a, b = separate leaves
+  //   fa = F(a), fb = F(b) - in separate e-classes
+  //   merge(a, b) - now a≡b, but fa and fb are still separate
+  //   rebuild should detect that fa and fb both canonicalize to F(E_ab)
+  //   and merge their e-classes
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+
+  EXPECT_EQ(egraph.num_classes(), 4);
+  EXPECT_NE(egraph.find(fa), egraph.find(fb));
+
+  // Merge a and b
+  egraph.merge(a, b);
+
+  // Before rebuild, fa and fb are still in different e-classes
+  EXPECT_NE(egraph.find(fa), egraph.find(fb));
+
+  egraph.rebuild(ctx);
+
+  // After rebuild, fa and fb should be merged because both canonicalize to F(E_ab)
+  EXPECT_EQ(egraph.find(fa), egraph.find(fb))
+      << "fa and fb should be merged after rebuild because both canonicalize to F(E_ab)";
+
+  EXPECT_EQ(egraph.num_classes(), 2);  // {a,b}, {fa,fb}
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCongruenceClosureBug, MultipleParentsFromDifferentClasses) {
+  // Test: Multiple parent e-nodes from different e-classes all canonicalize
+  // to the same form, triggering a multi-way merge.
+  //
+  // This tests the `canonical_eclass_ids.size() > 1` branch in process_parents.
+  //
+  // Scenario:
+  //   a, b, c = separate leaves
+  //   fa = F(a), fb = F(b), fc = F(c) - all in separate e-classes
+  //   merge(a, b), merge(b, c) - now a≡b≡c
+  //   rebuild should merge fa, fb, fc because all canonicalize to F(E_abc)
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto c = egraph.emplace(Op::A, 2).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+  auto fc = egraph.emplace(Op::F, {c}).eclass_id;
+
+  EXPECT_EQ(egraph.num_classes(), 6);
+
+  // Merge all leaves together
+  egraph.merge(a, b);
+  egraph.merge(b, c);
+
+  // Before rebuild, fa, fb, fc are still separate
+  EXPECT_NE(egraph.find(fa), egraph.find(fb));
+  EXPECT_NE(egraph.find(fb), egraph.find(fc));
+
+  egraph.rebuild(ctx);
+
+  // After rebuild, all F nodes should be merged
+  EXPECT_EQ(egraph.find(fa), egraph.find(fb));
+  EXPECT_EQ(egraph.find(fb), egraph.find(fc));
+
+  EXPECT_EQ(egraph.num_classes(), 2);  // {a,b,c}, {fa,fb,fc}
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCongruenceClosureBug, AlreadyCanonicalNoChange) {
+  // Test: When an e-node's children are already canonical, repair_hashcons_enode
+  // should just update the eclass_id in the hashcons entry without triggering
+  // any merges or duplicate detection.
+  //
+  // Scenario:
+  //   a = leaf
+  //   f = F(a)
+  //   Rebuild with no pending merges - f's children are already canonical
+  //   No merges should occur, e-graph structure unchanged
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto f = egraph.emplace(Op::F, {a}).eclass_id;
+  auto g = egraph.emplace(Op::F2, {f, a}).eclass_id;
+
+  EXPECT_EQ(egraph.num_classes(), 3);
+
+  // No merges, just rebuild
+  egraph.rebuild(ctx);
+
+  // Structure should be unchanged
+  EXPECT_EQ(egraph.num_classes(), 3);
+  EXPECT_NE(egraph.find(a), egraph.find(f));
+  EXPECT_NE(egraph.find(f), egraph.find(g));
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCongruenceClosureBug, ChainedCongruencePropagation) {
+  // Test: Congruence propagates through multiple levels in a single rebuild.
+  //
+  // Scenario:
+  //   a, b = separate leaves
+  //   fa = F(a), fb = F(b)
+  //   gfa = G(fa), gfb = G(fb)
+  //   hgfa = H(gfa), hgfb = H(gfb)
+  //   merge(a, b)
+  //   rebuild should propagate: a≡b -> fa≡fb -> gfa≡gfb -> hgfa≡hgfb
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+  auto gfa = egraph.emplace(Op::F2, {fa}).eclass_id;
+  auto gfb = egraph.emplace(Op::F2, {fb}).eclass_id;
+  auto hgfa = egraph.emplace(Op::Neg, {gfa}).eclass_id;
+  auto hgfb = egraph.emplace(Op::Neg, {gfb}).eclass_id;
+
+  EXPECT_EQ(egraph.num_classes(), 8);
+
+  egraph.merge(a, b);
+  egraph.rebuild(ctx);
+
+  // All corresponding nodes should be merged
+  EXPECT_EQ(egraph.find(a), egraph.find(b));
+  EXPECT_EQ(egraph.find(fa), egraph.find(fb));
+  EXPECT_EQ(egraph.find(gfa), egraph.find(gfb));
+  EXPECT_EQ(egraph.find(hgfa), egraph.find(hgfb));
+
+  EXPECT_EQ(egraph.num_classes(), 4);
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
 }  // namespace memgraph::planner::core
