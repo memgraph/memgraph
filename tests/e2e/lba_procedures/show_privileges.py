@@ -50,15 +50,39 @@ BASIC_PRIVILEGES = [
 
 def test_lba_procedures_show_privileges_first_user():
     expected_assertions_josip = [
-        ("CREATE, READ, UPDATE, DELETE ON ALL LABELS", "GRANT", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
-        ("CREATE, READ, UPDATE, DELETE ON ALL EDGE_TYPES", "GRANT", "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER"),
+        (
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON ALL LABELS",
+            "GRANT",
+            "GLOBAL LABEL PERMISSION GRANTED TO USER",
+        ),
+        (
+            "CREATE, READ, SET PROPERTY, DELETE ON ALL EDGE_TYPES",
+            "GRANT",
+            "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER",
+        ),
         ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
-        ("NOTHING ON NODES CONTAINING LABELS :Label2 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
-        ("UPDATE ON NODES CONTAINING LABELS :Label3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        (
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
+            "DENY",
+            "LABEL PERMISSION DENIED TO USER",
+        ),
+        (
+            "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE ON NODES CONTAINING LABELS :Label3 MATCHING ANY",
+            "GRANT",
+            "LABEL PERMISSION GRANTED TO USER",
+        ),
         ("READ ON NODES CONTAINING LABELS :Label4 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         ("CREATE, DELETE ON NODES CONTAINING LABELS :Label5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
-        ("UPDATE ON NODES CONTAINING LABELS :Label6 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
-        ("NOTHING ON NODES CONTAINING LABELS :Label7 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
+        (
+            "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE ON NODES CONTAINING LABELS :Label6 MATCHING ANY",
+            "GRANT",
+            "LABEL PERMISSION GRANTED TO USER",
+        ),
+        (
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
+            "DENY",
+            "LABEL PERMISSION DENIED TO USER",
+        ),
     ]
 
     cursor = connect(username="Josip", password="").cursor()
@@ -74,12 +98,28 @@ def test_lba_procedures_show_privileges_second_user():
     expected_assertions_boris = [
         ("AUTH", "GRANT", "GRANTED TO USER"),
         ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
-        ("NOTHING ON NODES CONTAINING LABELS :Label2 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
-        ("UPDATE ON NODES CONTAINING LABELS :Label3 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
+        (
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
+            "DENY",
+            "LABEL PERMISSION DENIED TO USER",
+        ),
+        (
+            "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE ON NODES CONTAINING LABELS :Label3 MATCHING ANY",
+            "GRANT",
+            "LABEL PERMISSION GRANTED TO USER",
+        ),
         ("READ ON NODES CONTAINING LABELS :Label4 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         ("CREATE, DELETE ON NODES CONTAINING LABELS :Label5 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
-        ("UPDATE ON NODES CONTAINING LABELS :Label6 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
-        ("NOTHING ON NODES CONTAINING LABELS :Label7 MATCHING ANY", "DENY", "LABEL PERMISSION DENIED TO USER"),
+        (
+            "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE ON NODES CONTAINING LABELS :Label6 MATCHING ANY",
+            "GRANT",
+            "LABEL PERMISSION GRANTED TO USER",
+        ),
+        (
+            "CREATE, READ, SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE, DELETE EDGE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
+            "DENY",
+            "LABEL PERMISSION DENIED TO USER",
+        ),
     ]
 
     cursor = connect(username="Boris", password="").cursor()
@@ -105,7 +145,11 @@ def test_lba_procedures_show_privileges_third_user():
 def test_lba_procedures_show_privileges_fourth_user():
     expected_assertions_bruno = [
         ("AUTH", "GRANT", "GRANTED TO USER"),
-        ("UPDATE ON ALL LABELS", "GRANT", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+        (
+            "SET LABEL, REMOVE LABEL, SET PROPERTY, DELETE EDGE ON ALL LABELS",
+            "GRANT",
+            "GLOBAL LABEL PERMISSION GRANTED TO USER",
+        ),
     ]
 
     # TODO: Revisit behaviour of this test
@@ -125,15 +169,15 @@ def test_show_privileges_multiple_labels_matching_any():
         auth_cursor, "GRANT READ ON NODES CONTAINING LABELS :Person, :Employee MATCHING ANY TO test_user;"
     )
     execute_and_fetch_all(
-        auth_cursor, "GRANT UPDATE ON EDGES OF TYPE :KNOWS, UPDATE ON EDGES OF TYPE :MANAGES TO test_user;"
+        auth_cursor, "GRANT SET PROPERTY ON EDGES OF TYPE :KNOWS, SET PROPERTY ON EDGES OF TYPE :MANAGES TO test_user;"
     )
 
     results = execute_and_fetch_all(auth_cursor, "SHOW PRIVILEGES FOR test_user;")
     privilege_strings = [r[0] for r in results]
 
     assert "READ ON NODES CONTAINING LABELS :Employee, :Person MATCHING ANY" in privilege_strings
-    assert "UPDATE ON EDGES OF TYPE :KNOWS" in privilege_strings
-    assert "UPDATE ON EDGES OF TYPE :MANAGES" in privilege_strings
+    assert "SET PROPERTY ON EDGES OF TYPE :KNOWS" in privilege_strings
+    assert "SET PROPERTY ON EDGES OF TYPE :MANAGES" in privilege_strings
 
     execute_and_fetch_all(auth_cursor, "DROP USER test_user;")
 

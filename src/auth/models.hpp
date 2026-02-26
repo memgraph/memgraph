@@ -67,41 +67,52 @@ enum class Permission : uint64_t {
 #ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
-  NOTHING = 0,
-  READ    = 1U << 0U,  // 1
-  UPDATE  = 1U << 1U,  // 2
+  NONE          = 0,
+  READ          = 1U << 0U,  // 1
+  SET_PROPERTY  = 1U << 1U,  // 2: Was UPDATE in Memgraph 3.8 and earlier
   // Bit 2 reserved: was CREATE_DELETE in Memgraph 3.6 and earlier
-  CREATE  = 1U << 3U,  // 8
-  DELETE  = 1U << 4U   // 16
+  CREATE        = 1U << 3U,  // 8
+  DELETE        = 1U << 4U,  // 16
+  SET_LABEL     = 1U << 5U,  // 32
+  REMOVE_LABEL  = 1U << 6U,  // 64
+  DELETE_EDGE   = 1U << 7U,  // 128
 };
 // clang-format on
 
-constexpr inline FineGrainedPermission operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+constexpr FineGrainedPermission operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
   return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) |
                                             std::underlying_type_t<FineGrainedPermission>(rhs));
 }
 
-constexpr inline uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) {
-  return lhs | static_cast<uint64_t>(rhs);
-}
+constexpr uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) { return lhs | static_cast<uint64_t>(rhs); }
 
-constexpr inline uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
+constexpr uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
   return (lhs & static_cast<uint64_t>(rhs)) != 0;
 }
 
-constexpr inline FineGrainedPermission operator&(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+constexpr FineGrainedPermission operator&(FineGrainedPermission lhs, FineGrainedPermission rhs) {
   return static_cast<FineGrainedPermission>(std::underlying_type_t<FineGrainedPermission>(lhs) &
                                             std::underlying_type_t<FineGrainedPermission>(rhs));
 }
 
-constexpr inline FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrainedPermission rhs) {
+constexpr FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrainedPermission rhs) {
   lhs = lhs | rhs;
   return lhs;
 }
 
-constexpr FineGrainedPermission kAllPermissions = static_cast<FineGrainedPermission>(
+constexpr FineGrainedPermission operator~(FineGrainedPermission permission) {
+  return static_cast<FineGrainedPermission>(~static_cast<std::underlying_type_t<FineGrainedPermission>>(permission));
+}
+
+constexpr FineGrainedPermission kAllLabelPermissions =
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
-    memgraph::auth::FineGrainedPermission::UPDATE | memgraph::auth::FineGrainedPermission::READ);
+    memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_LABEL |
+    memgraph::auth::FineGrainedPermission::REMOVE_LABEL | memgraph::auth::FineGrainedPermission::SET_PROPERTY |
+    memgraph::auth::FineGrainedPermission::DELETE_EDGE;
+
+constexpr FineGrainedPermission kAllEdgeTypePermissions =
+    memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
+    memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_PROPERTY;
 #endif
 
 // Function that converts a permission to its string representation.
@@ -248,15 +259,17 @@ enum class MatchingMode : uint8_t { ANY, EXACTLY };
 
 struct FineGrainedAccessRule {
   std::unordered_set<std::string> symbols;
-  FineGrainedPermission permissions;
-  MatchingMode matching_mode;
+  FineGrainedPermission grants{FineGrainedPermission::NONE};
+  FineGrainedPermission denies{FineGrainedPermission::NONE};
+  MatchingMode matching_mode{MatchingMode::ANY};
 
   bool operator==(const FineGrainedAccessRule &other) const = default;
 };
 
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_permission = std::nullopt,
+  explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_grants = std::nullopt,
+                                        std::optional<uint64_t> global_denies = std::nullopt,
                                         std::vector<FineGrainedAccessRule> rules = {});
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
@@ -273,6 +286,11 @@ class FineGrainedAccessPermissions final {
 
   void GrantGlobal(FineGrainedPermission fine_grained_permission);
 
+  void Deny(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
+            MatchingMode matching_mode = MatchingMode::ANY);
+
+  void DenyGlobal(FineGrainedPermission fine_grained_permission);
+
   void Revoke(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
               MatchingMode matching_mode = MatchingMode::ANY);
 
@@ -287,11 +305,13 @@ class FineGrainedAccessPermissions final {
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::optional<uint64_t> &GetGlobalPermission() const;
-  const std::vector<FineGrainedAccessRule> &GetPermissions() const;
+  std::optional<uint64_t> const &GetGlobalGrants() const;
+  std::optional<uint64_t> const &GetGlobalDenies() const;
+  std::vector<FineGrainedAccessRule> const &GetRules() const;
 
  private:
-  std::optional<uint64_t> global_permission_;
+  std::optional<uint64_t> global_grants_;
+  std::optional<uint64_t> global_denies_;
   std::vector<FineGrainedAccessRule> rules_;
 };
 

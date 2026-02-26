@@ -96,7 +96,7 @@ def test_can_not_read_vertex_through_c_api_when_given_deny_on_label(switch):
         switch_db(admin_cursor)
     reset_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON NODES CONTAINING LABELS :read_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -114,7 +114,7 @@ def test_can_read_partial_vertices_through_c_api_when_given_global_read_but_deny
         switch_db(admin_cursor)
     reset_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON NODES CONTAINING LABELS :read_label TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -133,7 +133,7 @@ def test_can_read_partial_vertices_through_c_api_when_given_global_update_but_de
         switch_db(admin_cursor)
     reset_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON NODES CONTAINING LABELS :read_label TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
 
@@ -153,7 +153,7 @@ def test_can_read_partial_vertices_through_c_api_when_given_global_read_but_deny
         switch_db(admin_cursor)
     reset_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON NODES CONTAINING LABELS :read_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON NODES CONTAINING LABELS :read_label TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -192,7 +192,7 @@ def test_can_not_read_edge_through_c_api_when_given_deny_on_edge_type(switch):
     reset_permissions(admin_cursor)
 
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :read_label_1, :read_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON EDGES OF TYPE :read_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON EDGES OF TYPE :read_edge_type TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -269,7 +269,7 @@ def test_can_not_read_edge_through_c_api_when_given_read_global_but_deny_on_edge
     reset_permissions(admin_cursor)
 
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :read_label_1, :read_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON EDGES OF TYPE :read_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON EDGES OF TYPE :read_edge_type TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -289,7 +289,7 @@ def test_can_not_read_edge_through_c_api_when_given_update_global_but_deny_on_ed
     reset_permissions(admin_cursor)
 
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :read_label_1, :read_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON EDGES OF TYPE :read_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON EDGES OF TYPE :read_edge_type TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGES OF TYPE * TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE * TO user;")
 
@@ -310,7 +310,7 @@ def test_can_not_read_edge_through_c_api_when_given_read_global_but_deny_on_edge
     reset_permissions(admin_cursor)
 
     execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :read_label_1, :read_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT NOTHING ON EDGES OF TYPE :read_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY * ON EDGES OF TYPE :read_edge_type TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()

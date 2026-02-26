@@ -30,8 +30,8 @@ def test_deny_all_edge_types_and_all_labels(switch):
     admin_connection = common.connect(username="admin", password="test")
     reset_and_prepare(admin_connection.cursor())
     common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY * ON NODES CONTAINING LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY * ON EDGES OF TYPE * TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -66,7 +66,7 @@ def test_deny_edge_type(switch):
         admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS :label1, :label2, :label3 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE :edgeType2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGES OF TYPE :edgeType1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY * ON EDGES OF TYPE :edgeType1 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -87,7 +87,7 @@ def test_denied_node_label(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE :edgeType1, READ ON EDGES OF TYPE :edgeType2 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY * ON NODES CONTAINING LABELS :label2 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:
@@ -108,7 +108,7 @@ def test_denied_one_of_node_label(switch):
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE :edgeType1, READ ON EDGES OF TYPE :edgeType2 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON NODES CONTAINING LABELS :label3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY * ON NODES CONTAINING LABELS :label3 TO user;")
     user_connection = common.connect(username="user", password="test")
 
     if switch:

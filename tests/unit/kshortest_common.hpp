@@ -486,8 +486,7 @@ class Database {
         user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().edge_type_permissions().Grant({"b"},
                                                                          memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant(
-            {"a"}, memgraph::auth::FineGrainedPermission::NOTHING);
+        user.fine_grained_access_handler().edge_type_permissions().Deny({"a"}, memgraph::auth::kAllEdgeTypePermissions);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"b"});
         edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "a"), edge_types.end());
@@ -496,8 +495,7 @@ class Database {
         user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().edge_type_permissions().Grant({"a"},
                                                                          memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant(
-            {"b"}, memgraph::auth::FineGrainedPermission::NOTHING);
+        user.fine_grained_access_handler().edge_type_permissions().Deny({"b"}, memgraph::auth::kAllEdgeTypePermissions);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"a"});
         edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "b"), edge_types.end());
@@ -513,8 +511,7 @@ class Database {
                                                                      memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().label_permissions().Grant({"4"},
                                                                      memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"0"},
-                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
+        user.fine_grained_access_handler().label_permissions().Deny({"0"}, memgraph::auth::kAllLabelPermissions);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
         edges_in_result.erase(
@@ -532,8 +529,7 @@ class Database {
                                                                      memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().label_permissions().Grant({"4"},
                                                                      memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"3"},
-                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
+        user.fine_grained_access_handler().label_permissions().Deny({"3"}, memgraph::auth::kAllLabelPermissions);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
         edges_in_result.erase(

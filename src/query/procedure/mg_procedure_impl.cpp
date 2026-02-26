@@ -2264,7 +2264,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(
-            v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+            v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{"Insufficient permissions for setting a property on vertex!"};
     }
 #endif
@@ -2319,7 +2319,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(
-            v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+            v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{"Insufficient permissions for setting properties on the vertex!"};
     }
 #endif
@@ -2385,9 +2385,10 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label.name); }, v->graph->impl);
 
 #ifdef MG_ENTERPRISE
+    // Check SET_LABEL on existing vertex (gatekeeper) and CREATE on new label (target)
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !(ctx->auth_checker->Has(
-              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL) &&
           ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE))) {
       throw AuthorizationException{"Insufficient permissions for adding a label to vertex!"};
     }
@@ -2429,11 +2430,16 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     const auto label_id = std::visit([&label](auto *impl) { return impl->NameToLabel(label.name); }, v->graph->impl);
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-        !(ctx->auth_checker->Has(
-              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE))) {
-      throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
+      // Check DELETE on target label
+      if (!ctx->auth_checker->Has(std::vector{label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
+        throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
+      }
+      // Check REMOVE_LABEL on existing vertex (gatekeeper)
+      if (!ctx->auth_checker->Has(
+              v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL)) {
+        throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
+      }
     }
 #endif
     if (!MgpVertexIsMutable(*v)) {
@@ -2902,7 +2908,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
 
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-        !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{"Insufficient permissions for setting a property on edge!"};
     }
 #endif
@@ -2951,7 +2957,7 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
 
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-        !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{"Insufficient permissions for setting properties on the edge!"};
     }
 #endif
@@ -3652,7 +3658,11 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
     auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-        !ctx->auth_checker->Has(edge->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
+        !(ctx->auth_checker->Has(edge->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE) &&
+          ctx->auth_checker->Has(
+              edge->to.getImpl(), graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE) &&
+          ctx->auth_checker->Has(
+              edge->from.getImpl(), graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE))) {
       throw AuthorizationException{"Insufficient permissions for deleting an edge!"};
     }
 #endif

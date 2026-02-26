@@ -82,20 +82,33 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
 
 #ifdef MG_ENTERPRISE
 auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
-    const query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
+    query::AuthQuery::FineGrainedPrivilege const fine_grained_privilege, FineGrainedPermissionType const type) {
   switch (fine_grained_privilege) {
-    case query::AuthQuery::FineGrainedPrivilege::NOTHING:
-      return auth::FineGrainedPermission::NOTHING;
     case query::AuthQuery::FineGrainedPrivilege::READ:
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
-      return auth::FineGrainedPermission::UPDATE;
+      // UPDATE is a grammar shorthand. For labels, this expands to
+      // SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE. For edge types,
+      // it is a synonym for SET_PROPERTY.
+      if (type == FineGrainedPermissionType::LABEL) {
+        return auth::FineGrainedPermission::SET_LABEL | auth::FineGrainedPermission::REMOVE_LABEL |
+               auth::FineGrainedPermission::SET_PROPERTY | auth::FineGrainedPermission::DELETE_EDGE;
+      }
+      return auth::FineGrainedPermission::SET_PROPERTY;
+    case query::AuthQuery::FineGrainedPrivilege::SET_LABEL:
+      return auth::FineGrainedPermission::SET_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL:
+      return auth::FineGrainedPermission::REMOVE_LABEL;
+    case query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY:
+      return auth::FineGrainedPermission::SET_PROPERTY;
     case query::AuthQuery::FineGrainedPrivilege::CREATE:
       return auth::FineGrainedPermission::CREATE;
     case query::AuthQuery::FineGrainedPrivilege::DELETE:
       return auth::FineGrainedPermission::DELETE;
+    case query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE:
+      return auth::FineGrainedPermission::DELETE_EDGE;
     case query::AuthQuery::FineGrainedPrivilege::ALL:
-      return auth::kAllPermissions;
+      return type == FineGrainedPermissionType::LABEL ? auth::kAllLabelPermissions : auth::kAllEdgeTypePermissions;
   }
 }
 #endif

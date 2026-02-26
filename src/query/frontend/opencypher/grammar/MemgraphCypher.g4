@@ -57,6 +57,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DATABASES
                       | DATE
+                      | DEFAULT
                       | DEFINER
                       | DELIMITER
                       | DEMOTE
@@ -69,6 +70,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | DURATION
                       | EDGE
+                      | EDGE_TYPE
                       | EDGE_TYPES
                       | EDGES
                       | ENABLE
@@ -108,6 +110,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
                       | LAG
                       | LEADERSHIP
@@ -131,7 +134,6 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NODES
-                      | NOTHING
                       | NULLIF
                       | OF_TOKEN
                       | OFF
@@ -144,9 +146,11 @@ memgraphCypherKeyword : cypherKeyword
                       | PARQUET
                       | PASSWORD
                       | PERIODIC
+                      | PERMISSIONS
                       | POINT
                       | PORT
                       | PRIVILEGES
+                      | PROPERTY
                       | PROFILE_RESTRICTION
                       | PROFILES
                       | PULSAR
@@ -478,7 +482,7 @@ clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymboli
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO userOrRole=userOrRoleName ;
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM userOrRole=userOrRoleName ;
 
@@ -534,7 +538,7 @@ privilege : CREATE
           | SERVER_SIDE_PARAMETERS
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE | ASTERISK ;
+granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | ASTERISK ;
 
 granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 

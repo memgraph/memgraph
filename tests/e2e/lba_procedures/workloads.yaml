@@ -14,23 +14,23 @@ query_modules_setup_queries: &query_modules_setup_queries
 show_privileges_setup_queries: &show_privileges_setup_queries
   - "Create User Josip;"
   - "GRANT READ ON NODES CONTAINING LABELS :Label1 TO Josip;"
-  - "GRANT NOTHING ON NODES CONTAINING LABELS :Label2 TO Josip;"
+  - "DENY * ON NODES CONTAINING LABELS :Label2 TO Josip;"
   - "GRANT UPDATE ON NODES CONTAINING LABELS :Label3 TO Josip;"
   - "GRANT READ ON NODES CONTAINING LABELS :Label4 TO Josip;"
   - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label5 TO Josip;"
   - "GRANT UPDATE ON NODES CONTAINING LABELS :Label6 TO Josip;"
   - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label7 TO Josip;"
-  - "GRANT NOTHING ON NODES CONTAINING LABELS :Label7 TO Josip;"
+  - "DENY * ON NODES CONTAINING LABELS :Label7 TO Josip;"
   - "Create User Boris;"
   - "Grant Auth TO Boris;"
   - "GRANT READ ON NODES CONTAINING LABELS :Label1 TO Boris;"
-  - "GRANT NOTHING ON NODES CONTAINING LABELS :Label2 TO Boris;"
+  - "DENY * ON NODES CONTAINING LABELS :Label2 TO Boris;"
   - "GRANT UPDATE ON NODES CONTAINING LABELS :Label3 TO Boris;"
   - "GRANT READ ON NODES CONTAINING LABELS :Label4 TO Boris;"
   - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label5 TO Boris;"
   - "GRANT UPDATE ON NODES CONTAINING LABELS :Label6 TO Boris;"
   - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label7 TO Boris;"
-  - "GRANT NOTHING ON NODES CONTAINING LABELS :Label7 TO Boris;"
+  - "DENY * ON NODES CONTAINING LABELS :Label7 TO Boris;"
   - "Create User Niko;"
   - "Grant Auth TO Niko;"
   - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS * TO Niko;"
@@ -159,3 +159,9 @@ workloads:
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/schema_info_queries_permission.py"]
     <<: *schema_info_in_memory_queries
+
+  - name: "fine-grained-permissions-matrix"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/fine_grained_permission_matrix.py"]
+    <<: *create_delete_query_modules_in_memory_cluster
