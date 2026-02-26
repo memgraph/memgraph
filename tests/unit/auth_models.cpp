@@ -62,7 +62,7 @@ constexpr auto full_json_str = R"({
   "databases":{"allow_all":true,"default":"db1","denies":["db2","db3"],"grants":["db1", "memgraph"]},
   "fine_grained_permissions":{
     "edge_type_permissions":{"global_grants":27,"global_denies":-1,"permissions":[{"symbols":["E"],"granted":1,"denied":0,"matching":"ANY"}]},
-    "label_permissions":{"global_grants":507,"global_denies":-1,"permissions":[{"symbols":["A"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["B"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["C"],"granted":99,"denied":0,"matching":"ANY"},{"symbols":["D"],"granted":0,"denied":507,"matching":"ANY"}]}
+    "label_permissions":{"global_grants":251,"global_denies":-1,"permissions":[{"symbols":["A"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["B"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["C"],"granted":99,"denied":0,"matching":"ANY"},{"symbols":["D"],"granted":0,"denied":251,"matching":"ANY"}]}
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
   "permissions":{"denies":0,"grants":134217727},
@@ -162,7 +162,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
 
     const auto &lp = auth_object.fine_grained_access_handler().label_permissions().GetGlobalGrants();
     ASSERT_TRUE(lp.has_value());
-    ASSERT_EQ(lp.value(), 507);  // kAllLabelPermissions
+    ASSERT_EQ(lp.value(), static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions));
     const auto &lp_rules = auth_object.fine_grained_access_handler().label_permissions().GetRules();
     ASSERT_EQ(lp_rules.size(), 4);
     auto find_rule = [&lp_rules](const std::string &label) -> const memgraph::auth::FineGrainedAccessRule * {
@@ -989,8 +989,11 @@ TEST(AuthModule, UserSerialization) {
   ASSERT_EQ(json, user.Serialize());
 
   user.fine_grained_access_handler().label_permissions().Deny({"DenyLabel"}, memgraph::auth::kAllLabelPermissions);
-  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array({nlohmann::json::object(
-      {{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kDenied, 507}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
+                               {kGranted, 0},
+                               {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
 
   user.fine_grained_access_handler().label_permissions().Grant({"ExactLabel"},
@@ -999,8 +1002,10 @@ TEST(AuthModule, UserSerialization) {
                                                                    memgraph::auth::FineGrainedPermission::SET_PROPERTY,
                                                                memgraph::auth::MatchingMode::EXACTLY);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
-      {nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kDenied, 507}, {kMatching, "ANY"}}),
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
+                               {kGranted, 0},
+                               {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kMatching, "ANY"}}),
        nlohmann::json::object(
            {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 98}, {kDenied, 0}, {kMatching, "EXACTLY"}})});
   ASSERT_EQ(json, user.Serialize());
@@ -1008,8 +1013,10 @@ TEST(AuthModule, UserSerialization) {
   user.fine_grained_access_handler().label_permissions().Grant({"ReadLabel"},
                                                                memgraph::auth::FineGrainedPermission::READ);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
-      {nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kDenied, 507}, {kMatching, "ANY"}}),
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
+                               {kGranted, 0},
+                               {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kMatching, "ANY"}}),
        nlohmann::json::object(
            {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 98}, {kDenied, 0}, {kMatching, "EXACTLY"}}),
        nlohmann::json::object(
@@ -1023,8 +1030,10 @@ TEST(AuthModule, UserSerialization) {
                                                                    memgraph::auth::FineGrainedPermission::REMOVE_LABEL |
                                                                    memgraph::auth::FineGrainedPermission::SET_PROPERTY);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
-      {nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"DenyLabel"})}, {kGranted, 0}, {kDenied, 507}, {kMatching, "ANY"}}),
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
+                               {kGranted, 0},
+                               {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kMatching, "ANY"}}),
        nlohmann::json::object(
            {{kSymbols, nlohmann::json::array({"ExactLabel"})}, {kGranted, 98}, {kDenied, 0}, {kMatching, "EXACTLY"}}),
        nlohmann::json::object(
@@ -1155,8 +1164,11 @@ TEST(AuthModule, RoleSerialization) {
       {{kSymbols, nlohmann::json::array({"ABC"})}, {kGranted, 1}, {kDenied, 0}, {kMatching, "ANY"}})});
   ASSERT_EQ(json, role.Serialize());
   role.fine_grained_access_handler().label_permissions().Deny({"CBA"}, memgraph::auth::kAllLabelPermissions);
-  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array({nlohmann::json::object(
-      {{kSymbols, nlohmann::json::array({"CBA"})}, {kGranted, 0}, {kDenied, 507}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
+      {nlohmann::json::object({{kSymbols, nlohmann::json::array({"CBA"})},
+                               {kGranted, 0},
+                               {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kMatching, "ANY"}})});
   ASSERT_EQ(json, role.Serialize());
 
   // Role with MT access
