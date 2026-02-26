@@ -128,16 +128,14 @@ def start_deployment(deployment_script: str, args: List[str], env: Dict[str, str
     cmd = [deployment_script, "start"] + args
     print(f"Starting Memgraph with: {' '.join(cmd)}")
 
-    # Merge provided env with current environment
     run_env = os.environ.copy()
     if env:
         for key, value in env.items():
-            # Only set if value is non-empty, otherwise use existing env var
             if value:
                 run_env[key] = str(value)
 
     subprocess.run(cmd, check=True, env=run_env)
-    time.sleep(2)  # Ensure the server has time to start
+    time.sleep(2)
 
 
 def stop_deployment(deployment_script: str) -> None:
@@ -166,19 +164,15 @@ class Config:
         # Memgraph configuration
         memgraph = config.get("memgraph", {})
         deployment_cfg = memgraph.get("deployment", {})
-        self._externally_managed = deployment_cfg.get("externally_managed", True)
+        self._externally_managed = deployment_cfg.get("externally_managed", False)
 
-        # Validate: externally managed deployments should not have other memgraph keys
         if self._externally_managed:
             allowed_keys = {"deployment"}
             extra_keys = set(memgraph.keys()) - allowed_keys
             if extra_keys:
                 raise ValueError(
-                    "Externally managed deployments should not have any other keys under 'memgraph' "
-                    "in the workload configuration. If you want to override any behaviour, you need to "
-                    "manage the workload yourself. If you have made a mistake in configuration and you "
-                    "want the workload to be externally managed, please remove the extra keys and keep "
-                    "the externally managed flag to true."
+                    f"Externally managed deployments should not have extra keys under 'memgraph': {extra_keys}. "
+                    "Remove them or set externally_managed to false."
                 )
             self._memgraph_args = []
             self._env = {}
@@ -210,8 +204,6 @@ class Config:
 
     def _derive_deployment_script(self) -> str:
         """Derive deployment script path from config file location."""
-        if self._externally_managed:
-            return None
         return os.path.join(SCRIPT_DIR, self._deployment_type, "deployment", "deployment.sh")
 
     @property
@@ -221,10 +213,6 @@ class Config:
     @property
     def is_verbose(self):
         return self._verbose
-
-    @property
-    def externally_managed(self):
-        return self._externally_managed
 
     @property
     def deployment_type(self):
@@ -369,7 +357,6 @@ def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
         print(f"Running workload '{workload_name}'")
         start = time.time()
 
-        # Start Memgraph deployment (skip if externally managed)
         if config.manage_deployment:
             try:
                 start_deployment(
@@ -380,7 +367,6 @@ def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
                 return {"error": f"Failed to start deployment for workload '{workload_name}': {ex}"}
 
         try:
-            # Run import queries
             print(f"Started import for workload '{workload_name}'")
 
             query_host = workload.get("querying", {}).get("host", "127.0.0.1")
@@ -394,11 +380,9 @@ def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
 
             timeout_sec = workload.get("timeout_min", 10) * 60
 
-            # Check if workload uses a custom script or workers
             if "script" in workload:
                 run_workload_script(workload, args, timeout_sec, deployment_type=config.deployment_type)
             else:
-                # Execute workers in steps
                 processes = []
                 workers = workload.get("workers", [])
                 steps = get_worker_steps(workers)
@@ -407,7 +391,6 @@ def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
                     print(f"Running step {step}.")
 
                     for worker in [x for x in workers if x.get("step", 1) == step]:
-                        # Override with workload global querying if not set on the worker
                         if "querying" not in worker.keys():
                             worker["querying"] = {"host": query_host, "port": query_port}
                         worker_object = get_worker_object(worker)
@@ -417,7 +400,6 @@ def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:
                             processes.append((process, timeout_sec))
                             process.start()
 
-                    # Monitor processes and enforce timeouts
                     for process, timeout in processes:
                         process.join(timeout)
                         if process.is_alive():
@@ -452,12 +434,11 @@ def run_config_file(
     raw = config_dict if config_dict is not None else yaml.safe_load(open(config_file))
     config = Config(raw, config_file, deployment=deployment)
 
-    # Validate script path if managing deployment
     if config.manage_deployment:
         if not os.path.exists(config.deployment_script):
             return {"error": f"Deployment script not found: {config.deployment_script}!"}
     else:
-        print("Externally managed cluster - skipping deployment start/stop")
+        print("Externally managed — skipping deployment start/stop")
 
     # Run dataset tests
     for test in config.tests:

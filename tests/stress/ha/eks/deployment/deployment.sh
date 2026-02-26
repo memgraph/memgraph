@@ -481,8 +481,8 @@ wait_for_healthy_cluster() {
     return 1
 }
 
-start_memgraph() {
-    log_info "Starting Memgraph HA Deployment on EKS..."
+start_cluster() {
+    log_info "Creating EKS cluster infrastructure..."
 
     check_prerequisites
     check_config_files
@@ -492,10 +492,16 @@ start_memgraph() {
     apply_storage_class
     attach_ebs_policy
     install_kube_prometheus_stack
+
+    log_info "EKS cluster infrastructure ready"
+}
+
+start_memgraph() {
+    log_info "Installing Memgraph HA on EKS cluster..."
+
     install_memgraph_ha
     wait_for_pods
 
-    # Check if there are any external services (LoadBalancer type)
     local external_svc_count
     external_svc_count=$(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-" | grep -c "LoadBalancer") || external_svc_count=0
 
@@ -506,6 +512,10 @@ start_memgraph() {
 
     setup_ha
 
+    print_deployment_summary
+}
+
+print_deployment_summary() {
     echo ""
     log_info "=========================================="
     log_info "Memgraph HA Deployment Complete!"
@@ -515,7 +525,6 @@ start_memgraph() {
     log_info "Release: $HELM_RELEASE_NAME"
     echo ""
 
-    # Show services
     log_info "Services:"
     echo ""
     printf "  %-35s %-15s %-20s\n" "SERVICE" "PORT" "CLUSTER-IP"
@@ -528,7 +537,6 @@ start_memgraph() {
         printf "  %-35s %-15s %-20s\n" "$svc_name" "$ports" "$cluster_ip"
     done < <(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-")
 
-    # Show LoadBalancer external endpoints with DNS and resolved IP
     local lb_count
     lb_count=$(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-" | grep -c "LoadBalancer") || lb_count=0
     if [[ "$lb_count" -gt 0 ]]; then
@@ -541,7 +549,6 @@ start_memgraph() {
             local ports=$(echo "$line" | awk '{print $5}' | cut -d'/' -f1 | cut -d':' -f1)
 
             if [[ "$external_dns" != "<none>" && "$external_dns" != "<pending>" && -n "$external_dns" ]]; then
-                # Resolve DNS to IP
                 local external_ip
                 external_ip=$(dig +short "$external_dns" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1) || external_ip=""
 
@@ -555,7 +562,6 @@ start_memgraph() {
         done < <(kubectl get svc --no-headers 2>/dev/null | grep "^memgraph-" | grep "LoadBalancer")
     fi
 
-    # Show connection info
     echo ""
     log_info "To access Memgraph coordinator:"
     local coord_dns
@@ -596,10 +602,6 @@ stop_memgraph() {
 destroy_cluster() {
     log_info "Destroying EKS cluster: $CLUSTER_NAME..."
 
-    # First stop Memgraph
-    stop_memgraph 2>/dev/null || true
-
-    # Delete the cluster
     log_info "Deleting EKS cluster (this may take 10-15 minutes)..."
     eksctl delete cluster --name "$CLUSTER_NAME" --region "$CLUSTER_REGION"
 
@@ -608,7 +610,6 @@ destroy_cluster() {
         exit 1
     fi
 
-    # Clean up the isolated kubeconfig file
     rm -f "$KUBECONFIG"
 
     log_info "EKS cluster deleted successfully"
@@ -996,12 +997,17 @@ export_metrics() {
 }
 
 print_usage() {
-    echo "Usage: $0 {start|stop|destroy|status|upgrade|restart|export-metrics|logs|exec|port-forward} [options]"
+    echo "Usage: $0 <command> [options]"
     echo ""
-    echo "Commands:"
-    echo "  start               - Create EKS cluster and deploy Memgraph HA"
+    echo "Lifecycle commands:"
+    echo "  start-cluster       - Create EKS cluster and install infrastructure (EBS, storage, monitoring)"
+    echo "  start               - Install Memgraph HA on existing cluster (Helm install + HA setup)"
     echo "  stop                - Uninstall Memgraph HA and delete PVCs (keeps cluster)"
-    echo "  destroy             - Delete entire EKS cluster"
+    echo "  destroy-cluster     - Delete entire EKS cluster"
+    echo "  start-all           - start-cluster + start (full setup)"
+    echo "  destroy             - stop + destroy-cluster (full teardown)"
+    echo ""
+    echo "Management commands:"
     echo "  status              - Check deployment status"
     echo "  upgrade [flags]     - Upgrade Helm release with optional flags"
     echo "  restart <instance>  - Restart an instance (delete pod)"
@@ -1012,7 +1018,7 @@ print_usage() {
     echo "  exec <pod>          - Open shell in a pod"
     echo "  port-forward [svc]  - Port forward to a service (default: coordinator)"
     echo ""
-    echo "Configuration files (in eks/ directory):"
+    echo "Configuration files (in eks/deployment/ directory):"
     echo "  cluster.yaml       - EKS cluster configuration"
     echo "  values.yaml        - Helm values for Memgraph HA"
     echo "  gp3-sc.yaml        - GP3 storage class configuration"
@@ -1025,34 +1031,42 @@ print_usage() {
     echo "  POD_READY_TIMEOUT             - Timeout for pods to be ready in seconds (default: 600)"
     echo "  ENABLE_MONITORING             - Install kube-prometheus-stack (default: true)"
     echo ""
+    echo "  MEMGRAPH_IMAGE                - Override image repo:tag"
     echo "  MEMGRAPH_IMAGE_TAG            - Override image.tag in values.yaml"
     echo "  MEMGRAPH_ENTERPRISE_LICENSE   - Override env.MEMGRAPH_ENTERPRISE_LICENSE in values.yaml"
     echo "  MEMGRAPH_ORGANIZATION_NAME    - Override env.MEMGRAPH_ORGANIZATION_NAME in values.yaml"
     echo ""
-    echo "Note: When ENABLE_MONITORING=true, also set prometheus.enabled=true in values.yaml"
-    echo ""
     echo "Examples:"
-    echo "  $0 start                           # Create cluster and deploy"
-    echo "  $0 status                          # Check status"
+    echo "  $0 start-all                       # Create cluster + deploy Memgraph"
+    echo "  $0 start-cluster                   # Just create cluster infrastructure"
+    echo "  $0 start                           # Deploy Memgraph on existing cluster"
+    echo "  $0 stop                            # Remove Memgraph (keep cluster)"
+    echo "  $0 start                           # Redeploy Memgraph (clean slate)"
+    echo "  $0 destroy                         # Tear down everything"
     echo "  $0 restart data_1                  # Restart data instance 1"
-    echo "  $0 export-metrics                  # Export metrics to timestamped file"
-    echo "  $0 export-metrics results.json     # Export metrics to specific file"
-    echo "  $0 port-forward coordinator 7687   # Port forward coordinator"
-    echo "  $0 logs mem-ha-test-data-0         # View pod logs"
-    echo "  $0 upgrade --set key=value         # Upgrade with custom values"
-    echo "  $0 stop                            # Remove Memgraph deployment + delete PVCs"
-    echo "  $0 destroy                         # Delete entire cluster"
+    echo "  $0 status                          # Check status"
 }
 
 # Main command handler
 case "$1" in
+    start-cluster)
+        start_cluster
+        ;;
     start)
         start_memgraph
         ;;
     stop)
         stop_memgraph
         ;;
+    destroy-cluster)
+        destroy_cluster
+        ;;
+    start-all)
+        start_cluster
+        start_memgraph
+        ;;
     destroy)
+        stop_memgraph 2>/dev/null || true
         destroy_cluster
         ;;
     status)

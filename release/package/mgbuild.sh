@@ -1143,7 +1143,7 @@ test_memgraph() {
       }
       trap cleanup_eks EXIT
 
-      "$EKS_DEPLOYMENT_SCRIPT" start
+      "$EKS_DEPLOYMENT_SCRIPT" start-cluster
 
       if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
         python3 -m venv "$PROJECT_ROOT/tests/ve3"

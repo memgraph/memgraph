@@ -5,7 +5,7 @@
 defaults:
   memgraph:
     deployment:
-      externally_managed: true
+      externally_managed: false
 
 workloads:
   - config: ../workloads/publications/workload.yaml
