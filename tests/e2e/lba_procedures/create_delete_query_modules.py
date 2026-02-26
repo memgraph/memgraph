@@ -166,7 +166,7 @@ def test_can_remove_vertex_label_when_given_remove_label(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ, REMOVE LABEL, UPDATE ON NODES CONTAINING LABELS :create_delete_label TO user;",
+        "GRANT READ, UPDATE, DELETE ON NODES CONTAINING LABELS :create_delete_label TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -187,7 +187,7 @@ def test_can_remove_vertex_label_when_given_global_remove_label(switch):
 
     execute_and_fetch_all(
         admin_cursor,
-        "GRANT READ, REMOVE LABEL, UPDATE ON NODES CONTAINING LABELS * TO user;",
+        "GRANT READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO user;",
     )
 
     test_cursor = connect(username="user", password="test").cursor()

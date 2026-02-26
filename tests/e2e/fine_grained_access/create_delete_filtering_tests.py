@@ -500,7 +500,7 @@ def test_remove_label_when_label_granted(switch):
     reset_and_prepare(admin_connection.cursor())
     common.create_multi_db(admin_connection.cursor(), switch, reset_and_prepare)
     common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT READ, UPDATE, REMOVE LABEL ON NODES CONTAINING LABELS :test_delete TO user;"
+        admin_connection.cursor(), "GRANT READ, UPDATE, DELETE ON NODES CONTAINING LABELS :test_delete TO user;"
     )
     user_connection = common.connect(username="user", password="test")
 
