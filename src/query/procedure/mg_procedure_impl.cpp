@@ -2432,7 +2432,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
       // Check DELETE on target label
-      if (!ctx->auth_checker->Has(label_id, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
+      if (!ctx->auth_checker->Has(std::vector{label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
         throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
       }
       // Check REMOVE_LABEL on existing vertex (gatekeeper)
