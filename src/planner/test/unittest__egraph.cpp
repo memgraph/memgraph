@@ -995,4 +995,189 @@ TEST(EGraphCongruenceClosureBug, ChainedCongruencePropagation) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
+// ============================================================================
+// Coverage tests for utility functions and edge cases
+// ============================================================================
+
+TEST(EGraphCoverage, NeedsRebuildAndWorklistSize) {
+  // Test: needs_rebuild() and worklist_size() utility functions
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  // Initially no rebuild needed
+  EXPECT_FALSE(egraph.needs_rebuild());
+  EXPECT_EQ(egraph.worklist_size(), 0);
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+
+  // Still no rebuild needed (no merges)
+  EXPECT_FALSE(egraph.needs_rebuild());
+  EXPECT_EQ(egraph.worklist_size(), 0);
+
+  // Merge adds to worklist
+  egraph.merge(a, b);
+
+  EXPECT_TRUE(egraph.needs_rebuild());
+  EXPECT_GT(egraph.worklist_size(), 0);
+
+  // After rebuild, worklist is empty
+  egraph.rebuild(ctx);
+
+  EXPECT_FALSE(egraph.needs_rebuild());
+  EXPECT_EQ(egraph.worklist_size(), 0);
+}
+
+TEST(EGraphCoverage, HasClassWithInvalidId) {
+  // Test: has_class() returns false for invalid e-class ID
+  EGraph<Op, NoAnalysis> egraph;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+
+  // Valid class ID
+  EXPECT_TRUE(egraph.has_class(a));
+
+  // Invalid class ID (beyond union-find size)
+  EXPECT_FALSE(egraph.has_class(EClassId{999999}));
+
+  // Another invalid ID
+  EXPECT_FALSE(egraph.has_class(EClassId{egraph.num_nodes() + 100}));
+}
+
+TEST(EGraphCoverage, RepairHashconsEclassMergesAwayOriginal) {
+  // Test: Line 475-478 branch where canonical_after_repair != eclass_id
+  //
+  // This happens when repair_hashcons_eclass causes the ORIGINAL e-class
+  // to be merged into a DIFFERENT e-class (the other becomes the root).
+  //
+  // Scenario:
+  //   a, b = separate leaves
+  //   fa = F(a), fb = F(b) - in separate e-classes
+  //   ga = G(fa), gb = G(fb) - ga has child fa, gb has child fb
+  //   merge(a, b) - this triggers rebuild
+  //
+  // During rebuild of fa's e-class:
+  //   - fa and fb become congruent (both canonicalize to F(E_ab))
+  //   - repair_hashcons_eclass finds fb is a duplicate
+  //   - Depending on union-find, fa's class might be merged INTO fb's class
+  //   - So canonical_after_repair = fb's class != fa's original class
+  //
+  // To ensure we hit this branch, we need the merge to go "the other way"
+  // We can influence this by creating fb BEFORE fa (lower ID = more likely root)
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  // Create b first so it gets lower ID
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+
+  // Create fb before fa - fb will have lower eclass ID
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+
+  // Verify fa has higher ID than fb
+  EXPECT_GT(fa.value_of(), fb.value_of());
+
+  // Create parent nodes to ensure fa's class is in the worklist
+  auto ga = egraph.emplace(Op::F2, {fa}).eclass_id;
+  auto gb = egraph.emplace(Op::F2, {fb}).eclass_id;
+
+  EXPECT_EQ(egraph.num_classes(), 6);
+
+  // Merge a and b - this will cause fa and fb to become congruent during rebuild
+  egraph.merge(a, b);
+  egraph.rebuild(ctx);
+
+  // After rebuild, fa and fb should be merged
+  EXPECT_EQ(egraph.find(fa), egraph.find(fb));
+  // ga and gb should also be merged (congruence propagation)
+  EXPECT_EQ(egraph.find(ga), egraph.find(gb));
+
+  EXPECT_EQ(egraph.num_classes(), 3);  // {a,b}, {fa,fb}, {ga,gb}
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCoverage, RepairHashconsWithHigherRankTarget) {
+  // Test: Line 475-478 branch where canonical_after_repair != eclass_id
+  //
+  // This happens when the e-class being repaired gets merged INTO another
+  // e-class (the other becomes canonical due to higher union-find rank).
+  //
+  // Strategy: Build rank in one e-class through preliminary merges, then
+  // trigger congruence that merges a lower-rank e-class into the higher one.
+
+  EGraph<Op, NoAnalysis> egraph;
+  ProcessingContext<Op> ctx;
+
+  // Create leaf nodes - we'll merge c1, c2, c3 to build rank
+  auto c1 = egraph.emplace(Op::A, 1).eclass_id;
+  auto c2 = egraph.emplace(Op::A, 2).eclass_id;
+  auto c3 = egraph.emplace(Op::A, 3).eclass_id;
+  auto d = egraph.emplace(Op::A, 4).eclass_id;
+
+  // Merge c1, c2, c3 to increase rank of the merged class
+  egraph.merge(c1, c2);
+  egraph.rebuild(ctx);
+  auto merged_c = egraph.find(c1);
+  egraph.merge(merged_c, c3);
+  egraph.rebuild(ctx);
+  merged_c = egraph.find(c1);
+
+  // Create F nodes - f_high has child with higher union-find rank
+  auto f_high = egraph.emplace(Op::F, {merged_c}).eclass_id;
+  auto f_low = egraph.emplace(Op::F, {d}).eclass_id;
+
+  // Create parent nodes to ensure both F classes get processed
+  egraph.emplace(Op::F2, {f_high});
+  egraph.emplace(Op::F2, {f_low});
+
+  // Merge the leaves - this triggers congruence between f_high and f_low
+  egraph.merge(merged_c, d);
+  egraph.rebuild(ctx);
+
+  // After rebuild, both F nodes should be in same class
+  EXPECT_EQ(egraph.find(f_high), egraph.find(f_low));
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+}
+
+TEST(EGraphCoverage, ValidateCongruenceClosureDetectsFailure) {
+  // Test: ValidateCongruenceClosure returns false when congruence is broken
+  //
+  // We need to create a state where two e-nodes in different e-classes
+  // have the same canonical form. This requires bypassing normal e-graph
+  // operations that maintain congruence.
+  //
+  // Strategy: Create congruent e-nodes, merge their children, but DON'T
+  // call rebuild. The validation should detect the inconsistency.
+
+  EGraph<Op, NoAnalysis> egraph;
+
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+
+  // Before merge, congruence closure is valid
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+
+  // Merge a and b - now fa and fb SHOULD be congruent but we don't rebuild
+  egraph.merge(a, b);
+
+  // Without rebuild, fa and fb are in different e-classes but have same
+  // canonical form F(E_ab). This violates congruence closure.
+  EXPECT_FALSE(egraph.ValidateCongruenceClosure())
+      << "Congruence closure should be broken: fa and fb have same canonical "
+         "form but are in different e-classes";
+
+  // After rebuild, congruence is restored
+  ProcessingContext<Op> ctx;
+  egraph.rebuild(ctx);
+
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
+
+  // fa and fb should now be in the same e-class (they became congruent)
+  EXPECT_EQ(egraph.find(fa), egraph.find(fb));
+}
+
 }  // namespace memgraph::planner::core
