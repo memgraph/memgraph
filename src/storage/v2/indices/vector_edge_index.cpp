@@ -18,7 +18,7 @@
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "usearch/index_dense.hpp"
-#include "utils/embeddings_memory_counter.hpp"
+#include "utils/jemalloc_arena_allocator.hpp"
 #include "utils/synchronized.hpp"
 
 namespace r = ranges;
@@ -26,9 +26,11 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
-// unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
-// operations.
-using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t>;
+using mg_vector_edge_index_t = unum::usearch::index_dense_gt<        //
+    VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t,        //
+    unum::usearch::aligned_allocator_gt<unum::usearch::byte_t, 64>,  //
+    utils::jemalloc_arena_allocator_gt<64>,                          //
+    utils::jemalloc_arena_allocator_gt<8>>;
 
 using SyncVectorEdgeIndex = utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>;
 
@@ -181,25 +183,12 @@ bool VectorEdgeIndex::DropIndex(std::string_view index_name) {
     return false;
   }
   const auto &edge_type_prop = it->second;
-  auto idx_it = pimpl->edge_index_.find(edge_type_prop);
-  if (idx_it != pimpl->edge_index_.end()) {
-    auto locked_index = idx_it->second.mg_index.ReadLock();
-    const auto est = EstimatePerVectorMmapBytes(*locked_index);
-    const auto count = static_cast<int64_t>(locked_index->size());
-    utils::embeddings_memory_counter.Sub(count * est.hnsw_bytes, count * est.vec_bytes);
-  }
   pimpl->edge_index_.erase(edge_type_prop);
   pimpl->index_name_to_edge_type_prop_.erase(it);
   return true;
 }
 
 void VectorEdgeIndex::Clear() {
-  for (const auto &[_, index_item] : pimpl->edge_index_) {
-    auto locked_index = index_item.mg_index.ReadLock();
-    const auto est = EstimatePerVectorMmapBytes(*locked_index);
-    const auto count = static_cast<int64_t>(locked_index->size());
-    utils::embeddings_memory_counter.Sub(count * est.hnsw_bytes, count * est.vec_bytes);
-  }
   pimpl->index_name_to_edge_type_prop_.clear();
   pimpl->edge_index_.clear();
 }

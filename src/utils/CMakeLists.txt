@@ -13,7 +13,6 @@ target_sources(mg-utils
     file.cpp
     file_locker.cpp
     memory.cpp
-    embeddings_memory_counter.cpp
     memory_tracker.cpp
     readable_size.cpp
     signals.cpp
@@ -37,6 +36,7 @@ target_sources(mg-utils
     safe_string.cpp
     disk_utils.cpp
     shared_quota.cpp
+    embeddings_memory_counter.cpp
 
     PUBLIC
     FILE_SET HEADERS

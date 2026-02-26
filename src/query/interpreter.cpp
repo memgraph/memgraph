@@ -6488,11 +6488,11 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
             {TypedValue("embeddings_memory"),
-             TypedValue(utils::GetReadableSize(static_cast<double>(utils::embeddings_memory_counter.Amount())))},
-            {TypedValue("embeddings_memory_usearch"),
              TypedValue(
                  utils::GetReadableSize(static_cast<double>(storage->indices_.vector_index_.TotalMemoryUsage() +
                                                             storage->indices_.vector_edge_index_.TotalMemoryUsage())))},
+            {TypedValue("embeddings_memory_tracked"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(utils::global_embeddings_memory_counter.Amount())))},
             {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
             {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
             {TypedValue("next_session_isolation_level"),
@@ -6526,10 +6526,6 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         const auto memory_limit = license_info.memory_limit != 0
                                       ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
                                       : "UNLIMITED";
-        const auto embeddings_memory_limit =
-            license_info.embeddings_memory_limit != 0
-                ? utils::GetReadableSize(static_cast<double>(license_info.embeddings_memory_limit))
-                : "UNLIMITED";
 
         const std::vector<std::vector<TypedValue>> results{
             {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
@@ -6538,7 +6534,6 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("license_type"), TypedValue(license_info.license_type)},
             {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
             {TypedValue("memory_limit"), TypedValue(memory_limit)},
-            {TypedValue("embeddings_memory_limit"), TypedValue(embeddings_memory_limit)},
             {TypedValue("status"), TypedValue(license_info.status)},
         };
 

@@ -59,7 +59,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/embeddings_memory_counter.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -357,7 +356,6 @@ int main(int argc, char **argv) {
   spdlog::info("Memory limit in config is set to {}", memgraph::utils::GetReadableSize(memory_limit));
   memgraph::utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
-  memgraph::utils::embeddings_memory_counter.SetOverallLimit(memory_limit);
 
   auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
   auto parameters = std::make_shared<memgraph::parameters::Parameters>(data_directory / "parameters");

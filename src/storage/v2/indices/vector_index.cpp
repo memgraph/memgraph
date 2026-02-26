@@ -18,7 +18,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
-#include "utils/embeddings_memory_counter.hpp"
+#include "utils/jemalloc_arena_allocator.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/synchronized.hpp"
 
@@ -27,7 +27,11 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
-using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
+using mg_vector_index_t = unum::usearch::index_dense_gt<             //
+    Vertex *, unum::usearch::uint40_t,                               //
+    unum::usearch::aligned_allocator_gt<unum::usearch::byte_t, 64>,  //
+    utils::jemalloc_arena_allocator_gt<64>,                          //
+    utils::jemalloc_arena_allocator_gt<8>>;
 using synchronized_mg_vector_index_t = utils::Synchronized<mg_vector_index_t, std::shared_mutex>;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -191,9 +195,6 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
   auto &spec = index_item.spec;
   auto locked_index = mg_index.MutableSharedLock();
 
-  const auto index_size = locked_index->size();
-  const auto est = EstimatePerVectorMmapBytes(*locked_index);
-
   const auto dimension = locked_index->dimensions();
   std::vector<double> vector(dimension);
   for (auto &vertex : vertices) {
@@ -210,22 +211,11 @@ bool VectorIndex::DropIndex(std::string_view index_name, utils::SkipList<Vertex>
     }
   }
 
-  utils::embeddings_memory_counter.Sub(static_cast<int64_t>(index_size) * est.hnsw_bytes,
-                                       static_cast<int64_t>(index_size) * est.vec_bytes);
-
   pimpl->index_by_id_.erase(it);
   return true;
 }
 
-void VectorIndex::Clear() {
-  for (const auto &[_, index_item] : pimpl->index_by_id_) {
-    auto locked_index = index_item.mg_index.ReadLock();
-    const auto est = EstimatePerVectorMmapBytes(*locked_index);
-    const auto count = static_cast<int64_t>(locked_index->size());
-    utils::embeddings_memory_counter.Sub(count * est.hnsw_bytes, count * est.vec_bytes);
-  }
-  pimpl->index_by_id_.clear();
-}
+void VectorIndex::Clear() { pimpl->index_by_id_.clear(); }
 
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
   auto matching_index_properties = GetIndicesByLabel(label);

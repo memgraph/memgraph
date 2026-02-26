@@ -317,7 +317,6 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   }
 
   info.memory_limit = maybe_license->memory_limit;
-  info.embeddings_memory_limit = maybe_license->embeddings_memory_limit;
   info.license_type = LicenseTypeToString(maybe_license->type);
 
   // convert the epoch of validity to date string
@@ -361,7 +360,6 @@ std::string Encode(const License &license) {
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
   slk::Save(license.type, &builder);
-  slk::Save(license.embeddings_memory_limit, &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());
@@ -397,14 +395,14 @@ std::optional<License> Decode(std::string_view license_key) {
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
 
-    int64_t embeddings_memory_limit{0};
+    // Consume legacy embeddings_memory_limit field if present (backward compat).
     try {
-      slk::Load(&embeddings_memory_limit, &reader);
+      int64_t ignored{0};
+      slk::Load(&ignored, &reader);
     } catch (const slk::SlkReaderException &) {  // NOLINT(bugprone-empty-catch)
-      // Old license format without embeddings_memory_limit; defaults to 0 (unlimited).
     }
 
-    return {License{organization_name, valid_until, memory_limit, LicenseType(license_type), embeddings_memory_limit}};
+    return {License{organization_name, valid_until, memory_limit, LicenseType(license_type)}};
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
   }

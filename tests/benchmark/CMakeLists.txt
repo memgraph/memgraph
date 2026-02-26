@@ -80,6 +80,9 @@ target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
 add_benchmark(stack_erase_if.cpp)
 target_link_libraries(${test_prefix}stack_erase_if mg-utils)
 
+add_benchmark(allocator_mmap_vs_jemalloc.cpp)
+target_link_libraries(${test_prefix}allocator_mmap_vs_jemalloc mg-utils usearch)
+
 # USearch index_dense benchmark: same source, two configs (builtin vs simsimd) to compare metric path.
 # Uncomment to build and run locally.
 #[[

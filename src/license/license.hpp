@@ -29,19 +29,16 @@ std::string LicenseTypeToString(LicenseType license_type);
 struct License {
   License() = default;
 
-  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type,
-          int64_t embeddings_memory_limit = 0)
+  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type)
       : organization_name{std::move(organization_name)},
         valid_until{valid_until},
         memory_limit{memory_limit},
-        type{license_type},
-        embeddings_memory_limit{embeddings_memory_limit} {}
+        type{license_type} {}
 
   std::string organization_name;
   int64_t valid_until;
   int64_t memory_limit;
   LicenseType type;
-  int64_t embeddings_memory_limit{0};
 
   bool operator==(const License &) const = default;
 };
@@ -63,7 +60,6 @@ struct DetailedLicenseInfo {
   std::string license_type;
   std::string valid_until;
   int64_t memory_limit{0};
-  int64_t embeddings_memory_limit{0};
   std::string status;
 };
 
