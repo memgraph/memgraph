@@ -1103,7 +1103,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
   if (maybe_content && !maybe_content->empty()) {
     const char *content_value = maybe_content->c_str();
 
-    py::Object py_main(PyImport_ImportModule("__main__"));
+    const py::Object py_main(PyImport_ImportModule("__main__"));
     if (!py_main) {
       PyErr_Clear();
       return;
@@ -1115,7 +1115,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       return;
     }
 
-    py::Object py_code_content(PyUnicode_FromString(content_value));
+    const py::Object py_code_content(PyUnicode_FromString(content_value));
     if (!py_code_content) {
       PyErr_Clear();
       return;
@@ -1126,7 +1126,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       return;
     }
 
-    py::Object py_run_res(PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict));
+    const py::Object py_run_res(PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict));
     if (!py_run_res) {
       PyErr_Clear();
       return;
@@ -1140,7 +1140,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       return;
     }
 
-    py::Object iterator(PyObject_GetIter(py_res));
+    const py::Object iterator(PyObject_GetIter(py_res));
     if (!iterator) {
       PyErr_Clear();
       return;
@@ -1148,22 +1148,22 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
 
     PyObject *module_ptr = nullptr;
     while ((module_ptr = PyIter_Next(iterator.Ptr()))) {
-      py::Object module(module_ptr);
+      const py::Object module(module_ptr);
       const char *module_name = PyUnicode_AsUTF8(module.Ptr());
       if (!module_name) {
         PyErr_Clear();
         continue;
       }
 
-      std::string_view module_name_str(module_name);
+      const std::string_view module_name_str(module_name);
 
-      py::Object sys_keys(PyDict_Keys(sys_mod_ref));
+      const py::Object sys_keys(PyDict_Keys(sys_mod_ref));
       if (!sys_keys) {
         PyErr_Clear();
         break;
       }
 
-      py::Object sys_iterator(PyObject_GetIter(sys_keys.Ptr()));
+      const py::Object sys_iterator(PyObject_GetIter(sys_keys.Ptr()));
       if (!sys_iterator) {
         PyErr_Clear();
         break;
@@ -1171,14 +1171,14 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
 
       PyObject *sys_mod_key_ptr = nullptr;
       while ((sys_mod_key_ptr = PyIter_Next(sys_iterator.Ptr()))) {
-        py::Object sys_mod_key(sys_mod_key_ptr);
+        const py::Object sys_mod_key(sys_mod_key_ptr);
         const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key.Ptr());
         if (!sys_mod_key_name) {
           PyErr_Clear();
           continue;
         }
 
-        std::string_view sys_mod_key_name_str(sys_mod_key_name);
+        const std::string_view sys_mod_key_name_str(sys_mod_key_name);
         if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
           if (PyDict_DelItemString(sys_mod_ref, sys_mod_key_name) != 0) {
             PyErr_Clear();
