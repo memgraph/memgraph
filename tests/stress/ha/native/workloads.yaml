@@ -1,0 +1,26 @@
+# Native HA Workload Registry
+# 'defaults' provides the deployment config merged into each workload YAML.
+# Set enabled: false to skip a workload.
+
+defaults:
+  memgraph:
+    deployment:
+      externally_managed: false
+    args: ["--log-level=CRITICAL"]
+    env: {}
+  cluster:
+    coordinators:
+      - {name: coord-1, host: "127.0.0.1", bolt_port: 7691}
+      - {name: coord-2, host: "127.0.0.1", bolt_port: 7692}
+      - {name: coord-3, host: "127.0.0.1", bolt_port: 7693}
+    data_instances:
+      - {name: data-1, host: "127.0.0.1", bolt_port: 7687}
+      - {name: data-2, host: "127.0.0.1", bolt_port: 7688}
+      - {name: data-3, host: "127.0.0.1", bolt_port: 7689}
+
+workloads:
+  - config: show_replicas_deadlock.yaml
+    enabled: false
+
+  - config: ../workloads/concurrent_edge_write.yaml
+    enabled: true
