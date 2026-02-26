@@ -1026,18 +1026,23 @@ bool PythonModule::Close() {
   MG_ASSERT(py_module_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
 
+  // If the Python interpreter is finalizing, we should avoid complex cleanup
+  // that involves running scripts, as it might fail or cause crashes.
+  // We must check this *before* acquiring the GIL, as EnsureGIL will terminate
+  // the thread if called during finalization.
+  if (Py_IsFinalizing()) {
+    procedures_.clear();
+    transformations_.clear();
+    functions_.clear();
+    py_module_ = py::Object(nullptr);
+    return true;
+  }
+
   auto gil = py::EnsureGIL();
 
   procedures_.clear();
   transformations_.clear();
   functions_.clear();
-
-  // If the Python interpreter is finalizing, we should avoid complex cleanup
-  // that involves running scripts, as it might fail or cause crashes.
-  if (Py_IsFinalizing()) {
-    py_module_ = py::Object(nullptr);
-    return true;
-  }
 
   // Get the reference to sys.modules dictionary. PyImport_GetModuleDict()
   // returns a borrowed reference to the internal modules dictionary.
