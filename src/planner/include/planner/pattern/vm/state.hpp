@@ -13,16 +13,15 @@
 
 import memgraph.planner.core.eids;
 
-#include <algorithm>
-#include <array>
 #include <cstdint>
-#include <functional>
 #include <span>
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
+
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
+#include "utils/logging.hpp"
 
 namespace memgraph::planner::core::vm {
 
@@ -73,6 +72,14 @@ struct ParentsIter {
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
 using FastEClassSet = boost::unordered_flat_set<EClassId>;
 
+/// Configuration for VMState reset
+struct VMStateConfig {
+  std::size_t num_eclass_regs;
+  std::size_t num_enode_regs;
+  std::span<uint8_t const> binding_order;  // size == num_slots
+  std::span<uint8_t const> slot_to_order;  // size == num_slots
+};
+
 /// VM execution state
 struct VMState {
   // E-class registers (result of navigation)
@@ -103,32 +110,31 @@ struct VMState {
   std::vector<AllEClassesIter> eclasses_iters;  // All e-classes iterations (span-based)
 
   // Binding order information (set during reset, from CompiledPattern)
-  // slots_bound_after_[i] = list of slots bound AFTER slot i in binding order
-  // Used by bind() to know which seen sets to clear when slot i changes
-  std::vector<std::span<uint8_t const>> slots_bound_after_;
+  // binding_order_[i] = slot at position i in binding order
+  // slot_to_order_[slot] = position of slot in binding order
+  std::span<uint8_t const> binding_order_;
+  std::span<uint8_t const> slot_to_order_;
 
-  /// Initialize state for execution with given number of slots and registers
-  template <typename SlotsAfterAccessor>
-  void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs,
-             SlotsAfterAccessor slots_bound_after_fn) {
+  /// Initialize state for execution
+  void reset(VMStateConfig const &cfg) {
+    DMG_ASSERT(cfg.binding_order.size() == cfg.slot_to_order.size());
+    auto const num_slots = cfg.binding_order.size();
     slots.assign(num_slots, EClassId{});
     pc = 0;
 
-    // Store binding order information
-    slots_bound_after_.resize(num_slots);
-    for (std::size_t i = 0; i < num_slots; ++i) {
-      slots_bound_after_[i] = slots_bound_after_fn(i);
-    }
+    // Store binding order information as spans (no allocation)
+    binding_order_ = cfg.binding_order;
+    slot_to_order_ = cfg.slot_to_order;
 
     // Resize register arrays if needed
-    if (eclass_regs.size() < num_eclass_regs) {
-      eclass_regs.resize(num_eclass_regs);
-      eclasses_iters.resize(num_eclass_regs);
+    if (eclass_regs.size() < cfg.num_eclass_regs) {
+      eclass_regs.resize(cfg.num_eclass_regs);
+      eclasses_iters.resize(cfg.num_eclass_regs);
     }
-    if (enode_regs.size() < num_enode_regs) {
-      enode_regs.resize(num_enode_regs);
-      enodes_iters.resize(num_enode_regs);
-      parents_iters.resize(num_enode_regs);
+    if (enode_regs.size() < cfg.num_enode_regs) {
+      enode_regs.resize(cfg.num_enode_regs);
+      enodes_iters.resize(cfg.num_enode_regs);
+      parents_iters.resize(cfg.num_enode_regs);
     }
 
     // Reset per-slot seen maps for deduplication
@@ -138,26 +144,14 @@ struct VMState {
     }
   }
 
-  /// Legacy reset without binding order (uses slot index order)
-  void reset(std::size_t num_slots, std::size_t num_eclass_regs, std::size_t num_enode_regs) {
-    // Fall back to index-based ordering (slot 0, 1, 2, ...)
-    // This is used by tests that don't have CompiledPattern
-    legacy_slots_bound_after_.clear();
-    legacy_slots_bound_after_.resize(num_slots);
-    for (std::size_t i = 0; i < num_slots; ++i) {
-      for (std::size_t j = i + 1; j < num_slots; ++j) {
-        legacy_slots_bound_after_[i].push_back(static_cast<uint8_t>(j));
-      }
-    }
-
-    reset(num_slots, num_eclass_regs, num_enode_regs, [this](std::size_t slot) -> std::span<uint8_t const> {
-      return legacy_slots_bound_after_[slot];
-    });
-  }
-
  private:
-  // Storage for legacy mode (when no binding order provided)
-  std::vector<std::vector<uint8_t>> legacy_slots_bound_after_;
+  /// Clear seen sets for all slots bound AFTER the given slot in binding order
+  void clear_dependent_seen_sets(std::size_t slot) {
+    auto const order = slot_to_order_[slot];
+    for (std::size_t j = order + 1; j < binding_order_.size(); ++j) {
+      seen_per_slot[binding_order_[j]].clear();
+    }
+  }
 
  public:
   /// Start an e-node iteration on a register (uses span)
@@ -188,23 +182,6 @@ struct VMState {
 
   [[nodiscard]] auto get_eclasses_iter(uint8_t reg) const -> AllEClassesIter const & { return eclasses_iters[reg]; }
 
-  /// Bind a slot to an e-class (unconditional, for non-last slots).
-  /// If the slot value changes, clears the seen sets for slots bound AFTER this one
-  /// in binding order (since their prefix context has changed).
-  ///
-  /// This uses binding order, not slot index order. For pattern A(?x, B(?y, ?z)) with
-  /// binding order [1, 2, 0], when slot 2 (?z) changes, we clear seen[0] (bound after),
-  /// not seen[3..] (higher indices).
-  void bind(std::size_t slot, EClassId eclass) {
-    if (slots[slot] != eclass) {
-      // Slot value changed - clear seen sets for slots bound AFTER this one
-      for (auto after_slot : slots_bound_after_[slot]) {
-        seen_per_slot[after_slot].clear();
-      }
-      slots[slot] = eclass;
-    }
-  }
-
   /// Try to bind a slot with deduplication check.
   /// Returns false if this value has already been fully explored at this slot (backtrack).
   /// Returns true if this is a value to explore.
@@ -224,9 +201,7 @@ struct VMState {
 
     // Only clear later slots and update if value is actually changing
     if (slots[slot] != eclass) {
-      for (auto after_slot : slots_bound_after_[slot]) {
-        seen_per_slot[after_slot].clear();
-      }
+      clear_dependent_seen_sets(slot);
       slots[slot] = eclass;
     }
 

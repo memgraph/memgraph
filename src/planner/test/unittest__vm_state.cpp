@@ -23,10 +23,14 @@ using namespace vm;
 // VMState Deduplication Tests
 // ============================================================================
 
+// Identity binding order for simple 2-slot tests
+constexpr std::array<uint8_t, 2> kIdentityOrder2 = {0, 1};
+
 // Test: Global deduplication across candidates via bind-time dedup.
 TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
   VMState state;
-  state.reset(2, 1, 1);  // 2 slots, 1 eclass reg, 1 enode reg
+  state.reset(
+      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
 
   // Simulate first "candidate" execution:
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
@@ -47,7 +51,8 @@ TEST(VMStateTest, GlobalDeduplicationAcrossCandidates) {
 // Test: Verify correct behavior when slot value changes
 TEST(VMStateTest, BindSlotValueChange) {
   VMState state;
-  state.reset(2, 1, 1);
+  state.reset(
+      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
 
   // First candidate: (100, 200)
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
@@ -64,7 +69,8 @@ TEST(VMStateTest, BindSlotValueChange) {
 // Test: Deduplication within same candidate
 TEST(VMStateTest, DeduplicationWithinCandidate) {
   VMState state;
-  state.reset(2, 1, 1);
+  state.reset(
+      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = kIdentityOrder2, .slot_to_order = kIdentityOrder2});
 
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{100})) << "First bind of slot 0 should succeed";
   EXPECT_TRUE(state.try_bind_dedup(1, EClassId{200})) << "First bind of slot 1 should succeed";
@@ -77,17 +83,16 @@ TEST(VMStateTest, DeduplicationWithinCandidate) {
 
 // Test: Binding order clears correct seen sets
 TEST(VMStateTest, BindingOrderClearsSlotsCorrectly) {
-  // Simulate binding order [1, 0, 2]
-  std::vector<std::vector<uint8_t>> slots_after_storage = {
-      {2},     // slot 0: clear slot 2 when changed
-      {0, 2},  // slot 1: clear slots 0 and 2 when changed
-      {}       // slot 2: clear nothing (last in order)
-  };
+  // Binding order [1, 0, 2] means: slot 1 first, then slot 0, then slot 2
+  // When slot 1 changes (pos 0), clear slots at positions 1, 2 = slots 0, 2
+  // When slot 0 changes (pos 1), clear slots at positions 2 = slot 2
+  // When slot 2 changes (pos 2), clear nothing (last in order)
+  std::vector<uint8_t> binding_order = {1, 0, 2};
+  std::vector<uint8_t> slot_to_order = {1, 0, 2};  // slot 0 at pos 1, slot 1 at pos 0, slot 2 at pos 2
 
   VMState state;
-  state.reset(3, 1, 1, [&slots_after_storage](std::size_t slot) -> std::span<uint8_t const> {
-    return slots_after_storage[slot];
-  });
+  state.reset(
+      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = binding_order, .slot_to_order = slot_to_order});
 
   // Bind in order: slot 1, slot 0, slot 2
   EXPECT_TRUE(state.try_bind_dedup(1, EClassId{100})) << "First bind of slot 1 should succeed";
@@ -113,6 +118,75 @@ TEST(VMStateTest, BindingOrderClearsSlotsCorrectly) {
   // Original values should be new again
   EXPECT_TRUE(state.try_bind_dedup(0, EClassId{200})) << "Original slot 0 value should be new after slot 1 changed";
   EXPECT_TRUE(state.try_bind_dedup(2, EClassId{300})) << "After root prefix change, tuple should be new";
+}
+
+// Test: Complex 4-slot permutation where binding order differs significantly from slot indices
+// Simulates: ?w:0 ?x:1 ?y:2 ?z:3 with binding order ?x, ?y, ?w, ?z
+//   binding_order (pos -> slot): [1, 2, 0, 3]
+//   slot_to_order (slot -> pos): [2, 0, 1, 3]
+// Expected clearing behavior:
+//   When ?x (slot 1, pos 0) changes: clear ?y, ?w, ?z (slots 2, 0, 3)
+//   When ?y (slot 2, pos 1) changes: clear ?w, ?z (slots 0, 3)
+//   When ?w (slot 0, pos 2) changes: clear ?z (slot 3)
+//   When ?z (slot 3, pos 3) changes: clear nothing
+TEST(VMStateTest, FourSlotComplexPermutation) {
+  std::vector<uint8_t> binding_order = {1, 2, 0, 3};  // pos -> slot
+  std::vector<uint8_t> slot_to_order = {2, 0, 1, 3};  // slot -> pos
+
+  VMState state;
+  state.reset(
+      {.num_eclass_regs = 1, .num_enode_regs = 1, .binding_order = binding_order, .slot_to_order = slot_to_order});
+
+  // Bind all slots in binding order: ?x, ?y, ?w, ?z
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{10}));  // ?x
+  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{20}));  // ?y
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{30}));  // ?w
+  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));  // ?z
+
+  // Mark all as seen
+  state.mark_seen(3);
+  state.mark_seen(0);
+  state.mark_seen(2);
+  state.mark_seen(1);
+
+  // All should now be deduplicated
+  EXPECT_FALSE(state.try_bind_dedup(1, EClassId{10}));
+  EXPECT_FALSE(state.try_bind_dedup(2, EClassId{20}));
+  EXPECT_FALSE(state.try_bind_dedup(0, EClassId{30}));
+  EXPECT_FALSE(state.try_bind_dedup(3, EClassId{40}));
+
+  // Change ?w (slot 0, pos 2) - should only clear ?z (slot 3)
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{31}));
+
+  // ?x and ?y should still be deduplicated (bound before ?w)
+  EXPECT_FALSE(state.try_bind_dedup(1, EClassId{10}));
+  EXPECT_FALSE(state.try_bind_dedup(2, EClassId{20}));
+  // ?z should now be fresh (bound after ?w)
+  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));
+
+  state.mark_seen(3);
+  state.mark_seen(0);
+
+  // Change ?y (slot 2, pos 1) - should clear ?w (slot 0) and ?z (slot 3)
+  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{21}));
+
+  // ?x should still be deduplicated
+  EXPECT_FALSE(state.try_bind_dedup(1, EClassId{10}));
+  // ?w and ?z should be fresh
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{30}));
+  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));
+
+  state.mark_seen(3);
+  state.mark_seen(0);
+  state.mark_seen(2);
+
+  // Change ?x (slot 1, pos 0) - should clear ?y, ?w, ?z (all others)
+  EXPECT_TRUE(state.try_bind_dedup(1, EClassId{11}));
+
+  // All should be fresh
+  EXPECT_TRUE(state.try_bind_dedup(2, EClassId{20}));
+  EXPECT_TRUE(state.try_bind_dedup(0, EClassId{30}));
+  EXPECT_TRUE(state.try_bind_dedup(3, EClassId{40}));
 }
 
 }  // namespace memgraph::planner::core

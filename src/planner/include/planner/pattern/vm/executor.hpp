@@ -74,7 +74,7 @@ namespace memgraph::planner::core::vm {
 //   1. BindSlotDedup checks if value is in seen_per_slot[slot]
 //   2. If seen, backtrack (don't explore same value twice)
 //   3. Yield/MarkSeen adds value to seen_per_slot[slot]
-//   4. When slot i changes, clear seen_per_slot[j] for j in slots_bound_after[i]
+//   4. When slot i changes, clear seen_per_slot for slots bound after i in binding_order
 //
 // This ensures each unique binding tuple is yielded exactly once.
 //
@@ -96,7 +96,7 @@ namespace memgraph::planner::core::vm {
 /// - symbols(): Symbol table for CheckSymbol instructions
 /// - entry_symbol(): Root symbol for candidate lookup (nullopt if variable root)
 /// - binding_order(): Order slots are bound (for deduplication)
-/// - slots_bound_after(i): Slots to clear when slot i changes
+/// - slot_to_order(): Inverse mapping for efficient clearing
 ///
 /// @tparam Symbol The symbol type (must match PatternCompiler and VMExecutor)
 ///
@@ -116,15 +116,12 @@ class CompiledPattern {
         symbols_(std::move(symbols)),
         entry_symbol_(std::move(entry_symbol)),
         binding_order_(std::move(binding_order)) {
-    // Precompute slots_bound_after for each slot (used by deduplication)
-    // slots_bound_after[i] contains the slots that are bound AFTER slot i in binding order
-    slots_bound_after_.resize(num_slots_);
+    // Compute inverse mapping: slot -> order position
+    // For binding_order [1, 2, 0], slot_to_order_ becomes [2, 0, 1]
+    // meaning slot 0 is bound at position 2, slot 1 at position 0, slot 2 at position 1
+    slot_to_order_.resize(num_slots_);
     for (std::size_t order_idx = 0; order_idx < binding_order_.size(); ++order_idx) {
-      auto slot = binding_order_[order_idx];
-      // All slots after this one in binding order should be cleared when this slot changes
-      for (std::size_t j = order_idx + 1; j < binding_order_.size(); ++j) {
-        slots_bound_after_[slot].push_back(binding_order_[j]);
-      }
+      slot_to_order_[binding_order_[order_idx]] = static_cast<uint8_t>(order_idx);
     }
   }
 
@@ -145,21 +142,29 @@ class CompiledPattern {
   /// meaning ?y (slot 1) is bound first, then ?z (slot 2), then ?x (slot 0).
   [[nodiscard]] auto binding_order() const -> std::span<uint8_t const> { return binding_order_; }
 
-  /// For each slot, the list of slots that are bound AFTER it in binding order.
-  /// Used by deduplication: when slot i changes, clear seen_per_slot[j] for each j in slots_bound_after[i].
-  [[nodiscard]] auto slots_bound_after(std::size_t slot) const -> std::span<uint8_t const> {
-    return slots_bound_after_[slot];
+  /// Inverse mapping: slot index -> order position.
+  /// For binding_order [1, 2, 0], slot_to_order returns [2, 0, 1].
+  /// Used by deduplication: when slot s changes, clear seen sets for all slots
+  /// at positions > slot_to_order[s] in binding_order.
+  [[nodiscard]] auto slot_to_order() const -> std::span<uint8_t const> { return slot_to_order_; }
+
+  /// Get VMState configuration for this pattern
+  [[nodiscard]] auto state_config() const -> VMStateConfig {
+    return {.num_eclass_regs = num_eclass_regs_,
+            .num_enode_regs = num_enode_regs_,
+            .binding_order = binding_order_,
+            .slot_to_order = slot_to_order_};
   }
 
  private:
   std::vector<Instruction> code_;
   std::size_t num_slots_;
-  std::size_t num_eclass_regs_;                          // Registers holding e-class IDs
-  std::size_t num_enode_regs_;                           // Registers holding e-node IDs (and iteration state)
-  std::vector<Symbol> symbols_;                          // Symbol table for CheckSymbol (deduplicated by compiler)
-  std::optional<Symbol> entry_symbol_;                   // For index-based candidate lookup
-  std::vector<uint8_t> binding_order_;                   // Order in which slots are bound during matching
-  std::vector<std::vector<uint8_t>> slots_bound_after_;  // Precomputed: slots to clear when slot i changes
+  std::size_t num_eclass_regs_;         // Registers holding e-class IDs
+  std::size_t num_enode_regs_;          // Registers holding e-node IDs (and iteration state)
+  std::vector<Symbol> symbols_;         // Symbol table for CheckSymbol (deduplicated by compiler)
+  std::optional<Symbol> entry_symbol_;  // For index-based candidate lookup
+  std::vector<uint8_t> binding_order_;  // Order in which slots are bound during matching
+  std::vector<uint8_t> slot_to_order_;  // Inverse: slot index -> order position (O(n) vs O(n²))
 };
 
 /// VM executor for pattern matching.
@@ -280,10 +285,7 @@ class VMExecutor {
   /// @pre candidates contains ONLY canonical e-class IDs (egraph.find(id) == id)
   void execute_impl(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
                     std::vector<PatternMatch> &results) {
-    state_.reset(
-        pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs(), [&pattern](std::size_t slot) {
-          return pattern.slots_bound_after(slot);
-        });
+    state_.reset(pattern.state_config());
     if constexpr (DevMode) {
       collector_.reset();
     }
