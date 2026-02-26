@@ -353,8 +353,11 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
   }
 
   // Wait for tasks to finish and combine results as they come in
-  if (!edge_res.empty()) offset_edges = snapshot_encoder.GetPosition();  // 0 -> edges without properties
-  WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted);
+  if (!edge_res.empty()) {
+    if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
+    offset_edges = snapshot_encoder.GetPosition();  // 0 -> edges without properties
+    WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted);
+  }
   if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
   offset_vertices = snapshot_encoder.GetPosition();
   WaitAndCombine(vertex_res, snapshot_encoder, vertices_count, vertex_batch_infos, used_ids, snapshot_aborted);
@@ -10491,15 +10494,6 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
   std::vector<BatchInfo> edge_batch_infos;
   std::vector<BatchInfo> vertex_batch_infos;
 
-  // Set initial progress phase
-  if (progress) {
-    if (storage->config_.salient.items.properties_on_edges) {
-      progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
-    } else {
-      progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
-    }
-  }
-
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
     auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
     MultiThreadedWorkflow(edge_ptr,
@@ -10520,6 +10514,7 @@ std::optional<std::filesystem::path> CreateSnapshot(Storage *storage, Transactio
                           progress);
   } else {
     if (storage->config_.salient.items.properties_on_edges) {
+      if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
       // Handle edges
       const auto res = partial_edge_handler(0, kEnd, snapshot);
