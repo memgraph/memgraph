@@ -18,6 +18,7 @@ from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, get
 
 MAIN = "data_1"
 COORDINATOR = "coord_1"
+COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 REPLICA = "data_2"
 
 SNAPSHOT_RECOVERY_LATENCY_METRIC = "SnapshotRecoveryLatency_us_99p"
@@ -113,7 +114,7 @@ def main():
     print("-" * 60)
 
     monitor = ClusterMonitor(
-        coordinator=COORDINATOR,
+        coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=False,
         storage_info=["vertex_count", "edge_count", "memory_res", "allocation_limit"],

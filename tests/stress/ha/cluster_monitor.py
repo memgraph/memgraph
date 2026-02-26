@@ -1,13 +1,14 @@
 """
 Reusable background cluster monitor for HA stress-test workloads.
 
-Spawns daemon threads that periodically query the coordinator and print
+Spawns daemon threads that periodically query coordinators and print
 diagnostic output. Aborts the process (os._exit) on fatal conditions
-(replica invalid, instance down).
+(instance down).
 """
 import os
 import threading
 import time
+from typing import Any
 
 from ha_common import Protocol, QueryType, execute_and_fetch
 
@@ -15,37 +16,38 @@ from ha_common import Protocol, QueryType, execute_and_fetch
 class ClusterMonitor:
     """Background monitor for HA cluster health during workloads.
 
+    Accepts a list of coordinators and falls back to the next one if a
+    query fails, so monitoring survives coordinator restarts/failovers.
+
     Usage::
 
         monitor = ClusterMonitor(
-            coordinator="coord_1",
+            coordinators=["coord_1", "coord_2", "coord_3"],
             show_replicas=True,
             show_instances=True,
             verify_up=True,
             storage_info=["vertex_count", "edge_count", "memory_res"],
             interval=5,
         )
-        monitor.start()
-        try:
+        with monitor:
             # ... run workload ...
-        finally:
-            monitor.stop()
 
-        # After workload: optional final verification
         if not monitor.verify_all_ready():
             sys.exit(1)
     """
 
     def __init__(
         self,
-        coordinator: str = "coord_1",
+        coordinators: list[str] | str = "coord_1",
         show_replicas: bool = False,
         show_instances: bool = False,
         verify_up: bool = False,
         storage_info: list[str] | None = None,
         interval: float = 5.0,
     ):
-        self._coordinator = coordinator
+        if isinstance(coordinators, str):
+            coordinators = [coordinators]
+        self._coordinators = coordinators
         self._show_replicas = show_replicas
         self._show_instances = show_instances
         self._verify_up = verify_up
@@ -53,6 +55,16 @@ class ClusterMonitor:
         self._interval = interval
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
+
+    def _query(self, query: str, query_type: QueryType = QueryType.READ) -> list[dict[str, Any]]:
+        """Try each coordinator in order; return results from the first that responds."""
+        last_err = None
+        for coord in self._coordinators:
+            try:
+                return execute_and_fetch(coord, query, protocol=Protocol.BOLT_ROUTING, query_type=query_type)
+            except Exception as e:
+                last_err = e
+        raise last_err  # type: ignore[misc]
 
     def start(self) -> None:
         if self._show_replicas:
@@ -81,6 +93,8 @@ class ClusterMonitor:
                 f"[ClusterMonitor] STORAGE INFO worker started (fields: {self._storage_fields}, interval: {self._interval}s)"
             )
 
+        print(f"[ClusterMonitor] Using coordinators: {self._coordinators}")
+
     def stop(self) -> None:
         self._stop_event.set()
         for t in self._threads:
@@ -100,7 +114,7 @@ class ClusterMonitor:
     def _replicas_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = execute_and_fetch(self._coordinator, "SHOW REPLICAS;", protocol=Protocol.BOLT_ROUTING)
+                rows = self._query("SHOW REPLICAS;")
                 if rows:
                     headers = list(rows[0].keys())
                     print(f"\n[SHOW REPLICAS @ {time.strftime('%H:%M:%S')}]")
@@ -114,7 +128,7 @@ class ClusterMonitor:
     def _instances_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = execute_and_fetch(self._coordinator, "SHOW INSTANCES;", protocol=Protocol.BOLT_ROUTING)
+                rows = self._query("SHOW INSTANCES;")
                 if rows:
                     headers = list(rows[0].keys())
                     print(f"\n[SHOW INSTANCES @ {time.strftime('%H:%M:%S')}]")
@@ -128,7 +142,7 @@ class ClusterMonitor:
     def _verify_up_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = execute_and_fetch(self._coordinator, "SHOW INSTANCES;", protocol=Protocol.BOLT_ROUTING)
+                rows = self._query("SHOW INSTANCES;")
                 for row in rows:
                     name = row.get("name", "unknown")
                     alive = row.get("alive", row.get("is_alive", None))
@@ -142,12 +156,7 @@ class ClusterMonitor:
     def _storage_info_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = execute_and_fetch(
-                    self._coordinator,
-                    "SHOW STORAGE INFO;",
-                    protocol=Protocol.BOLT_ROUTING,
-                    query_type=QueryType.READ,
-                )
+                rows = self._query("SHOW STORAGE INFO;")
                 info = {row["storage info"]: row["value"] for row in rows if "storage info" in row}
                 parts = [f"{f}={info.get(f, '?')}" for f in self._storage_fields]
                 print(f"\n[STORAGE INFO @ {time.strftime('%H:%M:%S')}] {' '.join(parts)}")
@@ -159,7 +168,7 @@ class ClusterMonitor:
 
     def show_replicas(self) -> None:
         """Print SHOW REPLICAS once."""
-        rows = execute_and_fetch(self._coordinator, "SHOW REPLICAS;", protocol=Protocol.BOLT_ROUTING)
+        rows = self._query("SHOW REPLICAS;")
         if rows:
             headers = list(rows[0].keys())
             print(",".join(headers))
@@ -168,7 +177,7 @@ class ClusterMonitor:
 
     def verify_all_ready(self) -> bool:
         """Check that all replicas have status 'ready'. Returns True if healthy."""
-        rows = execute_and_fetch(self._coordinator, "SHOW REPLICAS;", protocol=Protocol.BOLT_ROUTING)
+        rows = self._query("SHOW REPLICAS;")
         all_ready = True
         for row in rows:
             name = row.get("name", "unknown")
@@ -184,7 +193,7 @@ class ClusterMonitor:
 
     def verify_instances_up(self) -> bool:
         """Check that all instances are alive. Returns True if all up."""
-        rows = execute_and_fetch(self._coordinator, "SHOW INSTANCES;", protocol=Protocol.BOLT_ROUTING)
+        rows = self._query("SHOW INSTANCES;")
         all_up = True
         for row in rows:
             name = row.get("name", "unknown")

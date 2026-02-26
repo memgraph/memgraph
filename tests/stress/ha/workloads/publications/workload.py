@@ -13,6 +13,7 @@ from cluster_monitor import ClusterMonitor
 from ha_common import Protocol, QueryType, execute_and_fetch, execute_query
 
 COORDINATOR = "coord_1"
+COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
 S3_BUCKET = "memgraph-stress-tests-bucket"
 S3_DATASET_PATH = "publications-dataset-1-percent"
@@ -264,7 +265,7 @@ def main():
     print("S3 credentials loaded from environment variables.")
 
     monitor = ClusterMonitor(
-        coordinator=COORDINATOR,
+        coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=True,
         storage_info=["vertex_count", "edge_count", "memory_res", "allocation_limit"],

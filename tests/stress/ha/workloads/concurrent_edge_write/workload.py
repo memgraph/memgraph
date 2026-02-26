@@ -11,6 +11,7 @@ from cluster_monitor import ClusterMonitor
 from ha_common import Protocol, QueryType, execute_and_fetch, execute_query, run_parallel
 
 COORDINATOR = "coord_1"
+COORDINATORS = ["coord_1", "coord_2", "coord_3"]
 
 NUM_NODES = 1000
 NUM_WORKERS = 5
@@ -77,7 +78,7 @@ def main():
     print("-" * 60)
 
     monitor = ClusterMonitor(
-        coordinator=COORDINATOR,
+        coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=True,
         storage_info=["vertex_count", "edge_count", "memory_res", "allocation_limit"],
