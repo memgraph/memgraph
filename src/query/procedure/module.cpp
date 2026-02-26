@@ -1082,6 +1082,7 @@ bool PythonModule::Close() {
   return true;
 }
 
+// Must be called with GIL taken because of Py_DECREF
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref) {
   const auto maybe_content =

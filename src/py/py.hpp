@@ -69,27 +69,48 @@ class [[nodiscard]] Object final {
 
   /// Construct from a borrowed `PyObject *`, i.e. non-owned pointer.
   static Object FromBorrow(PyObject *ptr) noexcept {
-    Py_XINCREF(ptr);
+    if (ptr && !_Py_IsFinalizing()) {
+      EnsureGIL gil;
+      Py_INCREF(ptr);
+    }
     return Object(ptr);
   }
 
-  ~Object() noexcept { Py_XDECREF(ptr_); }
+  ~Object() noexcept {
+    if (ptr_ && !_Py_IsFinalizing()) {
+      EnsureGIL gil;
+      Py_XDECREF(ptr_);
+    }
+  }
 
-  Object(const Object &other) noexcept : ptr_(other.ptr_) { Py_XINCREF(ptr_); }
+  Object(const Object &other) noexcept : ptr_(other.ptr_) {
+    if (ptr_ && !_Py_IsFinalizing()) {
+      EnsureGIL gil;
+      Py_INCREF(ptr_);
+    }
+  }
 
   Object(Object &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Object &operator=(const Object &other) noexcept {
     if (this == &other) return *this;
-    Py_XDECREF(ptr_);
-    ptr_ = other.ptr_;
-    Py_XINCREF(ptr_);
+    if (!_Py_IsFinalizing()) {
+      EnsureGIL gil;
+      Py_XDECREF(ptr_);
+      ptr_ = other.ptr_;
+      Py_XINCREF(ptr_);
+    } else {
+      ptr_ = other.ptr_;
+    }
     return *this;
   }
 
   Object &operator=(Object &&other) noexcept {
     if (this == &other) return *this;
-    Py_XDECREF(ptr_);
+    if (ptr_ && !_Py_IsFinalizing()) {
+      EnsureGIL gil;
+      Py_XDECREF(ptr_);
+    }
     ptr_ = other.ptr_;
     other.ptr_ = nullptr;
     return *this;
