@@ -80,8 +80,6 @@ def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
     config (memgraph, cluster, general). These defaults are merged under each
     workload's own YAML (workload keys take precedence).
 
-    Per-entry 'script_env' is injected into each customWorkloads test entry.
-
     Returns list of enabled workload entries with merged config dicts.
     """
     registry_path = get_workloads_registry(deployment)
@@ -114,13 +112,6 @@ def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
 
         merged = dict(defaults)
         merged.update(workload_config)
-
-        script_env = workload_entry.get("script_env", {})
-        if script_env:
-            for test in merged.get("customWorkloads", {}).get("tests", []):
-                existing = test.get("script_env", {})
-                existing.update(script_env)
-                test["script_env"] = existing
 
         enabled_workloads.append(
             {
@@ -360,9 +351,6 @@ def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int, 
     script_dir = os.path.dirname(workload_script)
     existing = run_env.get("PYTHONPATH", "")
     run_env["PYTHONPATH"] = f"{ha_dir}:{script_dir}:{SCRIPT_DIR}:{existing}".rstrip(":")
-
-    for key, value in workload.get("script_env", {}).items():
-        run_env[key] = str(value)
 
     print(f"Executing workload script: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout_sec, env=run_env)

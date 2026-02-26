@@ -13,5 +13,3 @@ workloads:
 
   - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: false
-    script_env:
-      WORKLOAD_NUM_ITERATIONS: "1000"

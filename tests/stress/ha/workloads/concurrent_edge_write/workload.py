@@ -3,8 +3,6 @@
 High-concurrency edge write workload.
 Creates 1000 nodes via UNWIND+CREATE, then 5 concurrent workers repeatedly
 MERGE RELATED_TO edges between cartesian product pairs of those nodes.
-
-NUM_ITERATIONS can be overridden via the WORKLOAD_NUM_ITERATIONS env var.
 """
 import os
 import sys
@@ -20,7 +18,7 @@ SHOW_STORAGE_INFO_QUERY = "SHOW STORAGE INFO;"
 
 NUM_NODES = 1000
 NUM_WORKERS = 5
-NUM_ITERATIONS = int(os.environ.get("WORKLOAD_NUM_ITERATIONS", "50"))
+NUM_ITERATIONS = 50
 
 STORAGE_INFO_INTERVAL_SECONDS = 5
 SHOW_REPLICAS_INTERVAL_SECONDS = 5
