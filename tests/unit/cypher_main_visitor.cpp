@@ -3368,6 +3368,23 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT CREATE, UPDATE, * ON NODES CONTAINING LABELS :Label1 TO user"),
                SemanticException);
 
+  // UPDATE cannot be combined with its component permissions
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, SET LABEL ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT SET LABEL, UPDATE ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, REMOVE LABEL ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, SET PROPERTY ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT UPDATE, DELETE EDGE ON NODES CONTAINING LABELS :Label1 TO user"),
+               SemanticException);
+
+  // SET LABEL, REMOVE LABEL, DELETE EDGE not applicable to edges
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT SET LABEL ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT REMOVE LABEL ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT DELETE EDGE ON EDGES OF TYPE :KNOWS TO user"), SemanticException);
+
   label_privileges.clear();
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::SET_LABEL}, {{"*"}}}});
   check_auth_query(&ast_generator,
