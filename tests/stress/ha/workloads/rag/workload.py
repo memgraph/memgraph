@@ -116,7 +116,7 @@ def main():
         coordinator=COORDINATOR,
         show_replicas=True,
         verify_up=False,
-        storage_info=["vertex_count", "edge_count", "memory_res"],
+        storage_info=["vertex_count", "edge_count", "memory_res", "allocation_limit"],
         interval=10,
     )
 
