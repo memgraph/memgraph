@@ -19,7 +19,6 @@
 #include "range/v3/algorithm/remove.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/embeddings_memory_counter.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -364,7 +363,10 @@ void UpdateVectorIndex(utils::Synchronized<Index, std::shared_mutex> &mg_index, 
       }
       spec.capacity = exclusively_locked_index->capacity();
     }
-    exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
+    auto retry_result = exclusively_locked_index->add(key, vector.data(), thread_id_for_adding);
+    if (retry_result.error) {
+      throw query::VectorSearchException("Failed to add vector to index: {}", retry_result.error.release());
+    }
   }
 }
 
