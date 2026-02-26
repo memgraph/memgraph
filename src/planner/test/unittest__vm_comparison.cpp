@@ -16,12 +16,15 @@
 //
 // When a known bug is fixed, the XFAIL will start passing - update the test!
 
+#include <array>
 #include <random>
+#include <span>
 
 #include <gtest/gtest.h>
 
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/rule.hpp"
 #include "test_egraph_fixture.hpp"
 #include "test_patterns.hpp"
 
@@ -62,26 +65,39 @@ class MatcherCorrectnessTest : public EGraphTestBase {
   EMatchContext ctx;
   std::vector<PatternMatch> results;
 
+  /// Build a RewriteRule from patterns
+  static auto build_rule(std::string name, std::span<TestPattern const> patterns, std::size_t &count)
+      -> RewriteRule<Op, NoAnalysis> {
+    assert(!patterns.empty());
+    auto builder = RewriteRule<Op, NoAnalysis>::Builder(std::move(name)).pattern(patterns[0]);
+    for (std::size_t i = 1; i < patterns.size(); ++i) {
+      builder = std::move(builder).pattern(patterns[i]);
+    }
+    return std::move(builder).apply([&count](RuleContext<Op, NoAnalysis> &, Match const &) { ++count; });
+  }
+
   /// Run EMatcher and return result
-  auto run_ematcher(TestPattern const &pattern) -> MatcherResult {
-    EMatcher<Op, NoAnalysis> ematcher(egraph);
-    results.clear();
-    ematcher.match_into(pattern, ctx, results);
-    return {.count = results.size(), .succeeded = true};
+  auto run_ematcher(std::span<TestPattern const> patterns) -> MatcherResult {
+    std::size_t count = 0;
+    auto rule = build_rule("test_ematcher", patterns, count);
+    RewriteContext rewrite_ctx;
+    rule.apply(egraph, matcher, rewrite_ctx);
+    return {.count = count, .succeeded = true};
   }
 
   /// Run VM executor and return result
-  auto run_vm(TestPattern const &pattern) -> MatcherResult {
-    PatternCompiler<Op> compiler;
-    auto compiled = compiler.compile(pattern);
-    if (!compiled.has_value()) {
+  auto run_vm(std::span<TestPattern const> patterns) -> MatcherResult {
+    std::size_t count = 0;
+    auto rule = build_rule("test_vm", patterns, count);
+
+    if (!rule.compiled_pattern().has_value()) {
       return {.count = 0, .succeeded = false, .error = "Compilation failed"};
     }
 
-    VMExecutor<Op, NoAnalysis> vm_executor(egraph);
-    results.clear();
-    vm_executor.execute(*compiled, matcher, ctx, results);
-    return {.count = results.size(), .succeeded = true};
+    RewriteContext rewrite_ctx;
+    vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+    rule.apply_vm(egraph, matcher, vm_executor, rewrite_ctx);
+    return {.count = count, .succeeded = true};
   }
 
   /// Verify implementation result against expected count
@@ -103,13 +119,19 @@ class MatcherCorrectnessTest : public EGraphTestBase {
     }
   }
 
-  /// Test both implementations against ground truth
-  void verify_both(TestPattern const &pattern, std::size_t expected, VerifyConfig config = {}) {
-    auto ematcher_result = run_ematcher(pattern);
-    auto vm_result = run_vm(pattern);
+  /// Test both implementations against ground truth (multi-pattern)
+  void verify_both(std::span<TestPattern const> patterns, std::size_t expected, VerifyConfig config = {}) {
+    auto ematcher_result = run_ematcher(patterns);
+    auto vm_result = run_vm(patterns);
 
     verify_impl("EMatcher", ematcher_result, expected, config.ematcher);
     verify_impl("VM", vm_result, expected, config.vm);
+  }
+
+  /// Test both implementations against ground truth (single pattern convenience)
+  void verify_both(TestPattern const &pattern, std::size_t expected, VerifyConfig config = {}) {
+    std::array<TestPattern, 1> patterns{pattern};
+    verify_both(std::span{patterns}, expected, config);
   }
 };
 
@@ -314,8 +336,8 @@ TEST_F(MatcherCorrectnessTest, MixedPattern_Complex) {
 
   // Note: Due to hash-consing, duplicate structures are merged, so actual
   // count may be less than kNumNodes. We verify both matchers agree.
-  auto ematcher_result = run_ematcher(pattern);
-  auto vm_result = run_vm(pattern);
+  auto ematcher_result = run_ematcher(std::array{pattern});
+  auto vm_result = run_vm(std::array{pattern});
 
   EXPECT_EQ(ematcher_result.count, vm_result.count) << "EMatcher and VM should agree";
   EXPECT_GT(ematcher_result.count, 0u) << "Should find at least one match";
@@ -338,10 +360,119 @@ TEST_F(MatcherCorrectnessTest, BinaryPattern_RandomStructure) {
 
   auto pattern = TestPattern::build(Op::Add, {Var{kVarX}, Var{kVarY}}, kTestRoot);
 
-  auto ematcher_result = run_ematcher(pattern);
-  auto vm_result = run_vm(pattern);
+  auto ematcher_result = run_ematcher(std::array{pattern});
+  auto vm_result = run_vm(std::array{pattern});
 
   EXPECT_EQ(ematcher_result.count, vm_result.count) << "EMatcher and VM should agree";
+}
+
+// ============================================================================
+// Known EMatcher Limitations (XFAIL)
+// ============================================================================
+
+TEST_F(MatcherCorrectnessTest, SelfReferentialWithRewritePattern) {
+  // Test single-pattern matching with self-referential e-classes.
+  //
+  // Setup simulates H(x)=x rewrite pattern which creates self-referential e-classes.
+  //
+  //   a = A(0)
+  //   neg_a = Neg(a)
+  //   merge(neg_a, a)  <- creates self-referential: e-class contains A(0) and Neg(self)
+  //   f_a = F(a)       <- F references the merged e-class
+  //   mul = Mul(neg_a, f_a)
+  //
+  // Pattern: Mul(Neg(?x), F(?x)) with shared variable
+  //
+  // Both EMatcher and VM correctly find 1 match where ?x = merged e-class.
+  // (Note: Multi-pattern matching with self-referential e-classes has separate issues.)
+
+  auto a = leaf(Op::A, 0);
+  auto neg_a = node(Op::Neg, a);
+  merge(neg_a, a);  // Self-referential: e-class now contains A(0) and Neg(self)
+  rebuild_egraph();
+
+  auto f_a = node(Op::F, a);
+  node(Op::Mul, neg_a, f_a);
+  rebuild_egraph();
+
+  auto pattern = TestPattern::build(Op::Mul, {Sym(Op::Neg, Var{kVarX}), Sym(Op::F, Var{kVarX})}, kTestRoot);
+
+  // Single-pattern matching works correctly for self-referential e-classes
+  verify_both(pattern, /*expected=*/1);
+}
+
+TEST_F(MatcherCorrectnessTest, SelfReferentialMultiPattern_FuzzerCrash076d8fd2) {
+  // Full reproduction from fuzzer: crash-076d8fd27213c19330394bd68d4192059e83c745
+  //
+  // This test reproduces the exact fuzzer sequence where EMatcher=0 and VM=1.
+  // Key: Mul is created BEFORE the self-referential rewrites happen.
+  //
+  // Fuzzer sequence:
+  //   1. Create leaf B(0) -> ec0
+  //   2. Apply Plus(x,x)=x rewrite (merges Plus(ec0,ec0) with ec0)
+  //   3. Create compound Mul(ec0, ec0) -> ec2  [BEFORE H/F rewrites!]
+  //   4. Create leaves A(0)->ec3, A(1)->ec4, A(2)->ec5
+  //   5. Apply H(x)=x rewrite (5 matches - each e-class gets H(self))
+  //   6. Create compound F(ec0) -> ec11
+  //   7. Apply F(F(x))=x rewrite (merges F(F(ec)) with ec for each ec)
+  //   8. Match: (F ?v0), ?v0, (Mul (H ?v0) (F ?v0))
+  //
+  // After rewrites, ec0 contains: B(0), Plus(ec0,ec0), H(ec0), F(F(ec0))
+  // And Mul(ec0, ec0) exists where both children are ec0 (self-referential).
+  // Pattern Mul(H(?v0), F(?v0)) should match with ?v0=ec0 since:
+  //   - First child (ec0) contains H(ec0)
+  //   - Second child (ec0) contains F(ec0) [via F(F(ec0))=ec0 => ec0 has F structure]
+
+  // Step 1: Create leaf B(0)
+  auto b0 = leaf(Op::B, 0);
+
+  // Step 2: Apply Plus(x,x)=x - merge Plus(b0, b0) with b0
+  auto plus_b0 = node(Op::Plus, b0, b0);
+  merge(plus_b0, b0);
+  rebuild_egraph();
+
+  // Step 3: Create Mul BEFORE H/F rewrites - this is key!
+  // Mul's children both point to b0's e-class
+  auto mul_node = node(Op::Mul, b0, b0);
+  rebuild_egraph();
+
+  // Step 4: Create more leaves (as in fuzzer)
+  auto a0 = leaf(Op::A, 0);
+  auto a1 = leaf(Op::A, 1);
+  auto a2 = leaf(Op::A, 2);
+
+  // Step 5: Apply H(x)=x rewrite for all e-classes
+  // This creates H(ec) and merges it with ec for each e-class
+  for (auto ec : {b0, mul_node, a0, a1, a2}) {
+    auto h_ec = node(Op::H, ec);
+    merge(h_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Step 6: Create F(b0)
+  auto f_b0 = node(Op::F, b0);
+  rebuild_egraph();
+
+  // Step 7: Apply F(F(x))=x rewrite
+  // For each e-class, create F(F(ec)) and merge with ec
+  for (auto ec : {b0, mul_node, a0, a1, a2, f_b0}) {
+    auto f_ec = node(Op::F, ec);
+    auto ff_ec = node(Op::F, f_ec);
+    merge(ff_ec, ec);
+  }
+  rebuild_egraph();
+
+  // Step 8: Multi-pattern matching
+  // Patterns: (F ?v0), ?v0, (Mul (H ?v0) (F ?v0))
+  std::array<TestPattern, 3> patterns = {
+      TestPattern::build(Op::F, {Var{kVarX}}, std::nullopt),
+      make_var_pattern(kVarX),
+      TestPattern::build(Op::Mul, {Sym(Op::H, Var{kVarX}), Sym(Op::F, Var{kVarX})}, std::nullopt),
+  };
+
+  // Ground truth: VM=1 match (verified by fuzzer)
+  // EMatcher has known limitation - finds 0 matches (XFAIL)
+  verify_both(patterns, /*expected=*/1, {.ematcher = Expect::XFail, .vm = Expect::Pass});
 }
 
 }  // namespace memgraph::planner::core
