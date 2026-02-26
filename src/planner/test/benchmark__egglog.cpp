@@ -450,7 +450,6 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
 
   struct PrecompiledVMQuery {
     vm::CompiledPattern<Op> compiled;
-    std::vector<EClassId> candidates;
   };
 
   std::vector<PrecompiledVMQuery> precompiled_vm_queries;
@@ -464,17 +463,10 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
 
     auto compiled = compiler.compile(queries[i].pattern);
     ASSERT_TRUE(compiled.has_value()) << "Pattern did not compile: " << queries[i].name;
-    std::vector<EClassId> candidates;
-    if (auto entry = compiled->entry_symbol(); entry.has_value()) {
-      ematcher.candidates_for_symbol(*entry, candidates);
-    } else {
-      ematcher.all_candidates(candidates);
-    }
     matches.clear();
-    vm_executor.execute(*compiled, candidates, ctx, matches);
+    vm_executor.execute(*compiled, ematcher, ctx, matches);
     vm_counts[i] = matches.size();
-    precompiled_vm_queries.push_back(
-        PrecompiledVMQuery{.compiled = std::move(*compiled), .candidates = std::move(candidates)});
+    precompiled_vm_queries.push_back(PrecompiledVMQuery{.compiled = std::move(*compiled)});
   }
   {
     auto const warmup_ok = run_egglog_nocapture_from_file(*full_program_path);
@@ -510,14 +502,8 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
     for (std::size_t i = 0; i < queries.size(); ++i) {
       auto compiled = compiler.compile(queries[i].pattern);
       ASSERT_TRUE(compiled.has_value()) << "Pattern did not compile: " << queries[i].name;
-      std::vector<EClassId> candidates;
-      if (auto entry = compiled->entry_symbol(); entry.has_value()) {
-        ematcher.candidates_for_symbol(*entry, candidates);
-      } else {
-        ematcher.all_candidates(candidates);
-      }
       matches.clear();
-      vm_executor.execute(*compiled, candidates, ctx, matches);
+      vm_executor.execute(*compiled, ematcher, ctx, matches);
       vm_total_rows += matches.size();
       vm_counts[i] = matches.size();
     }
@@ -530,7 +516,7 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
   for (std::size_t it = 0; it < iterations; ++it) {
     for (std::size_t i = 0; i < queries.size(); ++i) {
       matches.clear();
-      vm_executor.execute(precompiled_vm_queries[i].compiled, precompiled_vm_queries[i].candidates, ctx, matches);
+      vm_executor.execute(precompiled_vm_queries[i].compiled, ematcher, ctx, matches);
       vm_exec_only_rows += matches.size();
     }
   }
@@ -555,12 +541,12 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
     ematcher_end_to_end_time += std::chrono::duration_cast<DurationMs>(Clock::now() - t0);
   }
 
-  // End-to-end VM: build + compile + candidate selection + execute per iteration
+  // End-to-end VM: build + compile + execute per iteration
   for (std::size_t it = 0; it < iterations; ++it) {
     auto const t0 = Clock::now();
     egraph.clear();
     build_complex_graph(false);
-    EMatcher<Op, NoAnalysis> ematcher_for_candidates(egraph);
+    EMatcher<Op, NoAnalysis> ematcher_e2e_vm(egraph);
     vm::PatternCompiler<Op> compiler_e2e;
     vm::VMExecutorVerify<Op, NoAnalysis> vm_executor_e2e(egraph);
     EMatchContext local_ctx;
@@ -568,14 +554,8 @@ TEST_F(EgglogMatcherBenchmark, ComplexGraph_ConsecutivePatterns) {
     for (std::size_t i = 0; i < queries.size(); ++i) {
       auto compiled = compiler_e2e.compile(queries[i].pattern);
       ASSERT_TRUE(compiled.has_value()) << "Pattern did not compile: " << queries[i].name;
-      std::vector<EClassId> candidates;
-      if (auto entry = compiled->entry_symbol(); entry.has_value()) {
-        ematcher_for_candidates.candidates_for_symbol(*entry, candidates);
-      } else {
-        ematcher_for_candidates.all_candidates(candidates);
-      }
       local_matches.clear();
-      vm_executor_e2e.execute(*compiled, candidates, local_ctx, local_matches);
+      vm_executor_e2e.execute(*compiled, ematcher_e2e_vm, local_ctx, local_matches);
       vm_end_to_end_rows += local_matches.size();
     }
     vm_end_to_end_time += std::chrono::duration_cast<DurationMs>(Clock::now() - t0);

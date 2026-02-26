@@ -13,7 +13,6 @@ add_unit_test(planner
         unittest__vm_executor.cpp
         unittest__vm_state.cpp
         unittest__vm_comparison.cpp
-        benchmark__vm_matching.cpp
         benchmark__egglog.cpp
     LINK_TARGETS mg::planner
 )
