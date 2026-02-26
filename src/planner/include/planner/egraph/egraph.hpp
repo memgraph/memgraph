@@ -506,12 +506,19 @@ auto EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) -> boost:
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) -> EClassId {
-  auto current_eclass = eclass_id;
+  // Collect merge targets first to avoid iterator invalidation - merge() can
+  // modify or move the eclass we're iterating over, invalidating the span
+  std::vector<EClassId> merge_targets;
   for (const auto &enode_id : eclass.nodes()) {
-    auto merge_target = repair_hashcons_enode(enode_id, current_eclass);
-    if (merge_target) {
-      current_eclass = merge(current_eclass, *merge_target).eclass_id;
+    if (auto merge_target = repair_hashcons_enode(enode_id, eclass_id)) {
+      merge_targets.push_back(*merge_target);
     }
+  }
+
+  // Perform merges after iteration is complete
+  auto current_eclass = eclass_id;
+  for (auto target : merge_targets) {
+    current_eclass = merge(current_eclass, target).eclass_id;
   }
   return current_eclass;
 }
