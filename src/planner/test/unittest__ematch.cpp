@@ -17,6 +17,8 @@
 #include "test_ematcher_fixture.hpp"
 #include "test_patterns.hpp"
 
+import memgraph.planner.core.eids;
+
 namespace memgraph::planner::core {
 
 using namespace test;
@@ -888,6 +890,118 @@ TEST_F(EMatcherTest, DeepNestedTernaryPatternWithMatches) {
   EXPECT_EQ(ematcher_count, 1u) << "EMatcher should find exactly 1 match";
   EXPECT_EQ(vm_count, 1u) << "VM should find exactly 1 match";
   EXPECT_EQ(ematcher_count, vm_count) << "EMatcher and VM should agree on match count";
+}
+
+TEST_F(EMatcherTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
+  // Regression test from fuzzer (fuzz_ematch.cpp crash).
+  // Pattern: Mul(?v0, Mul(?v0, ?v1))
+  // Egglog ground truth: 3 matches. Bug: EMatcher/VM find 4.
+  //
+  // This is the exact structure from the fuzzer - do not simplify without
+  // verifying the test still fails.
+
+  auto n0 = leaf(Op::D, 1653159021);
+  auto n1 = leaf(Op::D, 2573693081);
+  auto n2 = node(Op::Mul, n1, n1);
+  auto n3 = node(Op::Mul, n0, n0);
+  auto n4 = node(Op::Mul, n3, n3);
+  auto n5 = node(Op::Mul, n0, n0);
+  auto n6 = node(Op::Mul, n5, n5);
+  auto n7 = node(Op::Mul, n1, n1);
+  auto n8 = node(Op::Mul, n7, n7);
+  auto n9 = node(Op::Mul, n6, n6);
+  auto n10 = node(Op::Mul, n5, n5);
+  auto n11 = node(Op::Mul, n8, n0);
+  auto n12 = node(Op::Mul, n10, n5);
+  auto n13 = node(Op::Mul, n7, n10);
+  auto n14 = node(Op::Mul, n1, n1);
+  auto n15 = node(Op::Mul, n5, n5);
+
+  auto n16 = node(Op::Add, n0, n0);
+  merge(n16, n0);
+  auto n17 = node(Op::Add, n8, n8);
+  merge(n17, n8);
+  auto n18 = node(Op::Add, n14, n14);
+  merge(n18, n14);
+  auto n19 = node(Op::Add, n11, n11);
+  merge(n19, n11);
+  auto n20 = node(Op::Add, n15, n15);
+  merge(n20, n15);
+  auto n21 = node(Op::Add, n13, n13);
+  merge(n21, n13);
+  auto n22 = node(Op::Add, n1, n1);
+  merge(n22, n1);
+  auto n23 = node(Op::Add, n9, n9);
+  merge(n23, n9);
+
+  auto n24 = node(Op::Mul, n0, n0);
+  merge(n24, n0);
+  auto n25 = node(Op::Mul, n8, n8);
+  merge(n25, n8);
+  auto n26 = node(Op::Mul, n14, n14);
+  merge(n26, n14);
+  auto n27 = node(Op::Mul, n11, n11);
+  merge(n27, n11);
+  auto n28 = node(Op::Mul, n15, n15);
+  merge(n28, n15);
+  auto n29 = node(Op::Mul, n13, n13);
+  merge(n29, n13);
+  auto n30 = node(Op::Mul, n1, n1);
+  merge(n30, n1);
+  auto n31 = node(Op::Mul, n15, n15);
+  merge(n31, n15);
+
+  auto n32 = node(Op::Add, n30, n30);
+  merge(n32, n30);
+  auto n33 = node(Op::Add, n11, n11);
+  merge(n33, n11);
+  auto n34 = node(Op::Add, n31, n31);
+  merge(n34, n31);
+  auto n35 = node(Op::Add, n13, n13);
+  merge(n35, n13);
+  auto n36 = node(Op::Add, n32, n32);
+  merge(n36, n32);
+  auto n37 = node(Op::Add, n33, n33);
+  merge(n37, n33);
+  auto n38 = node(Op::Add, n34, n34);
+  merge(n38, n34);
+  auto n39 = node(Op::Add, n35, n35);
+  merge(n39, n35);
+
+  auto n40 = node(Op::Mul, n38, n21);
+  auto n41 = node(Op::Mul, n17, n28);
+
+  // Suppress unused variable warnings
+  (void)n2;
+  (void)n4;
+  (void)n12;
+  (void)n40;
+  (void)n41;
+
+  rebuild_egraph();
+  rebuild_index();
+
+  use_pattern(TestPattern::build(Op::Mul, {Var{kVarX}, Sym(Op::Mul, Var{kVarX}, Var{kVarY})}));
+
+  matches.clear();
+  ematcher.match_into(pattern(), ctx, matches);
+  auto ematcher_count = matches.size();
+
+  vm::PatternCompiler<Op> compiler;
+  auto compiled = compiler.compile(std::span{&pattern(), 1});
+  ASSERT_TRUE(compiled.has_value());
+
+  vm::VMExecutorVerify<Op, NoAnalysis> vm_executor(egraph);
+  EMatchContext vm_ctx;
+  TestMatches vm_matches;
+  vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
+  auto vm_count = vm_matches.size();
+
+  constexpr std::size_t kExpectedMatches = 3;
+  EXPECT_EQ(ematcher_count, kExpectedMatches)
+      << "EMatcher should find " << kExpectedMatches << " matches (egglog ground truth)";
+  EXPECT_EQ(vm_count, kExpectedMatches) << "VM should find " << kExpectedMatches << " matches (egglog ground truth)";
+  EXPECT_EQ(ematcher_count, vm_count);
 }
 
 }  // namespace memgraph::planner::core
