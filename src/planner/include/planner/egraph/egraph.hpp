@@ -269,11 +269,16 @@ struct EGraph : private detail::EGraphBase {
   bool ValidateCongruenceClosure();
 
  protected:
-  auto repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) -> EClassId;
+  auto repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id, BaseProcessingContext &ctx)
+      -> EClassId;
 
   auto repair_hashcons_enode(ENodeId enode_id, EClassId eclass_id) -> std::optional<EClassId>;
 
   void process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
+
+  /// Bulk merge multiple e-classes. Takes sorted, deduplicated canonical IDs.
+  /// Returns the merged canonical e-class ID.
+  auto merge_all(std::span<const uint32_t> canonical_ids, UnionFindContext &uf_ctx) -> EClassId;
 
   void merge_eclasses(EClass<Analysis> &destination, EClassId other_id);
 
@@ -469,7 +474,7 @@ auto EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) -> boost:
         continue;
       }
       const auto &eclass = *it->second;
-      auto canonical_after_repair = repair_hashcons_eclass(eclass, eclass_id);
+      auto canonical_after_repair = repair_hashcons_eclass(eclass, eclass_id, ctx);
 
       // Re-lookup the class since it might have been merged during repair
       if (canonical_after_repair != eclass_id) {
@@ -505,22 +510,30 @@ auto EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) -> boost:
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id) -> EClassId {
-  // Collect merge targets first to avoid iterator invalidation - merge() can
-  // modify or move the eclass we're iterating over, invalidating the span
-  std::vector<EClassId> merge_targets;
+auto EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id,
+                                                      BaseProcessingContext &ctx) -> EClassId {
+  // Collect canonical IDs to merge. We must iterate fully before merging to
+  // avoid iterator invalidation - merge() can modify/move the eclass.
+  auto &canonical_ids = ctx.canonical_eclass_ids;
+  canonical_ids.clear();
+
   for (const auto &enode_id : eclass.nodes()) {
     if (auto merge_target = repair_hashcons_enode(enode_id, eclass_id)) {
-      merge_targets.push_back(*merge_target);
+      canonical_ids.push_back(canonical_eclass(union_find_, *merge_target).value_of());
     }
   }
 
-  // Perform merges after iteration is complete
-  auto current_eclass = eclass_id;
-  for (auto target : merge_targets) {
-    current_eclass = merge(current_eclass, target).eclass_id;
+  if (canonical_ids.empty()) {
+    return eclass_id;
   }
-  return current_eclass;
+
+  // Add eclass_id, deduplicate, and merge
+  canonical_ids.push_back(eclass_id.value_of());
+  std::ranges::sort(canonical_ids);
+  auto [ret, last] = std::ranges::unique(canonical_ids);
+  canonical_ids.erase(ret, last);
+
+  return merge_all(canonical_ids, ctx.union_find_context);
 }
 
 template <typename Symbol, typename Analysis>
@@ -603,9 +616,9 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
     std::cerr << "]\n";
 #endif
     // deduplicate
-    std::sort(canonical_eclass_ids.begin(), canonical_eclass_ids.end());
-    canonical_eclass_ids.erase(std::unique(canonical_eclass_ids.begin(), canonical_eclass_ids.end()),
-                               canonical_eclass_ids.end());
+    std::ranges::sort(canonical_eclass_ids);
+    auto [ret, last] = std::ranges::unique(canonical_eclass_ids);
+    canonical_eclass_ids.erase(ret, last);
     if (canonical_eclass_ids.size() > 1) {
 #ifdef EGRAPH_DEBUG_REBUILD
       std::cerr << "[process_parents]   MERGING classes: [";
@@ -615,17 +628,7 @@ void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, P
       }
       std::cerr << "]\n";
 #endif
-      auto merged_root = EClassId{union_find_.UnionSets(canonical_eclass_ids, ctx.union_find_context)};
-      rebuild_worklist_.insert(merged_root);
-
-      auto merged_it = classes_.find(merged_root);
-      assert(merged_it != classes_.end());
-      EClass<Analysis> &merged_eclass = *merged_it->second;
-      for (auto parent_id : canonical_eclass_ids) {
-        if (EClassId{parent_id} != merged_root) {
-          merge_eclasses(merged_eclass, EClassId{parent_id});
-        }
-      }
+      merge_all(canonical_eclass_ids, ctx.union_find_context);
       // hashcons update deferred to next rebuild iteration - duplicates will be
       // detected and removed then via repair_hashcons_enode
     } else if (canonical_eclass_ids.size() == 1) {
@@ -649,6 +652,28 @@ void EGraph<Symbol, Analysis>::merge_eclasses(EClass<Analysis> &destination, ECl
   assert(it != classes_.end());
   destination.merge_with(std::move(*it->second));
   classes_.erase(it);
+}
+
+template <typename Symbol, typename Analysis>
+auto EGraph<Symbol, Analysis>::merge_all(std::span<const uint32_t> canonical_ids, UnionFindContext &uf_ctx)
+    -> EClassId {
+  assert(!canonical_ids.empty());
+
+  if (canonical_ids.size() == 1) {
+    return EClassId{canonical_ids[0]};
+  }
+
+  auto merged_root = EClassId{union_find_.UnionSets(canonical_ids, uf_ctx)};
+  rebuild_worklist_.insert(merged_root);
+
+  auto &merged_eclass = *classes_[merged_root];
+  for (auto id : canonical_ids) {
+    if (EClassId{id} != merged_root) {
+      merge_eclasses(merged_eclass, EClassId{id});
+    }
+  }
+
+  return merged_root;
 }
 
 template <typename Symbol, typename Analysis>
