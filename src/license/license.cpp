@@ -394,14 +394,6 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&memory_limit, &reader);
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
-
-    // Consume legacy embeddings_memory_limit field if present (backward compat).
-    try {
-      int64_t ignored{0};
-      slk::Load(&ignored, &reader);
-    } catch (const slk::SlkReaderException &) {  // NOLINT(bugprone-empty-catch)
-    }
-
     return {License{organization_name, valid_until, memory_limit, LicenseType(license_type)}};
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
