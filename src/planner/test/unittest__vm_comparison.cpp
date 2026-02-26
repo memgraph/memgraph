@@ -78,17 +78,9 @@ class MatcherCorrectnessTest : public EGraphTestBase {
       return {.count = 0, .succeeded = false, .error = "Compilation failed"};
     }
 
-    EMatcher<Op, NoAnalysis> ematcher(egraph);
-    std::vector<EClassId> candidates;
-    if (auto entry_sym = compiled->entry_symbol()) {
-      ematcher.candidates_for_symbol(*entry_sym, candidates);
-    } else {
-      ematcher.all_candidates(candidates);
-    }
-
     VMExecutor<Op, NoAnalysis> vm_executor(egraph);
     results.clear();
-    vm_executor.execute(*compiled, candidates, ctx, results);
+    vm_executor.execute(*compiled, matcher, ctx, results);
     return {.count = results.size(), .succeeded = true};
   }
 

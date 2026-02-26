@@ -217,50 +217,6 @@ class VMExecutor {
     }
   }
 
-  /// Execute compiled pattern with explicit candidate list.
-  ///
-  /// ## Contract
-  ///
-  /// @pre pattern was produced by PatternCompiler (satisfies all bytecode contracts)
-  /// @pre candidates contains ONLY canonical e-class IDs (egraph.find(id) == id)
-  /// @pre ctx.arena() is valid for storing match bindings
-  ///
-  /// @post results contains all unique matches found
-  /// @post Each match has num_slots() values, all canonical e-class IDs
-  /// @post No duplicate binding tuples in results
-  ///
-  /// @param pattern The compiled bytecode to execute
-  /// @param candidates E-class IDs to try as pattern roots (must be canonical!)
-  /// @param ctx Match context with arena for storing bindings
-  /// @param results Output vector for matches (appended, not cleared)
-  void execute(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
-               std::vector<PatternMatch> &results) {
-    state_.reset(
-        pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs(), [&pattern](std::size_t slot) {
-          return pattern.slots_bound_after(slot);
-        });
-    if constexpr (DevMode) {
-      collector_.reset();
-    }
-    code_ = pattern.code();
-    symbols_ = pattern.symbols();
-
-    // Pre-cache all e-classes for IterAllEClasses instruction.
-    // Future optimization: only do this if pattern contains IterAllEClasses.
-    all_eclasses_buffer_.clear();
-    for (auto const &[id, _] : egraph_->canonical_classes()) {
-      all_eclasses_buffer_.push_back(id);
-    }
-
-    for (auto candidate : candidates) {
-      DMG_ASSERT(egraph_->find(candidate) == candidate, "candidates must be canonical");
-      state_.eclass_regs[0] = candidate;
-      state_.pc = 0;
-
-      run_until_halt(ctx, results);
-    }
-  }
-
   /// Execute compiled pattern with automatic candidate lookup via EMatcher.
   ///
   /// Uses the pattern's entry_symbol() to look up candidates from the matcher's
@@ -302,7 +258,7 @@ class VMExecutor {
     candidates_buffer_.erase(std::unique(candidates_buffer_.begin(), candidates_buffer_.end()),
                              candidates_buffer_.end());
 
-    execute(pattern, candidates_buffer_, ctx, results);
+    execute_impl(pattern, candidates_buffer_, ctx, results);
   }
 
   /// Get execution stats (only meaningful when DevMode=true)
@@ -319,6 +275,37 @@ class VMExecutor {
   }
 
  private:
+  /// Execute compiled pattern with explicit candidate list (internal implementation).
+  ///
+  /// @pre candidates contains ONLY canonical e-class IDs (egraph.find(id) == id)
+  void execute_impl(CompiledPattern<Symbol> const &pattern, std::span<EClassId const> candidates, EMatchContext &ctx,
+                    std::vector<PatternMatch> &results) {
+    state_.reset(
+        pattern.num_slots(), pattern.num_eclass_regs(), pattern.num_enode_regs(), [&pattern](std::size_t slot) {
+          return pattern.slots_bound_after(slot);
+        });
+    if constexpr (DevMode) {
+      collector_.reset();
+    }
+    code_ = pattern.code();
+    symbols_ = pattern.symbols();
+
+    // Pre-cache all e-classes for IterAllEClasses instruction.
+    // Future optimization: only do this if pattern contains IterAllEClasses.
+    all_eclasses_buffer_.clear();
+    for (auto const &[id, _] : egraph_->canonical_classes()) {
+      all_eclasses_buffer_.push_back(id);
+    }
+
+    for (auto candidate : candidates) {
+      DMG_ASSERT(egraph_->find(candidate) == candidate, "candidates must be canonical");
+      state_.eclass_regs[0] = candidate;
+      state_.pc = 0;
+
+      run_until_halt(ctx, results);
+    }
+  }
+
   void run_until_halt(EMatchContext &ctx, std::vector<PatternMatch> &results) {
     // Dispatch table - must match VMOp enum order exactly
     static constexpr void *dispatch_table[] = {

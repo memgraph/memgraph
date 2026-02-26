@@ -28,24 +28,22 @@ using namespace memgraph::planner::core::vm;
 class VMFixtureBase : public benchmark::Fixture {
  protected:
   TestEGraph egraph_;
+  std::unique_ptr<TestEMatcher> matcher_;
   EMatchContext match_context_;
   std::vector<PatternMatch> matches_;
   PatternCompiler<Op> compiler_;
 
-  void ResetEGraph() { egraph_ = TestEGraph{}; }
+  void ResetEGraph() {
+    egraph_ = TestEGraph{};
+    matcher_.reset();
+  }
 
   template <typename BuilderFn>
   void SetupGraph(BuilderFn &&build_fn) {
     ResetEGraph();
     build_fn(egraph_);
-  }
-
-  auto GetAllCandidates() -> std::vector<EClassId> {
-    std::vector<EClassId> candidates;
-    for (auto id : egraph_.canonical_class_ids()) {
-      candidates.push_back(id);
-    }
-    return candidates;
+    matcher_ = std::make_unique<TestEMatcher>(egraph_);
+    matcher_->rebuild_index();
   }
 };
 
@@ -56,7 +54,6 @@ class VMFixtureBase : public benchmark::Fixture {
 class VMSimplePatternFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -65,7 +62,6 @@ class VMSimplePatternFixture : public VMFixtureBase {
     context_mode_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildIndependentAdds(g, graph_size_); });
     pattern_ = compiler_.compile(PatternAdd());
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -75,14 +71,14 @@ BENCHMARK_DEFINE_F(VMSimplePatternFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, candidates_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, candidates_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -101,7 +97,6 @@ BENCHMARK_REGISTER_F(VMSimplePatternFixture, Match)
 class VMDeepPatternFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t pattern_depth_ = 0;
   int64_t context_mode_ = 0;
 
@@ -110,7 +105,6 @@ class VMDeepPatternFixture : public VMFixtureBase {
     context_mode_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildNegChain(g, pattern_depth_); });
     pattern_ = compiler_.compile(PatternNestedNeg(static_cast<int>(pattern_depth_)));
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -120,14 +114,14 @@ BENCHMARK_DEFINE_F(VMDeepPatternFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, candidates_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, candidates_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -147,7 +141,6 @@ BENCHMARK_REGISTER_F(VMDeepPatternFixture, Match)
 class VMSameVariableFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -156,7 +149,6 @@ class VMSameVariableFixture : public VMFixtureBase {
     context_mode_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildMixedAdds(g, graph_size_); });
     pattern_ = compiler_.compile(PatternAddSameVar());
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -166,14 +158,14 @@ BENCHMARK_DEFINE_F(VMSameVariableFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, candidates_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, candidates_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -192,7 +184,6 @@ BENCHMARK_REGISTER_F(VMSameVariableFixture, Match)
 class VMMergedEGraphFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -201,7 +192,6 @@ class VMMergedEGraphFixture : public VMFixtureBase {
     context_mode_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildMergedAddMul(g, graph_size_); });
     pattern_ = compiler_.compile(PatternAdd());
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -211,14 +201,14 @@ BENCHMARK_DEFINE_F(VMMergedEGraphFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, candidates_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, candidates_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -237,7 +227,6 @@ BENCHMARK_REGISTER_F(VMMergedEGraphFixture, Match)
 class VMSelectivePatternFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t graph_size_ = 0;
   int64_t context_mode_ = 0;
 
@@ -246,7 +235,6 @@ class VMSelectivePatternFixture : public VMFixtureBase {
     context_mode_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildAddsWithOneNeg(g, graph_size_); });
     pattern_ = compiler_.compile(PatternSelective());
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -256,14 +244,14 @@ BENCHMARK_DEFINE_F(VMSelectivePatternFixture, Match)(benchmark::State &state) {
     for (auto _ : state) {
       match_context_.clear();
       matches_.clear();
-      executor.execute(*pattern_, candidates_, match_context_, matches_);
+      executor.execute(*pattern_, *matcher_, match_context_, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   } else {
     for (auto _ : state) {
       EMatchContext fresh_context;
       matches_.clear();
-      executor.execute(*pattern_, candidates_, fresh_context, matches_);
+      executor.execute(*pattern_, *matcher_, fresh_context, matches_);
       benchmark::DoNotOptimize(matches_);
     }
   }
@@ -350,7 +338,6 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
   int64_t num_binds_ = 0;
   int64_t idents_per_sym_ = 0;
   std::optional<CompiledPattern<Op>> compiled_;
-  std::vector<EClassId> bind_candidates_;
 
   void SetUp(const benchmark::State &state) override {
     num_binds_ = state.range(0);
@@ -365,19 +352,6 @@ class BindIdentVMFusedFixture : public VMFixtureBase {
     PatternCompiler<Op> fused_compiler;
     std::array patterns = {bind_pattern, ident_pattern};
     compiled_ = fused_compiler.compile(patterns);
-
-    // Get all Bind e-classes as candidates
-    bind_candidates_.clear();
-    for (auto id : egraph_.canonical_class_ids()) {
-      auto const &eclass = egraph_.eclass(id);
-      for (auto enode_id : eclass.nodes()) {
-        auto const &enode = egraph_.get_enode(enode_id);
-        if (enode.symbol() == Op::Bind) {
-          bind_candidates_.push_back(id);
-          break;
-        }
-      }
-    }
   }
 };
 
@@ -386,7 +360,7 @@ BENCHMARK_DEFINE_F(BindIdentVMFusedFixture, ParentTraversal)(benchmark::State &s
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*compiled_, bind_candidates_, match_context_, matches_);
+    executor.execute(*compiled_, *matcher_, match_context_, matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations() * num_binds_ * idents_per_sym_);
@@ -413,7 +387,6 @@ BENCHMARK_REGISTER_F(BindIdentVMFusedFixture, ParentTraversal)
 class VMHighParentFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t parents_f_ = 0;
   int64_t parents_neg_ = 0;
 
@@ -422,7 +395,6 @@ class VMHighParentFixture : public VMFixtureBase {
     parents_neg_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildHighParentHub(g, parents_f_, parents_neg_); });
     pattern_ = compiler_.compile(PatternNeg());
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -431,7 +403,7 @@ BENCHMARK_DEFINE_F(VMHighParentFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_, matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations() * parents_neg_);
@@ -456,12 +428,10 @@ BENCHMARK_REGISTER_F(VMHighParentFixture, Match)
 class VMSelfRefFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
 
   void SetUp(const benchmark::State &) override {
     SetupGraph([](TestEGraph &g) { BuildSelfReferential(g, 42); });
     pattern_ = compiler_.compile(PatternNestedF());
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -470,7 +440,7 @@ BENCHMARK_DEFINE_F(VMSelfRefFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_, matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations());
@@ -489,7 +459,6 @@ BENCHMARK_REGISTER_F(VMSelfRefFixture, Match)->Unit(benchmark::kNanosecond);
 class VMParentDiversityFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t num_leaves_ = 0;
   int64_t parents_per_leaf_ = 0;
 
@@ -498,7 +467,6 @@ class VMParentDiversityFixture : public VMFixtureBase {
     parents_per_leaf_ = state.range(1);
     SetupGraph([this](TestEGraph &g) { BuildParentDiversity(g, num_leaves_, parents_per_leaf_, 42); });
     pattern_ = compiler_.compile(PatternNeg());
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -507,7 +475,7 @@ BENCHMARK_DEFINE_F(VMParentDiversityFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_, matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations());
@@ -534,7 +502,6 @@ BENCHMARK_REGISTER_F(VMParentDiversityFixture, Match)
 class VMNestedJoinFixture : public VMFixtureBase {
  protected:
   std::optional<CompiledPattern<Op>> pattern_;
-  std::vector<EClassId> candidates_;
   int64_t num_leaves_ = 0;
 
   void SetUp(const benchmark::State &state) override {
@@ -544,7 +511,6 @@ class VMNestedJoinFixture : public VMFixtureBase {
     // Compile the two-pattern join: (F ?v0) JOIN (F (F (F (F ?v0))))
     std::array patterns = {PatternShallowF(), PatternDeepNestedF()};
     pattern_ = compiler_.compile(patterns);
-    candidates_ = GetAllCandidates();
   }
 };
 
@@ -553,7 +519,7 @@ BENCHMARK_DEFINE_F(VMNestedJoinFixture, Match)(benchmark::State &state) {
   for (auto _ : state) {
     match_context_.clear();
     matches_.clear();
-    executor.execute(*pattern_, candidates_, match_context_, matches_);
+    executor.execute(*pattern_, *matcher_, match_context_, matches_);
     benchmark::DoNotOptimize(matches_);
   }
   state.SetItemsProcessed(state.iterations() * num_leaves_);

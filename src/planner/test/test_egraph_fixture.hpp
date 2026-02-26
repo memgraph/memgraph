@@ -39,6 +39,7 @@ namespace memgraph::planner::core::test {
 class EGraphTestBase : public ::testing::Test {
  protected:
   TestEGraph egraph;
+  TestEMatcher matcher{egraph};
   ProcessingContext<Op> proc_ctx_;
 
   // ---------------------------------------------------------------------------
@@ -57,8 +58,11 @@ class EGraphTestBase : public ::testing::Test {
   /// Merge two e-classes. Returns the canonical e-class ID.
   auto merge(EClassId a, EClassId b) -> EClassId { return egraph.merge(a, b).eclass_id; }
 
-  /// Rebuild the e-graph to restore invariants after merges.
-  void rebuild_egraph() { egraph.rebuild(proc_ctx_); }
+  /// Rebuild the e-graph and matcher index to restore invariants after merges.
+  void rebuild_egraph() {
+    egraph.rebuild(proc_ctx_);
+    matcher.rebuild_index();
+  }
 };
 
 }  // namespace memgraph::planner::core::test
