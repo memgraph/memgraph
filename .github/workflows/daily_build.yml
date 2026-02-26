@@ -393,7 +393,7 @@ jobs:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
-      deployment: native_standalone
+      deployment: standalone
     secrets: inherit
 
   StressTestsNativeHA:
@@ -402,7 +402,7 @@ jobs:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
-      deployment: native_ha
+      deployment: ha/native
     secrets: inherit
 
   StressTestsDockerHA:
@@ -411,6 +411,6 @@ jobs:
     if: ${{ ((github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
-      deployment: docker_ha
+      deployment: ha/docker
       memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
     secrets: inherit

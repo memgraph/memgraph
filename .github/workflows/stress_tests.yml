@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       deployment:
-        description: 'Deployment type: native_standalone/native_ha/docker_ha/eks_ha'
+        description: 'Deployment type: standalone / ha/native / ha/docker / ha/eks'
         required: true
         type: choice
         options:
-          - native_standalone
-          - native_ha
-          - docker_ha
-          - eks_ha
-        default: native_standalone
+          - standalone
+          - ha/native
+          - ha/docker
+          - ha/eks
+        default: standalone
       memgraph_image:
         description: 'MAGE image (URL to .tar.gz or docker tag) - leave empty to build from branch'
         required: false
@@ -32,7 +32,7 @@ run-name: "Stress Tests (${{ inputs.deployment }} - ${{ inputs.arch }})"
 jobs:
   BuildMageImage:
     name: "Build MAGE Image"
-    if: ${{ (inputs.deployment == 'docker_ha' || inputs.deployment == 'eks_ha') && inputs.memgraph_image == '' }}
+    if: ${{ (inputs.deployment == 'ha/docker' || inputs.deployment == 'ha/eks') && inputs.memgraph_image == '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     with:
       arch: ${{ inputs.arch }}
@@ -44,9 +44,9 @@ jobs:
       package_deb: "false"
     secrets: inherit
 
-  stress_test_native_standalone:
-    name: "Stress Tests Native Standalone"
-    if: ${{ inputs.deployment == 'native_standalone' }}
+  stress_test_standalone:
+    name: "Stress Tests Standalone"
+    if: ${{ inputs.deployment == 'standalone' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
@@ -55,7 +55,7 @@ jobs:
 
   stress_test_native_ha:
     name: "Stress Tests Native HA"
-    if: ${{ inputs.deployment == 'native_ha' }}
+    if: ${{ inputs.deployment == 'ha/native' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}
@@ -64,7 +64,7 @@ jobs:
 
   stress_test_docker_ha:
     name: "Stress Tests Docker HA"
-    if: ${{ always() && inputs.deployment == 'docker_ha' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
+    if: ${{ always() && inputs.deployment == 'ha/docker' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
     needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
@@ -75,7 +75,7 @@ jobs:
 
   stress_test_eks_ha:
     name: "Stress Tests EKS HA"
-    if: ${{ always() && inputs.deployment == 'eks_ha' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
+    if: ${{ always() && inputs.deployment == 'ha/eks' && (inputs.memgraph_image != '' || needs.BuildMageImage.result == 'success') }}
     needs: [BuildMageImage]
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
