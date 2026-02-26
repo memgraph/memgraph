@@ -2292,6 +2292,10 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
       auto value = std::any_cast<std::vector<std::string>>(typeSpec->edgeType->accept(this));
 
       for (const auto &key : keys) {
+        if (key == AuthQuery::FineGrainedPrivilege::SET_LABEL || key == AuthQuery::FineGrainedPrivilege::REMOVE_LABEL ||
+            key == AuthQuery::FineGrainedPrivilege::DELETE_EDGE) {
+          throw SemanticException("SET LABEL, REMOVE LABEL, and DELETE EDGE permissions are not applicable to edges");
+        }
         if (key == AuthQuery::FineGrainedPrivilege::ALL) {
           edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::CREATE, value);
           edge_type_privileges.emplace_back(AuthQuery::FineGrainedPrivilege::DELETE, value);
@@ -2457,6 +2461,20 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilegeList(MemgraphCypher::Gran
     if ((priv == AuthQuery::FineGrainedPrivilege::ALL && !seen.empty()) ||
         (priv != AuthQuery::FineGrainedPrivilege::ALL && seen.contains(AuthQuery::FineGrainedPrivilege::ALL))) {
       throw SemanticException("Cannot combine * with other permissions");
+    }
+
+    // UPDATE is a shorthand for SET_LABEL, REMOVE_LABEL, SET_PROPERTY,
+    // DELETE_EDGE: we cannot combine the compound permission with the discrete
+    // ones.
+    auto const is_update_component = [](AuthQuery::FineGrainedPrivilege p) {
+      return p == AuthQuery::FineGrainedPrivilege::SET_LABEL || p == AuthQuery::FineGrainedPrivilege::REMOVE_LABEL ||
+             p == AuthQuery::FineGrainedPrivilege::SET_PROPERTY || p == AuthQuery::FineGrainedPrivilege::DELETE_EDGE;
+    };
+    if (priv == AuthQuery::FineGrainedPrivilege::UPDATE && std::any_of(seen.begin(), seen.end(), is_update_component)) {
+      throw SemanticException("Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, or DELETE EDGE");
+    }
+    if (is_update_component(priv) && seen.contains(AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw SemanticException("Cannot combine UPDATE with SET LABEL, REMOVE LABEL, SET PROPERTY, or DELETE EDGE");
     }
 
     seen.insert(priv);
