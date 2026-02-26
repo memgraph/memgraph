@@ -893,9 +893,20 @@ TEST_F(EMatcherTest, DeepNestedTernaryPatternWithMatches) {
 }
 
 TEST_F(EMatcherTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
-  // Regression test from fuzzer (fuzz_ematch.cpp crash).
-  // Pattern: Mul(?v0, Mul(?v0, ?v1))
+  // Known failing test: E-graph congruence closure bug.
+  //
+  // Pattern: Mul(?x, Mul(?x, ?y))
   // Egglog ground truth: 3 matches. Bug: EMatcher/VM find 4.
+  //
+  // Root cause: n11=Mul(n8,n0) and n13=Mul(n7,n10) have children that become
+  // equivalent through separate merge chains:
+  //   - find(n8) = find(n7) = E_n1 (both merge into n1's e-class)
+  //   - find(n0) = find(n10) = E_n0 (both merge into n0's e-class)
+  //
+  // After rebuild, both n11 and n13 should canonicalize to Mul(E_n1, E_n0) and
+  // be merged, but the e-graph's congruence closure doesn't detect this.
+  //
+  // Minimal reproduction: EGraphCongruenceClosureBug.SelfRefWithIndirectChildCongruence
   //
   // This is the exact structure from the fuzzer - do not simplify without
   // verifying the test still fails.
@@ -997,7 +1008,18 @@ TEST_F(EMatcherTest, RepeatedVarInNestedPatternWithSelfReferentialEClass) {
   vm_executor.execute(*compiled, ematcher, vm_ctx, vm_matches);
   auto vm_count = vm_matches.size();
 
+  // Root cause: This test exposes a congruence closure bug in the e-graph.
+  // After all merges, n11=Mul(n8,n0) and n13=Mul(n7,n10) should canonicalize to
+  // Mul(E_n1, E_n0) because find(n8)=find(n7)=E_n1 and find(n10)=find(n0)=E_n0.
+  // But the e-graph's rebuild doesn't merge n11 and n13 as it should.
+  //
+  // See: EGraphCongruenceClosureBug.SelfRefWithIndirectChildCongruence
+  //
+  // When the e-graph bug is fixed, this test should pass with 3 matches.
+  // Until then, EMatcher and VM correctly find 4 matches (consistent with each other,
+  // but inconsistent with egglog ground truth due to the e-graph bug).
   constexpr std::size_t kExpectedMatches = 3;
+
   EXPECT_EQ(ematcher_count, kExpectedMatches)
       << "EMatcher should find " << kExpectedMatches << " matches (egglog ground truth)";
   EXPECT_EQ(vm_count, kExpectedMatches) << "VM should find " << kExpectedMatches << " matches (egglog ground truth)";
