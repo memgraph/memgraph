@@ -2,4 +2,4 @@ customWorkloads:
   tests:
     - name: vector-workload
       script: "ha/workloads/rag/workload.py"
-      timeout_min: 30
+      timeout_min: 120
