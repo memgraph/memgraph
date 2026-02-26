@@ -3291,8 +3291,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   DeltaVertexCache vertex_cache(current_commit_timestamp);
 
   auto append_deltas = [&](auto callback) {
-    bool const should_track_nonseq_subchains{transaction_.has_non_sequential_deltas};
-
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
     auto find_and_apply_deltas = [&](const auto *delta, auto *parent, auto filter) {
@@ -3304,6 +3302,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       while (true) {
         auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
+        // Only encode if this delta belongs to our transaction and matches filter
         if (ts == current_commit_timestamp && filter(delta->action)) {
           callback(*delta, parent, durability_commit_timestamp);
         }
@@ -3318,6 +3317,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // Variant for pass 2 (edge creation) which must handle non-sequential
     // deltas which be concurrently modified by aborting transactions.
     std::unordered_set<Delta const *> processed_subchain_tails;
+    bool const should_track_nonseq_subchains{transaction_.has_non_sequential_deltas};
     auto find_and_apply_concurrent_edge_create_deltas = [&](Delta const *delta, Vertex *parent, auto filter) {
       auto const *const current_commit_info = delta->commit_info;
       while (true) {
