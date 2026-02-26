@@ -8922,7 +8922,7 @@ std::optional<Interpreter::TxVerifier> Interpreter::PauseTransactionToVerify() {
   constexpr std::array valid_statuses = {
       TransactionStatus::ACTIVE, TransactionStatus::STARTED_COMMITTING, TransactionStatus::STARTED_ROLLBACK};
   TransactionStatus status = transaction_status_.load(std::memory_order_acquire);
-  if (std::find(valid_statuses.begin(), valid_statuses.end(), status) == valid_statuses.end()) {
+  if (std::ranges::find(valid_statuses, status) == valid_statuses.end()) {
     // Transaction is not in a state we can pause and verify
     return std::nullopt;
   }
