@@ -56,12 +56,12 @@ class ClusterMonitor:
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
 
-    def _query(self, query: str, query_type: QueryType = QueryType.READ) -> list[dict[str, Any]]:
-        """Try each coordinator in order; return results from the first that responds."""
+    def _query(self, query: str, query_type: QueryType = QueryType.READ) -> tuple[str, list[dict[str, Any]]]:
+        """Try each coordinator in order; return (coordinator_name, results) from the first that responds."""
         last_err = None
         for coord in self._coordinators:
             try:
-                return execute_and_fetch(coord, query, protocol=Protocol.BOLT_ROUTING, query_type=query_type)
+                return coord, execute_and_fetch(coord, query, protocol=Protocol.BOLT_ROUTING, query_type=query_type)
             except Exception as e:
                 last_err = e
         raise last_err  # type: ignore[misc]
@@ -114,10 +114,10 @@ class ClusterMonitor:
     def _replicas_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = self._query("SHOW REPLICAS;")
+                coord, rows = self._query("SHOW REPLICAS;")
                 if rows:
                     headers = list(rows[0].keys())
-                    print(f"\n[SHOW REPLICAS @ {time.strftime('%H:%M:%S')}]")
+                    print(f"\n[SHOW REPLICAS @ {time.strftime('%H:%M:%S')} via {coord}]")
                     print("  " + ",".join(headers))
                     for row in rows:
                         print("  " + ",".join(str(row[h]) for h in headers))
@@ -128,10 +128,10 @@ class ClusterMonitor:
     def _instances_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = self._query("SHOW INSTANCES;")
+                coord, rows = self._query("SHOW INSTANCES;")
                 if rows:
                     headers = list(rows[0].keys())
-                    print(f"\n[SHOW INSTANCES @ {time.strftime('%H:%M:%S')}]")
+                    print(f"\n[SHOW INSTANCES @ {time.strftime('%H:%M:%S')} via {coord}]")
                     print("  " + ",".join(headers))
                     for row in rows:
                         print("  " + ",".join(str(row[h]) for h in headers))
@@ -142,12 +142,12 @@ class ClusterMonitor:
     def _verify_up_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = self._query("SHOW INSTANCES;")
+                coord, rows = self._query("SHOW INSTANCES;")
                 for row in rows:
                     name = row.get("name", "unknown")
                     alive = row.get("alive", row.get("is_alive", None))
                     if alive is False:
-                        print(f"\n  FATAL: Instance '{name}' is DOWN!")
+                        print(f"\n  FATAL: Instance '{name}' is DOWN! (via {coord})")
                         os._exit(1)
             except Exception as e:
                 print(f"\n[HEALTH CHECK ERROR] {e}")
@@ -156,10 +156,10 @@ class ClusterMonitor:
     def _storage_info_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                rows = self._query("SHOW STORAGE INFO;")
+                coord, rows = self._query("SHOW STORAGE INFO;")
                 info = {row["storage info"]: row["value"] for row in rows if "storage info" in row}
                 parts = [f"{f}={info.get(f, '?')}" for f in self._storage_fields]
-                print(f"\n[STORAGE INFO @ {time.strftime('%H:%M:%S')}] {' '.join(parts)}")
+                print(f"\n[STORAGE INFO @ {time.strftime('%H:%M:%S')} via {coord}] {' '.join(parts)}")
             except Exception as e:
                 print(f"\n[STORAGE INFO ERROR] {e}")
             self._stop_event.wait(self._interval)
@@ -168,7 +168,8 @@ class ClusterMonitor:
 
     def show_replicas(self) -> None:
         """Print SHOW REPLICAS once."""
-        rows = self._query("SHOW REPLICAS;")
+        coord, rows = self._query("SHOW REPLICAS;")
+        print(f"[via {coord}]")
         if rows:
             headers = list(rows[0].keys())
             print(",".join(headers))
@@ -177,7 +178,8 @@ class ClusterMonitor:
 
     def verify_all_ready(self) -> bool:
         """Check that all replicas have status 'ready'. Returns True if healthy."""
-        rows = self._query("SHOW REPLICAS;")
+        coord, rows = self._query("SHOW REPLICAS;")
+        print(f"[verify_all_ready via {coord}]")
         all_ready = True
         for row in rows:
             name = row.get("name", "unknown")
@@ -193,7 +195,8 @@ class ClusterMonitor:
 
     def verify_instances_up(self) -> bool:
         """Check that all instances are alive. Returns True if all up."""
-        rows = self._query("SHOW INSTANCES;")
+        coord, rows = self._query("SHOW INSTANCES;")
+        print(f"[verify_instances_up via {coord}]")
         all_up = True
         for row in rows:
             name = row.get("name", "unknown")
