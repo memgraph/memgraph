@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Any, Callable, Iterable, TypeVar
 
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable
 
 R = TypeVar("R")
 
@@ -214,24 +215,39 @@ def _run_query(
 ) -> Any:
     """
     Internal query runner. Returns None if SYNC replica error occurs
-    (write succeeded on MAIN). Prints FATAL and re-raises on other errors.
+    (write succeeded on MAIN). Retries on transient routing/connection errors.
+    Prints FATAL and re-raises on other errors.
     """
-    driver = _get_or_create_driver(instance_name, protocol)
+    max_retries = 3
+    retry_delay = 2
 
-    try:
-        with driver.session() as session:
-            if apply_retry_mechanism:
-                if query_type == QueryType.WRITE:
-                    return session.execute_write(lambda tx: result_handler(tx.run(query, params or {})))
+    for attempt in range(1, max_retries + 1):
+        driver = _get_or_create_driver(instance_name, protocol)
+        try:
+            with driver.session() as session:
+                if apply_retry_mechanism:
+                    if query_type == QueryType.WRITE:
+                        return session.execute_write(lambda tx: result_handler(tx.run(query, params or {})))
+                    else:
+                        return session.execute_read(lambda tx: result_handler(tx.run(query, params or {})))
                 else:
-                    return session.execute_read(lambda tx: result_handler(tx.run(query, params or {})))
-            else:
-                return result_handler(session.run(query, params or {}))
-    except Exception as e:
-        if SYNC_REPLICA_ERROR in str(e):
-            return None
-        print(f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value})")
-        raise
+                    return result_handler(session.run(query, params or {}))
+        except Exception as e:
+            if SYNC_REPLICA_ERROR in str(e):
+                return None
+            if isinstance(e, ServiceUnavailable):
+                pid = os.getpid()
+                key = (pid, instance_name, protocol.value)
+                _driver_cache.pop(key, None)
+                if attempt < max_retries:
+                    print(
+                        f"\nWARN: Routing/connection error (attempt {attempt}/{max_retries}), "
+                        f"retrying in {retry_delay}s... (instance={instance_name})"
+                    )
+                    time.sleep(retry_delay)
+                    continue
+            print(f"\nFATAL: {e} (instance={instance_name}, protocol={protocol.value})")
+            raise
 
 
 def execute_query(
