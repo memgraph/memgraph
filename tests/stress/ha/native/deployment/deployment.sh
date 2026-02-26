@@ -2,10 +2,10 @@
 
 # Get absolute path to script directory and build directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../build" 2>/dev/null && pwd)"
+BUILD_DIR="$(cd "$SCRIPT_DIR/../../../../../build" 2>/dev/null && pwd)"
 
 if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
-    echo "ERROR: Build directory not found. Expected at: $SCRIPT_DIR/../../../../build"
+    echo "ERROR: Build directory not found. Expected at: $SCRIPT_DIR/../../../../../build"
     echo "Please build Memgraph first."
     exit 1
 fi
