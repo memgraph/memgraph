@@ -34,8 +34,8 @@ workloads:
 
 ### Adding a New Workload
 
-1. Create folder with workload config: `ha/workloads/my_workload.yaml`
-2. Register in `workloads.yaml`: `- config: ../workloads/my_workload.yaml`
+1. Create workload folder: `ha/workloads/my_workload/workload.py` + `ha/workloads/my_workload/workload.yaml`
+2. Register in deployment's `workloads.yaml`: `- config: ../workloads/my_workload/workload.yaml`
 3. Run: `./continuous_integration --deployment ha/docker`
 
 To skip a workload, set `enabled: false` in the registry.

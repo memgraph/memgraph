@@ -2,5 +2,5 @@ customWorkloads:
   tests:
     - name: python-functions
       memgraph_args: ["--log-level=WARNING"]
-      script: "ha/workloads/python_functions.py"
+      script: "ha/workloads/python_functions/workload.py"
       timeout_min: 30

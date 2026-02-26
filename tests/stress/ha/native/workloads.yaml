@@ -22,5 +22,5 @@ workloads:
   - config: show_replicas_deadlock.yaml
     enabled: false
 
-  - config: ../workloads/concurrent_edge_write.yaml
+  - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true
