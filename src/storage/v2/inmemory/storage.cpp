@@ -3317,16 +3317,23 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // Variant for pass 2 (edge creation) which must handle non-sequential
     // deltas which be concurrently modified by aborting transactions.
     std::unordered_set<Delta const *> processed_subchain_tails;
+    std::unordered_set<Delta const *> processed_pass2_deltas;
     bool const should_track_nonseq_subchains{transaction_.has_non_sequential_deltas};
     auto find_and_apply_concurrent_edge_create_deltas = [&](Delta const *delta, Vertex *parent, auto filter) {
       auto const *const current_commit_info = delta->commit_info;
       while (true) {
         auto *older = delta->next.load(std::memory_order_acquire);
-        if (older == nullptr || older->commit_info != current_commit_info) break;
+        if (older == nullptr || older->commit_info != current_commit_info || processed_pass2_deltas.contains(older))
+          break;
         delta = older;
       }
       auto const *subchain_tail = delta;
       while (true) {
+        // If we reached a delta already handled in pass 2, this subchain has
+        // merged into processed territory due to concurrent abort rewiring.
+        if (processed_pass2_deltas.contains(delta)) {
+          break;
+        }
         // Concurrent aborts can rewire chains while we traverse. If we hit a
         // previously processed tail marker from this pass, it means that two
         // subchains have become one because the deltas in the middle have
@@ -3338,6 +3345,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         if (ts == current_commit_timestamp && filter(delta->action)) {
           callback(*delta, parent, durability_commit_timestamp);
         }
+        processed_pass2_deltas.insert(delta);
         auto prev = delta->prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::DELTA) break;
