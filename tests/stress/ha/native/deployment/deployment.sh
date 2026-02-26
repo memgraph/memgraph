@@ -78,34 +78,33 @@ clean_data_directories() {
 }
 
 merge_flags() {
-    local default_flags=("$@")  # Default flags passed as arguments
-    shift $#
-    local provided_flags=("$@")  # Capture all provided flags
+    # Usage: merge_flags <num_defaults> <default_flags...> <override_flags...>
+    # First arg is the count of default flags so we can split the two arrays.
+    local num_defaults=$1; shift
 
-    local final_flags=("${default_flags[@]}")  # Start with default flags
+    local default_flags=("${@:1:$num_defaults}")
+    local provided_flags=("${@:$((num_defaults + 1))}")
 
-    # Loop through user-provided flags
+    local final_flags=("${default_flags[@]}")
+
     for flag in "${provided_flags[@]}"; do
-        flag_name="${flag%%=*}"  # Extract flag name (before '=')
-        flag_value="${flag#*=}"  # Extract flag value (after '=')
+        local flag_name="${flag%%=*}"
 
-        # Check if flag is overriding a default flag
-        found=false
+        local found=false
         for i in "${!final_flags[@]}"; do
             if [[ "${final_flags[$i]}" == "$flag_name="* ]]; then
-                final_flags[$i]="$flag"  # Override existing flag
+                final_flags[$i]="$flag"
                 found=true
                 break
             fi
         done
 
-        # If flag wasn't found in defaults, append it
         if [[ "$found" == false ]]; then
             final_flags+=("$flag")
         fi
     done
 
-    echo "${final_flags[@]}"  # Return the merged flags as a single string
+    echo "${final_flags[@]}"
 }
 
 start_memgraph() {
@@ -122,19 +121,19 @@ start_memgraph() {
 
     # Start data nodes
     for node in "${DATA_NODES[@]}"; do
-        FINAL_FLAGS=$(merge_flags "${DEFAULT_DATA_FLAGS[@]}" "$@")
+        FINAL_FLAGS=$(merge_flags ${#DEFAULT_DATA_FLAGS[@]} "${DEFAULT_DATA_FLAGS[@]}" "$@")
         CMD="$MEMGRAPH_BINARY $node $FINAL_FLAGS"
         echo "Executing: $CMD"
-        $CMD &  # Run the command
+        $CMD &
         echo $! >> memgraph_ha.pid
     done
 
     # Start coordinator nodes
     for node in "${COORD_NODES[@]}"; do
-        FINAL_FLAGS=$(merge_flags "${DEFAULT_COORD_FLAGS[@]}" "$@")
+        FINAL_FLAGS=$(merge_flags ${#DEFAULT_COORD_FLAGS[@]} "${DEFAULT_COORD_FLAGS[@]}" "$@")
         CMD="$MEMGRAPH_BINARY $node $FINAL_FLAGS"
         echo "Executing: $CMD"
-        $CMD &  # Run the command
+        $CMD &
         echo $! >> memgraph_ha.pid
     done
 

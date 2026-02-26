@@ -72,12 +72,23 @@ def get_workloads_registry(deployment: str) -> Optional[str]:
     return None
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Deep merge override into base. Override values take precedence."""
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
     """
     Load the workloads registry for a deployment.
 
     Supports a 'defaults' section in workloads.yaml that provides deployment-level
-    config (memgraph, cluster, general). These defaults are merged under each
+    config (memgraph, cluster, general). These defaults are deep-merged under each
     workload's own YAML (workload keys take precedence).
 
     Returns list of enabled workload entries with merged config dicts.
@@ -110,8 +121,7 @@ def load_workloads_registry(deployment: str) -> List[Dict[str, Any]]:
         with open(full_config_path) as f:
             workload_config = yaml.safe_load(f) or {}
 
-        merged = dict(defaults)
-        merged.update(workload_config)
+        merged = _deep_merge(defaults, workload_config)
 
         enabled_workloads.append(
             {

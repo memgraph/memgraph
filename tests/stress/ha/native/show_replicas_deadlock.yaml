@@ -1,22 +1,6 @@
-memgraph:
-  deployment:
-    externally_managed: false
-  args: []
-  env:
-    MEMGRAPH_ENTERPRISE_LICENSE: ""
-    MEMGRAPH_ORGANIZATION_NAME: ""
-
-general:
-  verbose: false
-  use_ssl: false
-
-dataset:
-  tests: []
-
 customWorkloads:
   tests:
     - name: show-replicas-deadlock
-      memgraph_args: []
       querying:
         host: "localhost"
         port: 7687
