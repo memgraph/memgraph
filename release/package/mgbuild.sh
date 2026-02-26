@@ -640,6 +640,10 @@ build_memgraph () {
     echo "No sanitizers enabled"
   fi
 
+  # add LD_LIBRARY_PATH to the command
+  CMD_START="source /opt/toolchain-$toolchain_version/activate && $CMD_START"
+
+
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"

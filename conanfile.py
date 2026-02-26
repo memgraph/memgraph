@@ -53,9 +53,9 @@ class Memgraph(ConanFile):
 
     def requirements(self):
         # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
-        self.requires("abseil/20250512.1")
+        self.requires("abseil/20250814.1")
         self.requires("antlr4-cppruntime/4.13.2")
-        self.requires("arrow/22.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
+        self.requires("arrow/23.0.0", options={"with_s3": True, "with_snappy": True, "with_mimalloc": False})
         self.requires(
             "aws-sdk-cpp/1.11.692",
             options={
@@ -73,18 +73,18 @@ class Memgraph(ConanFile):
             },
         )
         self.requires("asio/1.36.0")
-        self.requires("boost/1.88.0")
+        self.requires("boost/1.90.0")
         self.requires("bzip2/1.0.8")
         self.requires("cppitertools/2.2")
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
-        self.requires("fmt/11.2.0")
-        self.requires("libcurl/8.17.0", override=True)
-        self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("fmt/12.1.0")
+        self.requires("libcurl/8.18.0", override=True)
+        self.requires("mgclient/1.5.0", options={"with_cpp": True})
         self.requires("range-v3/0.12.0")
-        self.requires("simdjson/4.2.2")
+        self.requires("simdjson/4.2.4")
         self.requires("snappy/1.2.1", override=True)
-        self.requires("spdlog/1.15.3")
+        self.requires("spdlog/1.17.0")
         self.requires("strong_type/v15")
         self.requires("zlib/1.3.1")
         # We force Memgraph and all its dependencies to dynamically link to OpenSSL. We use version
@@ -93,9 +93,9 @@ class Memgraph(ConanFile):
         self.requires("openssl/3.0.18", override=True, options={"shared": True})
 
     def build_requirements(self):
-        self.tool_requires("cmake/4.1.2")
-        self.tool_requires("ninja/1.13.1")
-        self.tool_requires("ccache/4.12.1")
+        self.tool_requires("cmake/4.2.3")
+        self.tool_requires("ninja/1.13.2")
+        self.tool_requires("ccache/4.12.2")
         self.tool_requires("antlr4/4.13.1")
 
         self.test_requires("benchmark/1.9.4")
