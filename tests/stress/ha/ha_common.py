@@ -60,6 +60,7 @@ def _auto_configure() -> None:
     """Import the deployment's common.py based on STRESS_DEPLOYMENT env var.
 
     STRESS_DEPLOYMENT should be a sub-path under tests/stress/ (e.g. "ha/docker").
+    The deployment's common.py calls ha_common.configure() to register its resolver.
     """
     global _deployment_common
     deployment = os.environ.get("STRESS_DEPLOYMENT")

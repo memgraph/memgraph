@@ -2,7 +2,7 @@
 Common utilities for Docker HA stress tests.
 
 Thin wrapper around ha_common — provides deployment-specific instance resolution
-and re-exports all shared symbols so workloads can `from common import ...` unchanged.
+and registers it via ha_common.configure().
 """
 import os
 import subprocess
@@ -11,17 +11,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import ha_common
-from ha_common import (  # noqa: F401 — re-exported for workloads
-    COORDINATOR_INSTANCES,
-    Protocol,
-    QueryType,
-    create_bolt_driver_for,
-    create_routing_driver_for,
-    execute_and_fetch,
-    execute_query,
-    get_instance_names,
-    run_parallel,
-)
 
 _COMMON_DIR = os.path.dirname(os.path.abspath(__file__))
 DEPLOYMENT_SCRIPT = os.path.join(_COMMON_DIR, "deployment", "deployment.sh")

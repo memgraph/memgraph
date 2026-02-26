@@ -174,8 +174,8 @@ class Config:
 
         # Memgraph configuration
         memgraph = config.get("memgraph", {})
-        deployment = memgraph.get("deployment", {})
-        self._externally_managed = deployment.get("externally_managed", True)
+        deployment_cfg = memgraph.get("deployment", {})
+        self._externally_managed = deployment_cfg.get("externally_managed", True)
 
         # Validate: externally managed deployments should not have other memgraph keys
         if self._externally_managed:
@@ -356,9 +356,10 @@ def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int, 
     if deployment_type:
         run_env["STRESS_DEPLOYMENT"] = deployment_type
 
-    script_parent = os.path.dirname(os.path.dirname(workload_script))
+    ha_dir = os.path.join(SCRIPT_DIR, "ha")
+    script_dir = os.path.dirname(workload_script)
     existing = run_env.get("PYTHONPATH", "")
-    run_env["PYTHONPATH"] = f"{script_parent}:{SCRIPT_DIR}:{existing}".rstrip(":")
+    run_env["PYTHONPATH"] = f"{ha_dir}:{script_dir}:{SCRIPT_DIR}:{existing}".rstrip(":")
 
     for key, value in workload.get("script_env", {}).items():
         run_env[key] = str(value)

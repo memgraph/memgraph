@@ -13,17 +13,6 @@ from functools import lru_cache
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import ha_common
-from ha_common import (  # noqa: F401 — re-exported for workloads
-    COORDINATOR_INSTANCES,
-    Protocol,
-    QueryType,
-    create_bolt_driver_for,
-    create_routing_driver_for,
-    execute_and_fetch,
-    execute_query,
-    get_instance_names,
-    run_parallel,
-)
 
 BOLT_PORT = 7687
 
