@@ -26,6 +26,3 @@ workloads:
 
   - config: ../workloads/publications/workload.yaml
     enabled: false
-
-  - config: ../workloads/python_functions/workload.yaml
-    enabled: true
