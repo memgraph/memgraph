@@ -1025,16 +1025,28 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
 bool PythonModule::Close() {
   MG_ASSERT(py_module_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
-  // The procedures and transformations are closures which hold references to the Python callbacks.
-  // Releasing these references might result in deallocations so we need to take the GIL.
+
   auto gil = py::EnsureGIL();
+
   procedures_.clear();
   transformations_.clear();
   functions_.clear();
 
-  // Get the reference to sys.modules dictionary
-  py::Object sys(PyImport_ImportModule("sys"));
-  PyObject *sys_mod_ref = sys.GetAttr("modules").Ptr();
+  // If the Python interpreter is finalizing, we should avoid complex cleanup
+  // that involves running scripts, as it might fail or cause crashes.
+  if (Py_IsFinalizing()) {
+    py_module_ = py::Object(nullptr);
+    return true;
+  }
+
+  // Get the reference to sys.modules dictionary. PyImport_GetModuleDict()
+  // returns a borrowed reference to the internal modules dictionary.
+  PyObject *sys_mod_ref = PyImport_GetModuleDict();
+  if (!sys_mod_ref) {
+    spdlog::warn("Failed to get sys.modules dictionary");
+    py_module_ = py::Object(nullptr);
+    return false;
+  }
 
   std::string stem = file_path_.stem().string();
 
@@ -1071,6 +1083,7 @@ bool PythonModule::Close() {
   // first throw out of cache file
   if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
     spdlog::warn("Failed to remove the module {} from sys.modules", file_path_.stem().c_str());
+    PyErr_Clear();
     py_module_ = py::Object(nullptr);
     return false;
   }
@@ -1085,46 +1098,100 @@ bool PythonModule::Close() {
 // Must be called with GIL taken because of Py_DECREF
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref) {
-  const auto maybe_content =
-      ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how yet
+  const auto maybe_content = ReadFile(file_path_);
 
-  if (maybe_content) {
+  if (maybe_content && !maybe_content->empty()) {
     const char *content_value = maybe_content->c_str();
-    if (content_value) {
-      PyObject *py_main = PyImport_ImportModule("__main__");
-      PyObject *py_global_dict = PyModule_GetDict(py_main);
 
-      PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
-      PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict);
-      PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+    py::Object py_main(PyImport_ImportModule("__main__"));
+    if (!py_main) {
+      PyErr_Clear();
+      return;
+    }
 
-      PyObject *iterator = PyObject_GetIter(py_res);
-      PyObject *module = nullptr;
+    PyObject *py_global_dict = PyModule_GetDict(py_main.Ptr());
+    if (!py_global_dict) {
+      PyErr_Clear();
+      return;
+    }
 
-      if (iterator != nullptr) {
-        while ((module = PyIter_Next(iterator))) {
-          const char *module_name = PyUnicode_AsUTF8(module);
-          auto module_name_str = std::string(module_name);
-          PyObject *sys_iterator = PyObject_GetIter(PyDict_Keys(sys_mod_ref));
-          if (sys_iterator == nullptr) {
-            spdlog::warn("Cannot get reference to the sys.modules.keys()");
-            break;
-          }
-          PyObject *sys_mod_key = nullptr;
-          while ((sys_mod_key = PyIter_Next(sys_iterator))) {
-            const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
-            auto sys_mod_key_name_str = std::string(sys_mod_key_name);
-            if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
-              PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
-            }
-            Py_DECREF(sys_mod_key);
-          }
-          Py_DECREF(sys_iterator);
-          Py_DECREF(module);
+    py::Object py_code_content(PyUnicode_FromString(content_value));
+    if (!py_code_content) {
+      PyErr_Clear();
+      return;
+    }
+
+    if (PyDict_SetItemString(py_global_dict, "code", py_code_content.Ptr()) != 0) {
+      PyErr_Clear();
+      return;
+    }
+
+    py::Object py_run_res(PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict));
+    if (!py_run_res) {
+      PyErr_Clear();
+      return;
+    }
+
+    PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+    if (!py_res) {
+      // PyDict_GetItemString does not set an exception if the key is not found,
+      // but it might failed for other reasons.
+      PyErr_Clear();
+      return;
+    }
+
+    py::Object iterator(PyObject_GetIter(py_res));
+    if (!iterator) {
+      PyErr_Clear();
+      return;
+    }
+
+    PyObject *module_ptr = nullptr;
+    while ((module_ptr = PyIter_Next(iterator.Ptr()))) {
+      py::Object module(module_ptr);
+      const char *module_name = PyUnicode_AsUTF8(module.Ptr());
+      if (!module_name) {
+        PyErr_Clear();
+        continue;
+      }
+
+      std::string_view module_name_str(module_name);
+
+      py::Object sys_keys(PyDict_Keys(sys_mod_ref));
+      if (!sys_keys) {
+        PyErr_Clear();
+        break;
+      }
+
+      py::Object sys_iterator(PyObject_GetIter(sys_keys.Ptr()));
+      if (!sys_iterator) {
+        PyErr_Clear();
+        break;
+      }
+
+      PyObject *sys_mod_key_ptr = nullptr;
+      while ((sys_mod_key_ptr = PyIter_Next(sys_iterator.Ptr()))) {
+        py::Object sys_mod_key(sys_mod_key_ptr);
+        const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key.Ptr());
+        if (!sys_mod_key_name) {
+          PyErr_Clear();
+          continue;
         }
-        Py_DECREF(iterator);
+
+        std::string_view sys_mod_key_name_str(sys_mod_key_name);
+        if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
+          if (PyDict_DelItemString(sys_mod_ref, sys_mod_key_name) != 0) {
+            PyErr_Clear();
+          }
+        }
+      }
+      if (PyErr_Occurred()) {
+        PyErr_Clear();
       }
     }
+  }
+  if (PyErr_Occurred()) {
+    PyErr_Clear();
   }
 }
 
