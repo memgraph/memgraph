@@ -8031,11 +8031,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
 
 }  // namespace
 
-std::optional<uint64_t> Interpreter::GetTransactionId() const {
-  auto id = current_transaction_.load(std::memory_order_acquire);
-  if (id == 0) return std::nullopt;
-  return id;
-}
+std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
@@ -8379,9 +8375,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 
     SetupInterpreterTransaction(extras);
-    LogQueryMessage(fmt::format("Query [{}] associated with transaction [{}]",
-                                parsed_query.query_string,
-                                current_transaction_.load(std::memory_order_relaxed)));
+    LogQueryMessage(fmt::format(
+        "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0)));
   }
 
   auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -8829,9 +8824,9 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
-  transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   auto tx_id = interpreter_context_->id_handler.next();
-  current_transaction_.store(tx_id, std::memory_order_release);
+  current_transaction_ = tx_id;
+  transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(tx_id));
   }
@@ -8902,7 +8897,7 @@ void Interpreter::Abort() {
       break;
     }
     // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
-    current_transaction_.store(0, std::memory_order_release);
+    current_transaction_.reset();
     metadata_ = std::nullopt;
   });
 
@@ -9088,7 +9083,7 @@ void Interpreter::Commit() {
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) {
-      current_transaction_.store(0, std::memory_order_release);
+      current_transaction_.reset();
       return;
     }
 
@@ -9114,7 +9109,7 @@ void Interpreter::Commit() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       // Status is now IDLE — safe to clear fields
-      current_transaction_.store(0, std::memory_order_release);
+      current_transaction_.reset();
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
@@ -9171,7 +9166,7 @@ void Interpreter::Commit() {
       break;
     }
     // Status is now IDLE — no concurrent ShowTransactions reader will access our fields
-    current_transaction_.store(0, std::memory_order_release);
+    current_transaction_.reset();
   });
 
   auto current_storage_mode = db->GetStorageMode();

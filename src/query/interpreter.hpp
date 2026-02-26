@@ -463,12 +463,10 @@ class Interpreter final {
   std::optional<TxVerifier> PauseTransactionToVerify();
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
-  // ShowTransactions/TerminateTransactions CAS transaction_status_ → VERIFYING before reading fields.
-  // Commit/abort cleanup paths spin-wait on VERIFYING before clearing fields and transitioning to IDLE.
-  // This ensures all field reads in ShowTransactions see consistent, stable data.
-  // current_transaction_ is atomic as an additional safety net (reads via GetTransactionId).
-  // 0 means "no active transaction". Valid IDs start at kInterpreterTransactionInitialId (1 << 63).
-  std::atomic<uint64_t> current_transaction_{0};
+  // current_transaction_ is protected by the transaction_status_ atomic.
+  // When transaction_status_ is VERIFYING, current_transaction_ is stable.
+  // When transaction_status_ is IDLE, current_transaction_ is nullopt.
+  std::optional<uint64_t> current_transaction_{std::nullopt};
 
   void ResetUser();
 
