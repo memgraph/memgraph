@@ -6,7 +6,7 @@ defaults:
   memgraph:
     deployment:
       externally_managed: false
-    args: ["--log-level=CRITICAL"]
+    args: ["--log-level=WARNING"]
     env: {}
   cluster:
     coordinators:
@@ -20,7 +20,7 @@ defaults:
 
 workloads:
   - config: show_replicas_deadlock.yaml
-    enabled: false
+    enabled: true
 
   - config: ../workloads/concurrent_edge_write/workload.yaml
     enabled: true

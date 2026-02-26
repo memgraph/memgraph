@@ -19,10 +19,10 @@ defaults:
 
 workloads:
   - config: ../workloads/concurrent_write/workload.yaml
-    enabled: false
+    enabled: true
 
   - config: ../workloads/rag/workload.yaml
-    enabled: false
+    enabled: true
 
   - config: ../workloads/publications/workload.yaml
-    enabled: false
+    enabled: true
