@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       deployment:
-        description: 'Deployment type: standalone / ha/native / ha/docker / ha/eks'
+        description: 'Deployment type: standalone/native / ha/native / ha/docker / ha/eks'
         required: true
         type: choice
         options:
-          - standalone
+          - standalone/native
           - ha/native
           - ha/docker
           - ha/eks
-        default: standalone
+        default: standalone/native
       memgraph_image:
         description: 'MAGE image (URL to .tar.gz or docker tag) - leave empty to build from branch'
         required: false
@@ -46,7 +46,7 @@ jobs:
 
   stress_test_standalone:
     name: "Stress Tests Standalone"
-    if: ${{ inputs.deployment == 'standalone' }}
+    if: ${{ inputs.deployment == 'standalone/native' }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
       deployment: ${{ inputs.deployment }}

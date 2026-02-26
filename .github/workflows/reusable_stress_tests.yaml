@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       deployment:
-        description: 'Deployment type: standalone / ha/native / ha/docker / ha/eks'
+        description: 'Deployment type: standalone/native / ha/native / ha/docker / ha/eks'
         required: true
         type: string
       memgraph_image:
@@ -26,7 +26,7 @@ env:
 jobs:
   stress_test_standalone:
     name: "Stress Tests Standalone"
-    if: ${{ inputs.deployment == 'standalone' }}
+    if: ${{ inputs.deployment == 'standalone/native' }}
     runs-on: [self-hosted, DockerMgBuild, X64, Memory32G]
     timeout-minutes: 180
     env:

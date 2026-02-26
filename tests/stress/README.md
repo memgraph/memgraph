@@ -8,7 +8,7 @@ Stress test suite for evaluating Memgraph performance and stability under variou
 ### Run All Workloads for a Deployment Type
 ```sh
 ./continuous_integration --deployment ha/docker
-./continuous_integration --deployment standalone
+./continuous_integration --deployment standalone/native
 ./continuous_integration --deployment ha/native
 ./continuous_integration --deployment ha/eks
 ```
@@ -149,7 +149,7 @@ Examples:
 ./continuous_integration --deployment ha/native
 
 # Run specific workload
-./continuous_integration --workload standalone/workloads/config_small.yaml
+./continuous_integration --workload standalone/native/workloads/config_small.yaml
 ```
 
 ## Monitoring with Prometheus & Grafana

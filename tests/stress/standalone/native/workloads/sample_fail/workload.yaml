@@ -12,7 +12,8 @@ dataset:
 
 customWorkloads:
   tests:
-    - name: sample-workload
+    - name: sample-workload-fail
       memgraph_args: []
-      script: "standalone/workloads/sample/workload.py"
+      # This workload intentionally fails to test error handling
+      script: "standalone/native/workloads/sample_fail/workload.py"
       timeout_min: 5

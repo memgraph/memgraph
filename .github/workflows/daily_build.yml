@@ -393,7 +393,7 @@ jobs:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
     uses: ./.github/workflows/reusable_stress_tests.yaml
     with:
-      deployment: standalone
+      deployment: standalone/native
     secrets: inherit
 
   StressTestsNativeHA:

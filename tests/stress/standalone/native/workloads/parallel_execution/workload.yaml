@@ -35,5 +35,5 @@ customWorkloads:
           - "CREATE INDEX ON :Node(category)"
           - "MATCH (a:Node), (b:Node) WHERE a.id < 1000 AND b.id = a.id + 1 CREATE (a)-[:NEXT {weight: rand()}]->(b)"
           - "MATCH (a:Node), (b:Node) WHERE a.category = b.category AND a.id < b.id AND rand() < 0.001 CREATE (a)-[:SIMILAR]->(b)"
-      script: standalone/workloads/parallel_execution/workload.py
+      script: standalone/native/workloads/parallel_execution/workload.py
       timeout_min: 30

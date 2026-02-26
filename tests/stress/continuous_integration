@@ -8,7 +8,7 @@ Usage:
   ./continuous_integration --deployment ha/docker
 
   # Run a specific workload
-  ./continuous_integration --workload ha/native/show_replicas_deadlock.yaml
+  ./continuous_integration --workload standalone/native/workloads/config_small.yaml
 """
 import argparse
 import multiprocessing
@@ -45,7 +45,7 @@ THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.
 class DeploymentType(str, Enum):
     """Supported deployment types for stress testing."""
 
-    STANDALONE = "standalone"
+    STANDALONE_NATIVE = "standalone/native"
     HA_NATIVE = "ha/native"
     HA_DOCKER = "ha/docker"
     HA_EKS = "ha/eks"
@@ -211,7 +211,7 @@ class Config:
         else:
             config_rel_path = os.path.relpath(self._config_file, SCRIPT_DIR)
             parts = config_rel_path.split(os.sep)
-            if parts[0] == "ha" and len(parts) > 1:
+            if parts[0] in ("ha", "standalone") and len(parts) > 1:
                 self._deployment_type = os.path.join(parts[0], parts[1])
             else:
                 self._deployment_type = parts[0]
@@ -288,7 +288,7 @@ Examples:
   ./continuous_integration --deployment ha/docker
 
   # Run a specific workload
-  ./continuous_integration --workload ha/native/show_replicas_deadlock.yaml
+  ./continuous_integration --workload standalone/native/workloads/config_small.yaml
         """,
     )
 
