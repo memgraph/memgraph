@@ -56,11 +56,19 @@ def get_all_simple_paths(
     ctx: mgp.ProcCtx,
     v: mgp.Vertex,
     to: mgp.Vertex,
-    cutoff: int = -1,
+    maxlen: int = -1,
+    minlen: int = 0,
+    mode: str = "out",
+    max_results: mgp.Nullable[int] = None,
 ) -> mgp.Record(path=mgp.List[mgp.Vertex]):
     graph = MemgraphIgraph(ctx=ctx, directed=True)
 
-    return [mgp.Record(path=path) for path in graph.get_all_simple_paths(v=v, to=to, cutoff=cutoff)]
+    return [
+        mgp.Record(path=path)
+        for path in graph.get_all_simple_paths(
+            v=v, to=to, maxlen=maxlen, minlen=minlen, mode=mode, max_results=max_results
+        )
+    ]
 
 
 @mgp.read_proc
@@ -198,6 +206,28 @@ def get_shortest_path(
     graph = MemgraphIgraph(ctx=ctx, directed=directed)
 
     return mgp.Record(path=graph.get_shortest_path(source=source, target=target, weights=weights))
+
+
+@mgp.read_proc
+def betweenness_centrality(
+    ctx: mgp.ProcCtx,
+    directed: bool = True,
+    cutoff: int = -1,
+    weights: mgp.Nullable[str] = None,
+    sources: mgp.Nullable[mgp.List[mgp.Vertex]] = None,
+    targets: mgp.Nullable[mgp.List[mgp.Vertex]] = None,
+) -> mgp.Record(node=mgp.Vertex, betweenness=float):
+    graph = MemgraphIgraph(ctx=ctx, directed=directed)
+    igraph_sources = [graph.id_mappings[v.id] for v in sources] if sources else None
+    igraph_targets = [graph.id_mappings[v.id] for v in targets] if targets else None
+    results = graph.betweenness_centrality(
+        directed=directed,
+        cutoff=cutoff,
+        weights=weights,
+        sources=igraph_sources,
+        targets=igraph_targets,
+    )
+    return [mgp.Record(node=node, betweenness=score) for node, score in results]
 
 
 def dfs(node: mgp.Vertex, visited: Dict[int, bool], stack: Dict[int, bool]) -> bool:

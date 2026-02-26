@@ -1,0 +1,16 @@
+query: >
+    CALL igraphalg.betweenness_centrality(False) YIELD node, betweenness
+    RETURN node.id as node_id, betweenness
+    ORDER BY node_id ASC
+
+output:
+    - node_id: 0
+      betweenness: 6.0
+    - node_id: 1
+      betweenness: 0.0
+    - node_id: 2
+      betweenness: 0.0
+    - node_id: 3
+      betweenness: 0.0
+    - node_id: 4
+      betweenness: 0.0
