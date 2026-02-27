@@ -574,6 +574,11 @@ class PatternCompiler {
 
       // Process non-shared children (bind new variables, verify structure)
       // sym.children contains the PatternNodeIds for each child position
+      //
+      // IMPORTANT: Sibling children at this level should backtrack to THIS level's loop (loop_pos),
+      // not the previous level's loop (innermost). When a sibling structure check fails,
+      // we want to try the next parent at THIS level, not skip to the parent level above.
+      uint16_t sibling_innermost = loop_pos;
       for (std::size_t i = 0; i < sym.children.size(); ++i) {
         if (i == child_idx) continue;  // Skip the child we're traversing through
 
@@ -582,7 +587,7 @@ class PatternCompiler {
 
         // Verify the sibling child's structure using emit_joined_child
         // This handles variables (checking slot bindings), symbols (verifying structure), etc.
-        innermost = emit_joined_child(pattern, sym.children[i], child_reg, innermost);
+        sibling_innermost = emit_joined_child(pattern, sym.children[i], child_reg, sibling_innermost);
       }
 
       // Move up: get the e-class of this parent for next iteration
