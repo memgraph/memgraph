@@ -64,8 +64,9 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
     cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
   fi && \
+  apt-get update && \
   if test -n "$(find /openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
-    apt-get update && apt-get install -y \
+    apt-get install -y \
     /openssl/*.deb \
     --no-install-recommends; \
   fi && \
